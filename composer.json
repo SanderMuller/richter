@@ -1,0 +1,113 @@
+{
+    "name": "sandermuller/richter",
+    "description": "Measure the magnitude of impact of code changes in a Laravel codebase, built on Laravel Brain",
+    "keywords": [
+        "sandermuller",
+        "richter",
+        "laravel"
+    ],
+    "homepage": "https://github.com/sandermuller/richter",
+    "license": "MIT",
+    "type": "library",
+    "authors": [
+        {
+            "name": "Sander Muller",
+            "email": "github@scode.nl",
+            "role": "Developer"
+        }
+    ],
+    "require": {
+        "php": "^8.4",
+        "illuminate/contracts": "^11.0||^12.0||^13.0",
+        "illuminate/support": "^11.0||^12.0||^13.0",
+        "spatie/laravel-package-tools": "^1.93"
+    },
+    "require-dev": {
+        "driftingly/rector-laravel": "^2.5",
+        "larastan/larastan": "^3.10",
+        "laravel/boost": "^2.4",
+        "laravel/pao": "^1.1",
+        "laravel/pint": "^1.29",
+        "nunomaduro/collision": "^8.9",
+        "orchestra/testbench": "^11.1",
+        "phpstan/extension-installer": "^1.4",
+        "phpstan/phpstan-deprecation-rules": "^2.0",
+        "phpstan/phpstan-phpunit": "^2.0",
+        "phpstan/phpstan-strict-rules": "^2.0",
+        "phpunit/phpunit": "^12.5",
+        "rector/rector": "^2.5",
+        "rector/type-perfect": "^2.1",
+        "sandermuller/boost-skills": "^2.19",
+        "sandermuller/package-boost-laravel": "^1.0",
+        "spaze/phpstan-disallowed-calls": "^4.12",
+        "symplify/phpstan-extensions": "^12.0",
+        "symplify/phpstan-rules": "^14.12",
+        "tomasvotruba/cognitive-complexity": "^1.2",
+        "tomasvotruba/type-coverage": "^2.2"
+    },
+    "autoload": {
+        "psr-4": {
+            "Sandermuller\\Richter\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Sandermuller\\Richter\\Tests\\": "tests/",
+            "Workbench\\App\\": "workbench/app/"
+        }
+    },
+    "scripts": {
+        "post-autoload-dump": [
+            "@clear",
+            "@prepare"
+        ],
+        "clear": "@php vendor/bin/testbench package:purge-skeleton --ansi",
+        "prepare": "@php vendor/bin/testbench package:discover --ansi",
+        "build": "@php vendor/bin/testbench workbench:build --ansi",
+        "serve": [
+            "Composer\\Config::disableProcessTimeout",
+            "@build",
+            "@php vendor/bin/testbench serve --ansi"
+        ],
+        "post-install-cmd": [
+            "SanderMuller\\PackageBoostLaravel\\Scripts\\AutoSync::run"
+        ],
+        "post-update-cmd": [
+            "SanderMuller\\PackageBoostLaravel\\Scripts\\AutoSync::run"
+        ],
+        "phpstan": "vendor/bin/phpstan analyse --memory-limit=2G",
+        "phpstan-simplified": "vendor/bin/phpstan analyse --memory-limit=2G --error-format symplify",
+        "phpstan-clear-cache": "vendor/bin/phpstan clear-result-cache",
+        "format": "vendor/bin/pint",
+        "rector": "vendor/bin/rector process",
+        "test": "vendor/bin/phpunit",
+        "test-coverage": "vendor/bin/phpunit --coverage-html=coverage",
+        "sync-ai": "vendor/bin/boost sync",
+        "qa": [
+            "@rector",
+            "@format",
+            "@phpstan-simplified"
+        ],
+        "qa-check": [
+            "vendor/bin/rector process --dry-run",
+            "vendor/bin/pint --test",
+            "@phpstan-simplified",
+            "@test"
+        ]
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Sandermuller\\Richter\\RichterServiceProvider"
+            ]
+        }
+    },
+    "config": {
+        "sort-packages": true,
+        "allow-plugins": {
+            "phpstan/extension-installer": true
+        }
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}

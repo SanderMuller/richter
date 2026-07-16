@@ -1,0 +1,34 @@
+* text=auto eol=lf
+
+*.css diff=css
+*.html diff=html
+*.md diff=markdown
+*.php diff=php
+
+# >>> package-boost (managed) >>>
+.agents/ export-ignore
+.ai/ export-ignore
+.cache/ export-ignore
+.claude/ export-ignore
+.cursor/ export-ignore
+.config/ export-ignore
+.editorconfig export-ignore
+.gitattributes export-ignore
+.github/ export-ignore
+.gitignore export-ignore
+.junie/ export-ignore
+.kiro/ export-ignore
+.mcp.json export-ignore
+AGENTS.md export-ignore
+CLAUDE.md export-ignore
+composer.lock export-ignore
+GEMINI.md export-ignore
+phpstan-baseline.neon export-ignore
+phpstan.neon.dist export-ignore
+phpunit.xml export-ignore
+pint.json export-ignore
+rector.php export-ignore
+testbench.yaml export-ignore
+tests/ export-ignore
+workbench/ export-ignore
+# <<< package-boost (managed) <<<

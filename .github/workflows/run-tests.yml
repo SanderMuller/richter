@@ -1,0 +1,66 @@
+name: run-tests
+
+permissions:
+  contents: read
+
+on:
+  push:
+    paths:
+      - '**.php'
+      - '.github/workflows/run-tests.yml'
+      - 'phpunit.xml'
+      - 'composer.json'
+      - 'composer.lock'
+      - 'testbench.yaml'
+      - 'workbench/**'
+  pull_request:
+    paths:
+      - '**.php'
+      - '.github/workflows/run-tests.yml'
+      - 'phpunit.xml'
+      - 'composer.json'
+      - 'composer.lock'
+      - 'testbench.yaml'
+      - 'workbench/**'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Floor — lowest supported combo (prefer-lowest)
+          - { php: '8.3', laravel: '12.*', testbench: '10.*', stability: prefer-lowest }
+          # Ceiling — highest supported combo
+          - { php: '8.4', laravel: '13.*', testbench: '11.*', stability: prefer-stable }
+          # Mid Laravel on PHP-ceiling
+          - { php: '8.4', laravel: '12.*', testbench: '10.*', stability: prefer-stable }
+          # PHP-axis sanity: PHP 8.3 against highest Laravel + prefer-stable
+          - { php: '8.3', laravel: '13.*', testbench: '11.*', stability: prefer-stable }
+          # Stability-axis sanity: prefer-lowest at the ceiling
+          - { php: '8.4', laravel: '13.*', testbench: '11.*', stability: prefer-lowest }
+
+    name: P${{ matrix.php }} - L${{ matrix.laravel }} - ${{ matrix.stability }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          coverage: none
+
+      - name: Install dependencies
+        run: |
+          composer require "laravel/framework:${{ matrix.laravel }}" "orchestra/testbench:${{ matrix.testbench }}" --no-interaction --no-update
+          composer update --${{ matrix.stability }} --prefer-dist --no-interaction
+
+      - name: Execute tests
+        run: vendor/bin/phpunit
