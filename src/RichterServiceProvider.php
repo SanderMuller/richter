@@ -1,8 +1,13 @@
 <?php declare(strict_types=1);
 
-namespace Sandermuller\Richter;
+namespace SanderMuller\Richter;
 
+use Laravel\Mcp\Facades\Mcp;
 use Override;
+use SanderMuller\Richter\Console\BenchmarkCommand;
+use SanderMuller\Richter\Console\DetectChangesCommand;
+use SanderMuller\Richter\Console\ImpactCommand;
+use SanderMuller\Richter\Mcp\RichterServer;
 use Spatie\LaravelPackageTools\Package;
 use Spatie\LaravelPackageTools\PackageServiceProvider;
 
@@ -13,9 +18,16 @@ final class RichterServiceProvider extends PackageServiceProvider
     {
         $package
             ->name('richter')
-            ->hasConfigFile();
-        // ->hasViews()
-        // ->hasMigration('create_yourtable_table')   // <- replace with your actual migration name
-        // ->hasCommand(YourCommand::class);
+            ->hasConfigFile()
+            ->hasCommands(ImpactCommand::class, DetectChangesCommand::class, BenchmarkCommand::class);
+    }
+
+    #[Override]
+    public function packageBooted(): void
+    {
+        // laravel/mcp is a suggested dependency — the MCP surface lights up only when it is installed.
+        if (class_exists(Mcp::class)) {
+            Mcp::local('richter', RichterServer::class);
+        }
     }
 }

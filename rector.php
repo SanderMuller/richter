@@ -4,9 +4,11 @@ use Rector\Caching\ValueObject\Storage\FileCacheStorage;
 use Rector\CodeQuality\Rector\ClassMethod\InlineArrayReturnAssignRector;
 use Rector\CodeQuality\Rector\If_\ExplicitBoolCompareRector;
 use Rector\CodingStyle\Rector\Encapsed\EncapsedStringsToSprintfRector;
+use Rector\CodingStyle\Rector\String_\UseClassKeywordForClassNameResolutionRector;
 use Rector\Config\RectorConfig;
 use Rector\DeadCode\Rector\ClassMethod\RemoveUselessParamTagRector;
 use Rector\DeadCode\Rector\ClassMethod\RemoveUselessReturnTagRector;
+use Rector\Php55\Rector\String_\StringClassNameToClassConstantRector;
 use Rector\Php81\Rector\FuncCall\NullToStrictStringFuncCallArgRector;
 use Rector\Privatization\Rector\ClassMethod\PrivatizeFinalClassMethodRector;
 use Rector\TypeDeclaration\Rector\ArrowFunction\AddArrowFunctionReturnTypeRector;
@@ -64,4 +66,12 @@ return RectorConfig::configure()
         PrivatizeFinalClassMethodRector::class,
         RemoveUselessParamTagRector::class,
         RemoveUselessReturnTagRector::class,
+        // Tests build PHP source as strings; class names inside them are analysis *data*. Converting
+        // them to ::class constants drops the leading backslash of rooted names and changes what the
+        // parser under test sees.
+        StringClassNameToClassConstantRector::class,
+        UseClassKeywordForClassNameResolutionRector::class,
+        // The fixture project is verbatim input for Laravel Brain and the tracers — "improving" it
+        // changes what the tests analyze (Rector removed the fixture Kernel's alias map as dead code).
+        __DIR__ . '/tests/Fixtures',
     ]);

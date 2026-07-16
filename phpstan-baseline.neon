@@ -1,2 +1,25 @@
 parameters:
-    ignoreErrors: []
+	ignoreErrors:
+		-
+			rawMessage: 'Cognitive complexity for "SanderMuller\Richter\Analysis\ImpactAnalyzer::detectChanges()" is 27, keep it under 20'
+			identifier: complexity.functionLike
+			count: 1
+			path: src/Analysis/ImpactAnalyzer.php
+
+		-
+			rawMessage: 'Cognitive complexity for "SanderMuller\Richter\Analysis\TestReferenceIndex::addSource()" is 26, keep it under 20'
+			identifier: complexity.functionLike
+			count: 1
+			path: src/Analysis/TestReferenceIndex.php
+
+		-
+			rawMessage: 'Cognitive complexity for "SanderMuller\Richter\Changes\ChangedSymbols::classifyFile()" is 23, keep it under 20'
+			identifier: complexity.functionLike
+			count: 1
+			path: src/Changes/ChangedSymbols.php
+
+		-
+			rawMessage: 'Cognitive complexity for "SanderMuller\Richter\Tracers\ReferenceEdgeTracer::relationsLoadedIn()" is 21, keep it under 20'
+			identifier: complexity.functionLike
+			count: 1
+			path: src/Tracers/ReferenceEdgeTracer.php

@@ -18,14 +18,19 @@
     ],
     "require": {
         "php": "^8.4",
-        "illuminate/contracts": "^11.0||^12.0||^13.0",
-        "illuminate/support": "^11.0||^12.0||^13.0",
-        "spatie/laravel-package-tools": "^1.93"
+        "illuminate/console": "^12.0||^13.0",
+        "illuminate/contracts": "^12.0||^13.0",
+        "illuminate/support": "^12.0||^13.0",
+        "laramint/laravel-brain": "^2.3.1",
+        "nikic/php-parser": "^5.0",
+        "spatie/laravel-package-tools": "^1.93",
+        "symfony/finder": "^7.2||^8.0"
     },
     "require-dev": {
         "driftingly/rector-laravel": "^2.5",
         "larastan/larastan": "^3.10",
         "laravel/boost": "^2.4",
+        "laravel/mcp": "^0.8",
         "laravel/pao": "^1.1",
         "laravel/pint": "^1.29",
         "nunomaduro/collision": "^8.9",
@@ -47,13 +52,14 @@
     },
     "autoload": {
         "psr-4": {
-            "Sandermuller\\Richter\\": "src/"
+            "SanderMuller\\Richter\\": "src/"
         }
     },
     "autoload-dev": {
         "psr-4": {
-            "Sandermuller\\Richter\\Tests\\": "tests/",
-            "Workbench\\App\\": "workbench/app/"
+            "SanderMuller\\Richter\\Tests\\": "tests/",
+            "Workbench\\App\\": "workbench/app/",
+            "App\\": "tests/Fixtures/project/app/"
         }
     },
     "scripts": {
@@ -98,7 +104,7 @@
     "extra": {
         "laravel": {
             "providers": [
-                "Sandermuller\\Richter\\RichterServiceProvider"
+                "SanderMuller\\Richter\\RichterServiceProvider"
             ]
         }
     },
@@ -109,5 +115,8 @@
         }
     },
     "minimum-stability": "stable",
-    "prefer-stable": true
+    "prefer-stable": true,
+    "suggest": {
+        "laravel/mcp": "Exposes the impact and detect-changes tools over MCP (richter registers a local MCP server when installed)."
+    }
 }

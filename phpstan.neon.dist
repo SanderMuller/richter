@@ -13,6 +13,11 @@ parameters:
         - tests
         - workbench
 
+    excludePaths:
+        # Verbatim analysis input for Laravel Brain and the tracers — deliberately app-shaped
+        # (framework-convention properties, blade files), not held to package strictness.
+        - tests/Fixtures
+
     level: max
 
     strictRules:
