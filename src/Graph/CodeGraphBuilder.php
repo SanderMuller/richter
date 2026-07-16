@@ -122,6 +122,7 @@ final class CodeGraphBuilder
         $dispatchTracer = new DispatchEdgeTracer(RichterConfig::dispatchHelpers());
         $policyTracer = new PolicyEdgeTracer();
         $referenceTracer = new ReferenceEdgeTracer();
+        // Roots deliberately unconfigured: only interfaceEdgesForResolvedAst() is used here, which ignores them.
         $entryPointTracer = new EntryPointTracer();
 
         $edges = [];

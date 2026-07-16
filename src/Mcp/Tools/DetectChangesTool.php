@@ -19,6 +19,8 @@ use SanderMuller\Richter\Support\RichterConfig;
 #[IsReadOnly]
 final class DetectChangesTool extends Tool
 {
+    protected string $name = 'detect-changes';
+
     protected string $description = 'Advisory change-impact for the current branch diff: which HTTP/CLI entry points and flows the changed PHP files reach, plus a coarse risk level. Diffs against the given base ref (defaults to the richter.default_base config value).';
 
     public function __construct(private readonly CodeGraphBuilder $builder) {}

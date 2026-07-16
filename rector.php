@@ -66,9 +66,9 @@ return RectorConfig::configure()
         PrivatizeFinalClassMethodRector::class,
         RemoveUselessParamTagRector::class,
         RemoveUselessReturnTagRector::class,
-        // Tests build PHP source as strings; class names inside them are analysis *data*. Converting
-        // them to ::class constants drops the leading backslash of rooted names and changes what the
-        // parser under test sees.
+        // Class-name strings are analysis *data* here — tests build PHP source as strings, and src
+        // matches namespace prefixes. Converting them to ::class constants drops the leading
+        // backslash of rooted names and changes what the parser sees.
         StringClassNameToClassConstantRector::class,
         UseClassKeywordForClassNameResolutionRector::class,
         // The fixture project is verbatim input for Laravel Brain and the tracers — "improving" it

@@ -11,7 +11,7 @@ abstract class TestCase extends OrchestraTestCase
     /** The mini Laravel project tree the graph builder and tracers are exercised against. */
     public static function fixtureProjectPath(): string
     {
-        return dirname(__DIR__) . '/tests/Fixtures/project';
+        return __DIR__ . '/Fixtures/project';
     }
 
     /** @return list<class-string> */

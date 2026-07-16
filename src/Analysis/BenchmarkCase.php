@@ -21,7 +21,6 @@ final readonly class BenchmarkCase
         public RiskLevel $maxRisk = RiskLevel::High,
     ) {}
 
-    /** Builds a case from a `richter.benchmark_cases` config entry, validating its shape. */
     public static function fromArray(mixed $case): self
     {
         if (! is_array($case)
@@ -29,18 +28,42 @@ final readonly class BenchmarkCase
             || ! is_string($case['fix_commit'] ?? null)
             || ! is_string($case['bug_class'] ?? null)
             || ! is_bool($case['expect_signal'] ?? null)) {
-            throw new InvalidArgumentException('A richter.benchmark_cases entry needs string key, fix_commit and bug_class values plus a bool expect_signal.');
-        }
+            $key = is_array($case) && is_string($case['key'] ?? null) ? " \"{$case['key']}\"" : '';
 
-        $maxRisk = $case['max_risk'] ?? null;
+            throw new InvalidArgumentException("A richter.benchmark_cases entry{$key} needs string key, fix_commit and bug_class values plus a bool expect_signal.");
+        }
 
         return new self(
             key: $case['key'],
             fixCommit: $case['fix_commit'],
             bugClass: $case['bug_class'],
             expectSignal: $case['expect_signal'],
-            maxRisk: is_string($maxRisk) ? RiskLevel::from($maxRisk) : RiskLevel::High,
+            maxRisk: self::maxRisk($case['key'], $case['max_risk'] ?? null),
         );
+    }
+
+    /**
+     * An unrecognised `max_risk` must throw, not default: silently falling back to High makes a
+     * control fixture's over-reporting cap unsatisfiable, so the benchmark would report green
+     * without ever testing it.
+     */
+    private static function maxRisk(string $key, mixed $maxRisk): RiskLevel
+    {
+        if ($maxRisk === null) {
+            return RiskLevel::High;
+        }
+
+        if ($maxRisk instanceof RiskLevel) {
+            return $maxRisk;
+        }
+
+        $level = is_string($maxRisk) ? RiskLevel::tryFrom($maxRisk) : null;
+
+        if ($level === null) {
+            throw new InvalidArgumentException("Benchmark case \"{$key}\" has an invalid max_risk — use 'low', 'medium' or 'high'.");
+        }
+
+        return $level;
     }
 
     /**

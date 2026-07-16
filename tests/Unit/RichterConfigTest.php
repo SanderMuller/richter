@@ -2,6 +2,7 @@
 
 namespace SanderMuller\Richter\Tests\Unit;
 
+use InvalidArgumentException;
 use PHPUnit\Framework\Attributes\Test;
 use SanderMuller\Richter\Analysis\BenchmarkCase;
 use SanderMuller\Richter\Analysis\RiskLevel;
@@ -35,11 +36,94 @@ final class RichterConfigTest extends TestCase
     }
 
     #[Test]
-    public function dispatch_helpers_keeps_only_strings(): void
+    public function configured_dispatch_helpers_are_returned_as_a_list(): void
     {
-        config()->set('richter.dispatch_helpers', ['dispatch_with_retries', 42, null, 'dispatch_sync_with_retries']);
+        config()->set('richter.dispatch_helpers', ['dispatch_with_retries', 'dispatch_sync_with_retries']);
 
         $this->assertSame(['dispatch_with_retries', 'dispatch_sync_with_retries'], RichterConfig::dispatchHelpers());
+    }
+
+    #[Test]
+    public function a_non_string_dispatch_helper_entry_throws(): void
+    {
+        config()->set('richter.dispatch_helpers', ['dispatch_with_retries', 42]);
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('richter.dispatch_helpers');
+
+        RichterConfig::dispatchHelpers();
+    }
+
+    #[Test]
+    public function a_non_array_entry_point_roots_value_throws(): void
+    {
+        config()->set('richter.entry_point_roots', 'Jobs');
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('richter.entry_point_roots');
+
+        RichterConfig::entryPointRoots();
+    }
+
+    #[Test]
+    public function a_dash_prefixed_base_ref_throws(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+
+        RichterConfig::baseRef('--upload-pack=evil');
+    }
+
+    #[Test]
+    public function a_non_array_benchmark_cases_value_throws(): void
+    {
+        config()->set('richter.benchmark_cases', 'abc1234');
+
+        $this->expectException(InvalidArgumentException::class);
+
+        RichterConfig::benchmarkCases();
+    }
+
+    #[Test]
+    public function a_malformed_benchmark_case_throws_naming_its_key(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('"CASE-BROKEN"');
+
+        BenchmarkCase::fromArray([
+            'key' => 'CASE-BROKEN',
+            'fix_commit' => 'abc1234',
+            'bug_class' => 'background-job change',
+            // expect_signal missing
+        ]);
+    }
+
+    #[Test]
+    public function an_invalid_max_risk_string_throws_naming_its_key(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('"CASE-3"');
+
+        BenchmarkCase::fromArray([
+            'key' => 'CASE-3',
+            'fix_commit' => 'abc1234',
+            'bug_class' => 'benign control',
+            'expect_signal' => false,
+            'max_risk' => 'critical',
+        ]);
+    }
+
+    #[Test]
+    public function a_risk_level_instance_is_accepted_as_max_risk(): void
+    {
+        $case = BenchmarkCase::fromArray([
+            'key' => 'CASE-4',
+            'fix_commit' => 'abc1234',
+            'bug_class' => 'benign control',
+            'expect_signal' => false,
+            'max_risk' => RiskLevel::Low,
+        ]);
+
+        $this->assertSame(RiskLevel::Low, $case->maxRisk);
     }
 
     #[Test]

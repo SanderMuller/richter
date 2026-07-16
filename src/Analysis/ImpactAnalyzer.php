@@ -131,8 +131,6 @@ final readonly class ImpactAnalyzer
         // Excluded from the risk inputs: the risk floor for entry classes is touchesEntryClass, and
         // counting self-listings would rate touching three jobs as HIGH by count alone.
         foreach ($changed as $file) {
-            // The in_array is a duplicate-append guard for two changed files of one class — graph
-            // entry points are prefix-keyed and never collide with a bare FQCN.
             if ($file->hasOnlyAdditiveOrCosmeticChanges()) {
                 continue;
             }
@@ -141,6 +139,8 @@ final readonly class ImpactAnalyzer
                 continue;
             }
 
+            // Duplicate-append guard for two changed files of one class — graph entry points are
+            // prefix-keyed and never collide with a bare FQCN.
             if (in_array($file->fqcn, $entryPoints, strict: true)) {
                 continue;
             }

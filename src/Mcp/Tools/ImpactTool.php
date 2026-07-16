@@ -15,6 +15,8 @@ use SanderMuller\Richter\Graph\CodeGraphBuilder;
 #[IsReadOnly]
 final class ImpactTool extends Tool
 {
+    protected string $name = 'impact';
+
     protected string $description = 'Static blast radius of a PHP symbol in this Laravel app: its callers (what breaks if you change it) and its dependencies (what it reaches). Advisory; request-path and Eloquent-relationship coverage. Pass an FQCN or substring, e.g. App\\Models\\User.';
 
     public function __construct(private readonly CodeGraphBuilder $builder) {}

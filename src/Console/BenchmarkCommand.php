@@ -74,7 +74,7 @@ final class BenchmarkCommand extends Command
         $this->newLine();
         $this->line("<options=bold>{$case->key}</> — {$case->bugClass}");
 
-        if (! Process::path(base_path())->run(['git', 'cat-file', '-e', "{$case->fixCommit}^{commit}"])->successful()) {
+        if (! Process::path(base_path())->run(['git', 'cat-file', '-e', '--end-of-options', "{$case->fixCommit}^{commit}"])->successful()) {
             $this->warn("  SKIP — commit {$case->fixCommit} is not available in this checkout (shallow clone?).");
 
             return 'skip';

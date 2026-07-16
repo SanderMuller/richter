@@ -25,7 +25,7 @@ final class EagerLoadStringCheckerTest extends TestCase
     #[Test]
     public function a_broken_constant_concatenation_is_flagged(): void
     {
-        // The HPB-5108 shape: a missing comma concatenates two relation constants into one invalid name.
+        // A missing comma concatenates two relation constants into one invalid name.
         $findings = $this->findings('$this->video->load([Video::INTERACTIONS . Video::QUESTIONS . \'.\' . Question::ANSWERS]);');
 
         $this->assertCount(1, $findings);
@@ -105,5 +105,34 @@ final class EagerLoadStringCheckerTest extends TestCase
 
         $this->assertCount(1, $findings);
         $this->assertStringContainsString('eager-load check skipped', $findings[0]);
+    }
+
+    #[Test]
+    public function a_nonexistent_models_directory_degrades_to_the_skip_note(): void
+    {
+        $checker = new EagerLoadStringChecker(self::fixtureProjectPath() . '/does-not-exist');
+
+        $source = "<?php\nnamespace App\Exports;\nuse App\Models\Video;\nclass VideoExport\n{\n    public function a(): void { \$x->load(Video::QUESTIONS . 'zz'); }\n}\n";
+
+        $findings = $checker->findingsFor($source);
+
+        $this->assertCount(1, $findings);
+        $this->assertStringContainsString('eager-load check skipped', $findings[0]);
+    }
+
+    #[Test]
+    public function checkers_pointed_at_different_model_trees_never_share_a_method_set(): void
+    {
+        // Deterministic regardless of test order: a complete set built from the fixture tree must
+        // not be served to a checker pointed at the unloadable tree (which must keep degrading).
+        $source = "<?php\nnamespace App\Exports;\nuse App\Models\Video;\nclass VideoExport\n{\n    public function a(): void { \$x->load(Video::QUESTIONS . 'zz'); }\n}\n";
+
+        $fixtureFindings = new EagerLoadStringChecker(self::fixtureProjectPath() . '/app/Models')->findingsFor($source);
+        $brokenFindings = new EagerLoadStringChecker(dirname(__DIR__) . '/Fixtures/broken-models')->findingsFor($source);
+
+        $this->assertCount(1, $fixtureFindings);
+        $this->assertStringContainsString("'questionszz'", $fixtureFindings[0]);
+        $this->assertCount(1, $brokenFindings);
+        $this->assertStringContainsString('eager-load check skipped', $brokenFindings[0]);
     }
 }

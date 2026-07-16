@@ -15,6 +15,8 @@ return [
     /*
      * Directories under app/ whose classes are entry points Laravel Brain's route-anchored
      * graph misses. Missing directories are skipped, so unused defaults are harmless.
+     * Affects graph tracing only — the risk-floor namespace heuristics (Jobs, Listeners, …)
+     * in the analyzer are fixed.
      */
     'entry_point_roots' => ['Jobs', 'Listeners', 'Console/Commands', 'Helpers', 'Http/Middleware', 'Livewire', 'Observers'],
 
