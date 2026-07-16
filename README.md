@@ -1,15 +1,21 @@
 # Richter
 
-Measures the magnitude of impact of code changes in a Laravel codebase — like the Richter scale, but for your PHP.
+Measures the magnitude of impact of code changes in a Laravel codebase. Like the Richter scale, but for your PHP.
 
-Built on [Laravel Brain](https://github.com/laramint/laravel-brain)'s static analysis, Richter constructs a directed code graph of your application (routes, controllers, jobs, listeners, policies, resources, Blade views, Eloquent relations) and answers two questions over it:
+Built on [Laravel Brain](https://github.com/laramint/laravel-brain)'s static analysis, Richter constructs a directed code graph of your application (routes, controllers, jobs, listeners, policies, resources, Blade views, Eloquent relations). It reads two things off that graph:
 
-- **What is the blast radius of a symbol?** — its callers (what breaks if you change it) and its dependencies (what it reaches).
-- **What does the current branch diff actually touch?** — which HTTP/CLI entry points and flows the changed files reach, plus a coarse advisory risk level.
+- **The blast radius of a symbol:** its callers (what breaks if you change it) and its dependencies (what it reaches).
+- **What the current branch diff touches:** the HTTP/CLI entry points and flows the changed files reach, plus a coarse risk level.
 
-Richter fills the gaps Brain's route-anchored graph misses: queue dispatches (including unresolvable ones), `$listen`-registered event listeners, container bindings, interface implementations, policy references (`$user->can(PostPolicy::UPDATE, …)` and `@can(...)` in Blade), API resource composition, custom validation rules, trait usage, eager-load relation strings, and view-to-view includes.
+You can use those results three ways:
 
-It is **dev/CI tooling and advisory only** — a low or empty result is a signal, never a guarantee of no impact.
+- **CLI:** a self-review aid before you push.
+- **MCP:** Richter registers a local `richter` server exposing both analyses read-only, so a coding agent can check a symbol's blast radius or triage the branch diff mid-review without shelling out.
+- **CI and PR review:** run `richter:detect-changes` against the pull request's base ref and post the report for the reviewer, human or agent.
+
+Richter is advisory, not a gate: `richter:detect-changes` never fails your build, and a low or empty result is a signal, not a guarantee of no impact.
+
+Its edge over Brain alone is coverage. It adds the graph edges a route-anchored analysis misses: queue dispatches (including unresolvable ones), `$listen`-registered event listeners, container bindings, interface implementations, policy references (`$user->can(PostPolicy::UPDATE, …)` and `@can(...)` in Blade), API resource composition, custom validation rules, trait usage, eager-load relation strings, and view-to-view includes.
 
 ## Installation
 
@@ -41,7 +47,7 @@ php artisan richter:detect-changes                        # diffs against richte
 php artisan richter:detect-changes --base=origin/develop
 ```
 
-Resolves which class members the branch changed (member-level, not file-level — a one-method change seeds that method, not the whole class), walks the graph, and reports:
+Resolves which class members the branch changed (member-level, not file-level: a one-method change seeds that method, not the whole class), walks the graph, and reports:
 
 - the entry points (routes, commands, jobs, listeners, middleware, …) the change can reach, annotated with whether any test references them;
 - a coarse risk level (`low` / `medium` / `high`);
@@ -54,11 +60,11 @@ php artisan richter:benchmark
 php artisan richter:benchmark --case=TICKET-123
 ```
 
-Replays historical fix commits (configured in `richter.benchmark_cases`) through the report: bug fixtures must resolve and reach an entry point; benign controls cap the risk a harmless change may report. Run it after changing the graph or tracers — a control flipping green→red is a regression in trustworthiness.
+Replays historical fix commits (configured in `richter.benchmark_cases`) through the report: bug fixtures must resolve and reach an entry point; benign controls cap the risk a harmless change may report. Run it after changing the graph or tracers. A control flipping green→red is a regression in trustworthiness.
 
 ### MCP server
 
-When [`laravel/mcp`](https://github.com/laravel/mcp) is installed, Richter registers a local MCP server (`richter`) exposing the `impact` and `detect-changes` tools, so coding agents can query blast radius directly.
+When [`laravel/mcp`](https://github.com/laravel/mcp) is installed, Richter registers a local MCP server named `richter` exposing two read-only tools: `impact` (blast radius of a symbol) and `detect-changes` (advisory impact of the current branch diff). Point a coding agent at it and it can triage changes without shelling out to Artisan.
 
 ## Configuration
 
@@ -81,4 +87,4 @@ composer test
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).
