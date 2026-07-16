@@ -34,8 +34,11 @@ final class ImpactFormatter
         return implode("\n", $lines);
     }
 
-    /** @param  array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied?: bool, findings?: list<string>, ...}  $result */
-    public static function detectChanges(array $result, ?TestReferenceIndex $tests = null): string
+    /**
+     * @param  array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied?: bool, findings?: list<string>, ...}  $result
+     * @param  bool  $gateActive  when a `--fail-on*` gate is active the command prints its own verdict, so the advisory suffix is dropped to avoid contradicting it
+     */
+    public static function detectChanges(array $result, ?TestReferenceIndex $tests = null, bool $gateActive = false): string
     {
         $lines = ['Changed files:'];
 
@@ -74,7 +77,7 @@ final class ImpactFormatter
 
         $lines[] = '';
         $lines[] = 'Impacted nodes: ' . $result['impacted'];
-        $lines[] = 'Risk: ' . Str::upper($result['risk']->value) . ' (advisory — not a gate)';
+        $lines[] = 'Risk: ' . Str::upper($result['risk']->value) . ($gateActive ? '' : ' (advisory — not a gate)');
 
         if ($result['lowConfidence']) {
             // Only claim the cap when it actually bound the result — when precise seeds genuinely

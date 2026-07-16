@@ -13,6 +13,11 @@ enum RiskLevel: string
         return $this->rank() > $other->rank();
     }
 
+    public function atLeast(self $other): bool
+    {
+        return $this === $other || $this->exceeds($other);
+    }
+
     private function rank(): int
     {
         return match ($this) {

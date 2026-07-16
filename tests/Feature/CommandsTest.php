@@ -135,6 +135,169 @@ final class CommandsTest extends TestCase
             ->assertFailed();
     }
 
+    #[Test]
+    public function impact_json_emits_parseable_json_with_empty_arrays_for_a_no_match_symbol(): void
+    {
+        // No progress line pollutes stdout in JSON mode, so the whole buffer must decode.
+        $this->withoutMockingConsoleOutput();
+        $exitCode = Artisan::call('richter:impact', ['symbol' => 'Zzz\\Nonexistent\\Symbol', '--json' => true]);
+        $decoded = json_decode(Artisan::output(), associative: true);
+
+        $this->assertSame(0, $exitCode);
+        $this->assertIsArray($decoded);
+        $this->assertSame('Zzz\\Nonexistent\\Symbol', $decoded['target']);
+        $this->assertSame([], $decoded['callers']);
+        $this->assertSame([], $decoded['dependencies']);
+    }
+
+    #[Test]
+    public function detect_changes_json_emits_the_canonical_empty_object_on_an_empty_diff(): void
+    {
+        $this->withoutMockingConsoleOutput();
+        $exitCode = Artisan::call('richter:detect-changes', ['--base' => 'HEAD', '--json' => true]);
+        $decoded = json_decode(Artisan::output(), associative: true);
+
+        $this->assertSame(0, $exitCode);
+        $this->assertIsArray($decoded);
+        $this->assertSame('HEAD', $decoded['base']);
+        $this->assertSame('low', $decoded['risk']);
+        $this->assertSame([], $decoded['changed']);
+        $this->assertFalse($decoded['unresolved']);
+        // The blast-radius summary only — never the raw walk internals.
+        $this->assertArrayNotHasKey('callers', $decoded);
+    }
+
+    #[Test]
+    public function detect_changes_json_reports_an_option_injection_ref_as_json_not_a_stack_trace(): void
+    {
+        // baseRef() throws before the command's happy path; JSON mode must still emit one parseable
+        // document (advisory exit 0 with no gate flag), never a leaked framework exception.
+        $this->withoutMockingConsoleOutput();
+        $exitCode = Artisan::call('richter:detect-changes', ['--base' => '--upload-pack=evil', '--json' => true]);
+        $output = Artisan::output();
+        $decoded = json_decode($output, associative: true);
+
+        $this->assertSame(0, $exitCode);
+        $this->assertIsArray($decoded);
+        $this->assertArrayHasKey('error', $decoded);
+        $this->assertStringNotContainsStringIgnoringCase('InvalidArgumentException', $output);
+    }
+
+    #[Test]
+    public function detect_changes_fails_on_an_invalid_fail_on_value(): void
+    {
+        $this->runArtisan('richter:detect-changes', ['--fail-on' => 'bogus'])
+            ->expectsOutputToContain('Invalid --fail-on value')
+            ->assertFailed();
+    }
+
+    #[Test]
+    public function detect_changes_json_reports_an_invalid_fail_on_value_as_error(): void
+    {
+        $this->withoutMockingConsoleOutput();
+        $exitCode = Artisan::call('richter:detect-changes', ['--fail-on' => 'bogus', '--json' => true]);
+        $decoded = json_decode(Artisan::output(), associative: true);
+
+        $this->assertSame(1, $exitCode);
+        $this->assertIsArray($decoded);
+        $this->assertArrayHasKey('error', $decoded);
+    }
+
+    #[Test]
+    public function detect_changes_fails_on_an_explicitly_empty_fail_on_value(): void
+    {
+        // A gating flag fails closed: `--fail-on=` (e.g. an unset CI variable) is a usage error, not
+        // a silently disabled gate.
+        $this->runArtisan('richter:detect-changes', ['--fail-on' => ''])
+            ->expectsOutputToContain('Invalid --fail-on value')
+            ->assertFailed();
+    }
+
+    #[Test]
+    public function detect_changes_fails_on_a_valueless_fail_on_flag(): void
+    {
+        // Bare `--fail-on` (present but no value) must fail closed, not silently run ungated.
+        $this->runArtisan('richter:detect-changes', ['--fail-on' => null])
+            ->expectsOutputToContain('requires a value')
+            ->assertFailed();
+    }
+
+    #[Test]
+    public function detect_changes_fails_on_a_broken_base_ref_under_a_gate(): void
+    {
+        // Advisory would exit 0 (see detect_changes_warns_on_a_broken_base_ref); a gate flips it: a
+        // diff that can't be assessed must not read as "pass".
+        $this->runArtisan('richter:detect-changes', ['--base' => 'this-ref-does-not-exist-zzz', '--fail-on' => 'low'])
+            ->expectsOutputToContain("git diff against 'this-ref-does-not-exist-zzz' failed")
+            ->assertFailed();
+    }
+
+    #[Test]
+    public function detect_changes_passes_the_gate_on_an_empty_diff(): void
+    {
+        // An empty diff always passes: --fail-on=low must not trip on zero changes (low >= low).
+        $this->runArtisan('richter:detect-changes', ['--base' => 'HEAD', '--fail-on' => 'low'])
+            ->assertSuccessful();
+    }
+
+    #[Test]
+    public function detect_changes_json_empty_diff_gate_reports_not_tripped(): void
+    {
+        $this->withoutMockingConsoleOutput();
+        $exitCode = Artisan::call('richter:detect-changes', ['--base' => 'HEAD', '--json' => true, '--fail-on' => 'high']);
+        $decoded = json_decode(Artisan::output(), associative: true);
+
+        $this->assertSame(0, $exitCode);
+        $this->assertIsArray($decoded);
+        $gate = $decoded['gate'];
+        $this->assertIsArray($gate);
+        $this->assertFalse($gate['tripped']);
+    }
+
+    #[Test]
+    public function detect_changes_fails_the_unresolved_gate_end_to_end(): void
+    {
+        // Faked plumbing where `git show` fails → the changed file reads UNRESOLVED. With
+        // --fail-on-unresolved that trips the gate and fails the build.
+        $diff = "diff --git a/app/Models/User.php b/app/Models/User.php\n--- a/app/Models/User.php\n+++ b/app/Models/User.php\n@@ -0,0 +1,1 @@\n+    public function added(): void {}\n";
+
+        Process::fake([
+            '*merge-base*' => Process::result("abc123\n"),
+            '*show*' => Process::result(errorOutput: 'bad object', exitCode: 128),
+            '*diff*' => Process::result($diff),
+        ]);
+
+        $this->withoutMockingConsoleOutput();
+        $exitCode = Artisan::call('richter:detect-changes', ['--base' => 'some-base', '--fail-on-unresolved' => true]);
+        $output = Artisan::output();
+
+        $this->assertSame(1, $exitCode);
+        $this->assertStringContainsString('Gate: FAIL', $output);
+        $this->assertStringContainsString('UNRESOLVED', $output);
+    }
+
+    #[Test]
+    public function detect_changes_json_gate_object_reports_a_trip(): void
+    {
+        $diff = "diff --git a/app/Models/User.php b/app/Models/User.php\n--- a/app/Models/User.php\n+++ b/app/Models/User.php\n@@ -0,0 +1,1 @@\n+    public function added(): void {}\n";
+
+        Process::fake([
+            '*merge-base*' => Process::result("abc123\n"),
+            '*show*' => Process::result(errorOutput: 'bad object', exitCode: 128),
+            '*diff*' => Process::result($diff),
+        ]);
+
+        $this->withoutMockingConsoleOutput();
+        $exitCode = Artisan::call('richter:detect-changes', ['--base' => 'some-base', '--json' => true, '--fail-on-unresolved' => true]);
+        $decoded = json_decode(Artisan::output(), associative: true);
+
+        $this->assertSame(1, $exitCode);
+        $this->assertIsArray($decoded);
+        $gate = $decoded['gate'];
+        $this->assertIsArray($gate);
+        $this->assertTrue($gate['tripped']);
+    }
+
     /**
      * Narrows testbench's `artisan()` union return — a string command always yields a PendingCommand.
      *
