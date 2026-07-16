@@ -115,19 +115,19 @@ final class DetectChangesCommand extends Command
     private function handleJson(CodeGraphBuilder $builder, ?RiskLevel $failOn, bool $failOnUnresolved, bool $gateActive): int
     {
         try {
-            $base = RichterConfig::baseRef($this->option('base'));
-            $changed = ChangedSymbols::resolve($base);
-        } catch (InvalidArgumentException|RuntimeException $expected) {
-            return $this->jsonError($expected->getMessage(), $gateActive ? self::FAILURE : self::SUCCESS);
-        } catch (Throwable $unexpected) {
-            return $this->jsonError($unexpected->getMessage(), self::FAILURE);
-        }
+            try {
+                $base = RichterConfig::baseRef($this->option('base'));
+                $changed = ChangedSymbols::resolve($base);
+            } catch (InvalidArgumentException|RuntimeException $expected) {
+                // Expected operational failures (bad/option-shaped ref, broken diff): advisory unless gated.
+                return $this->jsonError($expected->getMessage(), $gateActive ? self::FAILURE : self::SUCCESS);
+            }
 
-        try {
             return $this->emitJson($builder, $base, $changed, $failOn, $failOnUnresolved, $gateActive);
-        } catch (Throwable $unexpected) {
-            // Backstop: a graph-build/analyze failure is not "no impact" — fail, but keep stdout one JSON doc.
-            return $this->jsonError($unexpected->getMessage(), self::FAILURE);
+        } catch (Throwable $throwable) {
+            // Backstop: an unexpected graph-build/analyze (or resolution) error is not "no impact" —
+            // fail, but keep stdout a single JSON document instead of a leaked stack trace.
+            return $this->jsonError($throwable->getMessage(), self::FAILURE);
         }
     }
 
