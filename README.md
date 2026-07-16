@@ -74,7 +74,7 @@ When [`laravel/mcp`](https://github.com/laravel/mcp) is installed, Richter regis
 |---|---|---|
 | `default_base` | `origin/main` | Git ref `richter:detect-changes` diffs against when `--base` is omitted. |
 | `dispatch_helpers` | `[]` | Project-custom global job-dispatch helper functions (e.g. `dispatch_with_retries`) the dispatch tracer should follow. |
-| `entry_point_roots` | `Jobs`, `Listeners`, `Console/Commands`, `Helpers`, `Http/Middleware`, `Livewire`, `Observers` | Directories under `app/` traced as entry points beyond Brain's route-anchored graph. |
+| `entry_point_roots` | `Jobs`, `Listeners`, `Console/Commands`, `Helpers`, `Http/Middleware`, `Livewire`, `Observers` | Directories under `app/` traced as entry points beyond Brain's route-anchored graph (graph tracing only — the analyzer's risk-floor namespace heuristics are fixed). |
 | `benchmark_cases` | `[]` | Replayable accuracy fixtures for `richter:benchmark`. |
 
 Richter assumes standard Laravel conventions: the `App\` root namespace, `app/Models`, `app/Policies`, `resources/views`, and `tests/`.
