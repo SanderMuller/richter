@@ -17,6 +17,17 @@ Richter is advisory by default: `richter:detect-changes` exits 0, and a low or e
 
 Its edge over Brain alone is coverage. It adds the graph edges a route-anchored analysis misses: queue dispatches (including unresolvable ones), `$listen`-registered event listeners, container bindings, interface implementations, policy references (`$user->can(PostPolicy::UPDATE, …)` and `@can(...)` in Blade), API resource composition, custom validation rules, trait usage, eager-load relation strings, and view-to-view includes.
 
+## What it's for
+
+Richter shows what a change reaches, before you or your reviewer have to guess.
+
+- **Catch what you missed, before review.** Run `richter:detect-changes` on your branch and read the entry points and flows the diff reaches. Anything you didn't expect it to touch is worth a look before you open the PR.
+- **Turn reach into a test-coverage prompt.** Every reached entry point is tagged `[test-referenced]` or `[⚠ no test references this]`. An entry point whose behaviour you changed with nothing referencing it is a place to add a test; the tag flags a missing reference, not proof the code is untested.
+- **Hand the reviewer your blast radius.** Drop the report into the pull request description, or let a coding agent read it over MCP, so review starts from what the change reaches instead of a cold diff.
+- **Size a refactor first.** Before you rename or rework a symbol, `richter:impact "App\Models\User"` lists its callers (what breaks if you change it) and its dependencies (what it reaches).
+
+Nothing runs: it is static analysis over a code graph, so it is fast enough for every branch and safe on code you would not want to execute.
+
 ## Installation
 
 ```bash
