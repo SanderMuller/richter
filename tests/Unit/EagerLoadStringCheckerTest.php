@@ -2,6 +2,7 @@
 
 namespace SanderMuller\Richter\Tests\Unit;
 
+use Illuminate\Filesystem\Filesystem;
 use PHPUnit\Framework\Attributes\Test;
 use SanderMuller\Richter\Tests\TestCase;
 use SanderMuller\Richter\Tracers\EagerLoadStringChecker;
@@ -118,6 +119,39 @@ final class EagerLoadStringCheckerTest extends TestCase
 
         $this->assertCount(1, $findings);
         $this->assertStringContainsString('eager-load check skipped', $findings[0]);
+    }
+
+    #[Test]
+    public function a_relation_added_between_runs_is_seen_by_the_next_run(): void
+    {
+        // A disposable models tree, unique per run: the classes are declared via require (the
+        // composer autoloader cannot see a temp dir), and unique names avoid redeclaration.
+        $suffix = bin2hex(random_bytes(8));
+        $modelsPath = sys_get_temp_dir() . '/richter-eager-load-stale-' . $suffix;
+        mkdir($modelsPath, recursive: true);
+
+        try {
+            $alpha = "Alpha{$suffix}";
+            file_put_contents("{$modelsPath}/{$alpha}.php", "<?php\nnamespace App\\Models;\nclass {$alpha}\n{\n    public const string ALPHA = 'alpha';\n    public function alpha(): void {}\n}\n");
+            require "{$modelsPath}/{$alpha}.php";
+
+            $alphaSource = "<?php\nnamespace App\\Exports;\nuse App\\Models\\{$alpha};\nclass Export\n{\n    public function a(): void { \$x->load({$alpha}::ALPHA); }\n}\n";
+            // A complete first scan of the tree — a first "run" in a long-lived process.
+            $this->assertSame([], new EagerLoadStringChecker($modelsPath)->findingsFor($alphaSource));
+
+            // A developer adds a relation mid-session, after the first scan.
+            $beta = "Beta{$suffix}";
+            file_put_contents("{$modelsPath}/{$beta}.php", "<?php\nnamespace App\\Models;\nclass {$beta}\n{\n    public const string BETA = 'beta';\n    public function beta(): void {}\n}\n");
+            require "{$modelsPath}/{$beta}.php";
+
+            $betaSource = "<?php\nnamespace App\\Exports;\nuse App\\Models\\{$beta};\nclass Export\n{\n    public function a(): void { \$x->load({$beta}::BETA); }\n}\n";
+
+            // A new checker instance (a new run) rebuilds the set, so the new relation is valid —
+            // no process-lifetime cache may serve the first scan's stale set as a false alarm.
+            $this->assertSame([], new EagerLoadStringChecker($modelsPath)->findingsFor($betaSource));
+        } finally {
+            new Filesystem()->deleteDirectory($modelsPath);
+        }
     }
 
     #[Test]

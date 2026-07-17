@@ -36,6 +36,11 @@ final class ChangedSymbols
 
         $changed = [];
 
+        // One checker shared across every classified file: its instance cache bounds the model
+        // scan to once per invocation, while a fresh run always rebuilds the set — a relation
+        // added since the previous run (same long-lived process) is seen, never a false alarm.
+        $eagerLoadChecker = new EagerLoadStringChecker();
+
         foreach (UnifiedDiffParser::parse($diff->output()) as $file => $hunk) {
             if (str_starts_with($file, 'app/') && str_ends_with($file, '.php')) {
                 $headSrc = self::headSource($head, $file);
@@ -56,7 +61,7 @@ final class ChangedSymbols
                 // Use the pre-change path so a rename still resolves the base-side members.
                 $baseSrc = self::baseSource($mergeBase, $hunk['oldPath']);
 
-                $changed[] = self::classifyFile($file, $headSrc, $baseSrc, ['added' => $hunk['added'], 'removed' => $hunk['removed']]);
+                $changed[] = self::classifyFile($file, $headSrc, $baseSrc, ['added' => $hunk['added'], 'removed' => $hunk['removed']], $eagerLoadChecker);
 
                 continue;
             }

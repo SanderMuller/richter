@@ -44,15 +44,11 @@ final class EagerLoadStringChecker
     private const string MODEL_NAMESPACE = 'App\\Models\\';
 
     /**
-     * Memoized only when the build was complete — an incomplete set must be retried, not cached
-     * across instances. Keyed by models path so checkers pointed at different trees never share a set.
-     *
-     * @var array<string, array<string, true>>
-     */
-    private static array $modelMethodsByPath = [];
-
-    /**
-     * Per-instance cache so an incomplete build is still computed once per checked file, not once per expression.
+     * Per-instance cache so the model scan runs once per instance, not once per expression.
+     * Deliberately not static: a process-lifetime cache (queue worker, MCP server) would keep
+     * serving a stale set after a relation is added mid-session, turning the new relation into a
+     * confident false alarm. Callers that check many files share one instance per run instead —
+     * {@see ChangedSymbols::resolve()} — so the scan cost stays once-per-run and every run is fresh.
      *
      * @var array<string, true>|null
      */
@@ -214,10 +210,6 @@ final class EagerLoadStringChecker
     {
         $modelsPath = $this->modelsPath ?? base_path('app/Models');
 
-        if (isset(self::$modelMethodsByPath[$modelsPath])) {
-            return self::$modelMethodsByPath[$modelsPath];
-        }
-
         if ($this->modelMethodsCache !== null) {
             return $this->modelMethodsCache;
         }
@@ -259,13 +251,6 @@ final class EagerLoadStringChecker
         }
 
         $this->modelSetIncomplete = $incomplete;
-
-        // Memoize only a complete build statically — caching an incomplete set would disable the
-        // checker for the process lifetime (queue worker, MCP server) even after the transient
-        // failure clears. The instance cache bounds the retry to once per checked file.
-        if (! $incomplete) {
-            self::$modelMethodsByPath[$modelsPath] = $methods;
-        }
 
         return $this->modelMethodsCache = $methods;
     }
