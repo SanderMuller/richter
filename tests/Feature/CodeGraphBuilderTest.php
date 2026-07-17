@@ -3,6 +3,7 @@
 namespace SanderMuller\Richter\Tests\Feature;
 
 use App\Contracts\ThumbnailRenderer;
+use App\Contracts\VideoPublisher;
 use App\Contracts\VideoTranscoder;
 use App\Events\VideoPublished;
 use App\Http\Controllers\Video\QuestionController;
@@ -17,6 +18,7 @@ use App\Models\Video;
 use App\Policies\VideoPolicy;
 use App\Services\FfmpegTranscoder;
 use App\Services\GdThumbnailRenderer;
+use App\Services\YoutubePublisher;
 use PHPUnit\Framework\Attributes\Test;
 use SanderMuller\Richter\Analysis\ImpactAnalyzer;
 use SanderMuller\Richter\Graph\CodeGraph;
@@ -114,6 +116,14 @@ final class CodeGraphBuilderTest extends TestCase
     public function a_trait_links_back_to_its_using_class(): void
     {
         $this->assertSame([Question::class => 'uses-trait'], $this->directCallersOf(WithAudits::class));
+    }
+
+    #[Test]
+    public function an_app_interface_links_back_to_its_implementors(): void
+    {
+        // The edge runs implementor → interface, so a caller walk from the interface
+        // surfaces the classes that implement it.
+        $this->assertSame('implements', $this->directCallersOf(VideoPublisher::class)[YoutubePublisher::class] ?? null);
     }
 
     #[Test]
