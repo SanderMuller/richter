@@ -30,6 +30,7 @@ final class UnifiedDiffParser
 
         $current = null;
         $pendingOld = null;
+        $inHunk = false;
         $newLine = 0;
         $oldLine = 0;
 
@@ -37,17 +38,21 @@ final class UnifiedDiffParser
             if (str_starts_with($line, 'diff --git ')) {
                 $current = null;
                 $pendingOld = null;
+                $inHunk = false;
 
                 continue;
             }
 
-            if (str_starts_with($line, '--- ')) {
+            // Headers only occur between `diff --git` and the first `@@`; inside a hunk body (`-U0`:
+            // content lines only) a `--- `/`+++ ` line is a removed/added line whose text starts with
+            // `-- `/`++ `, never a file header.
+            if (! $inHunk && str_starts_with($line, '--- ')) {
                 $pendingOld = self::stripPrefix(substr($line, 4));
 
                 continue;
             }
 
-            if (str_starts_with($line, '+++ ')) {
+            if (! $inHunk && str_starts_with($line, '+++ ')) {
                 // The `---` line always precedes `+++`; key on the new path, or the old path on a
                 // deletion (new path is /dev/null). Record the old path for base-side resolution.
                 $current = self::stripPrefix(substr($line, 4)) ?? $pendingOld;
@@ -63,6 +68,7 @@ final class UnifiedDiffParser
 
             if (str_starts_with($line, '@@')) {
                 [$oldLine, $newLine] = self::parseHunkHeader($line);
+                $inHunk = true;
 
                 continue;
             }
