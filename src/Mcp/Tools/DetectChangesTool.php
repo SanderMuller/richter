@@ -3,6 +3,7 @@
 namespace SanderMuller\Richter\Mcp\Tools;
 
 use Illuminate\Contracts\JsonSchema\JsonSchema;
+use InvalidArgumentException;
 use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
 use Laravel\Mcp\Server\Tool;
@@ -37,12 +38,11 @@ final class DetectChangesTool extends Tool
 
     public function handle(Request $request): Response
     {
-        $base = RichterConfig::baseRef($request->get('base'));
-
         try {
+            $base = RichterConfig::baseRef($request->get('base'));
             $changed = ChangedSymbols::resolve($base);
-        } catch (RuntimeException $runtimeException) {
-            return Response::error($runtimeException->getMessage());
+        } catch (InvalidArgumentException|RuntimeException $exception) {
+            return Response::error($exception->getMessage());
         }
 
         if ($changed === []) {

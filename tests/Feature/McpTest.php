@@ -39,4 +39,12 @@ final class McpTest extends TestCase
 
         $this->assertTrue($response->isError());
     }
+
+    #[Test]
+    public function the_detect_changes_tool_reports_an_option_shaped_ref_as_an_error(): void
+    {
+        $response = resolve(DetectChangesTool::class)->handle(new Request(['base' => '--upload-pack=x']));
+
+        $this->assertTrue($response->isError());
+    }
 }
