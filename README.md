@@ -32,7 +32,7 @@ Richter shows what a change reaches, before you or your reviewer have to guess.
 - **Hand the reviewer your blast radius.** Drop the report into the pull request description, or let a coding agent read it over MCP, so review starts from what the change reaches instead of a cold diff.
 - **Size a refactor first.** Before you rename or rework a symbol, `richter:impact "App\Models\User"` lists its callers (what breaks if you change it) and its dependencies (what it reaches).
 
-Nothing runs: it is static analysis over a code graph, so it is fast enough for every branch and safe on code you would not want to execute.
+The analysis never executes your application's routes, jobs, or commands — it is static analysis over a code graph, fast enough for every branch. It does, however, autoload classes from the analyzed checkout (to resolve constants, relation names, and queue interfaces), and autoloading runs a file's top-level code. Treat a checkout you would not `composer install` on as one you should not analyze either.
 
 ## Installation
 
@@ -182,6 +182,8 @@ jobs:
 No GitHub Action ships with the package — `detect-changes` is a plain Artisan command, so wire it into whatever pipeline you already run.
 
 > **Note:** `detect-changes` runs `php artisan`, so it boots your Laravel application to build the graph. The job needs whatever booting the app normally requires — typically an `.env` (`cp .env.example .env`) and an `APP_KEY` (`php artisan key:generate`), as above. Without them the command fails to boot before it can analyse anything.
+
+The workflow analyzes the pull request's code, and analysis autoloads classes from that checkout (see above). For a public repository, keep the trigger on `pull_request` (never `pull_request_target` with a privileged token) so fork-submitted code runs without access to your secrets.
 
 ### Scoring accuracy against replayable history
 
