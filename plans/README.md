@@ -6,6 +6,11 @@ Execute in the order below unless dependencies say otherwise. Each executor:
 read the plan fully before starting, honor its STOP conditions, and update
 your row when done.
 
+> **Integrated (2026-07-17)**: plans 001-006, 010, 011 (minus its binding
+> half) and 012 were cherry-picked onto main via `advisor/integration` and
+> fast-forward merged at `db3d192`, closing with a green `composer qa-check`
+> (334 tests). The per-plan branches and agent worktrees are now redundant.
+>
 > **Working-tree note (2026-07-16)**: plans 002-010 were written against a
 > working tree carrying substantial uncommitted changes on top of `50a0efa`
 > (GraphCache, MarkdownFormatter, --explain, and related test/config work).
