@@ -2,12 +2,18 @@
 
 namespace SanderMuller\Richter\Tracers;
 
-use LaraMint\LaravelBrain\Analysis\ContainerBindingAnalyzer;
 use LaraMint\LaravelBrain\Analysis\MethodTracer;
 use LaraMint\LaravelBrain\Parser\PhpFileParser;
+use PhpParser\Node\Expr;
 use PhpParser\Node\Expr\Array_;
 use PhpParser\Node\Expr\ClassConstFetch;
+use PhpParser\Node\Expr\FuncCall;
+use PhpParser\Node\Expr\MethodCall;
+use PhpParser\Node\Expr\PropertyFetch;
+use PhpParser\Node\Expr\Variable;
+use PhpParser\Node\Identifier;
 use PhpParser\Node\Name;
+use PhpParser\Node\PropertyItem;
 use PhpParser\Node\Scalar\String_;
 use PhpParser\Node\Stmt;
 use PhpParser\Node\Stmt\Class_;
@@ -39,6 +45,14 @@ final readonly class EntryPointTracer
      * @var list<string>
      */
     private const array DEFAULT_ROOTS = ['Jobs', 'Listeners', 'Console/Commands', 'Helpers', 'Http/Middleware', 'Livewire', 'Observers'];
+
+    /**
+     * Container registration methods that take (abstract, concrete) arguments. All kinds collapse
+     * into the same `binding` edge — the graph cares about reach, not lifecycle.
+     *
+     * @var list<string>
+     */
+    private const array BINDING_METHODS = ['bind', 'singleton', 'scoped', 'bindIf', 'singletonIf', 'scopedIf'];
 
     /** @var list<string> */
     private array $roots;
@@ -219,7 +233,14 @@ final readonly class EntryPointTracer
     }
 
     /**
-     * Resolve interface → concrete bindings registered in service providers.
+     * Resolve abstract → concrete bindings registered in service providers under app/Providers:
+     * {@see self::BINDING_METHODS} calls on an app-like receiver plus the declarative
+     * `$bindings`/`$singletons` properties.
+     *
+     * Scanned natively rather than via laravel-brain's container-binding analyzer, which skips
+     * providers whose AST starts with Declare_ — every `declare(strict_types=1)` provider would
+     * silently contribute zero binding edges. Two deliberate deltas vs Brain: providers with a
+     * leading declare are scanned, and every class in a provider file is scanned, not only the first.
      *
      * @return list<array{source: string, target: string, type: string}>
      */
@@ -227,17 +248,165 @@ final readonly class EntryPointTracer
     {
         $edges = [];
 
-        foreach (new ContainerBindingAnalyzer()->analyze($projectRoot)->all() as $abstract => $record) {
-            if ($record->concreteFqcn !== null && $record->concreteFqcn !== '') {
-                $edges[] = [
-                    'source' => ltrim((string) $abstract, '\\'),
-                    'target' => ltrim($record->concreteFqcn, '\\'),
-                    'type' => 'binding',
-                ];
+        foreach (AppFiles::phpClasses($projectRoot . '/app/Providers', $projectRoot) as $class) {
+            $ast = AppFiles::parseResolved((string) file_get_contents($class['path']));
+
+            if ($ast === null) {
+                continue;
+            }
+
+            // Duplicate edges across providers are fine — trace() dedupes downstream.
+            $edges = [...$edges, ...$this->methodCallBindings($ast), ...$this->propertyBindings($ast)];
+        }
+
+        return $edges;
+    }
+
+    /**
+     * Bindings registered by call — `->bind(Abstract::class, Concrete::class)` and friends — on an
+     * app-like receiver: `$this->app`, an `$app` variable (closure-injected container), or the
+     * `app()` helper.
+     *
+     * @param  list<Stmt>  $ast  a name-resolved AST ({@see AppFiles::parseResolved()})
+     * @return list<array{source: string, target: string, type: string}>
+     */
+    private function methodCallBindings(array $ast): array
+    {
+        $edges = [];
+
+        foreach (new NodeFinder()->findInstanceOf($ast, MethodCall::class) as $call) {
+            $edge = $this->methodCallBindingEdge($call);
+
+            if ($edge !== null) {
+                $edges[] = $edge;
             }
         }
 
         return $edges;
+    }
+
+    /**
+     * The edge one method call registers, or null when it isn't a two-plus-argument binding call on
+     * an app-like receiver. A one-argument bind (concrete self-binding) adds no edge the class node
+     * doesn't already imply.
+     *
+     * @return array{source: string, target: string, type: string}|null
+     */
+    private function methodCallBindingEdge(MethodCall $call): ?array
+    {
+        // `->bind(...)` (first-class callable) registers nothing, and getArgs() on it throws.
+        if (! $call->name instanceof Identifier
+            || ! in_array($call->name->toString(), self::BINDING_METHODS, true)
+            || ! $this->isAppLikeReceiver($call->var)
+            || $call->isFirstClassCallable()) {
+            return null;
+        }
+
+        $args = $call->getArgs();
+
+        return count($args) < 2 ? null : $this->bindingEdge($args[0]->value, $args[1]->value);
+    }
+
+    /**
+     * Bindings declared via the non-static `$bindings` / `$singletons` provider properties, where
+     * each array item maps abstract (key) to concrete (value).
+     *
+     * @param  list<Stmt>  $ast  a name-resolved AST ({@see AppFiles::parseResolved()})
+     * @return list<array{source: string, target: string, type: string}>
+     */
+    private function propertyBindings(array $ast): array
+    {
+        $edges = [];
+
+        foreach (new NodeFinder()->findInstanceOf($ast, Property::class) as $property) {
+            foreach ($property->props as $prop) {
+                $edges = [...$edges, ...$this->declaredBindingEdges($property, $prop)];
+            }
+        }
+
+        return $edges;
+    }
+
+    /**
+     * The edges one declared property contributes — a non-static `$bindings`/`$singletons` with an
+     * array default; each item maps abstract (key) to concrete (value).
+     *
+     * @return list<array{source: string, target: string, type: string}>
+     */
+    private function declaredBindingEdges(Property $property, PropertyItem $prop): array
+    {
+        if ($property->isStatic()
+            || ! in_array($prop->name->toString(), ['bindings', 'singletons'], true)
+            || ! $prop->default instanceof Array_) {
+            return [];
+        }
+
+        $edges = [];
+
+        foreach ($prop->default->items as $item) {
+            // A keyless item (list-style entry) names no abstract, so bindingEdge() yields no edge.
+            $edge = $this->bindingEdge($item->key, $item->value);
+
+            if ($edge !== null) {
+                $edges[] = $edge;
+            }
+        }
+
+        return $edges;
+    }
+
+    /**
+     * The abstract → concrete edge for one registration, or null when either side is not class-like
+     * (a closure concrete, a non-class string, a dynamic expression).
+     *
+     * @return array{source: string, target: string, type: string}|null
+     */
+    private function bindingEdge(?Expr $abstract, Expr $concrete): ?array
+    {
+        $source = $this->classLikeName($abstract);
+        $target = $this->classLikeName($concrete);
+
+        if ($source === null || $target === null) {
+            return null;
+        }
+
+        return ['source' => $source, 'target' => $target, 'type' => 'binding'];
+    }
+
+    /**
+     * A class-like expression's FQCN: `Xxx::class` (resolved through imports) or a string literal
+     * naming a class — it must contain a namespace separator, so container aliases like `'cache'`
+     * never become graph nodes. Anything else (null included) → null.
+     */
+    private function classLikeName(?Expr $expr): ?string
+    {
+        if ($expr instanceof ClassConstFetch && $expr->name instanceof Identifier && $expr->name->toString() === 'class' && $expr->class instanceof Name) {
+            return AppFiles::resolveName($expr->class);
+        }
+
+        if ($expr instanceof String_ && str_contains($expr->value, '\\') && preg_match('/^\\\\?[\w\\\\]+$/', $expr->value) === 1) {
+            return ltrim($expr->value, '\\');
+        }
+
+        return null;
+    }
+
+    /** The three receiver shapes a container registration is made on: `$this->app`, `$app`, `app()`. */
+    private function isAppLikeReceiver(Expr $receiver): bool
+    {
+        if ($receiver instanceof PropertyFetch
+            && $receiver->var instanceof Variable
+            && $receiver->var->name === 'this'
+            && $receiver->name instanceof Identifier
+            && $receiver->name->toString() === 'app') {
+            return true;
+        }
+
+        if ($receiver instanceof Variable && $receiver->name === 'app') {
+            return true;
+        }
+
+        return $receiver instanceof FuncCall && $receiver->name instanceof Name && $receiver->name->toString() === 'app';
     }
 
     /**

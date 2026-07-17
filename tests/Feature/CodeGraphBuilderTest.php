@@ -2,6 +2,8 @@
 
 namespace SanderMuller\Richter\Tests\Feature;
 
+use App\Contracts\ThumbnailRenderer;
+use App\Contracts\VideoTranscoder;
 use App\Events\VideoPublished;
 use App\Http\Controllers\Video\QuestionController;
 use App\Http\Middleware\Authenticate;
@@ -13,6 +15,8 @@ use App\Models\Concerns\WithAudits;
 use App\Models\Question;
 use App\Models\Video;
 use App\Policies\VideoPolicy;
+use App\Services\FfmpegTranscoder;
+use App\Services\GdThumbnailRenderer;
 use PHPUnit\Framework\Attributes\Test;
 use SanderMuller\Richter\Analysis\ImpactAnalyzer;
 use SanderMuller\Richter\Graph\CodeGraph;
@@ -89,6 +93,21 @@ final class CodeGraphBuilderTest extends TestCase
 
         $this->assertSame('view-to-view', $view['view::blade__videos.partials.header'] ?? null);
         $this->assertSame('authorizes', $view[VideoPolicy::class] ?? null);
+    }
+
+    #[Test]
+    public function a_container_binding_links_the_contract_to_its_concrete(): void
+    {
+        // AppServiceProvider::register() binds the contract via `$this->app->bind(...)`. The
+        // provider opens with declare(strict_types=1) — the case Brain's analyzer silently skips.
+        $this->assertSame('binding', $this->directDependenciesOf(VideoTranscoder::class)[FfmpegTranscoder::class] ?? null);
+    }
+
+    #[Test]
+    public function a_singletons_property_links_the_contract_to_its_concrete(): void
+    {
+        // Registered declaratively via AppServiceProvider's `$singletons` property, not register().
+        $this->assertSame('binding', $this->directDependenciesOf(ThumbnailRenderer::class)[GdThumbnailRenderer::class] ?? null);
     }
 
     #[Test]
