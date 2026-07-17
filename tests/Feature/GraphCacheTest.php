@@ -3,7 +3,6 @@
 namespace SanderMuller\Richter\Tests\Feature;
 
 use Illuminate\Filesystem\Filesystem;
-use Override;
 use PHPUnit\Framework\Attributes\Test;
 use SanderMuller\Richter\Graph\GraphCache;
 use SanderMuller\Richter\Tests\TestCase;
@@ -16,31 +15,25 @@ final class GraphCacheTest extends TestCase
 
     private string $cacheDirectory;
 
-    #[Override]
     protected function setUp(): void
     {
         parent::setUp();
-
         // A tiny disposable project tree — fingerprints and cache round-trips are exercised against
         // it, so mutations never touch the repo's own fixtures.
         $this->base = sys_get_temp_dir() . '/richter-graph-cache-' . bin2hex(random_bytes(8));
         $this->projectRoot = "{$this->base}/project";
         $this->cacheDirectory = "{$this->base}/cache";
-
         mkdir("{$this->projectRoot}/app/Services", recursive: true);
         mkdir("{$this->projectRoot}/routes", recursive: true);
         file_put_contents("{$this->projectRoot}/app/Services/Alpha.php", "<?php\n\nnamespace App\\Services;\n\nclass Alpha\n{\n    public function run(): void {}\n}\n");
         file_put_contents("{$this->projectRoot}/routes/web.php", "<?php\n");
-
         config()->set('richter.cache.enabled', true);
         config()->set('richter.cache.directory', $this->cacheDirectory);
     }
 
-    #[Override]
     protected function tearDown(): void
     {
         new Filesystem()->deleteDirectory($this->base);
-
         parent::tearDown();
     }
 
@@ -48,7 +41,7 @@ final class GraphCacheTest extends TestCase
     {
         // The container singleton — the app is rebuilt per test, so every test starts with an
         // empty in-memory memo and the disk path is what each assertion exercises.
-        return app(GraphCache::class);
+        return resolve(GraphCache::class);
     }
 
     private function cacheFile(): string

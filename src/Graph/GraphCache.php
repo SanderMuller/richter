@@ -73,15 +73,15 @@ final class GraphCache
 
         hash_update($context, 'format:' . self::FORMAT_VERSION);
         hash_update($context, '|php:' . PHP_VERSION);
-        hash_update($context, '|richter:' . self::packageVersion('sandermuller/richter'));
-        hash_update($context, '|brain:' . self::packageVersion('laramint/laravel-brain'));
+        hash_update($context, '|richter:' . $this->packageVersion('sandermuller/richter'));
+        hash_update($context, '|brain:' . $this->packageVersion('laramint/laravel-brain'));
         hash_update($context, '|config:' . json_encode([
             'entry_point_roots' => RichterConfig::entryPointRoots(),
             'dispatch_helpers' => RichterConfig::dispatchHelpers(),
-            'laravel-brain' => self::brainConfigInput(),
+            'laravel-brain' => $this->brainConfigInput(),
         ], JSON_THROW_ON_ERROR));
 
-        foreach (self::inputFiles($projectRoot) as $path) {
+        foreach ($this->inputFiles($projectRoot) as $path) {
             // A file racing away between listing and hashing reads as '' — still a deterministic miss.
             $hash = hash_file('xxh128', "{$projectRoot}/{$path}");
             hash_update($context, "|{$path}:" . ($hash === false ? '' : $hash));
@@ -96,7 +96,7 @@ final class GraphCache
      * their host values never influence the produced graph — hashing them would only turn a change
      * the build ignores into a spurious rebuild.
      */
-    private static function brainConfigInput(): mixed
+    private function brainConfigInput(): mixed
     {
         $config = config('laravel-brain');
 
@@ -121,7 +121,7 @@ final class GraphCache
 
     private function read(string $fingerprint): ?CodeGraph
     {
-        $file = self::cacheFile();
+        $file = $this->cacheFile();
 
         if (! is_file($file)) {
             return null;
@@ -137,7 +137,7 @@ final class GraphCache
             return null;
         }
 
-        $edges = self::validEdges($data['edges'] ?? null);
+        $edges = $this->validEdges($data['edges'] ?? null);
 
         if ($edges === null) {
             return null;
@@ -156,18 +156,18 @@ final class GraphCache
             }
 
             // Write-then-rename so a concurrent reader never sees a torn file.
-            $tmp = self::cacheFile() . '.' . getmypid() . '.tmp';
+            $tmp = $this->cacheFile() . '.' . getmypid() . '.tmp';
             $payload = json_encode(['fingerprint' => $fingerprint] + $graph->toArray(), JSON_THROW_ON_ERROR);
 
             if (file_put_contents($tmp, $payload) !== false) {
-                rename($tmp, self::cacheFile());
+                rename($tmp, $this->cacheFile());
             }
         } catch (Throwable) {
             // Failing to warm the cache only costs the next run a rebuild.
         }
     }
 
-    private static function cacheFile(): string
+    private function cacheFile(): string
     {
         return RichterConfig::cacheDirectory() . '/graph.json';
     }
@@ -178,7 +178,7 @@ final class GraphCache
      *
      * @return list<array{source: string, target: string, type: string}>|null
      */
-    private static function validEdges(mixed $edges): ?array
+    private function validEdges(mixed $edges): ?array
     {
         if (! is_array($edges)) {
             return null;
@@ -203,7 +203,7 @@ final class GraphCache
      *
      * @return list<string>
      */
-    private static function inputFiles(string $projectRoot): array
+    private function inputFiles(string $projectRoot): array
     {
         $directories = array_values(array_filter(
             ["{$projectRoot}/app", "{$projectRoot}/routes", "{$projectRoot}/resources/views"],
@@ -226,7 +226,7 @@ final class GraphCache
     }
 
     /** The installed version, or a stable placeholder when Composer can't resolve the package (e.g. richter developed as the root package). */
-    private static function packageVersion(string $package): string
+    private function packageVersion(string $package): string
     {
         try {
             return InstalledVersions::getVersion($package) ?? 'unknown';
