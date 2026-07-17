@@ -90,7 +90,7 @@ final class DispatchEdgeTracer
             // dispatch verb often receives the job as a variable (`$job = new X(...); dispatch($job)`),
             // which no dispatch-site pattern above can follow — a defect class that ships unseen otherwise.
             foreach (new NodeFinder()->findInstanceOf($method, New_::class) as $new) {
-                if ($new->class instanceof Name && $this->isJobClass($job = $this->resolveName($new->class)) && $job !== ltrim($classFqcn, '\\')) {
+                if ($new->class instanceof Name && $this->isJobClass($job = AppFiles::resolveName($new->class)) && $job !== ltrim($classFqcn, '\\')) {
                     $edges[] = ['source' => $dispatcher, 'target' => $job . '::handle', 'type' => 'action-to-job'];
                 }
             }
@@ -154,7 +154,7 @@ final class DispatchEdgeTracer
 
         $method = $call->name->toString();
         $arg = $call->getArgs()[0] ?? null;
-        $class = $this->resolveName($call->class);
+        $class = AppFiles::resolveName($call->class);
 
         // Bus::dispatch(new Job) / Bus::chain([new A, new B]) / Bus::batch([...]) — the resolved FQCN
         // means an aliased `use Bus as QueueBus` is still recognised.
@@ -226,16 +226,9 @@ final class DispatchEdgeTracer
             return [];
         }
 
-        $job = $this->resolveName($new->class);
+        $job = AppFiles::resolveName($new->class);
 
         return $this->isJobClass($job) ? [$job] : [];
-    }
-
-    private function resolveName(Name $name): string
-    {
-        $resolved = $name->getAttribute('resolvedName');
-
-        return ltrim($resolved instanceof Name ? $resolved->toString() : $name->toString(), '\\');
     }
 
     private function isJobClass(string $fqcn): bool

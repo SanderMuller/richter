@@ -16,8 +16,6 @@ use PhpParser\Node\Stmt\ClassMethod;
 use PhpParser\Node\Stmt\Enum_;
 use PhpParser\Node\Stmt\Property;
 use PhpParser\NodeFinder;
-use PhpParser\NodeTraverser;
-use PhpParser\NodeVisitor\NameResolver;
 use SanderMuller\Richter\Graph\CodeGraphBuilder;
 use SanderMuller\Richter\Support\AppFiles;
 use Throwable;
@@ -80,7 +78,7 @@ final readonly class EntryPointTracer
         // AST loop in {@see CodeGraphBuilder} via {@see interfaceEdgesForResolvedAst()}.
         return AppFiles::dedupeEdges([
             ...$edges,
-            ...$this->eventListenerEdges($parser, $projectRoot),
+            ...$this->eventListenerEdges($projectRoot),
             ...$this->bindingEdges($projectRoot),
         ], byType: true);
     }
@@ -153,7 +151,7 @@ final readonly class EntryPointTracer
      *
      * @return list<array{source: string, target: string, type: string}>
      */
-    private function eventListenerEdges(PhpFileParser $parser, string $projectRoot): array
+    private function eventListenerEdges(string $projectRoot): array
     {
         $file = $projectRoot . '/app/Providers/EventServiceProvider.php';
 
@@ -161,21 +159,15 @@ final readonly class EntryPointTracer
             return [];
         }
 
-        $parsed = $parser->parse($file);
+        $ast = AppFiles::parseResolved((string) file_get_contents($file));
 
-        if ($parsed['ast'] === null) {
+        if ($ast === null) {
             return [];
         }
 
-        // NameResolver attaches a `resolvedName` FQCN attribute to every Name node (imports, aliases,
-        // namespace factored in). replaceNodes=false keeps the original nodes intact.
-        $traverser = new NodeTraverser();
-        $traverser->addVisitor(new NameResolver(null, ['preserveOriginalNames' => true, 'replaceNodes' => false]));
-        $traverser->traverse($parsed['ast']);
-
         $edges = [];
 
-        foreach (new NodeFinder()->findInstanceOf($parsed['ast'], Property::class) as $property) {
+        foreach (new NodeFinder()->findInstanceOf($ast, Property::class) as $property) {
             foreach ($property->props as $prop) {
                 if ($prop->name->toString() === 'listen' && $prop->default instanceof Array_) {
                     $edges = [...$edges, ...$this->listenEdges($prop->default)];
@@ -220,9 +212,7 @@ final readonly class EntryPointTracer
     private function resolveListenerName(mixed $node): ?string
     {
         if ($node instanceof ClassConstFetch && $node->class instanceof Name) {
-            $resolved = $node->class->getAttribute('resolvedName');
-
-            return ltrim($resolved instanceof Name ? $resolved->toString() : $node->class->toString(), '\\');
+            return AppFiles::resolveName($node->class);
         }
 
         return $node instanceof String_ ? $node->value : null;
@@ -271,7 +261,7 @@ final readonly class EntryPointTracer
             }
 
             foreach ($node->implements as $implemented) {
-                $interface = $this->resolveTypeName($implemented);
+                $interface = AppFiles::resolveName($implemented);
 
                 // App interfaces only — vendor contracts (ShouldQueue, Arrayable, …) are implemented
                 // by hundreds of classes with no app-side reach and would swamp the graph.
@@ -282,12 +272,5 @@ final readonly class EntryPointTracer
         }
 
         return $edges;
-    }
-
-    private function resolveTypeName(Name $name): string
-    {
-        $resolved = $name->getAttribute('resolvedName');
-
-        return ltrim($resolved instanceof Name ? $resolved->toString() : $name->toString(), '\\');
     }
 }

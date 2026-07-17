@@ -14,8 +14,6 @@ use PhpParser\Node\Identifier;
 use PhpParser\Node\Name;
 use PhpParser\Node\Scalar\String_;
 use PhpParser\NodeFinder;
-use PhpParser\NodeTraverser;
-use PhpParser\NodeVisitor\NameResolver;
 use SanderMuller\Richter\Support\AppFiles;
 use SanderMuller\Richter\Support\Fqcn;
 use Symfony\Component\Finder\Finder;
@@ -69,13 +67,11 @@ final class EagerLoadStringChecker
     /** @return list<string> findings, phrased for the change author */
     public function findingsFor(string $source): array
     {
-        $ast = AppFiles::parse($source);
+        $ast = AppFiles::parseResolved($source);
 
         if ($ast === null) {
             return [];
         }
-
-        new NodeTraverser(new NameResolver(null, ['preserveOriginalNames' => true, 'replaceNodes' => false]))->traverse($ast);
 
         $findings = [];
 

@@ -102,8 +102,7 @@ final class PolicyEdgeTracer
         $policies = [];
 
         foreach (new NodeFinder()->findInstanceOf($node, Name::class) as $name) {
-            $resolved = $name->getAttribute('resolvedName');
-            $fqcn = ltrim($resolved instanceof Name ? $resolved->toString() : $name->toString(), '\\');
+            $fqcn = AppFiles::resolveName($name);
 
             if (str_starts_with($fqcn, self::POLICY_NAMESPACE)) {
                 $policies[] = $fqcn;
