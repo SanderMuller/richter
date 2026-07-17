@@ -92,9 +92,9 @@ final class GraphCache
 
     /**
      * The laravel-brain config that actually feeds the analysis. {@see CodeGraphBuilder::build()}
-     * force-overrides the four path keys in global config, so their host values never reach the
-     * analyzer — and hashing them would flip the fingerprint after the first build in a process,
-     * turning every subsequent MCP call into a rebuild.
+     * force-overrides the four path keys for the duration of every build (restoring them after), so
+     * their host values never influence the produced graph — hashing them would only turn a change
+     * the build ignores into a spurious rebuild.
      */
     private static function brainConfigInput(): mixed
     {

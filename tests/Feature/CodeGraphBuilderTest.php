@@ -108,6 +108,16 @@ final class CodeGraphBuilderTest extends TestCase
         $this->assertContains('route::GET::/videos/{video}/questions', $callers);
     }
 
+    #[Test]
+    public function a_build_restores_the_host_apps_brain_config(): void
+    {
+        config()->set('laravel-brain.route_paths', ['host/sentinel/*.php']);
+
+        new CodeGraphBuilder()->build(self::fixtureProjectPath());
+
+        $this->assertSame(['host/sentinel/*.php'], config('laravel-brain.route_paths'));
+    }
+
     /** @return array<string, string> caller node → edge type, sorted by node */
     private function directCallersOf(string $node): array
     {

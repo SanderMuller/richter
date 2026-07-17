@@ -42,15 +42,30 @@ final class CodeGraphBuilder
     {
         $projectRoot ??= base_path();
 
-        config()->set('laravel-brain.route_paths', self::ROUTE_PATHS);
-        config()->set('laravel-brain.channel_paths', self::ROUTE_PATHS);
-        config()->set('laravel-brain.commands.console_route_paths', self::ROUTE_PATHS);
-        config()->set('laravel-brain.commands.class_paths', self::COMMAND_CLASS_PATHS);
+        // The override must not outlive the build: the process may be a long-lived MCP server whose
+        // global config repository the host app shares. Only analyze() reads these keys.
+        $overrides = [
+            'laravel-brain.route_paths' => self::ROUTE_PATHS,
+            'laravel-brain.channel_paths' => self::ROUTE_PATHS,
+            'laravel-brain.commands.console_route_paths' => self::ROUTE_PATHS,
+            'laravel-brain.commands.class_paths' => self::COMMAND_CLASS_PATHS,
+        ];
+        $snapshot = array_map(config(...), array_combine(array_keys($overrides), array_keys($overrides)));
 
-        $analysis = new ProjectAnalyzer()->analyze(
-            $projectRoot,
-            $onProgress ?? static fn (string $event, array $data): null => null,
-        );
+        try {
+            foreach ($overrides as $key => $paths) {
+                config()->set($key, $paths);
+            }
+
+            $analysis = new ProjectAnalyzer()->analyze(
+                $projectRoot,
+                $onProgress ?? static fn (string $event, array $data): null => null,
+            );
+        } finally {
+            foreach ($snapshot as $key => $original) {
+                config()->set($key, $original);
+            }
+        }
 
         // One FQCN-keyed id per symbol, read from Brain's own node data — the anti-corruption boundary
         // that lets the post-hoc tracers below address symbols by plain FQCN and join the route chain.
