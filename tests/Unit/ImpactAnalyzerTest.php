@@ -97,6 +97,38 @@ final class ImpactAnalyzerTest extends TestCase
     }
 
     #[Test]
+    public function detect_changes_explains_the_chain_from_the_entry_point_to_the_changed_member(): void
+    {
+        $result = $this->analyzer()->detectChanges([
+            $this->changedMethod('app/Services/VideoPublisher.php', 'App\Services\VideoPublisher', 'publish'),
+        ]);
+
+        $this->assertSame([
+            ['node' => self::ROUTE, 'via' => 'route-to-controller'],
+            ['node' => 'App\Http\Controllers\VideoController', 'via' => 'controller-to-action'],
+            ['node' => 'App\Http\Controllers\VideoController::publish', 'via' => 'action-to-service'],
+            ['node' => 'App\Services\VideoPublisher::publish', 'via' => ''],
+        ], $result['entryPointPaths'][self::ROUTE]);
+    }
+
+    #[Test]
+    public function a_self_listed_entry_class_carries_no_explain_chain(): void
+    {
+        // The listener IS the entry surface — it is not reached from the change, so a chain would
+        // be fiction; its absence is what tells a consumer apart "reached" from "self-listed".
+        $analyzer = new ImpactAnalyzer(new CodeGraph([
+            ['source' => 'App\Listeners\Saml\SamlLoginListener::handle', 'target' => 'App\Services\UserProvisioner::provision', 'type' => 'call'],
+        ]));
+
+        $result = $analyzer->detectChanges([
+            $this->changedMethod('app/Listeners/Saml/SamlLoginListener.php', 'App\Listeners\Saml\SamlLoginListener', 'handle'),
+        ]);
+
+        $this->assertSame(['App\Listeners\Saml\SamlLoginListener'], $result['entryPoints']);
+        $this->assertSame([], $result['entryPointPaths']);
+    }
+
+    #[Test]
     public function detect_changes_seeds_a_changed_blade_view_and_reaches_its_entry_point_and_policy(): void
     {
         // route → controller → video-item view → action-buttons component → VideoPolicy. A change to

@@ -13,7 +13,7 @@ use SanderMuller\Richter\Analysis\ImpactAnalyzer;
 use SanderMuller\Richter\Analysis\ImpactFormatter;
 use SanderMuller\Richter\Analysis\TestReferenceIndex;
 use SanderMuller\Richter\Changes\ChangedSymbols;
-use SanderMuller\Richter\Graph\CodeGraphBuilder;
+use SanderMuller\Richter\Graph\GraphCache;
 use SanderMuller\Richter\Support\RichterConfig;
 
 #[IsReadOnly]
@@ -23,7 +23,7 @@ final class DetectChangesTool extends Tool
 
     protected string $description = 'Advisory change-impact for the current branch diff: which HTTP/CLI entry points and flows the changed PHP files reach, plus a coarse risk level. Diffs against the given base ref (defaults to the richter.default_base config value).';
 
-    public function __construct(private readonly CodeGraphBuilder $builder) {}
+    public function __construct(private readonly GraphCache $graphs) {}
 
     /** @return array<string, mixed> */
     #[Override]
@@ -49,7 +49,7 @@ final class DetectChangesTool extends Tool
             return Response::text("No changed PHP files under app/ against {$base}.");
         }
 
-        $result = new ImpactAnalyzer($this->builder->build())->detectChanges($changed);
+        $result = new ImpactAnalyzer($this->graphs->graph())->detectChanges($changed);
 
         return Response::text(ImpactFormatter::detectChanges($result, TestReferenceIndex::fromTests(base_path('tests'))));
     }

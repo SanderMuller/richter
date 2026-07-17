@@ -35,4 +35,99 @@ final class CodeGraphWalkTest extends TestCase
 
         $this->assertSame(['model-relationship' => true, 'action-to-service' => true], $graph->reachedViaTypes(['A'])['X']);
     }
+
+    #[Test]
+    public function a_graph_round_trips_through_its_array_form_unchanged(): void
+    {
+        $graph = new CodeGraph([
+            ['source' => 'route::GET::/r', 'target' => 'App\Http\Controllers\C::index', 'type' => 'route-to-controller'],
+            ['source' => 'App\Http\Controllers\C::index', 'target' => 'App\Services\S::run', 'type' => 'action-to-service'],
+        ], hasUnresolvedDispatches: true);
+
+        $revived = CodeGraph::fromArray($graph->toArray());
+
+        $this->assertSame($graph->toArray(), $revived->toArray());
+        $this->assertSame($graph->callersOf(['App\Services\S::run']), $revived->callersOf(['App\Services\S::run']));
+        $this->assertSame($graph->dependenciesOf(['route::GET::/r']), $revived->dependenciesOf(['route::GET::/r']));
+        $this->assertTrue($revived->hasUnresolvedDispatches());
+    }
+
+    #[Test]
+    public function a_caller_path_runs_from_the_entry_point_down_to_the_seed_with_edge_types(): void
+    {
+        // route → controller action → service: walking up from the changed service must explain the
+        // chain back down, each hop's via naming the edge to the next hop and the seed carrying ''.
+        $graph = new CodeGraph([
+            ['source' => 'route::GET::/r', 'target' => 'App\Http\Controllers\C::index', 'type' => 'route-to-controller'],
+            ['source' => 'App\Http\Controllers\C::index', 'target' => 'App\Services\S::run', 'type' => 'action-to-service'],
+        ]);
+
+        $paths = $graph->callerPathsTo(['App\Services\S::run'], ['route::GET::/r']);
+
+        $this->assertSame([
+            ['node' => 'route::GET::/r', 'via' => 'route-to-controller'],
+            ['node' => 'App\Http\Controllers\C::index', 'via' => 'action-to-service'],
+            ['node' => 'App\Services\S::run', 'via' => ''],
+        ], $paths['route::GET::/r']);
+    }
+
+    #[Test]
+    public function the_shorter_of_two_caller_chains_wins(): void
+    {
+        // The route reaches the seed both directly and via an intermediate — the reported chain must
+        // be the two-hop direct one, not the three-hop detour.
+        $graph = new CodeGraph([
+            ['source' => 'route::GET::/r', 'target' => 'App\Services\S::run', 'type' => 'direct'],
+            ['source' => 'route::GET::/r', 'target' => 'App\Support\M::mid', 'type' => 'call'],
+            ['source' => 'App\Support\M::mid', 'target' => 'App\Services\S::run', 'type' => 'call'],
+        ]);
+
+        $paths = $graph->callerPathsTo(['App\Services\S::run'], ['route::GET::/r']);
+
+        $this->assertCount(2, $paths['route::GET::/r']);
+        $this->assertSame('direct', $paths['route::GET::/r'][0]['via']);
+    }
+
+    #[Test]
+    public function an_unreached_target_is_absent_from_the_caller_paths(): void
+    {
+        $graph = new CodeGraph([
+            ['source' => 'route::GET::/r', 'target' => 'App\Services\S::run', 'type' => 'direct'],
+        ]);
+
+        $paths = $graph->callerPathsTo(['App\Services\S::run'], ['route::GET::/unrelated']);
+
+        $this->assertSame([], $paths);
+    }
+
+    #[Test]
+    public function a_target_that_is_itself_a_seed_yields_a_single_hop_path(): void
+    {
+        $graph = new CodeGraph([
+            ['source' => 'A', 'target' => 'B', 'type' => 'call'],
+        ]);
+
+        $paths = $graph->callerPathsTo(['A'], ['A']);
+
+        $this->assertSame([['node' => 'A', 'via' => '']], $paths['A']);
+    }
+
+    #[Test]
+    public function caller_paths_terminate_on_a_cyclic_graph(): void
+    {
+        // A <-> B cycle plus an entry above it — reconstruction must terminate at the seed, not loop.
+        $graph = new CodeGraph([
+            ['source' => 'route::GET::/r', 'target' => 'App\Services\A::run', 'type' => 'route-to-controller'],
+            ['source' => 'App\Services\A::run', 'target' => 'App\Services\B::run', 'type' => 'call'],
+            ['source' => 'App\Services\B::run', 'target' => 'App\Services\A::run', 'type' => 'call'],
+        ]);
+
+        $paths = $graph->callerPathsTo(['App\Services\B::run'], ['route::GET::/r']);
+
+        $this->assertSame([
+            ['node' => 'route::GET::/r', 'via' => 'route-to-controller'],
+            ['node' => 'App\Services\A::run', 'via' => 'call'],
+            ['node' => 'App\Services\B::run', 'via' => ''],
+        ], $paths['route::GET::/r']);
+    }
 }

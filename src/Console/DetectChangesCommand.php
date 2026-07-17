@@ -9,11 +9,13 @@ use SanderMuller\Richter\Analysis\Gate;
 use SanderMuller\Richter\Analysis\ImpactAnalyzer;
 use SanderMuller\Richter\Analysis\ImpactFormatter;
 use SanderMuller\Richter\Analysis\JsonPresenter;
+use SanderMuller\Richter\Analysis\MarkdownFormatter;
 use SanderMuller\Richter\Analysis\RiskLevel;
 use SanderMuller\Richter\Analysis\TestReferenceIndex;
 use SanderMuller\Richter\Changes\ChangedFileSymbols;
 use SanderMuller\Richter\Changes\ChangedSymbols;
-use SanderMuller\Richter\Graph\CodeGraphBuilder;
+use SanderMuller\Richter\Graph\CodeGraph;
+use SanderMuller\Richter\Graph\GraphCache;
 use SanderMuller\Richter\Support\RichterConfig;
 use Throwable;
 
@@ -28,15 +30,23 @@ final class DetectChangesCommand extends Command
     protected $signature = 'richter:detect-changes
         {--base= : Git ref to diff the current branch against (defaults to the richter.default_base config value)}
         {--json : Emit the report as JSON on stdout}
+        {--markdown : Emit the report as GitHub-flavoured markdown, for PR descriptions and comments}
+        {--explain : Show the call chain from each reached entry point down to the changed code (JSON always carries the chains)}
         {--fail-on= : Exit non-zero when risk is at least this level (low|medium|high); advisory by default}
-        {--fail-on-unresolved : Exit non-zero when any changed PHP file is UNRESOLVED}';
+        {--fail-on-unresolved : Exit non-zero when any changed PHP file is UNRESOLVED}
+        {--no-cache : Build the code graph fresh, bypassing the graph cache}';
 
     /** @var string */
     protected $description = 'Report the advisory blast radius of the current branch diff (entry points reached + risk)';
 
-    public function handle(CodeGraphBuilder $builder): int
+    public function handle(GraphCache $graphs): int
     {
         $json = (bool) $this->option('json');
+
+        if ($json && (bool) $this->option('markdown')) {
+            // With --json present the usage error honours the JSON contract: stdout stays one parseable document.
+            return $this->emitFailure($json, 'The --json and --markdown options are mutually exclusive.');
+        }
 
         $failOnRaw = $this->option('fail-on');
         $failOn = null;
@@ -60,11 +70,11 @@ final class DetectChangesCommand extends Command
         $gateActive = $failOn instanceof RiskLevel || $failOnUnresolved;
 
         return $json
-            ? $this->handleJson($builder, $failOn, $failOnUnresolved, $gateActive)
-            : $this->handleText($builder, $failOn, $failOnUnresolved, $gateActive);
+            ? $this->handleJson($graphs, $failOn, $failOnUnresolved, $gateActive)
+            : $this->handleText($graphs, $failOn, $failOnUnresolved, $gateActive);
     }
 
-    private function handleText(CodeGraphBuilder $builder, ?RiskLevel $failOn, bool $failOnUnresolved, bool $gateActive): int
+    private function handleText(GraphCache $graphs, ?RiskLevel $failOn, bool $failOnUnresolved, bool $gateActive): int
     {
         try {
             $base = RichterConfig::baseRef($this->option('base'));
@@ -91,9 +101,15 @@ final class DetectChangesCommand extends Command
             return self::SUCCESS;
         }
 
-        $result = new ImpactAnalyzer($builder->build())->detectChanges($changed);
+        $result = new ImpactAnalyzer($this->graph($graphs))->detectChanges($changed);
 
-        $this->line(ImpactFormatter::detectChanges($result, TestReferenceIndex::fromTests(base_path('tests')), $gateActive));
+        $markdown = (bool) $this->option('markdown');
+        $tests = TestReferenceIndex::fromTests(base_path('tests'));
+        $explain = (bool) $this->option('explain');
+
+        $this->line($markdown
+            ? MarkdownFormatter::detectChanges($result, $tests, $gateActive, $explain)
+            : ImpactFormatter::detectChanges($result, $tests, $gateActive, $explain));
 
         if (! $gateActive) {
             return self::SUCCESS;
@@ -101,7 +117,8 @@ final class DetectChangesCommand extends Command
 
         $gate = Gate::evaluate($result['risk'], $this->unresolvedCount($result['coverage']), $failOn, $failOnUnresolved);
 
-        $this->line($gate['tripped'] ? 'Gate: FAIL — ' . implode('; ', $gate['reasons']) : 'Gate: PASS');
+        $verdict = $gate['tripped'] ? 'FAIL — ' . implode('; ', $gate['reasons']) : 'PASS';
+        $this->line($markdown ? "\n**Gate:** {$verdict}" : "Gate: {$verdict}");
 
         return $gate['tripped'] ? self::FAILURE : self::SUCCESS;
     }
@@ -112,7 +129,7 @@ final class DetectChangesCommand extends Command
      * stays exit 0 unless a gate flag flips it); everything downstream — including an unexpected
      * graph-build or analyze error — reaches the failure backstop rather than being read as "advisory".
      */
-    private function handleJson(CodeGraphBuilder $builder, ?RiskLevel $failOn, bool $failOnUnresolved, bool $gateActive): int
+    private function handleJson(GraphCache $graphs, ?RiskLevel $failOn, bool $failOnUnresolved, bool $gateActive): int
     {
         try {
             try {
@@ -123,7 +140,7 @@ final class DetectChangesCommand extends Command
                 return $this->jsonError($expected->getMessage(), $gateActive ? self::FAILURE : self::SUCCESS);
             }
 
-            return $this->emitJson($builder, $base, $changed, $failOn, $failOnUnresolved, $gateActive);
+            return $this->emitJson($graphs, $base, $changed, $failOn, $failOnUnresolved, $gateActive);
         } catch (Throwable $throwable) {
             // Backstop: an unexpected graph-build/analyze (or resolution) error is not "no impact" —
             // fail, but keep stdout a single JSON document instead of a leaked stack trace.
@@ -134,7 +151,7 @@ final class DetectChangesCommand extends Command
     /**
      * @param  list<ChangedFileSymbols>  $changed
      */
-    private function emitJson(CodeGraphBuilder $builder, string $base, array $changed, ?RiskLevel $failOn, bool $failOnUnresolved, bool $gateActive): int
+    private function emitJson(GraphCache $graphs, string $base, array $changed, ?RiskLevel $failOn, bool $failOnUnresolved, bool $gateActive): int
     {
         if ($changed === []) {
             // Empty diff always passes: gate not evaluated, so a bare --fail-on=low can't trip on zero changes.
@@ -149,7 +166,7 @@ final class DetectChangesCommand extends Command
             return self::SUCCESS;
         }
 
-        $result = new ImpactAnalyzer($builder->build())->detectChanges($changed);
+        $result = new ImpactAnalyzer($this->graph($graphs))->detectChanges($changed);
         $payload = JsonPresenter::detectChanges($result, $base);
 
         if (! $gateActive) {
@@ -178,6 +195,11 @@ final class DetectChangesCommand extends Command
             'tripped' => $tripped,
             'reasons' => $reasons,
         ];
+    }
+
+    private function graph(GraphCache $graphs): CodeGraph
+    {
+        return $graphs->graph(fresh: (bool) $this->option('no-cache'));
     }
 
     /** @param  array<string, 'analyzed'|'unresolved'>  $coverage */

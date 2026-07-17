@@ -8,7 +8,7 @@ use RuntimeException;
 use SanderMuller\Richter\Analysis\BenchmarkCase;
 use SanderMuller\Richter\Analysis\ImpactAnalyzer;
 use SanderMuller\Richter\Changes\ChangedSymbols;
-use SanderMuller\Richter\Graph\CodeGraphBuilder;
+use SanderMuller\Richter\Graph\GraphCache;
 use SanderMuller\Richter\Support\RichterConfig;
 
 /**
@@ -24,12 +24,14 @@ use SanderMuller\Richter\Support\RichterConfig;
 final class BenchmarkCommand extends Command
 {
     /** @var string */
-    protected $signature = 'richter:benchmark {--case= : Run only the fixture whose key matches}';
+    protected $signature = 'richter:benchmark
+        {--case= : Run only the fixture whose key matches}
+        {--no-cache : Build the code graph fresh, bypassing the graph cache}';
 
     /** @var string */
     protected $description = 'Score the advisory change-impact report against historical bug fixes and benign controls';
 
-    public function handle(CodeGraphBuilder $builder): int
+    public function handle(GraphCache $graphs): int
     {
         if (RichterConfig::benchmarkCases() === []) {
             $this->warn('No benchmark cases configured in richter.benchmark_cases — nothing to score.');
@@ -45,7 +47,7 @@ final class BenchmarkCommand extends Command
             return self::FAILURE;
         }
 
-        $analyzer = new ImpactAnalyzer($builder->build());
+        $analyzer = new ImpactAnalyzer($graphs->graph(fresh: (bool) $this->option('no-cache')));
         $passed = 0;
         $failed = 0;
         $skipped = 0;

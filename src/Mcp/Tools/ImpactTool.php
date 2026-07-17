@@ -10,7 +10,7 @@ use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
 use Override;
 use SanderMuller\Richter\Analysis\ImpactAnalyzer;
 use SanderMuller\Richter\Analysis\ImpactFormatter;
-use SanderMuller\Richter\Graph\CodeGraphBuilder;
+use SanderMuller\Richter\Graph\GraphCache;
 
 #[IsReadOnly]
 final class ImpactTool extends Tool
@@ -19,7 +19,7 @@ final class ImpactTool extends Tool
 
     protected string $description = 'Static blast radius of a PHP symbol in this Laravel app: its callers (what breaks if you change it) and its dependencies (what it reaches). Advisory; request-path and Eloquent-relationship coverage. Pass an FQCN or substring, e.g. App\\Models\\User.';
 
-    public function __construct(private readonly CodeGraphBuilder $builder) {}
+    public function __construct(private readonly GraphCache $graphs) {}
 
     /** @return array<string, mixed> */
     #[Override]
@@ -40,7 +40,7 @@ final class ImpactTool extends Tool
             return Response::error('The symbol argument must be a non-empty string.');
         }
 
-        $result = new ImpactAnalyzer($this->builder->build())->impact($symbol);
+        $result = new ImpactAnalyzer($this->graphs->graph())->impact($symbol);
 
         return Response::text(ImpactFormatter::impact($result));
     }

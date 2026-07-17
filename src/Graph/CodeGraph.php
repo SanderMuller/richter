@@ -39,6 +39,31 @@ final class CodeGraph
     }
 
     /**
+     * The graph as plain constructor input, for on-disk caching. Every edge lives in the downstream
+     * adjacency (nodes only exist through edges), so deriving from it loses nothing.
+     *
+     * @return array{edges: list<array{source: string, target: string, type: string}>, hasUnresolvedDispatches: bool}
+     */
+    public function toArray(): array
+    {
+        $edges = [];
+
+        foreach ($this->downstream as $source => $hops) {
+            foreach ($hops as $hop) {
+                $edges[] = ['source' => $source, 'target' => $hop['node'], 'type' => $hop['via']];
+            }
+        }
+
+        return ['edges' => $edges, 'hasUnresolvedDispatches' => $this->hasUnresolvedDispatches];
+    }
+
+    /** @param  array{edges: list<array{source: string, target: string, type: string}>, hasUnresolvedDispatches: bool}  $data */
+    public static function fromArray(array $data): self
+    {
+        return new self($data['edges'], $data['hasUnresolvedDispatches']);
+    }
+
+    /**
      * Nodes whose identifier contains the needle at identifier boundaries on both sides — so
      * "Video" matches `model::App\Models\Video` but neither `…\VideoContainer` nor `SuperVideo`.
      *
@@ -106,6 +131,57 @@ final class CodeGraph
     }
 
     /**
+     * Shortest caller chain from the walk's seeds up to each requested target, keyed by target.
+     * Each chain runs target-first and seed-last in call direction — `route::POST::/checkout`
+     * calls the next hop, which calls the next, down to the changed symbol — so a reviewer reads
+     * it as "this entry point reaches the change via …". Every hop's `via` is the type of the edge
+     * to the NEXT hop in the chain; the final (seed) hop carries `''`. A target the walk never
+     * reaches (e.g. a self-listed entry class appended outside the graph) is simply absent.
+     *
+     * @param  list<string>  $from
+     * @param  list<string>  $targets
+     * @return array<string, list<array{node: string, via: string}>>
+     */
+    public function callerPathsTo(array $from, array $targets, int $maxDepth = 6): array
+    {
+        if ($from === [] || $targets === []) {
+            return [];
+        }
+
+        // First-visit parent pointers make each reconstructed chain a BFS-shortest path, and
+        // guarantee termination on cycles (a seed never gains a parent).
+        $parents = [];
+
+        $this->bfs($this->upstream, $from, $maxDepth, static function (array $hop, int $depth, bool $firstVisit, string $fromNode) use (&$parents): void {
+            if ($firstVisit) {
+                $parents[$hop['node']] = ['node' => $fromNode, 'via' => $hop['via']];
+            }
+        });
+
+        $seeds = array_flip($from);
+        $paths = [];
+
+        foreach ($targets as $target) {
+            if (! isset($parents[$target]) && ! isset($seeds[$target])) {
+                continue;
+            }
+
+            $path = [];
+            $node = $target;
+
+            while (isset($parents[$node])) {
+                $path[] = ['node' => $node, 'via' => $parents[$node]['via']];
+                $node = $parents[$node]['node'];
+            }
+
+            $path[] = ['node' => $node, 'via' => ''];
+            $paths[$target] = $path;
+        }
+
+        return $paths;
+    }
+
+    /**
      * @param  array<string, list<array{node: string, via: string}>>  $adjacency
      * @param  list<string>  $from
      * @return list<array{depth: int, node: string, via: string}>
@@ -126,13 +202,14 @@ final class CodeGraph
 
     /**
      * Shared BFS primitive. Invokes $onEdge per traversed edge with the hop, the reached node's depth,
-     * and whether it's the node's first visit — so callers build a first-visit hop list or an
-     * every-encounter via-type map on one scaffolding. Index-pointer queue (not array_shift, which
-     * reindexes on every pop) keeps the walk linear; edges append in non-decreasing depth order.
+     * whether it's the node's first visit, and the node the edge was traversed from — so callers build
+     * a first-visit hop list, an every-encounter via-type map, or a parent-pointer path index on one
+     * scaffolding. Index-pointer queue (not array_shift, which reindexes on every pop) keeps the walk
+     * linear; edges append in non-decreasing depth order.
      *
      * @param  array<string, list<array{node: string, via: string}>>  $adjacency
      * @param  list<string>  $from
-     * @param  callable(array{node: string, via: string}, int, bool): void  $onEdge
+     * @param  callable(array{node: string, via: string}, int, bool, string): void  $onEdge
      */
     private function bfs(array $adjacency, array $from, int $maxDepth, callable $onEdge): void
     {
@@ -155,7 +232,7 @@ final class CodeGraph
                 $depth = $current['depth'] + 1;
                 $firstVisit = ! isset($seen[$hop['node']]);
 
-                $onEdge($hop, $depth, $firstVisit);
+                $onEdge($hop, $depth, $firstVisit, $current['node']);
 
                 if (! $firstVisit) {
                     continue;

@@ -120,6 +120,122 @@ final class CommandsTest extends TestCase
     }
 
     #[Test]
+    public function detect_changes_accepts_the_explain_flag(): void
+    {
+        $this->runArtisan('richter:detect-changes', ['--base' => 'HEAD', '--explain' => true])
+            ->expectsOutputToContain('No changed PHP files under app/ against HEAD.')
+            ->assertSuccessful();
+    }
+
+    #[Test]
+    public function detect_changes_json_carries_the_entry_point_paths_field(): void
+    {
+        $diff = "diff --git a/app/Models/User.php b/app/Models/User.php\n--- a/app/Models/User.php\n+++ b/app/Models/User.php\n@@ -0,0 +1,1 @@\n+    public function added(): void {}\n";
+
+        Process::fake([
+            '*merge-base*' => Process::result("abc123\n"),
+            '*show*' => Process::result(errorOutput: 'bad object', exitCode: 128),
+            '*diff*' => Process::result($diff),
+        ]);
+
+        $this->withoutMockingConsoleOutput();
+        $exitCode = Artisan::call('richter:detect-changes', ['--base' => 'some-base', '--json' => true]);
+        $decoded = json_decode(Artisan::output(), associative: true);
+
+        $this->assertSame(0, $exitCode);
+        $this->assertIsArray($decoded);
+        $this->assertArrayHasKey('entryPointPaths', $decoded);
+    }
+
+    #[Test]
+    public function detect_changes_markdown_reports_a_real_diff_end_to_end(): void
+    {
+        $diff = "diff --git a/app/Models/User.php b/app/Models/User.php\n--- a/app/Models/User.php\n+++ b/app/Models/User.php\n@@ -0,0 +1,1 @@\n+    public function added(): void {}\n";
+
+        Process::fake([
+            '*merge-base*' => Process::result("abc123\n"),
+            '*show*' => Process::result(errorOutput: 'bad object', exitCode: 128),
+            '*diff*' => Process::result($diff),
+        ]);
+
+        $this->withoutMockingConsoleOutput();
+        $exitCode = Artisan::call('richter:detect-changes', ['--base' => 'some-base', '--markdown' => true]);
+        $output = Artisan::output();
+
+        $this->assertSame(0, $exitCode);
+        $this->assertStringContainsString('## Richter change impact', $output);
+        $this->assertStringContainsString('**Risk:**', $output);
+        $this->assertStringContainsString('| `app/Models/User.php` |', $output);
+        $this->assertStringContainsString('UNRESOLVED', $output);
+    }
+
+    #[Test]
+    public function detect_changes_markdown_renders_the_gate_verdict_as_markdown(): void
+    {
+        $diff = "diff --git a/app/Models/User.php b/app/Models/User.php\n--- a/app/Models/User.php\n+++ b/app/Models/User.php\n@@ -0,0 +1,1 @@\n+    public function added(): void {}\n";
+
+        Process::fake([
+            '*merge-base*' => Process::result("abc123\n"),
+            '*show*' => Process::result(errorOutput: 'bad object', exitCode: 128),
+            '*diff*' => Process::result($diff),
+        ]);
+
+        $this->withoutMockingConsoleOutput();
+        $exitCode = Artisan::call('richter:detect-changes', ['--base' => 'some-base', '--markdown' => true, '--fail-on-unresolved' => true]);
+        $output = Artisan::output();
+
+        $this->assertSame(1, $exitCode);
+        $this->assertStringContainsString('**Gate:** FAIL', $output);
+    }
+
+    #[Test]
+    public function detect_changes_rejects_json_combined_with_markdown_as_a_json_error(): void
+    {
+        // With --json present even the usage error must keep stdout a single parseable document.
+        $this->withoutMockingConsoleOutput();
+        $exitCode = Artisan::call('richter:detect-changes', ['--json' => true, '--markdown' => true]);
+        $decoded = json_decode(Artisan::output(), associative: true);
+
+        $this->assertSame(1, $exitCode);
+        $this->assertIsArray($decoded);
+        $this->assertIsString($decoded['error']);
+        $this->assertStringContainsString('mutually exclusive', $decoded['error']);
+    }
+
+    #[Test]
+    public function impact_markdown_emits_a_document_without_the_progress_line(): void
+    {
+        $this->withoutMockingConsoleOutput();
+        $exitCode = Artisan::call('richter:impact', ['symbol' => 'Zzz\\Nonexistent\\Symbol', '--markdown' => true]);
+        $output = Artisan::output();
+
+        $this->assertSame(0, $exitCode);
+        $this->assertStringContainsString('## Richter blast radius:', $output);
+        $this->assertStringNotContainsString('Building code graph…', $output);
+    }
+
+    #[Test]
+    public function impact_rejects_json_combined_with_markdown_as_a_json_error(): void
+    {
+        $this->withoutMockingConsoleOutput();
+        $exitCode = Artisan::call('richter:impact', ['symbol' => 'X', '--json' => true, '--markdown' => true]);
+        $decoded = json_decode(Artisan::output(), associative: true);
+
+        $this->assertSame(1, $exitCode);
+        $this->assertIsArray($decoded);
+        $this->assertIsString($decoded['error']);
+        $this->assertStringContainsString('mutually exclusive', $decoded['error']);
+    }
+
+    #[Test]
+    public function impact_accepts_the_no_cache_flag(): void
+    {
+        $this->runArtisan('richter:impact', ['symbol' => 'Zzz\\Nonexistent\\Symbol', '--no-cache' => true])
+            ->expectsOutputToContain('No graph nodes matched')
+            ->assertSuccessful();
+    }
+
+    #[Test]
     public function benchmark_fails_a_case_whose_diff_cannot_be_resolved(): void
     {
         config()->set('richter.benchmark_cases', [self::benchmarkCase()]);

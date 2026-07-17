@@ -160,6 +160,50 @@ final class ImpactFormatterTest extends TestCase
     }
 
     #[Test]
+    public function explain_renders_the_call_chain_under_each_reached_entry_point(): void
+    {
+        $result = $this->summary(['route::GET::/videos']) + ['entryPointPaths' => [
+            'route::GET::/videos' => [
+                ['node' => 'route::GET::/videos', 'via' => 'route-to-controller'],
+                ['node' => 'App\Http\Controllers\VideoController::index', 'via' => 'action-to-service'],
+                ['node' => 'App\Services\VideoPublisher::publish', 'via' => ''],
+            ],
+        ]];
+
+        $output = ImpactFormatter::detectChanges($result, explain: true);
+
+        $this->assertStringContainsString(
+            '↳ route::GET::/videos →(route-to-controller) App\Http\Controllers\VideoController::index →(action-to-service) App\Services\VideoPublisher::publish',
+            $output,
+        );
+    }
+
+    #[Test]
+    public function no_call_chain_renders_without_explain(): void
+    {
+        $result = $this->summary(['route::GET::/videos']) + ['entryPointPaths' => [
+            'route::GET::/videos' => [
+                ['node' => 'route::GET::/videos', 'via' => 'route-to-controller'],
+                ['node' => 'App\Services\VideoPublisher::publish', 'via' => ''],
+            ],
+        ]];
+
+        $this->assertStringNotContainsString('↳', ImpactFormatter::detectChanges($result));
+    }
+
+    #[Test]
+    public function explain_leaves_a_self_listed_entry_class_without_a_chain(): void
+    {
+        // A self-listed entry class has no path (it IS the entry surface) — its bullet renders alone.
+        $result = $this->summary(['App\Jobs\ImportJob']) + ['entryPointPaths' => []];
+
+        $output = ImpactFormatter::detectChanges($result, explain: true);
+
+        $this->assertStringContainsString('- App\Jobs\ImportJob', $output);
+        $this->assertStringNotContainsString('↳', $output);
+    }
+
+    #[Test]
     public function a_console_command_entry_point_renders_without_its_signature(): void
     {
         $text = ImpactFormatter::detectChanges(

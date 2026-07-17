@@ -7,6 +7,7 @@ use Override;
 use SanderMuller\Richter\Console\BenchmarkCommand;
 use SanderMuller\Richter\Console\DetectChangesCommand;
 use SanderMuller\Richter\Console\ImpactCommand;
+use SanderMuller\Richter\Graph\GraphCache;
 use SanderMuller\Richter\Mcp\RichterServer;
 use Spatie\LaravelPackageTools\Package;
 use Spatie\LaravelPackageTools\PackageServiceProvider;
@@ -20,6 +21,13 @@ final class RichterServiceProvider extends PackageServiceProvider
             ->name('richter')
             ->hasConfigFile()
             ->hasCommands(ImpactCommand::class, DetectChangesCommand::class, BenchmarkCommand::class);
+    }
+
+    #[Override]
+    public function packageRegistered(): void
+    {
+        // A singleton so one MCP session reuses the parsed graph in memory across tool calls.
+        $this->app->singleton(GraphCache::class);
     }
 
     #[Override]

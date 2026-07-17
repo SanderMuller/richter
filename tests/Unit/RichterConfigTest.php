@@ -74,6 +74,40 @@ final class RichterConfigTest extends TestCase
     }
 
     #[Test]
+    public function the_cache_is_enabled_by_default_and_a_non_boolean_value_throws(): void
+    {
+        config()->set('richter.cache.enabled');
+        $this->assertTrue(RichterConfig::cacheEnabled());
+
+        config()->set('richter.cache.enabled', 'yes');
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('richter.cache.enabled');
+
+        RichterConfig::cacheEnabled();
+    }
+
+    #[Test]
+    public function the_cache_directory_defaults_to_storage_and_honours_an_override(): void
+    {
+        config()->set('richter.cache.directory');
+        $this->assertSame(storage_path('framework/cache/richter'), RichterConfig::cacheDirectory());
+
+        config()->set('richter.cache.directory', '/tmp/custom-richter');
+        $this->assertSame('/tmp/custom-richter', RichterConfig::cacheDirectory());
+    }
+
+    #[Test]
+    public function a_non_string_cache_directory_throws(): void
+    {
+        config()->set('richter.cache.directory', ['nope']);
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('richter.cache.directory');
+
+        RichterConfig::cacheDirectory();
+    }
+
+    #[Test]
     public function a_non_array_benchmark_cases_value_throws(): void
     {
         config()->set('richter.benchmark_cases', 'abc1234');

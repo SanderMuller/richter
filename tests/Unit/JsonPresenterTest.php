@@ -50,6 +50,19 @@ final class JsonPresenterTest extends TestCase
     }
 
     #[Test]
+    public function detect_changes_carries_the_entry_point_chains_uncapped(): void
+    {
+        $json = JsonPresenter::detectChanges($this->detectChangesResult(), 'origin/main');
+
+        $this->assertSame([
+            'route::GET /a' => [
+                ['node' => 'route::GET /a', 'via' => 'route-to-controller'],
+                ['node' => 'App\\Jobs\\ProcessVideoJob::handle', 'via' => ''],
+            ],
+        ], $json['entryPointPaths']);
+    }
+
+    #[Test]
     public function detect_changes_flags_unresolved_from_the_coverage_map(): void
     {
         $withUnresolved = JsonPresenter::detectChanges($this->detectChangesResult(coverageUnresolved: true), 'origin/main');
@@ -80,6 +93,7 @@ final class JsonPresenterTest extends TestCase
         $this->assertSame([], $json['changed']);
         $this->assertSame([], $json['coverage']);
         $this->assertSame([], $json['entryPoints']);
+        $this->assertSame([], $json['entryPointPaths']);
         $this->assertSame(0, $json['impacted']);
         $this->assertFalse($json['unresolved']);
     }
@@ -94,7 +108,7 @@ final class JsonPresenterTest extends TestCase
 
     /**
      * @param  list<string>  $entryPoints
-     * @return array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied: bool, findings: list<string>}
+     * @return array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, entryPointPaths: array<string, list<array{node: string, via: string}>>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied: bool, findings: list<string>}
      */
     private function detectChangesResult(RiskLevel $risk = RiskLevel::Low, bool $coverageUnresolved = false, array $entryPoints = ['route::GET /a', 'route::GET /b', 'route::GET /c']): array
     {
@@ -102,6 +116,12 @@ final class JsonPresenterTest extends TestCase
             'changed' => ['app/Jobs/ProcessVideoJob.php' => 3],
             'coverage' => ['app/Jobs/ProcessVideoJob.php' => $coverageUnresolved ? 'unresolved' : 'analyzed'],
             'entryPoints' => $entryPoints,
+            'entryPointPaths' => [
+                'route::GET /a' => [
+                    ['node' => 'route::GET /a', 'via' => 'route-to-controller'],
+                    ['node' => 'App\\Jobs\\ProcessVideoJob::handle', 'via' => ''],
+                ],
+            ],
             'impacted' => count($entryPoints),
             'relatedModels' => ['App\\Models\\Video'],
             'risk' => $risk,

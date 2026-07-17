@@ -50,6 +50,7 @@ final readonly class ImpactAnalyzer
      *     callers: list<array{depth: int, node: string, via: string}>,
      *     dependencies: list<array{depth: int, node: string, via: string}>,
      *     entryPoints: list<string>,
+     *     entryPointPaths: array<string, list<array{node: string, via: string}>>,
      *     impacted: int,
      *     relatedModels: list<string>,
      *     risk: RiskLevel,
@@ -123,6 +124,11 @@ final readonly class ImpactAnalyzer
 
         $entryPoints = $this->entryPointsAmong($callers);
         $riskEntryPointCount = count($entryPoints);
+
+        // Paths exist only for graph-reached entry points — computed before the self-listing below,
+        // so a self-listed entry class (which IS the entry surface, not reached from the change)
+        // deliberately carries no chain.
+        $entryPointPaths = $this->graph->callerPathsTo($seeds, $entryPoints, $maxDepth);
 
         // A changed listener/job/command/Livewire class IS an entry surface even when nothing app-side
         // calls it (a vendor-fired event, an unfollowable dispatch) — "Entry points reached: 0"
@@ -200,6 +206,7 @@ final readonly class ImpactAnalyzer
             'callers' => $callers,
             'dependencies' => $dependencies,
             'entryPoints' => $entryPoints,
+            'entryPointPaths' => $entryPointPaths,
             'impacted' => $impacted,
             'relatedModels' => $this->readableModelLabels($relatedModels),
             'risk' => $risk,

@@ -35,10 +35,11 @@ final class ImpactFormatter
     }
 
     /**
-     * @param  array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied?: bool, findings?: list<string>, ...}  $result
+     * @param  array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, entryPointPaths?: array<string, list<array{node: string, via: string}>>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied?: bool, findings?: list<string>, ...}  $result
      * @param  bool  $gateActive  when a `--fail-on*` gate is active the command prints its own verdict, so the advisory suffix is dropped to avoid contradicting it
+     * @param  bool  $explain  render the call chain from each reached entry point down to the changed symbol
      */
-    public static function detectChanges(array $result, ?TestReferenceIndex $tests = null, bool $gateActive = false): string
+    public static function detectChanges(array $result, ?TestReferenceIndex $tests = null, bool $gateActive = false, bool $explain = false): string
     {
         $lines = ['Changed files:'];
 
@@ -54,11 +55,11 @@ final class ImpactFormatter
         $unresolvedSuffix = $unresolved ? ' (some changed files are in an area not yet graphed — see UNRESOLVED above)' : '';
         $lines[] = '';
         $lines[] = 'Entry points reached: ' . count($result['entryPoints']) . $unresolvedSuffix;
-        $entryLabels = array_map(
-            static fn (string $node): string => self::entryLabel($node) . self::testReferenceSuffix($tests, $node),
+        $lines = [...$lines, ...self::entryPointList(
             $result['entryPoints'],
-        );
-        $lines = [...$lines, ...self::summarisedList($entryLabels)];
+            $explain ? ($result['entryPointPaths'] ?? []) : [],
+            $tests,
+        )];
 
         if ($result['relatedModels'] !== []) {
             $lines[] = '';
@@ -87,6 +88,65 @@ final class ImpactFormatter
         }
 
         return implode("\n", $lines);
+    }
+
+    /**
+     * The entry-point list with {@see summarisedList}'s sorting and capping, plus — when paths are
+     * given — an explain chain under each entry showing how it reaches the changed symbol. Chain
+     * sub-lines don't count toward the cap, and a path-less entry (a self-listed entry class) renders
+     * its bullet alone.
+     *
+     * @param  list<string>  $entryPoints
+     * @param  array<string, list<array{node: string, via: string}>>  $paths  keyed by entry-point node; empty when not explaining
+     * @return list<string>
+     */
+    private static function entryPointList(array $entryPoints, array $paths, ?TestReferenceIndex $tests): array
+    {
+        $items = array_map(static fn (string $node): array => [
+            'label' => self::entryLabel($node) . self::testReferenceSuffix($tests, $node),
+            'node' => $node,
+        ], $entryPoints);
+        usort($items, static fn (array $a, array $b): int => $a['label'] <=> $b['label']);
+
+        $overCap = count($items) > self::LIST_CAP;
+        $shown = $overCap ? array_slice($items, 0, self::LIST_CAP) : $items;
+        $lines = [];
+
+        foreach ($shown as $item) {
+            $lines[] = "  - {$item['label']}";
+            $path = $paths[$item['node']] ?? [];
+
+            // A single-hop path is the entry point itself — there is no chain to explain.
+            if (count($path) > 1) {
+                $lines[] = '      ↳ ' . self::pathChain($path);
+            }
+        }
+
+        if ($overCap) {
+            $more = count($items) - self::LIST_CAP;
+            $lines[] = "  … and {$more} more";
+            $lines[] = '  Note: a large reach here is breadth (a central change touching many call sites), not a precise checklist to verify one by one.';
+        }
+
+        return $lines;
+    }
+
+    /**
+     * One explain chain: the entry point first, the changed symbol last, each arrow labelled with
+     * the edge type connecting its two hops.
+     *
+     * @param  list<array{node: string, via: string}>  $path
+     */
+    private static function pathChain(array $path): string
+    {
+        $chain = self::entryLabel($path[0]['node']);
+        $count = count($path);
+
+        for ($i = 1; $i < $count; ++$i) {
+            $chain .= " →({$path[$i - 1]['via']}) {$path[$i]['node']}";
+        }
+
+        return $chain;
     }
 
     /**

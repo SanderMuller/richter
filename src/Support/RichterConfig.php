@@ -36,6 +36,36 @@ final class RichterConfig
         return self::stringList('richter.entry_point_roots');
     }
 
+    public static function cacheEnabled(): bool
+    {
+        $value = config('richter.cache.enabled');
+
+        if ($value === null) {
+            return true;
+        }
+
+        if (! is_bool($value)) {
+            throw new InvalidArgumentException('The richter.cache.enabled config value must be a boolean.');
+        }
+
+        return $value;
+    }
+
+    public static function cacheDirectory(): string
+    {
+        $value = config('richter.cache.directory');
+
+        if ($value === null || $value === '') {
+            return storage_path('framework/cache/richter');
+        }
+
+        if (! is_string($value)) {
+            throw new InvalidArgumentException('The richter.cache.directory config value must be a string path.');
+        }
+
+        return $value;
+    }
+
     /** @return list<BenchmarkCase> */
     public static function benchmarkCases(): array
     {
