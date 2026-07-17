@@ -3,6 +3,7 @@
 namespace SanderMuller\Richter\Tests\Feature;
 
 use App\Models\User;
+use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Process;
 use Illuminate\Testing\PendingCommand;
@@ -252,6 +253,52 @@ final class CommandsTest extends TestCase
     }
 
     #[Test]
+    public function benchmark_passes_a_signal_case_end_to_end(): void
+    {
+        // The full pass chain — config → commit check → historical diff → member resolution →
+        // graph walk → PASS — is exercised nowhere else: benchmark_cases ships empty and the other
+        // benchmark tests cover only the warn/skip/fail branches.
+        config()->set('richter.benchmark_cases', [self::benchmarkCase()]);
+
+        $this->fakeBenchmarkReplayReachingRoutes();
+
+        $this->runArtisan('richter:benchmark')
+            ->expectsOutputToContain('PASS')
+            ->expectsOutputToContain('Score: 1 passed, 0 failed of 1 fixtures.')
+            ->assertSuccessful();
+    }
+
+    #[Test]
+    public function benchmark_passes_a_control_case_within_its_risk_cap(): void
+    {
+        // The replayed change reaches route entry points (MEDIUM risk); a control capped at high
+        // tolerates that, and its resolved seed also clears the fixture-drift guard.
+        config()->set('richter.benchmark_cases', [self::benchmarkCase(expectSignal: false, maxRisk: 'high')]);
+
+        $this->fakeBenchmarkReplayReachingRoutes();
+
+        $this->runArtisan('richter:benchmark')
+            ->expectsOutputToContain('PASS')
+            ->expectsOutputToContain('Score: 1 passed, 0 failed of 1 fixtures.')
+            ->assertSuccessful();
+    }
+
+    #[Test]
+    public function benchmark_fails_a_control_case_that_exceeds_its_risk_cap(): void
+    {
+        // Same replay, cap lowered to low: the two reached route entry points rate MEDIUM, so the
+        // over-reporting cap must trip — a control flipping green→red is detectable in CI.
+        config()->set('richter.benchmark_cases', [self::benchmarkCase(expectSignal: false, maxRisk: 'low')]);
+
+        $this->fakeBenchmarkReplayReachingRoutes();
+
+        $this->runArtisan('richter:benchmark')
+            ->expectsOutputToContain('FAIL — risk medium exceeds the expected maximum of low')
+            ->expectsOutputToContain('Score: 0 passed, 1 failed of 1 fixtures.')
+            ->assertFailed();
+    }
+
+    #[Test]
     public function impact_json_emits_parseable_json_with_empty_arrays_for_a_no_match_symbol(): void
     {
         // No progress line pollutes stdout in JSON mode, so the whole buffer must decode.
@@ -429,14 +476,49 @@ final class CommandsTest extends TestCase
     }
 
     /** @return array{key: string, fix_commit: string, bug_class: string, expect_signal: bool, max_risk: string} */
-    private function benchmarkCase(): array
+    private function benchmarkCase(bool $expectSignal = true, string $maxRisk = 'high'): array
     {
         return [
             'key' => 'CASE-1',
             'fix_commit' => 'abc1234',
             'bug_class' => 'background-job change',
-            'expect_signal' => true,
-            'max_risk' => 'high',
+            'expect_signal' => $expectSignal,
+            'max_risk' => $maxRisk,
         ];
+    }
+
+    /**
+     * Points the graph at the fixture project and fakes the four git calls a benchmark replay makes,
+     * so the configured case replays a modification inside QuestionController::show() — a member the
+     * fixture graph resolves and walks up to its two routes (see CodeGraphBuilderTest). The testbench
+     * skeleton's app/ is empty, so its graph could never resolve a seed, let alone reach an entry
+     * point. Both `git show` sides return the real fixture source; the diff's line number is derived
+     * from that exact source so the change lands inside the method's span, not at class level.
+     */
+    private function fakeBenchmarkReplayReachingRoutes(): void
+    {
+        $app = $this->app;
+        $this->assertInstanceOf(Application::class, $app);
+        $app->setBasePath(self::fixtureProjectPath());
+
+        $file = 'app/Http/Controllers/Video/QuestionController.php';
+        $source = (string) file_get_contents(self::fixtureProjectPath() . '/' . $file);
+        $changedLine = array_search('        return QuestionResource::make($video);', explode("\n", $source), true);
+        $this->assertIsInt($changedLine);
+        ++$changedLine; // explode() indexes from 0, diff hunk headers from 1.
+
+        $diff = "diff --git a/{$file} b/{$file}\n"
+            . "--- a/{$file}\n"
+            . "+++ b/{$file}\n"
+            . "@@ -{$changedLine},1 +{$changedLine},1 @@\n"
+            . "-        return QuestionResource::make(\$video->withoutRelations());\n"
+            . "+        return QuestionResource::make(\$video);\n";
+
+        Process::fake([
+            '*cat-file*' => Process::result(),
+            '*merge-base*' => Process::result("base123\n"),
+            '*diff*' => Process::result($diff),
+            '*show*' => Process::result($source),
+        ]);
     }
 }
