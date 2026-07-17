@@ -2,6 +2,7 @@
 
 namespace SanderMuller\Richter\Tests\Feature;
 
+use Illuminate\Support\Facades\Process;
 use Laravel\Mcp\Facades\Mcp;
 use Laravel\Mcp\Request;
 use PHPUnit\Framework\Attributes\Test;
@@ -46,5 +47,30 @@ final class McpTest extends TestCase
         $response = resolve(DetectChangesTool::class)->handle(new Request(['base' => '--upload-pack=x']));
 
         $this->assertTrue($response->isError());
+    }
+
+    #[Test]
+    public function the_impact_tool_reports_the_blast_radius_of_a_symbol(): void
+    {
+        // Builds the real graph of the testbench skeleton. Both formatter branches (matched and
+        // unmatched) quote the symbol, so the assertion holds regardless of what that graph contains.
+        $response = resolve(ImpactTool::class)->handle(new Request(['symbol' => 'User']));
+
+        $this->assertFalse($response->isError());
+        $this->assertStringContainsString('User', (string) $response->content());
+    }
+
+    #[Test]
+    public function the_detect_changes_tool_reports_an_empty_diff_cleanly(): void
+    {
+        Process::fake([
+            '*merge-base*' => Process::result("abc123\n"),
+            '*diff*' => Process::result(''),
+        ]);
+
+        $response = resolve(DetectChangesTool::class)->handle(new Request([]));
+
+        $this->assertFalse($response->isError());
+        $this->assertStringContainsString('No changed PHP files under app/', (string) $response->content());
     }
 }
