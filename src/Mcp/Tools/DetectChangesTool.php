@@ -6,12 +6,14 @@ use Illuminate\Contracts\JsonSchema\JsonSchema;
 use InvalidArgumentException;
 use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
+use Laravel\Mcp\ResponseFactory;
 use Laravel\Mcp\Server\Tool;
 use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
 use Override;
 use RuntimeException;
 use SanderMuller\Richter\Analysis\ImpactAnalyzer;
 use SanderMuller\Richter\Analysis\ImpactFormatter;
+use SanderMuller\Richter\Analysis\JsonPresenter;
 use SanderMuller\Richter\Analysis\TestReferenceIndex;
 use SanderMuller\Richter\Changes\ChangedSymbols;
 use SanderMuller\Richter\Graph\GraphCache;
@@ -36,7 +38,7 @@ final class DetectChangesTool extends Tool
         ];
     }
 
-    public function handle(Request $request): Response
+    public function handle(Request $request): Response|ResponseFactory
     {
         try {
             $base = RichterConfig::baseRef($request->get('base'));
@@ -46,11 +48,36 @@ final class DetectChangesTool extends Tool
         }
 
         if ($changed === []) {
-            return Response::text("No changed PHP files under app/ against {$base}.");
+            return new ResponseFactory(Response::text("No changed PHP files under app/ against {$base}."))
+                ->withStructuredContent(JsonPresenter::emptyDetectChanges($base));
         }
 
         $result = new ImpactAnalyzer($this->graphs->graph())->detectChanges($changed);
 
-        return Response::text(ImpactFormatter::detectChanges($result, TestReferenceIndex::fromTests(base_path('tests'))));
+        return new ResponseFactory(Response::text(ImpactFormatter::detectChanges($result, TestReferenceIndex::fromTests(base_path('tests')))))
+            ->withStructuredContent(JsonPresenter::detectChanges($result, $base));
+    }
+
+    /** @return array<string, mixed> */
+    #[Override]
+    public function outputSchema(JsonSchema $schema): array
+    {
+        return [
+            'base' => $schema->string()->description('The git ref the diff was taken against.'),
+            'changed' => $schema->anyOf([$schema->object(), $schema->array()])
+                ->description('Changed file => resolved seed count. Empty map serializes as [].'),
+            'coverage' => $schema->anyOf([$schema->object(), $schema->array()])
+                ->description('Changed file => "analyzed" or "unresolved". Empty map serializes as [].'),
+            'entryPoints' => $schema->array()->items($schema->string()),
+            'entryPointPaths' => $schema->anyOf([$schema->object(), $schema->array()])
+                ->description('Entry-point node => call chain down to the changed code. Empty map serializes as [].'),
+            'impacted' => $schema->integer()->description('Distinct impacted graph nodes.'),
+            'relatedModels' => $schema->array()->items($schema->string()),
+            'risk' => $schema->string()->description('low, medium or high.'),
+            'lowConfidence' => $schema->boolean(),
+            'coarseCapApplied' => $schema->boolean(),
+            'findings' => $schema->array()->items($schema->string()),
+            'unresolved' => $schema->boolean()->description('True when any changed file could not be placed in the graph.'),
+        ];
     }
 }

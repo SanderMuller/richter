@@ -2,16 +2,40 @@
 
 namespace SanderMuller\Richter\Tests\Feature;
 
+use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Process;
+use Illuminate\Testing\Fluent\AssertableJson;
 use Laravel\Mcp\Facades\Mcp;
 use Laravel\Mcp\Request;
+use Laravel\Mcp\Response;
+use Laravel\Mcp\Server\McpServiceProvider;
+use Override;
 use PHPUnit\Framework\Attributes\Test;
+use SanderMuller\Richter\Analysis\JsonPresenter;
+use SanderMuller\Richter\Mcp\RichterServer;
 use SanderMuller\Richter\Mcp\Tools\DetectChangesTool;
 use SanderMuller\Richter\Mcp\Tools\ImpactTool;
 use SanderMuller\Richter\Tests\TestCase;
 
 final class McpTest extends TestCase
 {
+    /**
+     * Orchestra\Testbench\TestCase disables package auto-discovery by default
+     * ($enablesPackageDiscoveries = false), so laravel/mcp's own service provider never boots for
+     * the shared TestCase. That provider is what wires the `resolving(Request::class, ...)`
+     * container callback that populates a tool's Request with the caller's arguments — without
+     * it, RichterServer::tool(...) calls a tool's handle() with an empty Request every time. Add
+     * it here rather than in tests/TestCase.php so only this file's MCP-specific tests pay for it.
+     *
+     * @param  Application  $app
+     * @return list<class-string>
+     */
+    #[Override]
+    protected function getPackageProviders($app): array
+    {
+        return [...parent::getPackageProviders($app), McpServiceProvider::class];
+    }
+
     #[Test]
     public function the_richter_mcp_server_is_registered(): void
     {
@@ -30,6 +54,9 @@ final class McpTest extends TestCase
     {
         $response = resolve(ImpactTool::class)->handle(new Request([]));
 
+        // handle() now returns Response|ResponseFactory (see the structured-content success paths
+        // below); this error path always yields Response, so narrow before calling isError().
+        $this->assertInstanceOf(Response::class, $response);
         $this->assertTrue($response->isError());
     }
 
@@ -38,6 +65,7 @@ final class McpTest extends TestCase
     {
         $response = resolve(DetectChangesTool::class)->handle(new Request(['base' => 'this-ref-does-not-exist-zzz']));
 
+        $this->assertInstanceOf(Response::class, $response);
         $this->assertTrue($response->isError());
     }
 
@@ -46,6 +74,7 @@ final class McpTest extends TestCase
     {
         $response = resolve(DetectChangesTool::class)->handle(new Request(['base' => '--upload-pack=x']));
 
+        $this->assertInstanceOf(Response::class, $response);
         $this->assertTrue($response->isError());
     }
 
@@ -54,10 +83,16 @@ final class McpTest extends TestCase
     {
         // Builds the real graph of the testbench skeleton. Both formatter branches (matched and
         // unmatched) quote the symbol, so the assertion holds regardless of what that graph contains.
-        $response = resolve(ImpactTool::class)->handle(new Request(['symbol' => 'User']));
+        RichterServer::tool(ImpactTool::class, ['symbol' => 'User'])
+            ->assertOk()
+            ->assertSee('User')
+            ->assertStructuredContent(function (AssertableJson $json): bool {
+                $json->where('target', 'User')
+                    ->has('callers')
+                    ->has('dependencies');
 
-        $this->assertFalse($response->isError());
-        $this->assertStringContainsString('User', (string) $response->content());
+                return true;
+            });
     }
 
     #[Test]
@@ -68,9 +103,68 @@ final class McpTest extends TestCase
             '*diff*' => Process::result(''),
         ]);
 
-        $response = resolve(DetectChangesTool::class)->handle(new Request([]));
+        // The testbench config default base is origin/main; the exact-array form pins every
+        // field of the zero contract.
+        RichterServer::tool(DetectChangesTool::class)
+            ->assertOk()
+            ->assertSee('No changed PHP files under app/')
+            ->assertStructuredContent(JsonPresenter::emptyDetectChanges('origin/main'));
+    }
 
-        $this->assertFalse($response->isError());
-        $this->assertStringContainsString('No changed PHP files under app/', (string) $response->content());
+    #[Test]
+    public function the_detect_changes_tool_reports_a_real_diff_with_structured_content(): void
+    {
+        // Same faked git plumbing as CommandsTest::detect_changes_reports_a_real_diff_end_to_end: the
+        // changed file does not exist in the skeleton working tree, so this also covers the graph
+        // returning an unresolved coverage entry rather than a falsely-empty "no impact".
+        $diff = "diff --git a/app/Models/User.php b/app/Models/User.php\n--- a/app/Models/User.php\n+++ b/app/Models/User.php\n@@ -0,0 +1,1 @@\n+    public function added(): void {}\n";
+
+        Process::fake([
+            '*merge-base*' => Process::result("abc123\n"),
+            '*show*' => Process::result(errorOutput: 'bad object', exitCode: 128),
+            '*diff*' => Process::result($diff),
+        ]);
+
+        RichterServer::tool(DetectChangesTool::class, ['base' => 'some-base'])
+            ->assertOk()
+            ->assertStructuredContent(function (AssertableJson $json): bool {
+                $json->has('base')
+                    ->has('risk')
+                    ->etc();
+
+                return true;
+            });
+    }
+
+    #[Test]
+    public function the_tools_advertise_output_schemas_matching_their_json_presenter_shapes(): void
+    {
+        $impactOutputSchema = resolve(ImpactTool::class)->toArray()['outputSchema'] ?? [];
+        $detectChangesOutputSchema = resolve(DetectChangesTool::class)->toArray()['outputSchema'] ?? [];
+
+        $this->assertIsArray($impactOutputSchema);
+        $this->assertIsArray($detectChangesOutputSchema);
+
+        $impactProperties = $impactOutputSchema['properties'] ?? [];
+        $detectChangesProperties = $detectChangesOutputSchema['properties'] ?? [];
+
+        $this->assertIsArray($impactProperties);
+        $this->assertIsArray($detectChangesProperties);
+
+        $this->assertSame(['target', 'callers', 'dependencies'], array_keys($impactProperties));
+        $this->assertSame([
+            'base',
+            'changed',
+            'coverage',
+            'entryPoints',
+            'entryPointPaths',
+            'impacted',
+            'relatedModels',
+            'risk',
+            'lowConfidence',
+            'coarseCapApplied',
+            'findings',
+            'unresolved',
+        ], array_keys($detectChangesProperties));
     }
 }

@@ -218,7 +218,7 @@ Building the code graph is the dominant cost of every command. Richter caches th
 
 ### MCP server
 
-When [`laravel/mcp`](https://github.com/laravel/mcp) is installed, Richter registers a local MCP server named `richter` exposing two read-only tools: `impact` (blast radius of a symbol) and `detect-changes` (advisory impact of the current branch diff). A coding agent can then triage changes without shelling out to Artisan — and because the MCP session holds the graph cache in memory, repeated tool calls in one review don't rebuild the graph.
+When [`laravel/mcp`](https://github.com/laravel/mcp) is installed, Richter registers a local MCP server named `richter` exposing two read-only tools: `impact` (blast radius of a symbol) and `detect-changes` (advisory impact of the current branch diff). A coding agent can then triage changes without shelling out to Artisan — and because the MCP session holds the graph cache in memory, repeated tool calls in one review don't rebuild the graph. Both tools also return MCP structured content in the same shape as the CLI `--json` output, so an agent can branch on fields instead of parsing prose.
 
 Point Claude Code, Cursor, or any MCP client at the Artisan entry point — e.g. in `.mcp.json`:
 

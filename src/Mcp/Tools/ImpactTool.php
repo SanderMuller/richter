@@ -5,11 +5,13 @@ namespace SanderMuller\Richter\Mcp\Tools;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
+use Laravel\Mcp\ResponseFactory;
 use Laravel\Mcp\Server\Tool;
 use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
 use Override;
 use SanderMuller\Richter\Analysis\ImpactAnalyzer;
 use SanderMuller\Richter\Analysis\ImpactFormatter;
+use SanderMuller\Richter\Analysis\JsonPresenter;
 use SanderMuller\Richter\Graph\GraphCache;
 
 #[IsReadOnly]
@@ -32,7 +34,7 @@ final class ImpactTool extends Tool
         ];
     }
 
-    public function handle(Request $request): Response
+    public function handle(Request $request): Response|ResponseFactory
     {
         $symbol = $request->get('symbol');
 
@@ -42,6 +44,24 @@ final class ImpactTool extends Tool
 
         $result = new ImpactAnalyzer($this->graphs->graph())->impact($symbol);
 
-        return Response::text(ImpactFormatter::impact($result));
+        return new ResponseFactory(Response::text(ImpactFormatter::impact($result)))
+            ->withStructuredContent(JsonPresenter::impact($result));
+    }
+
+    /** @return array<string, mixed> */
+    #[Override]
+    public function outputSchema(JsonSchema $schema): array
+    {
+        $edge = $schema->object([
+            'depth' => $schema->integer(),
+            'node' => $schema->string(),
+            'via' => $schema->string(),
+        ]);
+
+        return [
+            'target' => $schema->string()->description('The symbol as analysed.'),
+            'callers' => $schema->array()->items($edge)->description('What breaks if the target changes; depth 1 is a direct caller.'),
+            'dependencies' => $schema->array()->items($edge)->description('What the target reaches.'),
+        ];
     }
 }
