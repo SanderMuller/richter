@@ -35,6 +35,8 @@ your row when done.
 | 011  | Cover the interface/binding edges and MCP success paths | P2 | M | — | DONE (reviewed; binding half removed from scope — blocked on finding 19, upstream Brain bug; branch `advisor/011-interface-binding-mcp-coverage`, commits `9d7a43d`+`8bb2535`) |
 | 012  | Replace the Brain container-binding scan with a Richter-native one (finding 19 workaround) | P1 | M | 005 | DONE (reviewed; branch `advisor/012-native-binding-edges` off 005's tip, commit `6c3ed4c`; upstream fix PR'd as laramint/laravel-brain#65) |
 | 013  | Make pure renames visible — a moved class must never read as "no impact" (finding 4) | P1 | M | — | DONE (reviewed + 22-agent adversarial verification, 0 confirmed findings; commit `53a5121`, merged to main 2026-07-18) |
+| 015  | Emit structured MCP output — prose plus the documented --json contract (D3) | P2 | S | — | TODO |
+| 016  | Add richter:benchmark:add — scaffold a benchmark fixture from a fix commit (D4) | P3 | M | — | TODO |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED (with one-line rationale — finding fixed independently or approach abandoned)
 
@@ -85,11 +87,18 @@ Summary, so nobody re-audits these:
 
 ## Audit findings not yet planned
 
-Findings 4 (pure renames), 7 (laravel/mcp version boundary), 13 (Brain
-contract test), 15 (abandoned dev dependency), 16 (QA workflow docs),
-**19 (NEW, from plan-011 execution: container-binding edges silently absent
+Findings 7 (laravel/mcp version boundary), 13 (Brain contract test —
+deliberately waiting for upstream laramint/laravel-brain#65 to merge),
+15 (abandoned dev dependency), 16 (QA workflow docs), and
+**19 (from plan-011 execution: container-binding edges silently absent
 for providers opening with `declare(strict_types=1)` — upstream
-laravel-brain `ContainerBindingAnalyzer` bug; see the audit file)**, and
-direction items D3/D4 remain unplanned; numbering here stays monotonic as
-plans are added for them. Finding 5 is covered by plan 011 except its
-binding half, which is blocked on finding 19.
+laravel-brain `ContainerBindingAnalyzer` bug; Richter-side workaround
+shipped in plan 012, upstream fix PR'd as laramint/laravel-brain#65)**
+remain unplanned; numbering here stays monotonic as plans are added for
+them. Finding 4 became plan 013; direction items D3/D4 became plans
+015/016 (2026-07-18). Finding 5 is covered by plan 011 except its binding
+half, which is blocked on finding 19.
+
+- Plans 015 and 016 both add one small block to `README.md` (different
+  sections: MCP server vs. benchmark) — integrate sequentially and expect
+  at most a trivial adjacent-hunk merge, never a semantic conflict.

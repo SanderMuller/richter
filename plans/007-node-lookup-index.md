@@ -20,7 +20,7 @@
 - **Risk**: LOW (semantics pinned by an existing test; the regex stays as the final filter)
 - **Depends on**: none
 - **Category**: perf
-- **Planned at**: commit `50a0efa` + uncommitted working-tree changes, 2026-07-16
+- **Planned at**: refreshed against main @ `d4a856d`, 2026-07-18 (originally drafted 2026-07-16) — baseline suite 343 tests
 
 ## Why this matters
 
@@ -28,7 +28,7 @@
 
 ## Current state
 
-- `src/Graph/CodeGraph.php:72-84` — the scan, verbatim:
+- `src/Graph/CodeGraph.php:78-90` — the scan, verbatim (unchanged since drafting; only shifted by the canonical-sort addition above it):
 
 ```php
 public function nodesContaining(string $needle): array
@@ -47,7 +47,7 @@ public function nodesContaining(string $needle): array
 ```
 
   Semantics to preserve exactly: case-insensitive; the needle must sit at identifier boundaries on both sides (boundary characters are anything outside `[A-Za-z0-9_]` — so `\`, `:`, `.`, `-`, start/end of string all qualify). Needles arrive as full FQCNs (`App\Models\Video`), bare class names or substrings (`UserPolicy`, from the CLI), member ids (`App\Models\Video::query` via `seedsFor`), and view node ids.
-- `src/Graph/CodeGraph.php:12-34` — node storage: `$this->nodes` is `array<string, true>` filled in the constructor from edge endpoints. Nodes never change after construction (the class has no mutators; `readonly` semantics by convention).
+- `src/Graph/CodeGraph.php:26-40` — node storage: `$this->nodes` is `array<string, true>` filled in the constructor from edge endpoints, **after** the canonical edge sort (`usort` at `:32`, added post-drafting for cache-round-trip determinism). Nodes never change after construction. The sort helps this plan: node insertion order is now deterministic, so the lazy index and the filtered result order are identical for a fresh and a cache-revived graph — the new pin test `a_revived_graph_walks_identically_to_a_fresh_one_regardless_of_edge_order` (CodeGraphWalkTest) must stay green untouched.
 - Callers (context, do not modify): `src/Analysis/ImpactAnalyzer.php:314-342` — `memberSeeds()` filters `candidateNodes($fqcn)` by `str_ends_with($node, '::' . $method)`; `seedsFor()` and `candidateNodes()` pass through to `nodesContaining()`. `impact()` (`:34`) makes one call per invocation; `detectChanges()` (`:62`) makes several per changed file.
 - The behavioral pin: `tests/Unit/ImpactAnalyzerTest.php:456-474` — asserts `App\Models\Video` seeds only `Video` (not sibling `VideoContainer`) and that the needle `Video` matches neither `SuperVideo` nor `VideoContainer`. `tests/Unit/CodeGraphWalkTest.php` covers the walks but not `nodesContaining` directly.
 - Repo conventions: `final` classes, docblocks explain constraints, PHPUnit 12 `#[Test]`.
@@ -57,7 +57,7 @@ public function nodesContaining(string $needle): array
 | Purpose | Command | Expected on success |
 |---|---|---|
 | Graph + analyzer tests | `vendor/bin/phpunit --filter 'CodeGraphWalkTest|ImpactAnalyzerTest'` | all pass |
-| Full suite | `composer test` | exit 0, 0 failures (317+ tests) |
+| Full suite | `composer test` | exit 0, 0 failures (343 tests) |
 | Static analysis | `composer phpstan` | exit 0 |
 | Code style | `vendor/bin/pint --test` | exit 0 |
 | Rector check | `vendor/bin/rector process --dry-run` | exit 0, no proposed changes |
