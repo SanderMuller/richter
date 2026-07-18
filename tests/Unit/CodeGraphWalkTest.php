@@ -150,4 +150,68 @@ final class CodeGraphWalkTest extends TestCase
             ['node' => 'App\Services\B::run', 'via' => ''],
         ], $paths['route::GET::/r']);
     }
+
+    #[Test]
+    public function nodes_containing_matches_only_at_identifier_boundaries(): void
+    {
+        $graph = new CodeGraph([
+            ['source' => 'model::App\Models\Video', 'target' => 'App\Models\VideoContainer', 'type' => 'model-relationship'],
+            ['source' => 'App\Models\SuperVideo', 'target' => 'App\Models\VideoContainer', 'type' => 'model-relationship'],
+        ]);
+
+        // "Video" must match only the exact identifier, not as a prefix or suffix of a sibling name.
+        $this->assertSame(['model::App\Models\Video'], $graph->nodesContaining('Video'));
+
+        // A fully-qualified needle behaves the same way.
+        $this->assertSame(['model::App\Models\Video'], $graph->nodesContaining('App\Models\Video'));
+    }
+
+    #[Test]
+    public function nodes_containing_is_case_insensitive(): void
+    {
+        $graph = new CodeGraph([
+            ['source' => 'model::App\Models\Video', 'target' => 'App\Models\VideoContainer', 'type' => 'model-relationship'],
+        ]);
+
+        $this->assertSame(['model::App\Models\Video'], $graph->nodesContaining('video'));
+    }
+
+    #[Test]
+    public function nodes_containing_matches_member_needles_on_either_side_of_the_double_colon(): void
+    {
+        $graph = new CodeGraph([
+            ['source' => 'App\Models\Video::query', 'target' => 'App\Services\S::run', 'type' => 'action-to-service'],
+        ]);
+
+        // The full member needle matches, and so does the bare method name — the "::" left of it
+        // is itself a boundary character.
+        $this->assertSame(['App\Models\Video::query'], $graph->nodesContaining('Video::query'));
+        $this->assertSame(['App\Models\Video::query'], $graph->nodesContaining('query'));
+    }
+
+    #[Test]
+    public function nodes_containing_returns_nothing_for_an_empty_needle(): void
+    {
+        $graph = new CodeGraph([
+            ['source' => 'App\Models\Video::query', 'target' => 'App\Services\S::run', 'type' => 'action-to-service'],
+        ]);
+
+        $this->assertSame([], $graph->nodesContaining(''));
+    }
+
+    #[Test]
+    public function nodes_containing_returns_nothing_for_a_needle_with_no_identifier_characters(): void
+    {
+        // "::" never sits at an identifier boundary in real node ids — it's always immediately
+        // preceded by the class/verb identifier it separates from the method/path — so it matches
+        // nothing even though the substring is present in every member node. Pinning that as the
+        // current, tokenizer-free behavior; a needle that yields no tokens must keep falling back
+        // to the full regex scan.
+        $graph = new CodeGraph([
+            ['source' => 'App\Models\Video::query', 'target' => 'App\Services\S::run', 'type' => 'action-to-service'],
+            ['source' => 'route::GET::/r', 'target' => 'App\Http\Controllers\C::index', 'type' => 'route-to-controller'],
+        ]);
+
+        $this->assertSame([], $graph->nodesContaining('::'));
+    }
 }

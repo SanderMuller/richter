@@ -19,6 +19,16 @@ final class CodeGraph
     private array $nodes = [];
 
     /**
+     * Lazily-built token → node keys index, used by {@see nodesContaining()} to shrink the regex
+     * scan down from every node to only those sharing an identifier token with the needle. Built
+     * on first use (not in the constructor) so `callersOf`/`dependenciesOf`-only callers never pay
+     * for it.
+     *
+     * @var array<string, list<string>>|null
+     */
+    private ?array $nodesByToken = null;
+
+    /**
      * @param  list<array{source: string, target: string, type: string}>  $edges
      * @param  bool  $hasUnresolvedDispatches  a dispatch verb was seen whose job target couldn't be
      *   statically resolved — so a queue change reaching no entry point is "unknown", not "none".
@@ -72,6 +82,8 @@ final class CodeGraph
     /**
      * Nodes whose identifier contains the needle at identifier boundaries on both sides — so
      * "Video" matches `model::App\Models\Video` but neither `…\VideoContainer` nor `SuperVideo`.
+     * A token index narrows the regex scan down to nodes sharing an identifier token with the
+     * needle; the index is an over-approximation, and the regex above remains the source of truth.
      *
      * @return list<string>
      */
@@ -84,9 +96,76 @@ final class CodeGraph
         $pattern = '/(?<![A-Za-z0-9_])' . preg_quote($needle, '/') . '(?![A-Za-z0-9_])/i';
 
         return array_values(array_filter(
-            array_keys($this->nodes),
+            $this->candidatesFor($needle),
             static fn (string $node): bool => preg_match($pattern, $node) === 1,
         ));
+    }
+
+    /**
+     * Nodes worth running the boundary regex over: every node sharing an identifier token with the
+     * needle, via the shortest of the needle's token posting lists. Any node genuinely matching the
+     * needle must carry ALL of the needle's tokens as exact identifier tokens (the boundary regex
+     * copies the needle verbatim, so each of its tokens lands as a complete identifier run in the
+     * node) — so it necessarily appears in the shortest posting list too, and intersecting the other
+     * lists on top would only cost more without excluding anything the regex wouldn't already reject.
+     * A needle with no identifier tokens at all (e.g. `::`) falls back to every node, unchanged from
+     * the pre-index full scan.
+     *
+     * @return list<string>
+     */
+    private function candidatesFor(string $needle): array
+    {
+        $needleTokens = $this->tokensOf($needle);
+
+        if ($needleTokens === []) {
+            return array_keys($this->nodes);
+        }
+
+        $index = $this->nodesByToken();
+        $shortest = $index[$needleTokens[0]] ?? [];
+
+        foreach (array_unique($needleTokens) as $token) {
+            $postings = $index[$token] ?? [];
+
+            if (count($postings) < count($shortest)) {
+                $shortest = $postings;
+            }
+        }
+
+        return $shortest;
+    }
+
+    /**
+     * @return array<string, list<string>>
+     */
+    private function nodesByToken(): array
+    {
+        if ($this->nodesByToken !== null) {
+            return $this->nodesByToken;
+        }
+
+        $index = [];
+
+        foreach (array_keys($this->nodes) as $node) {
+            foreach (array_unique($this->tokensOf($node)) as $token) {
+                $index[$token][] = $node;
+            }
+        }
+
+        return $this->nodesByToken = $index;
+    }
+
+    /**
+     * Maximal runs of `[A-Za-z0-9_]`, lowercased — the same identifier-character class the boundary
+     * regex in {@see nodesContaining()} treats as "not a boundary".
+     *
+     * @return list<string>
+     */
+    private function tokensOf(string $value): array
+    {
+        $tokens = preg_split('/[^A-Za-z0-9_]+/', strtolower($value), -1, PREG_SPLIT_NO_EMPTY);
+
+        return $tokens === false ? [] : $tokens;
     }
 
     /**
