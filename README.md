@@ -217,7 +217,7 @@ Each case in `config/richter.php`:
 Building the code graph is the dominant cost of every command. Richter caches the built graph on disk (default: `storage/framework/cache/richter/graph.json`), keyed by a content fingerprint of everything the build reads — `app/`, `routes/`, `resources/views`, the relevant config, the package versions. Any input change rebuilds automatically, so a hit can only ever serve the graph the current code produces; there is no TTL to tune and no stale window.
 
 - The cache is on by default; set `richter.cache.enabled` to `false` to disable it.
-- `--no-cache` (on all three commands) bypasses it for one run — the escape hatch for an input the fingerprint doesn't cover.
+- `--no-cache` (on every command) bypasses it for one run — the escape hatch for an input the fingerprint doesn't cover.
 - A corrupt or mismatched cache file reads as a miss and is rebuilt; it never fails a run.
 
 ### MCP server
@@ -257,6 +257,10 @@ Richter assumes standard Laravel conventions: the `App\` root namespace, `app/Mo
 ```bash
 composer test
 ```
+
+## Changelog
+
+See [CHANGELOG](CHANGELOG.md) for what changed per release.
 
 ## License
 
