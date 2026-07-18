@@ -75,7 +75,11 @@ final class MiddlewareAliases
         $map = [];
 
         foreach (new NodeFinder()->findInstanceOf($ast, MethodCall::class) as $call) {
-            if (! $call->name instanceof Identifier || $call->name->toString() !== 'alias') {
+            if (! $call->name instanceof Identifier) {
+                continue;
+            }
+
+            if ($call->name->toString() !== 'alias') {
                 continue;
             }
 

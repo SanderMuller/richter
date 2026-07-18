@@ -2,14 +2,13 @@
 
 namespace SanderMuller\Richter\Graph;
 
+use Closure;
 use LaraMint\LaravelBrain\Analysis\ProjectAnalyzer;
 use LaraMint\LaravelBrain\Graph\Edge;
 use PhpParser\Node;
-use PhpParser\Node\Name;
 use PhpParser\Node\Stmt\ClassLike;
 use PhpParser\Node\Stmt\ClassMethod;
 use PhpParser\Node\Stmt\TraitUse;
-use PhpParser\NodeFinder;
 use PhpParser\NodeTraverser;
 use PhpParser\NodeVisitorAbstract;
 use SanderMuller\Richter\Analysis\ImpactAnalyzer;
@@ -289,9 +288,9 @@ final class CodeGraphBuilder
 
     /**
      * @param  array<string, string>  $aliasToFqcn
-     * @return \Closure(string): string
+     * @return Closure(string):string
      */
-    private static function middlewareAliasResolver(array $aliasToFqcn): \Closure
+    private static function middlewareAliasResolver(array $aliasToFqcn): Closure
     {
         return static function (string $node) use ($aliasToFqcn): string {
             // `middleware::throttle:api` carries parameters — the alias is the part before the colon.
@@ -365,9 +364,9 @@ final class CodeGraphBuilder
 
     /**
      * @param  array<string, list<string>>  $basenameToFqcns
-     * @return \Closure(string): string
+     * @return Closure(string):string
      */
-    private static function shortControllerIdResolver(array $basenameToFqcns): \Closure
+    private static function shortControllerIdResolver(array $basenameToFqcns): Closure
     {
         return static function (string $node) use ($basenameToFqcns): string {
             if (preg_match('/^(?:controller|action)::([A-Za-z_]\w*)(?:::(\w+))?$/', $node, $matches) !== 1) {

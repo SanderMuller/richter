@@ -2,13 +2,15 @@
 
 namespace SanderMuller\Richter\Analysis;
 
+use SanderMuller\Richter\Graph\NodeMetadata;
+
 /**
  * Converts {@see ImpactAnalyzer} results into JSON-ready arrays for the `--json` command surface.
  * The machine payload is complete (uncapped, unlike {@see ImpactFormatter}'s text lists) and stable:
  * its shape is a semver-governed contract. detect-changes deliberately omits the raw caller/dependency
  * walk internals, exposing only the meaningful blast-radius summary.
  *
- * @phpstan-import-type SecurityShape from \SanderMuller\Richter\Graph\NodeMetadata
+ * @phpstan-import-type SecurityShape from NodeMetadata
  */
 final class JsonPresenter
 {

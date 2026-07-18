@@ -229,7 +229,7 @@ final class TestReferenceIndex
         }
 
         if ($referenced) {
-            return ['referenced' => true, 'tests' => self::unique($tests)];
+            return ['referenced' => true, 'tests' => $this->unique($tests)];
         }
 
         // With the router unavailable, name-based matching never ran — a miss here means "couldn't
@@ -255,7 +255,7 @@ final class TestReferenceIndex
         } catch (Throwable) {
             // Console kernel unavailable — a class-import reference can't be ruled out. An artisan
             // string match already in hand is still a determined (positive) answer.
-            return $referenced ? ['referenced' => true, 'tests' => self::unique($tests)] : null;
+            return $referenced ? ['referenced' => true, 'tests' => $this->unique($tests)] : null;
         }
 
         if ($command instanceof Command && isset($this->classes[$command::class])) {
@@ -263,7 +263,7 @@ final class TestReferenceIndex
             $tests = [...$tests, ...$this->classes[$command::class]];
         }
 
-        return ['referenced' => $referenced, 'tests' => self::unique($tests)];
+        return ['referenced' => $referenced, 'tests' => $this->unique($tests)];
     }
 
     /** @param  array<string, list<string>>  $bucket */
@@ -282,7 +282,7 @@ final class TestReferenceIndex
      * @param  list<string>  $tests
      * @return list<string>
      */
-    private static function unique(array $tests): array
+    private function unique(array $tests): array
     {
         $tests = array_values(array_unique($tests));
         sort($tests);

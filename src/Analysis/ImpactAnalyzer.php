@@ -5,6 +5,7 @@ namespace SanderMuller\Richter\Analysis;
 use Illuminate\Support\Str;
 use SanderMuller\Richter\Changes\ChangedFileSymbols;
 use SanderMuller\Richter\Graph\CodeGraph;
+use SanderMuller\Richter\Graph\NodeMetadata;
 use SanderMuller\Richter\Support\Fqcn;
 
 /**
@@ -12,7 +13,7 @@ use SanderMuller\Richter\Support\Fqcn;
  * Advisory only: risk is a coarse signal, not a gate. Node locations and Brain's per-route security
  * surface are carried through as annotation — they inform the reader, never the risk model.
  *
- * @phpstan-import-type SecurityShape from \SanderMuller\Richter\Graph\NodeMetadata
+ * @phpstan-import-type SecurityShape from NodeMetadata
  */
 final readonly class ImpactAnalyzer
 {

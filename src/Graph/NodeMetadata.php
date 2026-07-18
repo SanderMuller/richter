@@ -2,6 +2,9 @@
 
 namespace SanderMuller\Richter\Graph;
 
+use Closure;
+use Throwable;
+
 /**
  * Extracts the per-node annotation Richter keeps from a Brain node's data bag: the defining
  * `file`/`line`, a route's `uri`, and Brain's per-route `security` surface (exposure, risk level,
@@ -68,7 +71,11 @@ final class NodeMetadata
     public static function withRouteGates(array $edges, array $metadata, array $middlewareAliases): array
     {
         foreach ($edges as $edge) {
-            if (! str_starts_with($edge['source'], 'route::') || ! str_starts_with($edge['target'], 'middleware::')) {
+            if (! str_starts_with($edge['source'], 'route::')) {
+                continue;
+            }
+
+            if (! str_starts_with($edge['target'], 'middleware::')) {
                 continue;
             }
 
@@ -114,7 +121,7 @@ final class NodeMetadata
 
         try {
             return class_exists($reference) && is_subclass_of($reference, 'Laravel\Pennant\Middleware\EnsureFeaturesAreActive');
-        } catch (\Throwable) {
+        } catch (Throwable) {
             return false;
         }
     }
@@ -150,10 +157,10 @@ final class NodeMetadata
      * ids the graph no longer contains.
      *
      * @param  array<string, MetadataShape>  $metadata
-     * @param  \Closure(string): string  $resolve
+     * @param Closure(string):string $resolve
      * @return array<string, MetadataShape>
      */
-    public static function remapKeys(array $metadata, \Closure $resolve): array
+    public static function remapKeys(array $metadata, Closure $resolve): array
     {
         $remapped = [];
 
@@ -234,8 +241,15 @@ final class NodeMetadata
             $type = $issue['type'] ?? null;
             $severity = $issue['severity'] ?? null;
             $message = $issue['message'] ?? null;
+            if (! is_string($type)) {
+                continue;
+            }
 
-            if (! is_string($type) || ! is_string($severity) || ! is_string($message)) {
+            if (! is_string($severity)) {
+                continue;
+            }
+
+            if (! is_string($message)) {
                 continue;
             }
 

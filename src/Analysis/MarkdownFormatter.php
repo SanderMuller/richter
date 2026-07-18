@@ -2,6 +2,8 @@
 
 namespace SanderMuller\Richter\Analysis;
 
+use SanderMuller\Richter\Graph\NodeMetadata;
+
 /**
  * Renders {@see ImpactAnalyzer} results as GitHub-flavoured markdown for pull-request descriptions
  * and comments — the workflow the README describes ("hand the reviewer your blast radius"). Unlike
@@ -10,7 +12,7 @@ namespace SanderMuller\Richter\Analysis;
  * Cell and code-span content is repo-derived (paths, FQCNs, route/command ids), so no markdown
  * escaping is applied — a `|` or backtick cannot occur in those identifiers.
  *
- * @phpstan-import-type SecurityShape from \SanderMuller\Richter\Graph\NodeMetadata
+ * @phpstan-import-type SecurityShape from NodeMetadata
  */
 final class MarkdownFormatter
 {

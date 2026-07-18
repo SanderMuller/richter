@@ -3,12 +3,13 @@
 namespace SanderMuller\Richter\Analysis;
 
 use Illuminate\Support\Str;
+use SanderMuller\Richter\Graph\NodeMetadata;
 
 /**
  * Renders {@see ImpactAnalyzer} results as plain text, shared by the artisan commands
  * and the MCP tools so output stays consistent across both surfaces.
  *
- * @phpstan-import-type SecurityShape from \SanderMuller\Richter\Graph\NodeMetadata
+ * @phpstan-import-type SecurityShape from NodeMetadata
  */
 final class ImpactFormatter
 {

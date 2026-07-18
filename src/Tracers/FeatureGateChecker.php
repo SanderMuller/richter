@@ -47,15 +47,19 @@ final class FeatureGateChecker
                 continue;
             }
 
-            if (! $call->name instanceof Identifier || ! in_array($call->name->toString(), self::FEATURE_METHODS, strict: true)) {
+            if (! $call->name instanceof Identifier) {
                 continue;
             }
 
-            if ($lineRanges !== null && ! self::withinRanges($call->getStartLine(), $lineRanges)) {
+            if (! in_array($call->name->toString(), self::FEATURE_METHODS, strict: true)) {
                 continue;
             }
 
-            if (! self::onFeatureFacade($call)) {
+            if ($lineRanges !== null && ! $this->withinRanges($call->getStartLine(), $lineRanges)) {
+                continue;
+            }
+
+            if (! $this->onFeatureFacade($call)) {
                 continue;
             }
 
@@ -64,14 +68,14 @@ final class FeatureGateChecker
             }
         }
 
-        return self::findings(array_keys($flags));
+        return $this->findings(array_keys($flags));
     }
 
     /**
      * A direct `Feature::active(...)` static call, or the fluent scoped form
      * `Feature::for($scope)->active(...)` — a method call whose receiver chain roots in the facade.
      */
-    private static function onFeatureFacade(StaticCall|MethodCall $call): bool
+    private function onFeatureFacade(StaticCall|MethodCall $call): bool
     {
         // Walk fluent receivers (`Feature::for($u)->when(...)`) down to the rooting static call.
         $root = $call;
@@ -91,7 +95,7 @@ final class FeatureGateChecker
     }
 
     /** @param  list<array{int, int}>  $ranges */
-    private static function withinRanges(int $line, array $ranges): bool
+    private function withinRanges(int $line, array $ranges): bool
     {
         return array_any($ranges, static fn (array $range): bool => $line >= $range[0] && $line <= $range[1]);
     }
@@ -107,7 +111,7 @@ final class FeatureGateChecker
             return [];
         }
 
-        return self::findings(array_values(array_unique($matches[1])));
+        return $this->findings(array_values(array_unique($matches[1])));
     }
 
     /**
@@ -175,7 +179,7 @@ final class FeatureGateChecker
      * @param  list<string>  $flags
      * @return list<string>
      */
-    private static function findings(array $flags): array
+    private function findings(array $flags): array
     {
         sort($flags);
 
