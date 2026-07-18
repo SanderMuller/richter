@@ -69,10 +69,30 @@ final class ReferenceEdgeTracer
      */
     public function edgesForResolvedAst(array $ast, string $classFqcn): array
     {
+        $finder = new NodeFinder();
+
+        return $this->edgesForNodes(
+            array_values($finder->findInstanceOf($ast, ClassMethod::class)),
+            array_values($finder->findInstanceOf($ast, TraitUse::class)),
+            $classFqcn,
+        );
+    }
+
+    /**
+     * Bucket-fed variant of {@see edgesForResolvedAst()}: the consolidated loop in
+     * {@see CodeGraphBuilder} collects each file's nodes in one descent and hands every tracer its
+     * bucket, so no tracer re-walks the full tree.
+     *
+     * @param  list<ClassMethod>  $classMethods  every ClassMethod in the file, any depth
+     * @param  list<TraitUse>  $traitUses  every TraitUse in the file
+     * @return list<array{source: string, target: string, type: string}>
+     */
+    public function edgesForNodes(array $classMethods, array $traitUses, string $classFqcn): array
+    {
         $classFqcn = ltrim($classFqcn, '\\');
         $edges = [];
 
-        foreach (new NodeFinder()->findInstanceOf($ast, ClassMethod::class) as $method) {
+        foreach ($classMethods as $method) {
             $sourceNode = $classFqcn . '::' . $method->name->toString();
 
             foreach ($this->referencesIn($method) as $target => $type) {
@@ -90,7 +110,7 @@ final class ReferenceEdgeTracer
         // A trait's methods run inside every class that uses it, but no call edge ever targets the
         // trait — a changed trait method (app/Models/Concerns/…) otherwise reads unplaceable. The
         // using class stands in as the caller; the member-declaration pass links the trait's methods.
-        foreach (new NodeFinder()->findInstanceOf($ast, TraitUse::class) as $traitUse) {
+        foreach ($traitUses as $traitUse) {
             foreach ($traitUse->traits as $trait) {
                 $traitFqcn = AppFiles::resolveName($trait);
 

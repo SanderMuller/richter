@@ -18,6 +18,7 @@ use PhpParser\Node\Identifier;
 use PhpParser\Node\Name;
 use PhpParser\Node\Stmt\ClassMethod;
 use PhpParser\NodeFinder;
+use SanderMuller\Richter\Graph\CodeGraphBuilder;
 use SanderMuller\Richter\Support\AppFiles;
 use Throwable;
 
@@ -72,11 +73,23 @@ final class DispatchEdgeTracer
      */
     public function edgesForResolvedAst(array $ast, string $classFqcn): array
     {
+        return $this->edgesForMethods(array_values(new NodeFinder()->findInstanceOf($ast, ClassMethod::class)), $classFqcn);
+    }
+
+    /**
+     * Bucket-fed variant of {@see edgesForResolvedAst()}: the consolidated loop in
+     * {@see CodeGraphBuilder} collects each file's nodes in one descent and hands every tracer its
+     * bucket, so no tracer re-walks the full tree.
+     *
+     * @param  list<ClassMethod>  $classMethods  every ClassMethod in the file, any depth
+     * @return array{edges: list<array{source: string, target: string, type: string}>, unresolved: int}
+     */
+    public function edgesForMethods(array $classMethods, string $classFqcn): array
+    {
         $edges = [];
         $unresolved = 0;
 
-        /** @var ClassMethod $method */
-        foreach (new NodeFinder()->findInstanceOf($ast, ClassMethod::class) as $method) {
+        foreach ($classMethods as $method) {
             $dispatcher = ltrim($classFqcn, '\\') . '::' . $method->name->toString();
             $calls = new NodeFinder()->find($method, static fn (Node $n): bool => $n instanceof FuncCall || $n instanceof MethodCall || $n instanceof StaticCall);
 

@@ -4,12 +4,18 @@ namespace SanderMuller\Richter\Graph;
 
 use LaraMint\LaravelBrain\Analysis\ProjectAnalyzer;
 use LaraMint\LaravelBrain\Graph\Edge;
+use PhpParser\Node;
 use PhpParser\Node\Expr\Array_;
 use PhpParser\Node\Expr\ClassConstFetch;
 use PhpParser\Node\Name;
 use PhpParser\Node\Scalar\String_;
+use PhpParser\Node\Stmt\ClassLike;
+use PhpParser\Node\Stmt\ClassMethod;
 use PhpParser\Node\Stmt\Property;
+use PhpParser\Node\Stmt\TraitUse;
 use PhpParser\NodeFinder;
+use PhpParser\NodeTraverser;
+use PhpParser\NodeVisitorAbstract;
 use SanderMuller\Richter\Analysis\ImpactAnalyzer;
 use SanderMuller\Richter\Changes\MemberChange;
 use SanderMuller\Richter\Changes\MemberResolver;
@@ -127,8 +133,9 @@ final class CodeGraphBuilder
     }
 
     /**
-     * One parse + name-resolution per app file, shared by every AST-walking tracer. The tracers'
-     * own `edgesForSource()` fronts (parse-per-call) stay for tests and single-file use.
+     * One parse + name-resolution + node collection per app file, shared by every AST-walking
+     * tracer ({@see collectTracerNodes()}). The tracers' own `edgesForSource()` fronts
+     * (parse-per-call) stay for tests and single-file use.
      *
      * @return array{edges: list<array{source: string, target: string, type: string}>, unresolvedDispatches: int}
      */
@@ -137,7 +144,7 @@ final class CodeGraphBuilder
         $dispatchTracer = new DispatchEdgeTracer(RichterConfig::dispatchHelpers());
         $policyTracer = new PolicyEdgeTracer();
         $referenceTracer = new ReferenceEdgeTracer();
-        // Roots deliberately unconfigured: only interfaceEdgesForResolvedAst() is used here, which ignores them.
+        // Roots deliberately unconfigured: only interfaceEdgesForClassLikes() is used here, which ignores them.
         $entryPointTracer = new EntryPointTracer();
 
         $edges = [];
@@ -155,18 +162,61 @@ final class CodeGraphBuilder
                 continue;
             }
 
+            $nodes = $this->collectTracerNodes($ast);
+
             // Dispatchers → jobs incl. configured custom helpers + the unresolved-dispatch signal
             // (a variable dispatch must make a job read "unknown", not "none").
-            $dispatch = $dispatchTracer->edgesForResolvedAst($ast, $class['fqcn']);
+            $dispatch = $dispatchTracer->edgesForMethods($nodes['classMethods'], $class['fqcn']);
             $unresolved += $dispatch['unresolved'];
 
             array_push($edges, ...$dispatch['edges']);
-            array_push($edges, ...$policyTracer->edgesForResolvedAst($ast, $class['fqcn']));
-            array_push($edges, ...$referenceTracer->edgesForResolvedAst($ast, $class['fqcn']));
-            array_push($edges, ...$entryPointTracer->interfaceEdgesForResolvedAst($ast, $class['fqcn']));
+            array_push($edges, ...$policyTracer->edgesForMethods($nodes['classMethods'], $class['fqcn']));
+            array_push($edges, ...$referenceTracer->edgesForNodes($nodes['classMethods'], $nodes['traitUses'], $class['fqcn']));
+            array_push($edges, ...$entryPointTracer->interfaceEdgesForClassLikes($nodes['classLikes'], $class['fqcn']));
         }
 
         return ['edges' => AppFiles::dedupeEdges($edges, byType: true), 'unresolvedDispatches' => $unresolved];
+    }
+
+    /**
+     * The node buckets the consolidated tracers consume, collected in one descent of the file's AST.
+     * Each tracer used to run its own NodeFinder walk over the same tree — five full descents per
+     * file (three ClassMethod, one TraitUse, one ClassLike) where one suffices. Bucket contents match
+     * what findInstanceOf() returned: every instance at any depth (anonymous classes included), in
+     * document order.
+     *
+     * @param  list<Node\Stmt>  $ast  a name-resolved AST ({@see AppFiles::parseResolved()})
+     * @return array{classMethods: list<ClassMethod>, traitUses: list<TraitUse>, classLikes: list<ClassLike>}
+     */
+    private function collectTracerNodes(array $ast): array
+    {
+        $visitor = new class extends NodeVisitorAbstract {
+            /** @var list<ClassMethod> */
+            public array $classMethods = [];
+
+            /** @var list<TraitUse> */
+            public array $traitUses = [];
+
+            /** @var list<ClassLike> */
+            public array $classLikes = [];
+
+            public function enterNode(Node $node): null
+            {
+                if ($node instanceof ClassMethod) {
+                    $this->classMethods[] = $node;
+                } elseif ($node instanceof TraitUse) {
+                    $this->traitUses[] = $node;
+                } elseif ($node instanceof ClassLike) {
+                    $this->classLikes[] = $node;
+                }
+
+                return null;
+            }
+        };
+
+        new NodeTraverser($visitor)->traverse($ast);
+
+        return ['classMethods' => $visitor->classMethods, 'traitUses' => $visitor->traitUses, 'classLikes' => $visitor->classLikes];
     }
 
     /**

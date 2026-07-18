@@ -410,20 +410,30 @@ final readonly class EntryPointTracer
     }
 
     /**
-     * Link an app interface to the classes that implement it. Most app contracts are resolved by
-     * type, not a container binding, so Brain never connects them — a change to such an interface
-     * otherwise seeds nothing. The edge runs implementor → interface so `callersOf` an interface walks
-     * up through its implementors to their entry points. Fed per file by the consolidated AST loop
-     * in {@see CodeGraphBuilder}.
-     *
      * @param  list<Stmt>  $ast  a name-resolved AST ({@see AppFiles::parseResolved()})
      * @return list<array{source: string, target: string, type: string}>
      */
     public function interfaceEdgesForResolvedAst(array $ast, string $classFqcn): array
     {
+        return $this->interfaceEdgesForClassLikes(array_values(new NodeFinder()->findInstanceOf($ast, ClassLike::class)), $classFqcn);
+    }
+
+    /**
+     * Link an app interface to the classes that implement it. Most app contracts are resolved by
+     * type, not a container binding, so Brain never connects them — a change to such an interface
+     * otherwise seeds nothing. The edge runs implementor → interface so `callersOf` an interface walks
+     * up through its implementors to their entry points. Fed per file by the consolidated AST loop
+     * in {@see CodeGraphBuilder}, which collects each file's nodes in one descent and hands every
+     * tracer its bucket.
+     *
+     * @param  list<ClassLike>  $classLikes  every ClassLike in the file, any depth
+     * @return list<array{source: string, target: string, type: string}>
+     */
+    public function interfaceEdgesForClassLikes(array $classLikes, string $classFqcn): array
+    {
         $edges = [];
 
-        foreach (new NodeFinder()->findInstanceOf($ast, ClassLike::class) as $node) {
+        foreach ($classLikes as $node) {
             // Only Class_ and Enum_ carry `implements`; an interface's `extends` and a trait have none.
             if (! $node instanceof Class_ && ! $node instanceof Enum_) {
                 continue;

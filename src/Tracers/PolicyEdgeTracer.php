@@ -7,6 +7,7 @@ use PhpParser\Node\Name;
 use PhpParser\Node\Stmt\ClassMethod;
 use PhpParser\NodeFinder;
 use SanderMuller\Richter\Graph\BladeViews;
+use SanderMuller\Richter\Graph\CodeGraphBuilder;
 use SanderMuller\Richter\Support\AppFiles;
 use Symfony\Component\Finder\Finder;
 
@@ -46,10 +47,23 @@ final class PolicyEdgeTracer
      */
     public function edgesForResolvedAst(array $ast, string $classFqcn): array
     {
+        return $this->edgesForMethods(array_values(new NodeFinder()->findInstanceOf($ast, ClassMethod::class)), $classFqcn);
+    }
+
+    /**
+     * Bucket-fed variant of {@see edgesForResolvedAst()}: the consolidated loop in
+     * {@see CodeGraphBuilder} collects each file's nodes in one descent and hands every tracer its
+     * bucket, so no tracer re-walks the full tree.
+     *
+     * @param  list<ClassMethod>  $classMethods  every ClassMethod in the file, any depth
+     * @return list<array{source: string, target: string, type: string}>
+     */
+    public function edgesForMethods(array $classMethods, string $classFqcn): array
+    {
         $classFqcn = ltrim($classFqcn, '\\');
         $edges = [];
 
-        foreach (new NodeFinder()->findInstanceOf($ast, ClassMethod::class) as $method) {
+        foreach ($classMethods as $method) {
             $sourceNode = $classFqcn . '::' . $method->name->toString();
 
             foreach ($this->policiesReferencedIn($method) as $policy) {
