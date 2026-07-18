@@ -358,6 +358,17 @@ final class CommandsTest extends TestCase
     }
 
     #[Test]
+    public function benchmark_add_honors_an_explicit_key_option(): void
+    {
+        // The subject carries a derivable ticket id, so this proves --key wins over derivation.
+        $this->fakeBenchmarkReplayReachingRoutes(['*log*' => Process::result("PROJ-42 Fix duplicated video questions\n")]);
+
+        $this->runArtisan('richter:benchmark:add', ['fix-commit' => 'abc1234', '--key' => 'CUSTOM-7'])
+            ->expectsOutputToContain("'key' => 'CUSTOM-7'")
+            ->assertSuccessful();
+    }
+
+    #[Test]
     public function benchmark_add_fails_when_the_commit_changes_no_app_php(): void
     {
         Process::fake([
