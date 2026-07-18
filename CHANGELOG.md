@@ -5,6 +5,31 @@ All notable changes to `sandermuller/richter` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.6.0 - 2026-07-18
+
+<!-- verified-sha: 368b2015fda48b80a8efc4df271fe914d4d11e0c -->
+The impact report becomes a review companion: it now says where each entry point lives, how exposed it is, which feature flags gate it — and which tests are worth running for the diff.
+
+### Added
+
+- **`richter:affected-tests`** selects the test files affected by the current diff, uniting two axes: tests referencing any reached entry point (route URI or name, artisan command, schedule entry resolved through its command) and tests importing any changed or reached `App\` class. The contract is fail-safe by design: exit `0` means a determined selection, exit `2` means "cannot determine — run the full suite", and any UNRESOLVED file, low-confidence walk, unresolved dispatch, or uncheckable entry point trips it. `--plain` prints nothing when undetermined, so `php artisan test $(php artisan richter:affected-tests --plain)` degrades to the full suite instead of silently running too little; `--json` carries `determinable`, `reasons`, `tests`, and `unreferencedEntryPoints`. Only runnable `*Test.php` files are ever selected — an entry point referenced solely from non-test support files blocks determination rather than shrinking the set silently.
+- **Node locations.** Entry points and `--explain` path hops now carry their defining `file:line` (project-relative): inline in text output, in the markdown review checklist, and as `entryPointLocations` in the JSON/MCP contract. Tracer-only nodes derive their file from the `App\` path convention, existence-checked — never guessed.
+- **Security annotation.** Reached routes inherit Laravel Brain's per-route security surface as advisory annotation: exposure renders inline (`[public]`, `[guest]`, `[authed]`, `[admin]`), statically detected issues render as sub-lines, markdown gets badges, and JSON/MCP gain `entryPointSecurity`. Annotation only — it informs the reader and is never an input to `risk` or the CI gate.
+- **Pennant feature-flag annotation.** Routes gated by `EnsureFeaturesAreActive` — via middleware alias or FQCN-string form, with aliases read from both a legacy HTTP Kernel and `bootstrap/app.php` — render their flags inline (`[gated: ai-coach]`, a 🚩 badge in markdown, `entryPointGates` in JSON/MCP). When changed code itself checks flags (`Feature::active/inactive/when/unless/…`, the fluent `Feature::for($scope)->…` form, array arguments, backed-enum flags resolved to their value, `@feature` in changed Blade views), the report notes it under Findings. Honest limit: the `EnsureFeaturesAreActive::using(...)` runtime form is invisible to static route parsing and is not detected.
+- **Filament and Livewire entry surfaces.** An upstream `App\Filament\` or `App\Livewire\` caller now counts as a class-level entry surface — a Blade-mounted component or Filament resource/page/widget is a user-facing surface even without a `route::` node — and contributes explain chains through its shallowest reached member. `\Filament\` joined the risk-floor namespaces and `Filament` the default `entry_point_roots`. Apps with a *published* config file add `'Filament'` to `entry_point_roots` themselves to get the tracing half. Coverage is class-level: individual table/bulk actions are not modelled as separate entry points.
+
+### Fixed
+
+- `bootstrap/app.php` is now part of the graph-cache fingerprint. It feeds middleware-alias resolution, so editing it invalidates the cache like any other build input; previously a cached graph could survive such an edit.
+
+### Internal
+
+- Graph-cache format version is now 3: the cached graph carries a sparse per-node metadata side-map (locations, security, gates), revalidated shape-by-shape on read so a tampered or drifted entry degrades to the same conservative shapes a fresh build produces.
+- A Rector pass modernised the source (docblock FQCNs to imports, locally-called static helpers to instance methods, split guard conditions); no behavioural change.
+- Suite grows from 357 to 447 tests (925 assertions), pinning the affected-tests exit-code contract, the metadata cache round-trip, gate detection in alias/FQCN/bootstrap forms, member-scoped flag findings, and the Filament/Livewire entry recognition end-to-end.
+
+**Full Changelog**: https://github.com/SanderMuller/richter/compare/v0.5.0...v0.6.0
+
 ## v0.5.0 - 2026-07-18
 
 <!-- verified-sha: 084038831c09c1cfc1dac965f043cdbba9c4b64c -->
