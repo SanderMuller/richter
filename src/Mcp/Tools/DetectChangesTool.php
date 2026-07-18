@@ -63,13 +63,16 @@ final class DetectChangesTool extends Tool
     public function outputSchema(JsonSchema $schema): array
     {
         return [
+            // The three map-shaped fields are plain object() rather than an object|array anyOf:
+            // anyOf() is missing from Illuminate\JsonSchema on this package's framework floor, and
+            // an empty PHP map JSON-encodes as [] — the description carries that caveat instead.
             'base' => $schema->string()->description('The git ref the diff was taken against.'),
-            'changed' => $schema->anyOf([$schema->object(), $schema->array()])
+            'changed' => $schema->object()
                 ->description('Changed file => resolved seed count. Empty map serializes as [].'),
-            'coverage' => $schema->anyOf([$schema->object(), $schema->array()])
+            'coverage' => $schema->object()
                 ->description('Changed file => "analyzed" or "unresolved". Empty map serializes as [].'),
             'entryPoints' => $schema->array()->items($schema->string()),
-            'entryPointPaths' => $schema->anyOf([$schema->object(), $schema->array()])
+            'entryPointPaths' => $schema->object()
                 ->description('Entry-point node => call chain down to the changed code. Empty map serializes as [].'),
             'impacted' => $schema->integer()->description('Distinct impacted graph nodes.'),
             'relatedModels' => $schema->array()->items($schema->string()),
