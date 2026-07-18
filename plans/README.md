@@ -29,8 +29,8 @@ your row when done.
 | 005  | Route all name resolution through the AppFiles helpers | P2 | S | — | DONE (reviewed; branch `advisor/005-dedupe-name-resolution`, commit `c58ddca`) |
 | 006  | Exercise the benchmark's pass path end-to-end | P2 | M | — | DONE (reviewed; branch `advisor/006-benchmark-pass-path-coverage`, commit `2ac98ed`; plan premise corrected: skeleton app/ is empty, tests point base_path at the fixture project) |
 | 007  | Replace the per-seed full-graph regex scan with a token index | P2 | M | — | TODO |
-| 008  | Collect AST nodes once per file for the tracers | P3 | M | 005 | TODO |
-| 009  | Reuse the consolidated pass's ASTs for the entry-point tracer | P3 | L | 005, 008 | TODO |
+| 008  | Collect AST nodes once per file for the tracers | P3 | M | 005 | DONE (reviewed; commit `0f66683`; merged to main on 2026-07-18) |
+| 009  | Reuse the consolidated pass's ASTs for the entry-point tracer | P3 | L | 005, 008 | DONE (reviewed; commit `e98e369`; merged to main with 008 on 2026-07-18) |
 | 010  | Investigate/fix the eager-load model-methods cache staleness | P3 | S | — | DONE (reviewed; staleness confirmed by test, fixed; branch `advisor/010-eager-load-cache-staleness`, commit `bcab10c`) |
 | 011  | Cover the interface/binding edges and MCP success paths | P2 | M | — | DONE (reviewed; binding half removed from scope — blocked on finding 19, upstream Brain bug; branch `advisor/011-interface-binding-mcp-coverage`, commits `9d7a43d`+`8bb2535`) |
 | 012  | Replace the Brain container-binding scan with a Richter-native one (finding 19 workaround) | P1 | M | 005 | DONE (reviewed; branch `advisor/012-native-binding-edges` off 005's tip, commit `6c3ed4c`; upstream laravel-brain PR still to be filed by maintainer) |
