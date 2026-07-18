@@ -11,5 +11,6 @@ final class Kernel
     protected $middlewareAliases = [
         'auth' => Authenticate::class,
         'playlist.auth' => PlaylistAuthenticate::class,
+        'features' => 'Laravel\Pennant\Middleware\EnsureFeaturesAreActive',
     ];
 }

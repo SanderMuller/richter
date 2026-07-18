@@ -143,6 +143,14 @@ Reached routes also inherit [Laravel Brain](https://github.com/laramint/laravel-
 
 This is annotation only — it never feeds the risk level or a `--fail-on` gate, it exists for routes only (Brain classifies nothing else), and false positives are suppressed where Brain's own config says so (`laravel-brain.security.trusted_route_names` / `trusted_route_uris`).
 
+Pennant feature gating is annotated the same way. A route guarded by `EnsureFeaturesAreActive`
+renders its flags inline (`[gated: ai-coach]`, a 🚩 badge in markdown, `entryPointGates` in JSON),
+and a changed member or Blade view that itself checks a flag (`Feature::active(...)`, `@feature`)
+notes it under Findings — a flag-gated change has a smaller live blast radius than the raw graph
+suggests, and the reviewer should know. Route detection reads statically visible middleware
+(a string alias like `'features:ai-coach'` or an FQCN-string form); the runtime-built
+`EnsureFeaturesAreActive::using(...)` expression is invisible to static route parsing.
+
 With `--markdown`, the report renders as GitHub-flavoured markdown: a risk badge up front, changed files as a table, entry points as a review checklist with their file:line, test tags and exposure badges, and long lists collapsed into `<details>` instead of truncated. The result is ready to paste into (or post onto) a pull request. `--markdown --explain` composes.
 
 With `--json`, stdout is a single JSON document (the full, uncapped report) with these top-level keys, or `{"error": "…"}` if the diff can't be resolved:
@@ -156,6 +164,7 @@ With `--json`, stdout is a single JSON document (the full, uncapped report) with
 | `entryPointPaths` | object | per reached entry point, the shortest call chain down to the changed code as `{node, via, file?, line?}` hops; a self-listed entry class carries no chain |
 | `entryPointLocations` | object | per entry point, its defining `{file, line?}` (project-relative), when known |
 | `entryPointSecurity` | object | per reached route, Brain's security surface `{exposure, riskLevel, issues[]}` — advisory annotation, routes only, never an input to `risk` or the gate |
+| `entryPointGates` | object | per reached route, the Pennant feature flags gating it — advisory annotation, never an input to `risk` or the gate |
 | `impacted` | int | count of risk-bearing nodes reached |
 | `relatedModels` | string[] | models reached only via association edges (context, not risk) |
 | `risk` | string | `"low"` / `"medium"` / `"high"` |

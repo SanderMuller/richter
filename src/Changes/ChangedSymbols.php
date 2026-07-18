@@ -7,6 +7,7 @@ use RuntimeException;
 use SanderMuller\Richter\Graph\BladeViews;
 use SanderMuller\Richter\Support\Fqcn;
 use SanderMuller\Richter\Tracers\EagerLoadStringChecker;
+use SanderMuller\Richter\Tracers\FeatureGateChecker;
 
 /** Resolves which class members a branch changed (and how) vs a base ref, so impact seeds on the member not the file. {@see resolve()} holds git plumbing; {@see classifyFile()} is pure over source + hunk. */
 final class ChangedSymbols
@@ -40,6 +41,7 @@ final class ChangedSymbols
         // scan to once per invocation, while a fresh run always rebuilds the set — a relation
         // added since the previous run (same long-lived process) is seen, never a false alarm.
         $eagerLoadChecker = new EagerLoadStringChecker();
+        $featureGateChecker = new FeatureGateChecker();
 
         foreach (UnifiedDiffParser::parse($diff->output()) as $file => $hunk) {
             if (str_starts_with($file, 'app/') && str_ends_with($file, '.php')) {
@@ -72,7 +74,7 @@ final class ChangedSymbols
                 // Use the pre-change path so a rename still resolves the base-side members.
                 $baseSrc = self::baseSource($mergeBase, $hunk['oldPath']);
 
-                $changed[] = self::classifyFile($file, $headSrc, $baseSrc, ['added' => $hunk['added'], 'removed' => $hunk['removed']], $eagerLoadChecker);
+                $changed[] = self::classifyFile($file, $headSrc, $baseSrc, ['added' => $hunk['added'], 'removed' => $hunk['removed']], $eagerLoadChecker, $featureGateChecker);
 
                 continue;
             }
@@ -82,7 +84,8 @@ final class ChangedSymbols
             $viewSeed = BladeViews::seedForChangedFile($file);
 
             if ($viewSeed !== null) {
-                $changed[] = new ChangedFileSymbols($file, '', [], cosmeticOnly: false, directSeeds: [$viewSeed]);
+                // An unreadable view source just skips the flag note — the seed itself is unaffected.
+                $changed[] = new ChangedFileSymbols($file, '', [], cosmeticOnly: false, directSeeds: [$viewSeed], findings: $featureGateChecker->bladeFindingsFor(self::headSource($head, $file) ?? ''));
             }
         }
 
@@ -90,7 +93,7 @@ final class ChangedSymbols
     }
 
     /** @param  array{added: list<array{line: int, text: string}>, removed: list<array{line: int, text: string}>}  $hunk */
-    public static function classifyFile(string $file, string $headSrc, ?string $baseSrc, array $hunk, ?EagerLoadStringChecker $eagerLoadChecker = null): ChangedFileSymbols
+    public static function classifyFile(string $file, string $headSrc, ?string $baseSrc, array $hunk, ?EagerLoadStringChecker $eagerLoadChecker = null, ?FeatureGateChecker $featureGateChecker = null): ChangedFileSymbols
     {
         $head = MemberResolver::resolve($headSrc);
         $base = $baseSrc !== null ? MemberResolver::resolve($baseSrc) : ['parsed' => true, 'members' => [], 'classRanges' => []];
@@ -113,17 +116,12 @@ final class ChangedSymbols
                 continue;
             }
 
-            $change = $existedBefore ? MemberChange::CHANGE_MODIFIED : MemberChange::CHANGE_ADDED;
-
-            // Addition-only edit to a model's $fillable/$casts/casts() is harmless to existing code — treat as additive, not a coarse modification.
-            if ($change === MemberChange::CHANGE_MODIFIED
-                && $baseSrc !== null
-                && EloquentConfig::isConfigMember($member['name'], $member['kind'])
-                && EloquentConfig::isAdditionOnlyEdit($headSrc, $baseSrc, $member['name'], $member['kind'])) {
-                $change = MemberChange::CHANGE_ADDED;
-            }
-
-            $members[] = new MemberChange($member['name'], $member['kind'], $change, $member['resolvable']);
+            $members[] = new MemberChange(
+                $member['name'],
+                $member['kind'],
+                self::changeTypeFor($existedBefore, $headSrc, $baseSrc, $member),
+                $member['resolvable'],
+            );
         }
 
         // Removed: a BASE member whose span a `-` line falls within and that is gone from HEAD.
@@ -157,9 +155,75 @@ final class ChangedSymbols
             $members[] = self::coarseClassChange();
         }
 
-        $findings = $members === [] ? [] : ($eagerLoadChecker ?? new EagerLoadStringChecker())->findingsFor($headSrc);
+        return new ChangedFileSymbols($file, Fqcn::fromPath($file), $members, $members === [], findings: self::sourceFindings($members, $head['members'], $headSrc, $eagerLoadChecker, $featureGateChecker));
+    }
 
-        return new ChangedFileSymbols($file, Fqcn::fromPath($file), $members, $members === [], findings: $findings);
+    /**
+     * Advisory notes about the changed source itself, from every source checker — nothing to note
+     * on a file without member-level changes. Feature-gate notes are scoped to the CHANGED members'
+     * line spans (a class-level coarse change scans the whole file): an untouched sibling method's
+     * flag check must never imply the change itself is gated.
+     *
+     * @param  list<MemberChange>  $members
+     * @param  list<array{name: string, kind: string, resolvable: bool, start: int, end: int}>  $headMembers
+     * @return list<string>
+     */
+    private static function sourceFindings(array $members, array $headMembers, string $headSrc, ?EagerLoadStringChecker $eagerLoadChecker, ?FeatureGateChecker $featureGateChecker): array
+    {
+        if ($members === []) {
+            return [];
+        }
+
+        return [
+            ...($eagerLoadChecker ?? new EagerLoadStringChecker())->findingsFor($headSrc),
+            ...($featureGateChecker ?? new FeatureGateChecker())->findingsFor($headSrc, self::changedMemberRanges($members, $headMembers)),
+        ];
+    }
+
+    /**
+     * The head-side line spans of the changed members, or null (whole file) when a class-level
+     * change means no member span can bound the edit.
+     *
+     * @param  list<MemberChange>  $members
+     * @param  list<array{name: string, kind: string, resolvable: bool, start: int, end: int}>  $headMembers
+     * @return list<array{int, int}>|null
+     */
+    private static function changedMemberRanges(array $members, array $headMembers): ?array
+    {
+        $ranges = [];
+
+        foreach ($members as $member) {
+            if ($member->kind === MemberChange::KIND_CLASS) {
+                return null;
+            }
+
+            foreach ($headMembers as $headMember) {
+                if ($headMember['name'] === $member->name && $headMember['kind'] === $member->kind) {
+                    $ranges[] = [$headMember['start'], $headMember['end']];
+                }
+            }
+        }
+
+        return $ranges;
+    }
+
+    /**
+     * A brand-new member is additive; so is an addition-only edit to a model's `$fillable`/`$casts`/
+     * `casts()` — harmless to existing code, never a coarse modification.
+     *
+     * @param  array{name: string, kind: string, resolvable: bool, start: int, end: int}  $member
+     */
+    private static function changeTypeFor(bool $existedBefore, string $headSrc, ?string $baseSrc, array $member): string
+    {
+        if (! $existedBefore) {
+            return MemberChange::CHANGE_ADDED;
+        }
+
+        $additionOnlyConfigEdit = $baseSrc !== null
+            && EloquentConfig::isConfigMember($member['name'], $member['kind'])
+            && EloquentConfig::isAdditionOnlyEdit($headSrc, $baseSrc, $member['name'], $member['kind']);
+
+        return $additionOnlyConfigEdit ? MemberChange::CHANGE_ADDED : MemberChange::CHANGE_MODIFIED;
     }
 
     private static function coarseClassChange(): MemberChange

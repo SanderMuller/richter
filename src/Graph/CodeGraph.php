@@ -95,6 +95,17 @@ final class CodeGraph
     }
 
     /**
+     * The Pennant feature flags gating a route node ({@see NodeMetadata::withRouteGates()}).
+     * Annotation only, like {@see securityOf()}.
+     *
+     * @return list<string>
+     */
+    public function gatesOf(string $node): array
+    {
+        return $this->nodeMetadata[$node]['gates'] ?? [];
+    }
+
+    /**
      * The graph as plain constructor input, for on-disk caching. Every edge lives in the downstream
      * adjacency (nodes only exist through edges), so deriving from it loses nothing.
      *

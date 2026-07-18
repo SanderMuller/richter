@@ -242,7 +242,9 @@ final class GraphCache
 
     /**
      * Every file the build pipeline reads, project-relative and in one deterministic order:
-     * Brain and the tracers scan `app/` and `routes/` PHP plus the Blade views.
+     * Brain and the tracers scan `app/` and `routes/` PHP plus the Blade views, and
+     * `bootstrap/app.php` feeds middleware-alias resolution (Brain's registry and
+     * {@see MiddlewareAliases}) — never the whole `bootstrap/` dir, whose `cache/` churns.
      *
      * @return list<string>
      */
@@ -253,13 +255,13 @@ final class GraphCache
             is_dir(...),
         ));
 
-        if ($directories === []) {
+        $paths = is_file("{$projectRoot}/bootstrap/app.php") ? ['bootstrap/app.php'] : [];
+
+        if ($directories === [] && $paths === []) {
             return [];
         }
 
-        $paths = [];
-
-        foreach (Finder::create()->files()->in($directories)->name(['*.php', '*.blade.php']) as $file) {
+        foreach ($directories === [] ? [] : Finder::create()->files()->in($directories)->name(['*.php', '*.blade.php']) as $file) {
             $paths[] = substr($file->getPathname(), strlen($projectRoot) + 1);
         }
 

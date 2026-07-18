@@ -69,6 +69,7 @@ final readonly class ImpactAnalyzer
      *     entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>,
      *     entryPointLocations: array<string, array{file: string, line?: int}>,
      *     entryPointSecurity: array<string, SecurityShape>,
+     *     entryPointGates: array<string, list<string>>,
      *     impacted: int,
      *     relatedModels: list<string>,
      *     risk: RiskLevel,
@@ -218,7 +219,7 @@ final readonly class ImpactAnalyzer
             }
         }
 
-        [$entryPointLocations, $entryPointSecurity] = $this->entryPointAnnotations($entryPoints);
+        [$entryPointLocations, $entryPointSecurity, $entryPointGates] = $this->entryPointAnnotations($entryPoints);
 
         return [
             'changed' => $summary,
@@ -229,6 +230,7 @@ final readonly class ImpactAnalyzer
             'entryPointPaths' => $entryPointPaths,
             'entryPointLocations' => $entryPointLocations,
             'entryPointSecurity' => $entryPointSecurity,
+            'entryPointGates' => $entryPointGates,
             'impacted' => $impacted,
             'relatedModels' => $this->readableModelLabels($relatedModels),
             'risk' => $risk,
@@ -416,12 +418,13 @@ final readonly class ImpactAnalyzer
      * for route nodes — Brain classifies nothing else.
      *
      * @param  list<string>  $entryPoints
-     * @return array{0: array<string, array{file: string, line?: int}>, 1: array<string, SecurityShape>}
+     * @return array{0: array<string, array{file: string, line?: int}>, 1: array<string, SecurityShape>, 2: array<string, list<string>>}
      */
     private function entryPointAnnotations(array $entryPoints): array
     {
         $locations = [];
         $security = [];
+        $gates = [];
 
         foreach ($entryPoints as $entryPoint) {
             $location = $this->graph->locationOf($entryPoint);
@@ -435,9 +438,15 @@ final readonly class ImpactAnalyzer
             if ($surface !== null) {
                 $security[$entryPoint] = $surface;
             }
+
+            $flags = $this->graph->gatesOf($entryPoint);
+
+            if ($flags !== []) {
+                $gates[$entryPoint] = $flags;
+            }
         }
 
-        return [$locations, $security];
+        return [$locations, $security, $gates];
     }
 
     /**

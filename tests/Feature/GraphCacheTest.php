@@ -113,6 +113,20 @@ final class GraphCacheTest extends TestCase
     }
 
     #[Test]
+    public function the_fingerprint_changes_when_bootstrap_app_changes(): void
+    {
+        // bootstrap/app.php feeds middleware-alias resolution (and thus route gates) — editing it
+        // must invalidate the cache like any other build input.
+        mkdir("{$this->projectRoot}/bootstrap", recursive: true);
+        file_put_contents("{$this->projectRoot}/bootstrap/app.php", "<?php\n// v1\n");
+        $before = $this->cache()->fingerprint($this->projectRoot);
+
+        file_put_contents("{$this->projectRoot}/bootstrap/app.php", "<?php\n// v2\n");
+
+        $this->assertNotSame($before, $this->cache()->fingerprint($this->projectRoot));
+    }
+
+    #[Test]
     public function the_fingerprint_changes_when_build_relevant_config_changes(): void
     {
         $before = $this->cache()->fingerprint($this->projectRoot);

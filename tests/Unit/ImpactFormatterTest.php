@@ -188,6 +188,19 @@ final class ImpactFormatterTest extends TestCase
     }
 
     #[Test]
+    public function a_gated_route_renders_its_flags_after_the_other_tags(): void
+    {
+        $result = $this->summary(['route::POST::/videos/ai-coach']) + [
+            'entryPointGates' => ['route::POST::/videos/ai-coach' => ['ai-coach', 'beta']],
+        ];
+
+        $this->assertStringContainsString(
+            '- route::POST::/videos/ai-coach  [gated: ai-coach, beta]',
+            ImpactFormatter::detectChanges($result),
+        );
+    }
+
+    #[Test]
     public function an_entry_point_without_annotation_renders_bare(): void
     {
         $output = ImpactFormatter::detectChanges($this->summary(['route::GET::/videos']));

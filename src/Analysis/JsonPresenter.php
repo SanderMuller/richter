@@ -23,8 +23,8 @@ final class JsonPresenter
     }
 
     /**
-     * @param  array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, SecurityShape>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied: bool, findings: list<string>, ...}  $result  the full {@see ImpactAnalyzer::detectChanges()} result; the caller/dependency walk internals it also carries are ignored here
-     * @return array{base: string, changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, SecurityShape>, impacted: int, relatedModels: list<string>, risk: string, lowConfidence: bool, coarseCapApplied: bool, findings: list<string>, unresolved: bool}
+     * @param  array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, SecurityShape>, entryPointGates: array<string, list<string>>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied: bool, findings: list<string>, ...}  $result  the full {@see ImpactAnalyzer::detectChanges()} result; the caller/dependency walk internals it also carries are ignored here
+     * @return array{base: string, changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, SecurityShape>, entryPointGates: array<string, list<string>>, impacted: int, relatedModels: list<string>, risk: string, lowConfidence: bool, coarseCapApplied: bool, findings: list<string>, unresolved: bool}
      */
     public static function detectChanges(array $result, string $base): array
     {
@@ -37,9 +37,10 @@ final class JsonPresenter
             // consumers can tell "reached from the change" apart from "is itself the entry surface".
             'entryPointPaths' => $result['entryPointPaths'],
             'entryPointLocations' => $result['entryPointLocations'],
-            // Brain's per-route security surface, inherited as advisory annotation — routes only,
-            // and never an input to the risk level or the gate.
+            // Brain's per-route security surface and Pennant gating, inherited as advisory
+            // annotation — routes only, and never an input to the risk level or the gate.
             'entryPointSecurity' => $result['entryPointSecurity'],
+            'entryPointGates' => $result['entryPointGates'],
             'impacted' => $result['impacted'],
             'relatedModels' => $result['relatedModels'],
             'risk' => $result['risk']->value,
@@ -54,7 +55,7 @@ final class JsonPresenter
      * The canonical zero-result for an empty diff — built without touching the graph, so the command's
      * no-build fast path stays intact. Same shape as {@see detectChanges()} minus the analyzer run.
      *
-     * @return array{base: string, changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, SecurityShape>, impacted: int, relatedModels: list<string>, risk: string, lowConfidence: bool, coarseCapApplied: bool, findings: list<string>, unresolved: bool}
+     * @return array{base: string, changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, SecurityShape>, entryPointGates: array<string, list<string>>, impacted: int, relatedModels: list<string>, risk: string, lowConfidence: bool, coarseCapApplied: bool, findings: list<string>, unresolved: bool}
      */
     public static function emptyDetectChanges(string $base): array
     {
@@ -66,6 +67,7 @@ final class JsonPresenter
             'entryPointPaths' => [],
             'entryPointLocations' => [],
             'entryPointSecurity' => [],
+            'entryPointGates' => [],
             'impacted' => 0,
             'relatedModels' => [],
             'risk' => RiskLevel::Low->value,

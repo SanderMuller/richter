@@ -5,13 +5,9 @@ namespace SanderMuller\Richter\Graph;
 use LaraMint\LaravelBrain\Analysis\ProjectAnalyzer;
 use LaraMint\LaravelBrain\Graph\Edge;
 use PhpParser\Node;
-use PhpParser\Node\Expr\Array_;
-use PhpParser\Node\Expr\ClassConstFetch;
 use PhpParser\Node\Name;
-use PhpParser\Node\Scalar\String_;
 use PhpParser\Node\Stmt\ClassLike;
 use PhpParser\Node\Stmt\ClassMethod;
-use PhpParser\Node\Stmt\Property;
 use PhpParser\Node\Stmt\TraitUse;
 use PhpParser\NodeFinder;
 use PhpParser\NodeTraverser;
@@ -94,9 +90,17 @@ final class CodeGraphBuilder
 
         /** @var list<array{source: string, target: string, type: string}> $edges */
         $edges = [];
+        $routeMiddlewareEdges = [];
 
         /** @var Edge $edge */
         foreach ($analysis->fullGraph->edges() as $edge) {
+            // Pennant gates live in the RAW middleware id (`middleware::X:flag`) — the canonical
+            // mapping below rewrites it onto the bare FQCN (the node's own `fqcn` carries no
+            // params), so the flags must be read before that happens.
+            if (str_starts_with($edge->source, 'route::') && str_starts_with($edge->target, 'middleware::')) {
+                $routeMiddlewareEdges[] = ['source' => $edge->source, 'target' => $edge->target, 'type' => $edge->type];
+            }
+
             $edges[] = [
                 'source' => $canonical[$edge->source] ?? $edge->source,
                 'target' => $canonical[$edge->target] ?? $edge->target,
@@ -134,7 +138,8 @@ final class CodeGraphBuilder
         }
 
         $controllerBasenames = $this->controllerBasenames($projectRoot);
-        $middlewareAliases = self::middlewareAliasMap($this->kernelSource($projectRoot));
+        $middlewareAliases = MiddlewareAliases::forProject($projectRoot);
+        $metadata = NodeMetadata::withRouteGates($routeMiddlewareEdges, $metadata, $middlewareAliases);
         $edges = self::resolveShortControllerIds($edges, $controllerBasenames);
         $edges = self::resolveMiddlewareAliases($edges, $middlewareAliases);
         // The rewrites rename node ids in the edges; the metadata keys must follow or the
@@ -296,58 +301,6 @@ final class CodeGraphBuilder
 
             return $aliasToFqcn[$matches[1]] ?? $node;
         };
-    }
-
-    /**
-     * The Kernel's `$middlewareAliases` map, alias → middleware FQCN. The legacy `$routeMiddleware`
-     * property name is deliberately not read — this Kernel uses `$middlewareAliases`, and a dead
-     * branch for a name the codebase never uses is speculative generality.
-     *
-     * @return array<string, string>
-     */
-    public static function middlewareAliasMap(string $kernelSource): array
-    {
-        $ast = AppFiles::parseResolved($kernelSource);
-
-        if ($ast === null) {
-            return [];
-        }
-
-        $map = [];
-
-        foreach (new NodeFinder()->findInstanceOf($ast, Property::class) as $property) {
-            foreach ($property->props as $prop) {
-                if ($prop->name->toString() !== 'middlewareAliases') {
-                    continue;
-                }
-
-                if (! $prop->default instanceof Array_) {
-                    continue;
-                }
-
-                foreach ($prop->default->items as $item) {
-                    if (! $item->key instanceof String_) {
-                        continue;
-                    }
-
-                    if ($item->value instanceof ClassConstFetch && $item->value->class instanceof Name) {
-                        $map[$item->key->value] = AppFiles::resolveName($item->value->class);
-                    } elseif ($item->value instanceof String_) {
-                        // Laravel also accepts a class-string literal as the alias value.
-                        $map[$item->key->value] = ltrim($item->value->value, '\\');
-                    }
-                }
-            }
-        }
-
-        return $map;
-    }
-
-    private function kernelSource(string $projectRoot): string
-    {
-        $kernel = $projectRoot . '/app/Http/Kernel.php';
-
-        return is_file($kernel) ? (string) file_get_contents($kernel) : '';
     }
 
     /**

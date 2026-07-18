@@ -39,7 +39,7 @@ final class MarkdownFormatter
     }
 
     /**
-     * @param  array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, entryPointPaths?: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations?: array<string, array{file: string, line?: int}>, entryPointSecurity?: array<string, SecurityShape>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied?: bool, findings?: list<string>, ...}  $result
+     * @param  array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, entryPointPaths?: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations?: array<string, array{file: string, line?: int}>, entryPointSecurity?: array<string, SecurityShape>, entryPointGates?: array<string, list<string>>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied?: bool, findings?: list<string>, ...}  $result
      * @param  bool  $gateActive  when a `--fail-on*` gate is active the command appends its own verdict, so the advisory suffix is dropped to avoid contradicting it
      * @param  bool  $explain  render the call chain from each reached entry point down to the changed symbol
      */
@@ -85,6 +85,7 @@ final class MarkdownFormatter
             $explain ? ($result['entryPointPaths'] ?? []) : [],
             $result['entryPointLocations'] ?? [],
             $result['entryPointSecurity'] ?? [],
+            $result['entryPointGates'] ?? [],
             $tests,
         )];
 
@@ -125,9 +126,10 @@ final class MarkdownFormatter
      * @param  array<string, list<array{node: string, via: string, file?: string, line?: int}>>  $paths  keyed by entry-point node; empty when not explaining
      * @param  array<string, array{file: string, line?: int}>  $locations  keyed by entry-point node
      * @param  array<string, SecurityShape>  $security  keyed by entry-point node; routes only, inherited from Brain as advisory annotation
+     * @param  array<string, list<string>>  $gates  keyed by entry-point node; Pennant flags gating the route
      * @return list<string>
      */
-    private static function entryPointChecklist(array $entryPoints, array $paths, array $locations, array $security, ?TestReferenceIndex $tests): array
+    private static function entryPointChecklist(array $entryPoints, array $paths, array $locations, array $security, array $gates, ?TestReferenceIndex $tests): array
     {
         if ($entryPoints === []) {
             return ['_None reached from the changed code._'];
@@ -137,7 +139,8 @@ final class MarkdownFormatter
             'label' => '`' . self::entryLabel($node) . '`'
                 . self::locationSuffix($locations[$node] ?? null)
                 . self::testReferenceSuffix($tests, $node)
-                . (isset($security[$node]) ? ' — ' . self::exposureBadge($security[$node]['exposure']) : ''),
+                . (isset($security[$node]) ? ' — ' . self::exposureBadge($security[$node]['exposure']) : '')
+                . (isset($gates[$node]) ? ' — 🚩 ' . implode(', ', $gates[$node]) : ''),
             'node' => $node,
         ], $entryPoints);
         usort($items, static fn (array $a, array $b): int => $a['label'] <=> $b['label']);

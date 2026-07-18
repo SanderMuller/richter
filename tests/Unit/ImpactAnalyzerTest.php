@@ -141,6 +141,24 @@ final class ImpactAnalyzerTest extends TestCase
     }
 
     #[Test]
+    public function detect_changes_annotates_a_gated_route_with_its_feature_flags(): void
+    {
+        $analyzer = new ImpactAnalyzer(new CodeGraph([
+            ['source' => self::ROUTE, 'target' => 'App\Services\VideoPublisher::publish', 'type' => 'route-to-controller'],
+        ], nodeMetadata: [
+            self::ROUTE => ['gates' => ['ai-coach']],
+        ]));
+
+        $result = $analyzer->detectChanges([
+            $this->changedMethod('app/Services/VideoPublisher.php', 'App\Services\VideoPublisher', 'publish'),
+        ]);
+
+        $this->assertSame(['ai-coach'], $result['entryPointGates'][self::ROUTE]);
+        // Annotation only: the gate must not soften or raise the risk level.
+        $this->assertSame(RiskLevel::Medium, $result['risk']);
+    }
+
+    #[Test]
     public function a_self_listed_entry_class_gets_a_location_but_never_security(): void
     {
         // Security is a route classification — a job or listener has no exposure level, and a

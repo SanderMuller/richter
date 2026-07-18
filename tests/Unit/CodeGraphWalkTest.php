@@ -43,7 +43,7 @@ final class CodeGraphWalkTest extends TestCase
             ['source' => 'route::GET::/r', 'target' => 'App\Http\Controllers\C::index', 'type' => 'route-to-controller'],
             ['source' => 'App\Http\Controllers\C::index', 'target' => 'App\Services\S::run', 'type' => 'action-to-service'],
         ], hasUnresolvedDispatches: true, nodeMetadata: [
-            'route::GET::/r' => ['file' => 'routes/web.php', 'line' => 3, 'uri' => '/r'],
+            'route::GET::/r' => ['file' => 'routes/web.php', 'line' => 3, 'uri' => '/r', 'gates' => ['labs']],
         ]);
 
         $revived = CodeGraph::fromArray($graph->toArray());
@@ -53,6 +53,7 @@ final class CodeGraphWalkTest extends TestCase
         $this->assertSame($graph->dependenciesOf(['route::GET::/r']), $revived->dependenciesOf(['route::GET::/r']));
         $this->assertTrue($revived->hasUnresolvedDispatches());
         $this->assertSame(['file' => 'routes/web.php', 'line' => 3], $revived->locationOf('route::GET::/r'));
+        $this->assertSame(['labs'], $revived->gatesOf('route::GET::/r'));
     }
 
     #[Test]
@@ -87,6 +88,7 @@ final class CodeGraphWalkTest extends TestCase
         $this->assertSame(['exposure' => 'public', 'riskLevel' => 'high', 'issues' => []], $graph->securityOf('route::POST::/checkout'));
         $this->assertNull($graph->locationOf('unknown'));
         $this->assertNull($graph->securityOf('App\Services\S::run'));
+        $this->assertSame([], $graph->gatesOf('route::POST::/checkout'));
     }
 
     #[Test]

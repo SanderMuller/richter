@@ -68,6 +68,7 @@ final class JsonPresenterTest extends TestCase
         $json = JsonPresenter::detectChanges($this->detectChangesResult(), 'origin/main');
 
         $this->assertSame(['route::GET /a' => ['file' => 'routes/web.php', 'line' => 12]], $json['entryPointLocations']);
+        $this->assertSame(['route::GET /a' => ['interactive-video']], $json['entryPointGates']);
         $this->assertSame([
             'route::GET /a' => ['exposure' => 'public', 'riskLevel' => 'high', 'issues' => [
                 ['type' => 'PUBLIC_WRITE', 'severity' => 'high', 'message' => 'POST route with no auth middleware'],
@@ -109,6 +110,7 @@ final class JsonPresenterTest extends TestCase
         $this->assertSame([], $json['entryPointPaths']);
         $this->assertSame([], $json['entryPointLocations']);
         $this->assertSame([], $json['entryPointSecurity']);
+        $this->assertSame([], $json['entryPointGates']);
         $this->assertSame(0, $json['impacted']);
         $this->assertFalse($json['unresolved']);
     }
@@ -123,7 +125,7 @@ final class JsonPresenterTest extends TestCase
 
     /**
      * @param  list<string>  $entryPoints
-     * @return array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, array{exposure: string, riskLevel: string, issues: list<array{type: string, severity: string, message: string, file?: string, line?: int}>}>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied: bool, findings: list<string>}
+     * @return array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, array{exposure: string, riskLevel: string, issues: list<array{type: string, severity: string, message: string, file?: string, line?: int}>}>, entryPointGates: array<string, list<string>>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied: bool, findings: list<string>}
      */
     private function detectChangesResult(RiskLevel $risk = RiskLevel::Low, bool $coverageUnresolved = false, array $entryPoints = ['route::GET /a', 'route::GET /b', 'route::GET /c']): array
     {
@@ -145,6 +147,7 @@ final class JsonPresenterTest extends TestCase
                     ['type' => 'PUBLIC_WRITE', 'severity' => 'high', 'message' => 'POST route with no auth middleware'],
                 ]],
             ],
+            'entryPointGates' => ['route::GET /a' => ['interactive-video']],
             'impacted' => count($entryPoints),
             'relatedModels' => ['App\\Models\\Video'],
             'risk' => $risk,

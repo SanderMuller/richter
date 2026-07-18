@@ -152,6 +152,62 @@ final class NodeMetadataTest extends TestCase
     }
 
     #[Test]
+    public function route_gates_read_pennant_middleware_in_alias_and_fqcn_string_form(): void
+    {
+        $metadata = NodeMetadata::withRouteGates(
+            [
+                ['source' => 'route::POST::/videos/{video}/ai-coach', 'target' => 'middleware::features:ai-coach,beta', 'type' => 'route-to-middleware'],
+                ['source' => 'route::GET::/labs', 'target' => 'middleware::Laravel\Pennant\Middleware\EnsureFeaturesAreActive:labs', 'type' => 'route-to-middleware'],
+                ['source' => 'route::GET::/videos', 'target' => 'middleware::throttle:60,1', 'type' => 'route-to-middleware'],
+                ['source' => 'App\Services\X', 'target' => 'middleware::features:not-a-route', 'type' => 'call'],
+            ],
+            [],
+            ['features' => 'Laravel\Pennant\Middleware\EnsureFeaturesAreActive'],
+        );
+
+        $this->assertSame(['ai-coach', 'beta'], $metadata['route::POST::/videos/{video}/ai-coach']['gates'] ?? null);
+        $this->assertSame(['labs'], $metadata['route::GET::/labs']['gates'] ?? null);
+        // Parameterised non-Pennant middleware and non-route sources never gate.
+        $this->assertArrayNotHasKey('route::GET::/videos', $metadata);
+        $this->assertArrayNotHasKey('App\Services\X', $metadata);
+    }
+
+    #[Test]
+    public function an_unrelated_middleware_sharing_the_basename_never_gates(): void
+    {
+        // A non-Pennant class that happens to be called EnsureFeaturesAreActive must not have its
+        // parameters read as feature flags.
+        $metadata = NodeMetadata::withRouteGates(
+            [['source' => 'route::GET::/x', 'target' => 'middleware::App\Http\Middleware\EnsureFeaturesAreActive:tenant-1', 'type' => 'route-to-middleware']],
+            [],
+            [],
+        );
+
+        $this->assertSame([], $metadata);
+    }
+
+    #[Test]
+    public function route_gates_merge_into_existing_metadata_without_disturbing_it(): void
+    {
+        $metadata = NodeMetadata::withRouteGates(
+            [['source' => 'route::GET::/labs', 'target' => 'middleware::features:labs', 'type' => 'route-to-middleware']],
+            ['route::GET::/labs' => ['file' => 'routes/web.php', 'line' => 9]],
+            ['features' => 'Laravel\Pennant\Middleware\EnsureFeaturesAreActive'],
+        );
+
+        $this->assertSame(['file' => 'routes/web.php', 'line' => 9, 'gates' => ['labs']], $metadata['route::GET::/labs']);
+    }
+
+    #[Test]
+    public function gates_survive_the_cache_revalidation_shape_gate(): void
+    {
+        $metadata = NodeMetadata::fromBrainNodeData(['file' => 'routes/web.php', 'gates' => ['ai-coach', 42, '']], '');
+
+        // Non-string entries drop, real flags survive the round trip.
+        $this->assertSame(['file' => 'routes/web.php', 'gates' => ['ai-coach']], $metadata);
+    }
+
+    #[Test]
     public function fallback_never_overwrites_an_existing_file(): void
     {
         $metadata = NodeMetadata::withFallbackFiles(

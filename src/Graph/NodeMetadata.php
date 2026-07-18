@@ -11,7 +11,7 @@ namespace SanderMuller\Richter\Graph;
  *
  * @phpstan-type SecurityIssueShape array{type: string, severity: string, message: string, file?: string, line?: int}
  * @phpstan-type SecurityShape array{exposure: string, riskLevel: string, issues: list<SecurityIssueShape>}
- * @phpstan-type MetadataShape array{file?: string, line?: int, uri?: string, security?: SecurityShape}
+ * @phpstan-type MetadataShape array{file?: string, line?: int, uri?: string, security?: SecurityShape, gates?: list<string>}
  */
 final class NodeMetadata
 {
@@ -43,7 +43,92 @@ final class NodeMetadata
             $metadata['security'] = $security;
         }
 
+        // Brain never supplies gates — this shapes them through the cache-revalidation round trip.
+        $gates = self::stringList($data['gates'] ?? null);
+
+        if ($gates !== []) {
+            $metadata['gates'] = $gates;
+        }
+
         return $metadata === [] ? null : $metadata;
+    }
+
+    /**
+     * Pennant route gating, read off RAW route→middleware edges — the ones whose middleware id
+     * still carries its parameters (`middleware::features:x`), before any id normalisation strips
+     * them: an `EnsureFeaturesAreActive`-guarded route (string alias or FQCN-string form) records
+     * its flag names as `gates` metadata. The `::using()` static-call form is invisible to static
+     * route parsing upstream — an honest coverage limit, not a bug here.
+     *
+     * @param  list<array{source: string, target: string, type: string}>  $edges
+     * @param  array<string, MetadataShape>  $metadata
+     * @param  array<string, string>  $middlewareAliases
+     * @return array<string, MetadataShape>
+     */
+    public static function withRouteGates(array $edges, array $metadata, array $middlewareAliases): array
+    {
+        foreach ($edges as $edge) {
+            if (! str_starts_with($edge['source'], 'route::') || ! str_starts_with($edge['target'], 'middleware::')) {
+                continue;
+            }
+
+            $rest = substr($edge['target'], strlen('middleware::'));
+            $separator = strpos($rest, ':');
+
+            if ($separator === false) {
+                continue;
+            }
+
+            $reference = $middlewareAliases[substr($rest, 0, $separator)] ?? substr($rest, 0, $separator);
+
+            if (! self::isPennantGateMiddleware(ltrim($reference, '\\'))) {
+                continue;
+            }
+
+            $flags = array_values(array_filter(
+                array_map(trim(...), explode(',', substr($rest, $separator + 1))),
+                static fn (string $flag): bool => $flag !== '',
+            ));
+
+            if ($flags === []) {
+                continue;
+            }
+
+            $existing = $metadata[$edge['source']]['gates'] ?? [];
+            $metadata[$edge['source']]['gates'] = array_values(array_unique([...$existing, ...$flags]));
+        }
+
+        return $metadata;
+    }
+
+    /**
+     * Exactly Pennant's gate middleware or an app subclass of it — never an unrelated class that
+     * happens to share the basename, which would annotate non-Pennant parameters as feature flags.
+     * The subclass check degrades to exact-only when the class can't load (e.g. Pennant absent).
+     */
+    private static function isPennantGateMiddleware(string $reference): bool
+    {
+        if ($reference === 'Laravel\Pennant\Middleware\EnsureFeaturesAreActive') {
+            return true;
+        }
+
+        try {
+            return class_exists($reference) && is_subclass_of($reference, 'Laravel\Pennant\Middleware\EnsureFeaturesAreActive');
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+
+    /**
+     * @return list<string>
+     */
+    private static function stringList(mixed $value): array
+    {
+        if (! is_array($value)) {
+            return [];
+        }
+
+        return array_values(array_filter($value, static fn (mixed $entry): bool => is_string($entry) && $entry !== ''));
     }
 
     /**

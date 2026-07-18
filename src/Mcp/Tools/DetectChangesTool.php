@@ -78,6 +78,8 @@ final class DetectChangesTool extends Tool
                 ->description('Entry-point node => {file, line?} defining location, when known. Empty map serializes as [].'),
             'entryPointSecurity' => $schema->object()
                 ->description('Entry-point route => Brain security surface {exposure, riskLevel, issues[]}. Advisory annotation inherited from laravel-brain; routes only, never an input to risk or the gate. Empty map serializes as [].'),
+            'entryPointGates' => $schema->object()
+                ->description('Entry-point route => Pennant feature flags gating it (EnsureFeaturesAreActive middleware). Advisory annotation; never an input to risk or the gate. Empty map serializes as [].'),
             'impacted' => $schema->integer()->description('Distinct impacted graph nodes.'),
             'relatedModels' => $schema->array()->items($schema->string()),
             'risk' => $schema->string()->description('low, medium or high.'),

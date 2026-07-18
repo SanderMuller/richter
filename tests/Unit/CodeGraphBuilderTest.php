@@ -12,6 +12,7 @@ use Illuminate\Auth\Middleware\RequirePassword;
 use Illuminate\Routing\Middleware\ValidateSignature;
 use PHPUnit\Framework\Attributes\Test;
 use SanderMuller\Richter\Graph\CodeGraphBuilder;
+use SanderMuller\Richter\Graph\MiddlewareAliases;
 use SanderMuller\Richter\Tests\TestCase;
 
 final class CodeGraphBuilderTest extends TestCase
@@ -95,7 +96,41 @@ final class CodeGraphBuilderTest extends TestCase
             'signed' => ValidateSignature::class,
             'password.confirm' => RequirePassword::class,
             'legacy' => 'App\Http\Middleware\LegacyStringAlias',
-        ], CodeGraphBuilder::middlewareAliasMap($source));
+        ], MiddlewareAliases::fromKernel($source));
+    }
+
+    #[Test]
+    public function it_parses_the_bootstrap_middleware_alias_map(): void
+    {
+        // The Laravel 11+ registration form — ->alias([...]) inside bootstrap/app.php's
+        // withMiddleware closure; ::class refs and class-string literals both resolve.
+        $source = <<<'PHP'
+            <?php
+            use App\Http\Middleware\Authenticate;
+            use Illuminate\Foundation\Application;
+            use Illuminate\Foundation\Configuration\Middleware;
+
+            return Application::configure(basePath: dirname(__DIR__))
+                ->withMiddleware(function (Middleware $middleware): void {
+                    $middleware->alias([
+                        'auth' => Authenticate::class,
+                        'features' => 'Laravel\Pennant\Middleware\EnsureFeaturesAreActive',
+                    ]);
+                })
+                ->create();
+            PHP;
+
+        $this->assertSame([
+            'auth' => 'App\Http\Middleware\Authenticate',
+            'features' => 'Laravel\Pennant\Middleware\EnsureFeaturesAreActive',
+        ], MiddlewareAliases::fromBootstrap($source));
+    }
+
+    #[Test]
+    public function an_empty_or_alias_free_bootstrap_yields_no_map(): void
+    {
+        $this->assertSame([], MiddlewareAliases::fromBootstrap(''));
+        $this->assertSame([], MiddlewareAliases::fromBootstrap('<?php return 1;'));
     }
 
     #[Test]

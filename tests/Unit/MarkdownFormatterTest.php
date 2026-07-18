@@ -127,6 +127,16 @@ final class MarkdownFormatterTest extends TestCase
     }
 
     #[Test]
+    public function a_gated_route_renders_a_flag_badge(): void
+    {
+        $result = $this->summary(['route::POST::/checkout']) + [
+            'entryPointGates' => ['route::POST::/checkout' => ['ai-coach']],
+        ];
+
+        $this->assertStringContainsString('- [ ] `route::POST::/checkout` — 🚩 ai-coach', MarkdownFormatter::detectChanges($result));
+    }
+
+    #[Test]
     public function an_unrecognised_exposure_renders_bare_instead_of_guessing_an_icon(): void
     {
         $result = $this->summary(['route::GET::/x']) + [

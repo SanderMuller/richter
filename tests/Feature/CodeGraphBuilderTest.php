@@ -71,6 +71,15 @@ final class CodeGraphBuilderTest extends TestCase
     }
 
     #[Test]
+    public function a_pennant_gated_route_carries_its_flags_through_the_full_build(): void
+    {
+        // End-to-end guard on the ordering constraint: gates are read from the raw
+        // `middleware::features:…` edge BEFORE the alias rewrite strips the parameters — if that
+        // order ever flips, this is the test that goes red.
+        $this->assertSame(['interactive-video'], $this->graph()->gatesOf('route::GET::/videos/{video}/interactive'));
+    }
+
+    #[Test]
     public function a_route_node_carries_brains_security_surface(): void
     {
         // The fixture's edit route is guarded by the aliased `auth` middleware — whatever exposure
