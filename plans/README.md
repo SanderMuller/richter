@@ -33,7 +33,8 @@ your row when done.
 | 009  | Reuse the consolidated pass's ASTs for the entry-point tracer | P3 | L | 005, 008 | DONE (reviewed; commit `e98e369`; merged to main with 008 on 2026-07-18) |
 | 010  | Investigate/fix the eager-load model-methods cache staleness | P3 | S | — | DONE (reviewed; staleness confirmed by test, fixed; branch `advisor/010-eager-load-cache-staleness`, commit `bcab10c`) |
 | 011  | Cover the interface/binding edges and MCP success paths | P2 | M | — | DONE (reviewed; binding half removed from scope — blocked on finding 19, upstream Brain bug; branch `advisor/011-interface-binding-mcp-coverage`, commits `9d7a43d`+`8bb2535`) |
-| 012  | Replace the Brain container-binding scan with a Richter-native one (finding 19 workaround) | P1 | M | 005 | DONE (reviewed; branch `advisor/012-native-binding-edges` off 005's tip, commit `6c3ed4c`; upstream laravel-brain PR still to be filed by maintainer) |
+| 012  | Replace the Brain container-binding scan with a Richter-native one (finding 19 workaround) | P1 | M | 005 | DONE (reviewed; branch `advisor/012-native-binding-edges` off 005's tip, commit `6c3ed4c`; upstream fix PR'd as laramint/laravel-brain#65) |
+| 013  | Make pure renames visible — a moved class must never read as "no impact" (finding 4) | P1 | M | — | DONE (reviewed + 22-agent adversarial verification, 0 confirmed findings; commit `53a5121`, merged to main 2026-07-18) |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED (with one-line rationale — finding fixed independently or approach abandoned)
 
