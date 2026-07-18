@@ -93,19 +93,23 @@ final class CodeGraphBuilder
             ];
         }
 
-        // Brain's graph is route-anchored; add queue/console/helper entry points (+ `$listen`
-        // event→listener and interface→impl links) Brain misses. Tracer edges are FQCN-keyed, so they
-        // join the normalised nodes above directly.
-        foreach (new EntryPointTracer(RichterConfig::entryPointRoots())->trace($projectRoot) as $entryPointEdge) {
-            $edges[] = $entryPointEdge;
-        }
+        // One instance serves both passes below: the consolidated pass reads its roots to decide
+        // which ASTs to retain, and trace() consumes them — same instance, so they can never diverge.
+        $entryPointTracer = new EntryPointTracer(RichterConfig::entryPointRoots());
 
         // One consolidated AST pass feeds the dispatch/policy/reference/interface tracers — each used
         // to re-parse the whole app tree itself, which cost ~30-60s per tracer per build.
-        $consolidated = $this->consolidatedTracerEdges($projectRoot);
+        $consolidated = $this->consolidatedTracerEdges($projectRoot, $entryPointTracer);
 
         foreach ($consolidated['edges'] as $tracerEdge) {
             $edges[] = $tracerEdge;
+        }
+
+        // Brain's graph is route-anchored; add queue/console/helper entry points (+ `$listen`
+        // event→listener and interface→impl links) Brain misses. Tracer edges are FQCN-keyed, so they
+        // join the normalised nodes above directly.
+        foreach ($entryPointTracer->trace($projectRoot, $consolidated['entryPointAsts']) as $entryPointEdge) {
+            $edges[] = $entryPointEdge;
         }
 
         // Descend into the views a view renders (`<x-...>`, `@include`/`@extends`) and link the
@@ -137,17 +141,29 @@ final class CodeGraphBuilder
      * tracer ({@see collectTracerNodes()}). The tracers' own `edgesForSource()` fronts
      * (parse-per-call) stay for tests and single-file use.
      *
-     * @return array{edges: list<array{source: string, target: string, type: string}>, unresolvedDispatches: int}
+     * Also retains the resolved ASTs of the entry-point-root files plus EventServiceProvider.php —
+     * the bounded subset {@see EntryPointTracer::trace()} would otherwise re-parse itself — keyed by
+     * absolute path. Only that subset is kept: retaining every AST would trade the parse win for a
+     * memory blow-up on large apps.
+     *
+     * @return array{edges: list<array{source: string, target: string, type: string}>, unresolvedDispatches: int, entryPointAsts: array<string, list<Node\Stmt>>}
      */
-    private function consolidatedTracerEdges(string $projectRoot): array
+    private function consolidatedTracerEdges(string $projectRoot, EntryPointTracer $entryPointTracer): array
     {
         $dispatchTracer = new DispatchEdgeTracer(RichterConfig::dispatchHelpers());
         $policyTracer = new PolicyEdgeTracer();
         $referenceTracer = new ReferenceEdgeTracer();
-        // Roots deliberately unconfigured: only interfaceEdgesForClassLikes() is used here, which ignores them.
-        $entryPointTracer = new EntryPointTracer();
+
+        // The paths whose ASTs trace() consumes: files under the tracer's own roots, plus the
+        // EventServiceProvider it reads `$listen` from.
+        $retainPrefixes = array_map(
+            static fn (string $root): string => "{$projectRoot}/app/{$root}/",
+            $entryPointTracer->roots(),
+        );
+        $eventServiceProvider = $projectRoot . '/app/Providers/EventServiceProvider.php';
 
         $edges = [];
+        $entryPointAsts = [];
         $unresolved = 0;
 
         foreach (AppFiles::phpClasses($projectRoot . '/app', $projectRoot) as $class) {
@@ -160,6 +176,11 @@ final class CodeGraphBuilder
                 ++$unresolved;
 
                 continue;
+            }
+
+            if ($class['path'] === $eventServiceProvider
+                || array_any($retainPrefixes, static fn (string $prefix): bool => str_starts_with($class['path'], $prefix))) {
+                $entryPointAsts[$class['path']] = $ast;
             }
 
             $nodes = $this->collectTracerNodes($ast);
@@ -175,7 +196,7 @@ final class CodeGraphBuilder
             array_push($edges, ...$entryPointTracer->interfaceEdgesForClassLikes($nodes['classLikes'], $class['fqcn']));
         }
 
-        return ['edges' => AppFiles::dedupeEdges($edges, byType: true), 'unresolvedDispatches' => $unresolved];
+        return ['edges' => AppFiles::dedupeEdges($edges, byType: true), 'unresolvedDispatches' => $unresolved, 'entryPointAsts' => $entryPointAsts];
     }
 
     /**

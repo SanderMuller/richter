@@ -24,6 +24,7 @@ use SanderMuller\Richter\Analysis\ImpactAnalyzer;
 use SanderMuller\Richter\Graph\CodeGraph;
 use SanderMuller\Richter\Graph\CodeGraphBuilder;
 use SanderMuller\Richter\Tests\TestCase;
+use SanderMuller\Richter\Tracers\EntryPointTracer;
 
 /**
  * End-to-end: builds the real graph (Laravel Brain analysis + every tracer) from the fixture
@@ -135,6 +136,24 @@ final class CodeGraphBuilderTest extends TestCase
 
         $this->assertContains(QuestionController::class . '::show', $callers);
         $this->assertContains('route::GET::/videos/{video}/questions', $callers);
+    }
+
+    #[Test]
+    public function the_entry_point_tracer_traces_without_retained_asts(): void
+    {
+        // trace() without the builder's retained-AST map — methodsOf() and eventListenerEdges()
+        // must fall back to their own parses, not silently lose edges. Pins the job-method edge
+        // (only reachable when methodsOf() lists handle()) and the `$listen` event→listener edge.
+        $edges = new EntryPointTracer()->trace(self::fixtureProjectPath());
+
+        $this->assertContains(
+            ['source' => ProcessVideoJob::class . '::handle', 'target' => Video::class . '::questions', 'type' => 'model'],
+            $edges,
+        );
+        $this->assertContains(
+            ['source' => VideoPublished::class, 'target' => SendVideoNotification::class . '::handle', 'type' => 'event-listener'],
+            $edges,
+        );
     }
 
     #[Test]

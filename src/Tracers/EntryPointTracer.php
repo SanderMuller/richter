@@ -63,8 +63,25 @@ final readonly class EntryPointTracer
         $this->roots = $roots ?? self::DEFAULT_ROOTS;
     }
 
-    /** @return list<array{source: string, target: string, type: string}> */
-    public function trace(string $projectRoot): array
+    /**
+     * The effective entry-point roots (configured ?? defaults). Exposed so the consolidated pass in
+     * {@see CodeGraphBuilder} retains resolved ASTs for exactly the files {@see trace()} consumes —
+     * reading the roots from this instance keeps the two from ever diverging.
+     *
+     * @return list<string>
+     */
+    public function roots(): array
+    {
+        return $this->roots;
+    }
+
+    /**
+     * @param  array<string, list<Stmt>>  $resolvedAstsByPath  resolved ASTs the consolidated pass in
+     *   {@see CodeGraphBuilder} already produced, keyed by absolute file path — a map hit saves this
+     *   tracer its own parse of the same file; a miss falls back to parsing.
+     * @return list<array{source: string, target: string, type: string}>
+     */
+    public function trace(string $projectRoot, array $resolvedAstsByPath = []): array
     {
         $parser = new PhpFileParser();
         $tracer = new MethodTracer();
@@ -79,7 +96,7 @@ final readonly class EntryPointTracer
                 // Trace every method, not just handle()/__invoke(): MethodTracer does not recurse
                 // into a class's own private methods, so the entry method alone misses the
                 // service/model calls those private helpers make.
-                foreach ($this->methodsOf($parser, $fqcn, $projectRoot) as $method) {
+                foreach ($this->methodsOf($parser, $fqcn, $projectRoot, $resolvedAstsByPath) as $method) {
                     foreach ($this->traceMethod($tracer, $fqcn, $method, $psr4, $projectRoot) as $edge) {
                         $edges[] = $edge;
                     }
@@ -92,7 +109,7 @@ final readonly class EntryPointTracer
         // AST loop in {@see CodeGraphBuilder} via {@see interfaceEdgesForResolvedAst()}.
         return AppFiles::dedupeEdges([
             ...$edges,
-            ...$this->eventListenerEdges($projectRoot),
+            ...$this->eventListenerEdges($projectRoot, $resolvedAstsByPath),
             ...$this->bindingEdges($projectRoot),
         ], byType: true);
     }
@@ -135,19 +152,27 @@ final readonly class EntryPointTracer
         return $edges;
     }
 
-    /** @return list<string> */
-    private function methodsOf(PhpFileParser $parser, string $fqcn, string $projectRoot): array
+    /**
+     * @param  array<string, list<Stmt>>  $resolvedAstsByPath
+     * @return list<string>
+     */
+    private function methodsOf(PhpFileParser $parser, string $fqcn, string $projectRoot, array $resolvedAstsByPath): array
     {
         $file = $projectRoot . '/app/' . str_replace('\\', '/', substr($fqcn, strlen('App\\'))) . '.php';
-        $parsed = $parser->parse($file);
 
-        if ($parsed['ast'] === null) {
+        // A retained AST from the consolidated pass lists the same method names a fresh parse would
+        // (name resolution is irrelevant to method names). The parse fallback stays: a root outside
+        // the consolidated app/ scan, or a file parseResolved rejected, must not silently lose its
+        // methods.
+        $ast = $resolvedAstsByPath[$file] ?? $parser->parse($file)['ast'];
+
+        if ($ast === null) {
             return [];
         }
 
         $methods = [];
 
-        foreach (new NodeFinder()->findInstanceOf($parsed['ast'], ClassMethod::class) as $method) {
+        foreach (new NodeFinder()->findInstanceOf($ast, ClassMethod::class) as $method) {
             if (! $method->isAbstract()) {
                 $methods[] = $method->name->toString();
             }
@@ -163,17 +188,17 @@ final readonly class EntryPointTracer
      * `$listen` mappings — so this method stays until Brain reads `EventServiceProvider::$listen`.
      * (Subscribers in `$subscribe` are wired by neither Brain nor this method: a separate known gap.)
      *
+     * @param  array<string, list<Stmt>>  $resolvedAstsByPath
      * @return list<array{source: string, target: string, type: string}>
      */
-    private function eventListenerEdges(string $projectRoot): array
+    private function eventListenerEdges(string $projectRoot, array $resolvedAstsByPath): array
     {
         $file = $projectRoot . '/app/Providers/EventServiceProvider.php';
 
-        if (! is_file($file)) {
-            return [];
-        }
-
-        $ast = AppFiles::parseResolved((string) file_get_contents($file));
+        // Same map-first pattern as {@see methodsOf()}: the consolidated pass retains this file's
+        // resolved AST; the parse fallback covers a trace() call without one.
+        $ast = $resolvedAstsByPath[$file]
+            ?? (is_file($file) ? AppFiles::parseResolved((string) file_get_contents($file)) : null);
 
         if ($ast === null) {
             return [];
