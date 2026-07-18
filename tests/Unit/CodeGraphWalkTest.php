@@ -33,7 +33,7 @@ final class CodeGraphWalkTest extends TestCase
             ['source' => 'A', 'target' => 'X', 'type' => 'action-to-service'],
         ]);
 
-        $this->assertSame(['model-relationship' => true, 'action-to-service' => true], $graph->reachedViaTypes(['A'])['X']);
+        $this->assertSame(['action-to-service' => true, 'model-relationship' => true], $graph->reachedViaTypes(['A'])['X']);
     }
 
     #[Test]
@@ -50,6 +50,26 @@ final class CodeGraphWalkTest extends TestCase
         $this->assertSame($graph->callersOf(['App\Services\S::run']), $revived->callersOf(['App\Services\S::run']));
         $this->assertSame($graph->dependenciesOf(['route::GET::/r']), $revived->dependenciesOf(['route::GET::/r']));
         $this->assertTrue($revived->hasUnresolvedDispatches());
+    }
+
+    #[Test]
+    public function a_revived_graph_walks_identically_to_a_fresh_one_regardless_of_edge_order(): void
+    {
+        // toArray() regroups edges by source while a fresh build receives them build-ordered —
+        // interleaved so that regrouping would flip the relative order of the two callers of S.
+        $graph = new CodeGraph([
+            ['source' => 'route::GET::/a', 'target' => 'App\X::run', 'type' => 'route-to-controller'],
+            ['source' => 'route::GET::/b', 'target' => 'App\S::run', 'type' => 'route-to-controller'],
+            ['source' => 'route::GET::/a', 'target' => 'App\S::run', 'type' => 'route-to-controller'],
+        ]);
+
+        $revived = CodeGraph::fromArray($graph->toArray());
+
+        $this->assertSame($graph->callersOf(['App\S::run']), $revived->callersOf(['App\S::run']));
+        $this->assertSame(
+            $graph->callerPathsTo(['App\S::run'], ['route::GET::/a', 'route::GET::/b']),
+            $revived->callerPathsTo(['App\S::run'], ['route::GET::/a', 'route::GET::/b']),
+        );
     }
 
     #[Test]

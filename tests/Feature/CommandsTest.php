@@ -71,7 +71,7 @@ final class CommandsTest extends TestCase
         // Builds the real graph of the testbench skeleton. Both formatter branches (matched and
         // unmatched) quote the symbol, so the assertion holds regardless of what that graph contains.
         $this->runArtisan('richter:impact', ['symbol' => User::class])
-            ->expectsOutputToContain('Building code graph…')
+            ->expectsOutputToContain('Resolving code graph…')
             ->expectsOutputToContain(User::class)
             ->assertSuccessful();
     }
@@ -212,7 +212,7 @@ final class CommandsTest extends TestCase
 
         $this->assertSame(0, $exitCode);
         $this->assertStringContainsString('## Richter blast radius:', $output);
-        $this->assertStringNotContainsString('Building code graph…', $output);
+        $this->assertStringNotContainsString('Resolving code graph…', $output);
     }
 
     #[Test]

@@ -25,6 +25,12 @@ final class CodeGraph
      */
     public function __construct(array $edges, private readonly bool $hasUnresolvedDispatches = false)
     {
+        // Canonical order before building adjacency: a fresh build receives edges build-ordered,
+        // a cache-revived graph receives them regrouped by source ({@see toArray()}). Without a
+        // shared order the BFS tie-breaks differently, and --explain would show a different (equal
+        // length) chain on a warm cache than on --no-cache for the same commit.
+        usort($edges, static fn (array $a, array $b): int => [$a['source'], $a['target'], $a['type']] <=> [$b['source'], $b['target'], $b['type']]);
+
         foreach ($edges as $edge) {
             $this->downstream[$edge['source']][] = ['node' => $edge['target'], 'via' => $edge['type']];
             $this->upstream[$edge['target']][] = ['node' => $edge['source'], 'via' => $edge['type']];

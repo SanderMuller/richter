@@ -41,7 +41,7 @@ final class ImpactCommand extends Command
 
         if (! $markdown) {
             // Markdown lands in a PR field; a progress line would pollute the pasteable document.
-            $this->info('Building code graph…');
+            $this->info('Resolving code graph…');
         }
 
         $result = new ImpactAnalyzer($this->graph($graphs))->impact($symbol);

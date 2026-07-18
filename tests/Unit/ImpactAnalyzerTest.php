@@ -715,7 +715,7 @@ final class ImpactAnalyzerTest extends TestCase
             $this->changedCoarse('app/Models/VideoContainer.php', VideoContainer::class),
         ]);
 
-        $this->assertSame([Theme::class, \App\Models\Playlist\Theme::class, 'Theme'], $result['relatedModels']);
+        $this->assertSame([\App\Models\Playlist\Theme::class, Theme::class, 'Theme'], $result['relatedModels']);
     }
 
     #[Test]

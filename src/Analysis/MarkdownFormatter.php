@@ -7,6 +7,8 @@ namespace SanderMuller\Richter\Analysis;
  * and comments — the workflow the README describes ("hand the reviewer your blast radius"). Unlike
  * {@see ImpactFormatter}'s capped text lists, nothing is truncated: entries beyond the cap collapse
  * into a `<details>` block, so the PR stays scannable while the full reach remains one click away.
+ * Cell and code-span content is repo-derived (paths, FQCNs, route/command ids), so no markdown
+ * escaping is applied — a `|` or backtick cannot occur in those identifiers.
  */
 final class MarkdownFormatter
 {
@@ -237,7 +239,7 @@ final class MarkdownFormatter
 
     /**
      * A console-command entry-point node carries its whole `$signature`; show just the command name,
-     * matching {@see ImpactFormatter::entryLabel()}. The label lands inside a code span.
+     * matching {@see ImpactFormatter::entryLabel()}.
      */
     private static function entryLabel(string $node): string
     {

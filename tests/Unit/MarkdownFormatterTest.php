@@ -198,6 +198,23 @@ final class MarkdownFormatterTest extends TestCase
     }
 
     #[Test]
+    public function impact_hops_past_the_cap_collapse_and_an_empty_side_renders_none(): void
+    {
+        $callers = array_map(
+            static fn (int $i): array => ['depth' => 1, 'node' => sprintf('App\Callers\C%02d', $i), 'via' => 'references'],
+            range(1, 16),
+        );
+
+        $output = MarkdownFormatter::impact(['target' => 'App\S', 'callers' => $callers, 'dependencies' => []]);
+
+        $this->assertStringContainsString('<details>', $output);
+        $this->assertStringContainsString('… and 1 more', $output);
+        $this->assertStringContainsString('`App\Callers\C16`', $output);
+        $this->assertStringContainsString('### Dependencies (what it reaches) (0)', $output);
+        $this->assertStringContainsString('_(none)_', $output);
+    }
+
+    #[Test]
     public function impact_no_match_stays_honest_about_coverage(): void
     {
         $output = MarkdownFormatter::impact([

@@ -6,8 +6,5 @@ use App\Contracts\VideoTranscoder;
 
 final class FfmpegTranscoder implements VideoTranscoder
 {
-    public function transcode(): void
-    {
-        // Fixture body — the graph only reads declarations.
-    }
+    public function transcode(): void {}
 }

@@ -92,6 +92,9 @@ final class RichterConfigTest extends TestCase
         config()->set('richter.cache.directory');
         $this->assertSame(storage_path('framework/cache/richter'), RichterConfig::cacheDirectory());
 
+        config()->set('richter.cache.directory', '');
+        $this->assertSame(storage_path('framework/cache/richter'), RichterConfig::cacheDirectory());
+
         config()->set('richter.cache.directory', '/tmp/custom-richter');
         $this->assertSame('/tmp/custom-richter', RichterConfig::cacheDirectory());
     }
