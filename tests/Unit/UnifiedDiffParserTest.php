@@ -211,4 +211,92 @@ final class UnifiedDiffParserTest extends TestCase
         $this->assertSame([['line' => 5, 'text' => '-- DROP TABLE archive']], $parsed['app/Query.php']['removed']);
         $this->assertSame([], $parsed['app/Query.php']['added']);
     }
+
+    #[Test]
+    public function it_registers_a_pure_rename_with_no_hunks(): void
+    {
+        // A 100%-similarity rename emits no `---`/`+++` headers and no hunks — only the rename
+        // lines. It must still register: the old FQCN vanishes, breaking every caller of it.
+        $diff = <<<'DIFF'
+        diff --git a/app/Services/Old.php b/app/Services/New.php
+        similarity index 100%
+        rename from app/Services/Old.php
+        rename to app/Services/New.php
+        DIFF;
+
+        $parsed = UnifiedDiffParser::parse($diff);
+
+        $this->assertSame([
+            'app/Services/New.php' => ['added' => [], 'removed' => [], 'oldPath' => 'app/Services/Old.php'],
+        ], $parsed);
+    }
+
+    #[Test]
+    public function it_registers_a_pure_rename_followed_by_another_file(): void
+    {
+        $diff = <<<'DIFF'
+        diff --git a/app/Services/Old.php b/app/Services/New.php
+        similarity index 100%
+        rename from app/Services/Old.php
+        rename to app/Services/New.php
+        diff --git a/app/Foo.php b/app/Foo.php
+        --- a/app/Foo.php
+        +++ b/app/Foo.php
+        @@ -6 +6 @@ class Foo
+        -        return 0;
+        +        return 1;
+        DIFF;
+
+        $parsed = UnifiedDiffParser::parse($diff);
+
+        $this->assertSame([
+            'app/Services/New.php' => ['added' => [], 'removed' => [], 'oldPath' => 'app/Services/Old.php'],
+            'app/Foo.php' => [
+                'added' => [['line' => 6, 'text' => '        return 1;']],
+                'removed' => [['line' => 6, 'text' => '        return 0;']],
+                'oldPath' => 'app/Foo.php',
+            ],
+        ], $parsed);
+    }
+
+    #[Test]
+    public function it_does_not_duplicate_a_content_rename(): void
+    {
+        // A rename WITH content changes registers through the `+++` header; the rename lines must
+        // not synthesize a second entry for the same file.
+        $diff = <<<'DIFF'
+        diff --git a/app/Old.php b/app/New.php
+        similarity index 90%
+        rename from app/Old.php
+        rename to app/New.php
+        --- a/app/Old.php
+        +++ b/app/New.php
+        @@ -3 +3 @@
+        -    return 1;
+        +    return 2;
+        DIFF;
+
+        $parsed = UnifiedDiffParser::parse($diff);
+
+        $this->assertCount(1, $parsed);
+        $this->assertSame([
+            'added' => [['line' => 3, 'text' => '    return 2;']],
+            'removed' => [['line' => 3, 'text' => '    return 1;']],
+            'oldPath' => 'app/Old.php',
+        ], $parsed['app/New.php']);
+    }
+
+    #[Test]
+    public function it_ignores_a_pure_copy(): void
+    {
+        // A copy leaves the original intact — a pure copy is additive by design and seeds nothing.
+        $diff = <<<'DIFF'
+        diff --git a/app/Services/Original.php b/app/Services/Duplicate.php
+        similarity index 100%
+        copy from app/Services/Original.php
+        copy to app/Services/Duplicate.php
+        DIFF;
+
+        $this->assertSame([], UnifiedDiffParser::parse($diff));
+    }
 }

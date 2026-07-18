@@ -165,6 +165,25 @@ final class ImpactAnalyzerTest extends TestCase
     }
 
     #[Test]
+    public function a_pure_rename_reaches_the_old_fqcns_callers(): void
+    {
+        // A pure rename seeds the vanished OLD FQCN directly — head-tree callers still reference
+        // it, so the blast radius must walk up from the old name to its entry points.
+        $analyzer = new ImpactAnalyzer(new CodeGraph([
+            ['source' => 'route::GET::/r', 'target' => 'App\Services\Old', 'type' => 'references'],
+        ]));
+
+        $result = $analyzer->detectChanges([
+            new ChangedFileSymbols('app/Services/New.php', 'App\Services\New', [
+                new MemberChange('', MemberChange::KIND_CLASS, MemberChange::CHANGE_MODIFIED, resolvable: false),
+            ], cosmeticOnly: false, directSeeds: ['App\Services\Old']),
+        ]);
+
+        $this->assertContains('route::GET::/r', $result['entryPoints']);
+        $this->assertSame('analyzed', $result['coverage']['app/Services/New.php']);
+    }
+
+    #[Test]
     public function detect_changes_follows_eloquent_relationship_edges(): void
     {
         $result = $this->analyzer()->detectChanges([

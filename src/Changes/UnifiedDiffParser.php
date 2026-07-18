@@ -30,15 +30,33 @@ final class UnifiedDiffParser
 
         $current = null;
         $pendingOld = null;
+        $pendingRenameFrom = null;
+        $pendingRenameTo = null;
         $inHunk = false;
         $newLine = 0;
         $oldLine = 0;
 
         foreach (explode("\n", $diff) as $line) {
             if (str_starts_with($line, 'diff --git ')) {
+                self::flushPendingRename($pendingRenameFrom, $pendingRenameTo, $added, $removed, $oldPaths);
+
                 $current = null;
                 $pendingOld = null;
+                $pendingRenameFrom = null;
+                $pendingRenameTo = null;
                 $inHunk = false;
+
+                continue;
+            }
+
+            if (! $inHunk && str_starts_with($line, 'rename from ')) {
+                $pendingRenameFrom = substr($line, 12);
+
+                continue;
+            }
+
+            if (! $inHunk && str_starts_with($line, 'rename to ')) {
+                $pendingRenameTo = substr($line, 10);
 
                 continue;
             }
@@ -86,6 +104,8 @@ final class UnifiedDiffParser
             }
         }
 
+        self::flushPendingRename($pendingRenameFrom, $pendingRenameTo, $added, $removed, $oldPaths);
+
         $files = [];
 
         foreach ($oldPaths as $path => $oldPath) {
@@ -93,6 +113,27 @@ final class UnifiedDiffParser
         }
 
         return $files;
+    }
+
+    /**
+     * Registers a section that carried `rename from`/`rename to` but no hunks. A 100%-similarity
+     * rename emits neither `---`/`+++` headers nor hunks, so the section registers nothing through
+     * `+++ ` — without this flush the vanishing FQCN reads as "no impact". A content rename does
+     * register via `+++ ` (`isset($oldPaths[$to])`) and skips the flush.
+     *
+     * @param  array<string, list<array{line: int, text: string}>>  $added
+     * @param  array<string, list<array{line: int, text: string}>>  $removed
+     * @param  array<string, string>  $oldPaths
+     */
+    private static function flushPendingRename(?string $from, ?string $to, array &$added, array &$removed, array &$oldPaths): void
+    {
+        if ($from === null || $to === null || isset($oldPaths[$to])) {
+            return;
+        }
+
+        $added[$to] = [];
+        $removed[$to] = [];
+        $oldPaths[$to] = $from;
     }
 
     /** @return array{0: int, 1: int} [oldStart, newStart] from `@@ -old[,n] +new[,n] @@`. */

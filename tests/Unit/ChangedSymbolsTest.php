@@ -441,6 +441,33 @@ final class ChangedSymbolsTest extends TestCase
     }
 
     #[Test]
+    public function a_pure_rename_is_a_class_level_change_that_seeds_both_fqcns(): void
+    {
+        // A 100%-similarity rename has no hunks, but the old FQCN vanishes — every caller of it
+        // breaks. It must classify as a real class-level change, never cosmetic, and seed the old
+        // FQCN directly (head-tree callers still reference it) plus the new FQCN coarsely.
+        $diff = "diff --git a/app/Services/Old.php b/app/Services/New.php\nsimilarity index 100%\nrename from app/Services/Old.php\nrename to app/Services/New.php\n";
+
+        Process::fake([
+            '*merge-base*' => Process::result("abc123\n"),
+            '*diff*' => Process::result($diff),
+            '*show*' => Process::result("<?php\nnamespace App\Services;\nclass New {}\n"),
+        ]);
+
+        $changed = ChangedSymbols::resolve('base-ref', 'head-ref');
+
+        $this->assertCount(1, $changed);
+        $this->assertSame('app/Services/New.php', $changed[0]->file);
+        $this->assertSame('App\Services\New', $changed[0]->fqcn);
+        $this->assertFalse($changed[0]->cosmeticOnly);
+        $this->assertCount(1, $changed[0]->members);
+        $this->assertSame(MemberChange::KIND_CLASS, $changed[0]->members[0]->kind);
+        $this->assertSame(MemberChange::CHANGE_MODIFIED, $changed[0]->members[0]->change);
+        $this->assertFalse($changed[0]->members[0]->resolvable);
+        $this->assertSame(['App\Services\Old'], $changed[0]->directSeeds);
+    }
+
+    #[Test]
     public function a_changed_file_with_a_broken_eager_load_string_carries_a_finding(): void
     {
         $head = "<?php\nnamespace App\Exports;\nuse App\Models\Video;\nclass Foo\n{\n    public function bar(): void\n    {\n        \$this->video->load([Video::INTERACTIONS . Video::QUESTIONS]);\n    }\n}\n";

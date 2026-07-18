@@ -43,6 +43,17 @@ final class ChangedSymbols
 
         foreach (UnifiedDiffParser::parse($diff->output()) as $file => $hunk) {
             if (str_starts_with($file, 'app/') && str_ends_with($file, '.php')) {
+                // A 100%-similarity rename emits no hunks, but the old FQCN disappears — every caller of it
+                // breaks. Never cosmetic: seed the vanished old FQCN directly (head-tree callers still
+                // reference it) and the new FQCN coarsely (a class-level change with no member to pin).
+                if ($hunk['added'] === [] && $hunk['removed'] === [] && $hunk['oldPath'] !== $file) {
+                    $changed[] = new ChangedFileSymbols($file, Fqcn::fromPath($file), [
+                        new MemberChange('', MemberChange::KIND_CLASS, MemberChange::CHANGE_MODIFIED, resolvable: false),
+                    ], cosmeticOnly: false, directSeeds: [Fqcn::fromPath($hunk['oldPath'])]);
+
+                    continue;
+                }
+
                 $headSrc = self::headSource($head, $file);
 
                 // An unreadable head source (failed `git show` on a diff that *adds* lines, so the file
