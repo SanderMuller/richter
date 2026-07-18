@@ -73,7 +73,11 @@ final class DetectChangesTool extends Tool
                 ->description('Changed file => "analyzed" or "unresolved". Empty map serializes as [].'),
             'entryPoints' => $schema->array()->items($schema->string()),
             'entryPointPaths' => $schema->object()
-                ->description('Entry-point node => call chain down to the changed code. Empty map serializes as [].'),
+                ->description('Entry-point node => call chain down to the changed code; each hop may carry a project-relative file/line. Empty map serializes as [].'),
+            'entryPointLocations' => $schema->object()
+                ->description('Entry-point node => {file, line?} defining location, when known. Empty map serializes as [].'),
+            'entryPointSecurity' => $schema->object()
+                ->description('Entry-point route => Brain security surface {exposure, riskLevel, issues[]}. Advisory annotation inherited from laravel-brain; routes only, never an input to risk or the gate. Empty map serializes as [].'),
             'impacted' => $schema->integer()->description('Distinct impacted graph nodes.'),
             'relatedModels' => $schema->array()->items($schema->string()),
             'risk' => $schema->string()->description('low, medium or high.'),

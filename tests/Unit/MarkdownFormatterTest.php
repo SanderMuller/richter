@@ -108,6 +108,47 @@ final class MarkdownFormatterTest extends TestCase
     }
 
     #[Test]
+    public function checklist_entries_render_location_and_exposure_with_issue_sub_bullets(): void
+    {
+        $result = $this->summary(['route::POST::/checkout']) + [
+            'entryPointLocations' => ['route::POST::/checkout' => ['file' => 'routes/web.php', 'line' => 21]],
+            'entryPointSecurity' => ['route::POST::/checkout' => ['exposure' => 'public', 'riskLevel' => 'high', 'issues' => [
+                ['type' => 'PUBLIC_WRITE', 'severity' => 'high', 'message' => 'POST route with no auth middleware', 'file' => 'app/Http/Controllers/CheckoutController.php', 'line' => 31],
+            ]]],
+        ];
+
+        $output = MarkdownFormatter::detectChanges($result);
+
+        $this->assertStringContainsString('- [ ] `route::POST::/checkout` — `routes/web.php:21` — 🔓 public', $output);
+        $this->assertStringContainsString(
+            '  - ⚠️ **PUBLIC_WRITE** (high): POST route with no auth middleware — `app/Http/Controllers/CheckoutController.php:31`',
+            $output,
+        );
+    }
+
+    #[Test]
+    public function an_unrecognised_exposure_renders_bare_instead_of_guessing_an_icon(): void
+    {
+        $result = $this->summary(['route::GET::/x']) + [
+            'entryPointSecurity' => ['route::GET::/x' => ['exposure' => 'internal', 'riskLevel' => 'low', 'issues' => []]],
+        ];
+
+        $this->assertStringContainsString('- [ ] `route::GET::/x` — internal', MarkdownFormatter::detectChanges($result));
+    }
+
+    #[Test]
+    public function impact_hops_render_their_location(): void
+    {
+        $output = MarkdownFormatter::impact([
+            'target' => 'App\Models\User',
+            'callers' => [['depth' => 1, 'node' => 'route::GET::/users', 'via' => 'route-to-controller', 'file' => 'routes/web.php', 'line' => 4]],
+            'dependencies' => [],
+        ]);
+
+        $this->assertStringContainsString('- `route::GET::/users` _(via route-to-controller, depth 1)_ — `routes/web.php:4`', $output);
+    }
+
+    #[Test]
     public function explain_nests_the_call_chain_in_code_spans_under_its_entry_point(): void
     {
         $result = $this->summary(['route::GET::/videos']) + ['entryPointPaths' => [

@@ -18,7 +18,7 @@ return [
      * Affects graph tracing only — the risk-floor namespace heuristics (Jobs, Listeners, …)
      * in the analyzer are fixed.
      */
-    'entry_point_roots' => ['Jobs', 'Listeners', 'Console/Commands', 'Helpers', 'Http/Middleware', 'Livewire', 'Observers'],
+    'entry_point_roots' => ['Jobs', 'Listeners', 'Console/Commands', 'Filament', 'Helpers', 'Http/Middleware', 'Livewire', 'Observers'],
 
     /*
      * On-disk cache for the built code graph, keyed by a content fingerprint of everything the

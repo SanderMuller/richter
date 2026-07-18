@@ -153,4 +153,90 @@ final class TestReferenceIndexTest extends TestCase
 
         $this->assertTrue($index->hasReference("route::GET::{$uri}"));
     }
+
+    #[Test]
+    public function tests_referencing_returns_the_files_a_route_reference_came_from(): void
+    {
+        $index = new TestReferenceIndex();
+        $index->addSource('<?php $this->get("/errors/log");', 'tests/Feature/ErrorLogTest.php');
+        $index->addSource('<?php $this->get("/errors/log?verbose=1");', 'tests/Feature/VerboseTest.php');
+        $index->addSource('<?php $x = 1;', 'tests/Feature/UnrelatedTest.php');
+
+        $this->assertSame(
+            ['tests/Feature/ErrorLogTest.php', 'tests/Feature/VerboseTest.php'],
+            $index->testsReferencing('route::GET::/errors/log'),
+        );
+    }
+
+    #[Test]
+    public function tests_referencing_shares_has_references_tri_state(): void
+    {
+        $index = new TestReferenceIndex();
+        $index->addSource('<?php $x = 1;', 'tests/Feature/UnrelatedTest.php');
+
+        $this->assertSame([], $index->testsReferencing('route::GET::/errors/log'));
+        $this->assertNull($index->testsReferencing('schedule::something'));
+    }
+
+    #[Test]
+    public function a_source_without_a_file_counts_for_the_boolean_but_contributes_no_path(): void
+    {
+        $index = $this->index('<?php $this->get("/errors/log");');
+
+        $this->assertTrue($index->hasReference('route::GET::/errors/log'));
+        $this->assertSame([], $index->testsReferencing('route::GET::/errors/log'));
+    }
+
+    #[Test]
+    public function tests_importing_lists_the_files_importing_a_class(): void
+    {
+        $index = new TestReferenceIndex();
+        $index->addSource("<?php\nuse App\Models\Video;\n", 'tests/Unit/VideoTest.php');
+        $index->addSource("<?php\nuse App\Models\Video;\nuse App\Models\Question;\n", 'tests/Feature/VideoFlowTest.php');
+
+        $this->assertSame(['tests/Unit/VideoTest.php', 'tests/Feature/VideoFlowTest.php'], $index->testsImporting('App\Models\Video'));
+        $this->assertSame(['tests/Feature/VideoFlowTest.php'], $index->testsImporting('\App\Models\Question'));
+        $this->assertSame([], $index->testsImporting('App\Models\Unknown'));
+    }
+
+    #[Test]
+    public function a_qualified_in_body_reference_counts_without_an_import(): void
+    {
+        $index = new TestReferenceIndex();
+        $index->addSource('<?php $x = \App\Services\X::class; new \App\Jobs\ImportJob();', 'tests/Unit/DirectRefTest.php');
+
+        $this->assertSame(['tests/Unit/DirectRefTest.php'], $index->testsImporting('App\Services\X'));
+        $this->assertSame(['tests/Unit/DirectRefTest.php'], $index->testsImporting('App\Jobs\ImportJob'));
+    }
+
+    #[Test]
+    public function a_livewire_component_test_references_the_component_entry_point(): void
+    {
+        // `Livewire::test(Settings::class)` needs no bespoke pattern: the component class reference
+        // (import or qualified) is what the index keys on, exactly like any entry-point class.
+        $index = new TestReferenceIndex();
+        $index->addSource("<?php\nuse App\Livewire\Settings;\nLivewire::test(Settings::class)->call('save');", 'tests/Feature/SettingsTest.php');
+
+        $this->assertTrue($index->hasReference('App\Livewire\Settings'));
+        $this->assertSame(['tests/Feature/SettingsTest.php'], $index->testsReferencing('App\Livewire\Settings'));
+    }
+
+    #[Test]
+    public function a_filament_helper_test_references_the_resource_entry_point(): void
+    {
+        $index = new TestReferenceIndex();
+        $index->addSource("<?php livewire(\App\Filament\Resources\VideoResource::class)->callTableAction('delete');", 'tests/Feature/VideoResourceTest.php');
+
+        $this->assertTrue($index->hasReference('App\Filament\Resources\VideoResource'));
+        $this->assertSame(['tests/Feature/VideoResourceTest.php'], $index->testsReferencing('App\Filament\Resources\VideoResource'));
+    }
+
+    #[Test]
+    public function the_same_file_is_recorded_once_per_reference(): void
+    {
+        $index = new TestReferenceIndex();
+        $index->addSource('<?php $this->get("/errors/log"); $this->get("/errors/log");', 'tests/Feature/ErrorLogTest.php');
+
+        $this->assertSame(['tests/Feature/ErrorLogTest.php'], $index->testsReferencing('route::GET::/errors/log'));
+    }
 }

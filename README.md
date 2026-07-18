@@ -76,15 +76,17 @@ Prints the symbol's callers (what breaks if you change it) and its dependencies 
 
 ```text
 Callers (what breaks if you change "App\Services\VideoPublisher"):
-  d1  App\Http\Controllers\VideoController::publish  (via action-to-service)
-  d2  App\Http\Controllers\VideoController  (via controller-to-action)
-  d3  route::POST::/videos/{video}/publish  (via route-to-controller)
+  d1  App\Http\Controllers\VideoController::publish  (via action-to-service)  — app/Http/Controllers/VideoController.php
+  d2  App\Http\Controllers\VideoController  (via controller-to-action)  — app/Http/Controllers/VideoController.php
+  d3  route::POST::/videos/{video}/publish  (via route-to-controller)  — routes/web.php:24
 
 Dependencies (what "App\Services\VideoPublisher" reaches):
-  d1  App\Events\VideoPublished  (via action-to-event)
+  d1  App\Events\VideoPublished  (via action-to-event)  — app/Events/VideoPublished.php
 ```
 
-With `--json`, stdout is a single document (`{target, callers, dependencies}`, each hop `{depth, node, via}`), or `{"error": "…"}` on failure.
+Every hop carries its defining file (and line, when known), project-relative — no grepping to find what a report names.
+
+With `--json`, stdout is a single document (`{target, callers, dependencies}`, each hop `{depth, node, via, file?, line?}`), or `{"error": "…"}` on failure.
 
 ### Advisory change impact of the current diff
 
@@ -98,7 +100,7 @@ php artisan richter:detect-changes --markdown             # PR-ready markdown, f
 
 Resolves which class members the branch changed (member-level, not file-level: a one-method change seeds that method, not the whole class), walks the graph, and reports:
 
-- the entry points (routes, commands, jobs, listeners, middleware, …) the change can reach, each tagged `[test-referenced]` or `[⚠ no test references this]`;
+- the entry points the change can reach — routes, commands, jobs, listeners, middleware, and Livewire/Filament component classes (a Blade-mounted component or Filament resource/page/widget is a user-facing surface even without a `route::` node) — each tagged `[test-referenced]` or `[⚠ no test references this]`;
 - findings in the changed source itself, such as an eager-load or relation string that names no relation on any model. A missing comma between two relation constants is the classic case: `Video::OWNER . User::PROFILE` concatenates to `ownerprofile`, a name Eloquent silently never resolves;
 - a coarse risk level (`low` / `medium` / `high`);
 - honest degradation: a change that cannot be placed in the graph reads **UNRESOLVED**, never as a falsely reassuring "no impact", and an unfollowable dispatch makes a queue job read "unknown", not "none".
@@ -109,8 +111,8 @@ Changed files:
   app/Services/PlaylistImporter.php (0 graph nodes)  (coverage incomplete for this area — UNRESOLVED, not "no impact")
 
 Entry points reached: 2 (some changed files are in an area not yet graphed — see UNRESOLVED above)
-  - command::playlists:sync  [test-referenced]
-  - route::PATCH::/api/videos/{video}  [⚠ no test references this]
+  - command::playlists:sync  (app/Console/Commands/SyncPlaylists.php)  [test-referenced]
+  - route::PATCH::/api/videos/{video}  (routes/api.php:41)  [⚠ no test references this]  [authed]
 
 Related models (association reach — context, not risk): 1
   - App\Models\Playlist
@@ -132,7 +134,16 @@ Entry points reached: 1
 
 A self-listed entry class (a changed job or listener that *is* the entry surface rather than being reached from the change) deliberately carries no chain.
 
-With `--markdown`, the report renders as GitHub-flavoured markdown: a risk badge up front, changed files as a table, entry points as a review checklist with their test tags, and long lists collapsed into `<details>` instead of truncated. The result is ready to paste into (or post onto) a pull request. `--markdown --explain` composes.
+Reached routes also inherit [Laravel Brain](https://github.com/laramint/laravel-brain)'s security surface as advisory annotation: the exposure level renders inline (`[public]`, `[guest]`, `[authed]`, `[admin]`) and any statically detected issues render under the route:
+
+```text
+  - route::POST::/webhooks/payments  (routes/api.php:12)  [⚠ no test references this]  [public]
+      ⚠ PUBLIC_WRITE (high): POST route with no auth middleware
+```
+
+This is annotation only — it never feeds the risk level or a `--fail-on` gate, it exists for routes only (Brain classifies nothing else), and false positives are suppressed where Brain's own config says so (`laravel-brain.security.trusted_route_names` / `trusted_route_uris`).
+
+With `--markdown`, the report renders as GitHub-flavoured markdown: a risk badge up front, changed files as a table, entry points as a review checklist with their file:line, test tags and exposure badges, and long lists collapsed into `<details>` instead of truncated. The result is ready to paste into (or post onto) a pull request. `--markdown --explain` composes.
 
 With `--json`, stdout is a single JSON document (the full, uncapped report) with these top-level keys, or `{"error": "…"}` if the diff can't be resolved:
 
@@ -142,7 +153,9 @@ With `--json`, stdout is a single JSON document (the full, uncapped report) with
 | `changed` | object | `{file: graph-node count}` per changed file |
 | `coverage` | object | `{file: "analyzed" \| "unresolved"}` per changed file |
 | `entryPoints` | string[] | entry-point nodes the change reaches |
-| `entryPointPaths` | object | per reached entry point, the shortest call chain down to the changed code as `{node, via}` hops; a self-listed entry class carries no chain |
+| `entryPointPaths` | object | per reached entry point, the shortest call chain down to the changed code as `{node, via, file?, line?}` hops; a self-listed entry class carries no chain |
+| `entryPointLocations` | object | per entry point, its defining `{file, line?}` (project-relative), when known |
+| `entryPointSecurity` | object | per reached route, Brain's security surface `{exposure, riskLevel, issues[]}` — advisory annotation, routes only, never an input to `risk` or the gate |
 | `impacted` | int | count of risk-bearing nodes reached |
 | `relatedModels` | string[] | models reached only via association edges (context, not risk) |
 | `risk` | string | `"low"` / `"medium"` / `"high"` |
@@ -201,6 +214,47 @@ No GitHub Action ships with the package. `detect-changes` is a plain Artisan com
 > **Note:** `detect-changes` runs `php artisan`, so it boots your Laravel application to build the graph. The job needs whatever booting the app normally requires: typically an `.env` (`cp .env.example .env`) and an `APP_KEY` (`php artisan key:generate`), as above. Without them the command fails to boot before it can analyse anything.
 
 The workflow analyzes the pull request's code, and analysis autoloads classes from that checkout (see above). For a public repository, keep the trigger on `pull_request` (never `pull_request_target` with a privileged token) so fork-submitted code runs without access to your secrets.
+
+### Affected-test selection
+
+```bash
+php artisan richter:affected-tests                        # human-readable selection
+php artisan richter:affected-tests --base=origin/develop
+php artisan richter:affected-tests --json                 # {base, determinable, reasons, tests, unreferencedEntryPoints}
+php artisan test $(php artisan richter:affected-tests --plain)   # simple form — coarse but safe
+```
+
+The simple form only ever errs toward running more: both an undetermined selection and a
+determined-but-empty one leave `$(…)` empty, and an argument-less runner executes the full suite.
+To also skip the run when the selection is determined and empty, branch on the exit code:
+
+```bash
+tests=$(php artisan richter:affected-tests --plain); status=$?
+if [ "$status" -eq 0 ] && [ -z "$tests" ]; then echo "No affected tests."
+elif [ "$status" -eq 0 ]; then php artisan test $tests
+else php artisan test; fi   # exit 2: not determinable — full suite
+```
+
+Inverts the test-reference index into a selection: the test files that reference any entry point
+the diff reaches, plus the tests that import any changed **or reached** class (a unit test of an
+intermediate caller never touches an entry point). A `schedule::` entry resolves through the
+command it runs. Only conventionally-named `*Test.php` files are selected — helpers and fixtures
+under `tests/` never end up as runner arguments, and an entry point whose only references live in
+a support trait blocks determination rather than silently dropping the tests using that trait.
+Selection is reference-based recall, not proof of coverage — reached entry points nothing
+references contribute nothing, and the report says how many those are.
+
+It fails safe, and the exit code is the contract:
+
+| Exit | Meaning |
+|---|---|
+| `0` | Selection determined (possibly empty). |
+| `2` | **Not determinable — run the full suite.** Any UNRESOLVED file, low-confidence seed, unfollowable dispatch, or uncheckable entry point trips this; the reasons are printed (text) or carried in `reasons` (JSON). |
+| `1` | Usage or unexpected error. |
+
+In `--plain` mode an undeterminable run prints nothing, so the command-substitution form degrades
+to the full suite by construction — as does a determined-but-empty selection, which is why the
+exit-code branch above is the precise form.
 
 ### Scoring accuracy against replayable history
 
@@ -262,10 +316,14 @@ Point Claude Code, Cursor, or any MCP client at the Artisan entry point, e.g. in
 |---|---|---|
 | `default_base` | `origin/main` | Git ref `richter:detect-changes` diffs against when `--base` is omitted. |
 | `dispatch_helpers` | `[]` | Project-custom global job-dispatch helper functions (e.g. `dispatch_with_retries`) the dispatch tracer should follow. |
-| `entry_point_roots` | `Jobs`, `Listeners`, `Console/Commands`, `Helpers`, `Http/Middleware`, `Livewire`, `Observers` | Directories under `app/` traced as entry points beyond Brain's route-anchored graph (graph tracing only; the analyzer's risk-floor namespace heuristics are fixed). |
+| `entry_point_roots` | `Jobs`, `Listeners`, `Console/Commands`, `Filament`, `Helpers`, `Http/Middleware`, `Livewire`, `Observers` | Directories under `app/` traced as entry points beyond Brain's route-anchored graph (graph tracing only; the analyzer's risk-floor namespace heuristics are fixed). |
 | `cache.enabled` | `true` | On-disk graph cache, keyed by a content fingerprint of the build inputs (see [Graph cache](#graph-cache)). |
 | `cache.directory` | `null` | Cache location; `null` means `storage/framework/cache/richter`. |
 | `benchmark_cases` | `[]` | Replayable accuracy fixtures for `richter:benchmark`. |
+
+Filament coverage is class-level: resources, pages and widgets surface as entry points (and their
+computed HTTP routes come in through Laravel Brain when Filament is installed), but individual
+table/bulk actions are not modelled as separate entry points.
 
 Richter assumes standard Laravel conventions: the `App\` root namespace, `app/Models`, `app/Policies`, `resources/views`, and `tests/`.
 

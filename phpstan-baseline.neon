@@ -7,12 +7,6 @@ parameters:
 			path: src/Analysis/ImpactAnalyzer.php
 
 		-
-			rawMessage: 'Cognitive complexity for "SanderMuller\Richter\Analysis\TestReferenceIndex::addSource()" is 26, keep it under 20'
-			identifier: complexity.functionLike
-			count: 1
-			path: src/Analysis/TestReferenceIndex.php
-
-		-
 			rawMessage: 'Cognitive complexity for "SanderMuller\Richter\Changes\ChangedSymbols::classifyFile()" is 23, keep it under 20'
 			identifier: complexity.functionLike
 			count: 1

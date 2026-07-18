@@ -31,6 +31,8 @@ use SanderMuller\Richter\Tracers\ReferenceEdgeTracer;
  * Builds a {@see CodeGraph} from the live codebase using Laravel Brain's static analysis. Widens
  * Brain's default route/command globs (which only match `{dir}/{file}.php`) to also cover route and
  * command files directly under `routes/` and `app/Console/Commands/`, plus one nesting level. Dev/CI only.
+ *
+ * @phpstan-import-type MetadataShape from NodeMetadata
  */
 final class CodeGraphBuilder
 {
@@ -75,10 +77,19 @@ final class CodeGraphBuilder
 
         // One FQCN-keyed id per symbol, read from Brain's own node data — the anti-corruption boundary
         // that lets the post-hoc tracers below address symbols by plain FQCN and join the route chain.
+        // The same pass keeps each node's annotation (file/line, route uri, security surface), merged
+        // field-wise when two Brain nodes normalise onto one canonical id.
         $canonical = [];
+        $metadata = [];
 
         foreach ($analysis->fullGraph->nodes() as $node) {
-            $canonical[$node->id] = NodeNormalizer::canonicalId($node->id, $node->data);
+            $id = NodeNormalizer::canonicalId($node->id, $node->data);
+            $canonical[$node->id] = $id;
+            $nodeMetadata = NodeMetadata::fromBrainNodeData($node->data, $projectRoot);
+
+            if ($nodeMetadata !== null) {
+                $metadata[$id] = isset($metadata[$id]) ? NodeMetadata::merge($metadata[$id], $nodeMetadata) : $nodeMetadata;
+            }
         }
 
         /** @var list<array{source: string, target: string, type: string}> $edges */
@@ -122,8 +133,14 @@ final class CodeGraphBuilder
             $edges[] = $bladePolicyEdge;
         }
 
-        $edges = self::resolveShortControllerIds($edges, $this->controllerBasenames($projectRoot));
-        $edges = self::resolveMiddlewareAliases($edges, self::middlewareAliasMap($this->kernelSource($projectRoot)));
+        $controllerBasenames = $this->controllerBasenames($projectRoot);
+        $middlewareAliases = self::middlewareAliasMap($this->kernelSource($projectRoot));
+        $edges = self::resolveShortControllerIds($edges, $controllerBasenames);
+        $edges = self::resolveMiddlewareAliases($edges, $middlewareAliases);
+        // The rewrites rename node ids in the edges; the metadata keys must follow or the
+        // annotation would dangle on ids the graph no longer contains.
+        $metadata = NodeMetadata::remapKeys($metadata, self::shortControllerIdResolver($controllerBasenames));
+        $metadata = NodeMetadata::remapKeys($metadata, self::middlewareAliasResolver($middlewareAliases));
 
         foreach ($this->memberDeclarationEdges($edges, $projectRoot) as $memberEdge) {
             $edges[] = $memberEdge;
@@ -133,7 +150,9 @@ final class CodeGraphBuilder
             $edges[] = $declaresEdge;
         }
 
-        return new CodeGraph(AppFiles::dedupeEdges($edges, byType: true), $consolidated['unresolvedDispatches'] > 0);
+        $edges = AppFiles::dedupeEdges($edges, byType: true);
+
+        return new CodeGraph($edges, $consolidated['unresolvedDispatches'] > 0, NodeMetadata::withFallbackFiles($edges, $metadata, $projectRoot));
     }
 
     /**
@@ -254,7 +273,22 @@ final class CodeGraphBuilder
      */
     public static function resolveMiddlewareAliases(array $edges, array $aliasToFqcn): array
     {
-        $resolve = static function (string $node) use ($aliasToFqcn): string {
+        $resolve = self::middlewareAliasResolver($aliasToFqcn);
+
+        return array_map(static fn (array $edge): array => [
+            'source' => $resolve($edge['source']),
+            'target' => $resolve($edge['target']),
+            'type' => $edge['type'],
+        ], $edges);
+    }
+
+    /**
+     * @param  array<string, string>  $aliasToFqcn
+     * @return \Closure(string): string
+     */
+    private static function middlewareAliasResolver(array $aliasToFqcn): \Closure
+    {
+        return static function (string $node) use ($aliasToFqcn): string {
             // `middleware::throttle:api` carries parameters — the alias is the part before the colon.
             if (preg_match('/^middleware::([\w.\-]+)(?::.*)?$/', $node, $matches) !== 1) {
                 return $node;
@@ -262,12 +296,6 @@ final class CodeGraphBuilder
 
             return $aliasToFqcn[$matches[1]] ?? $node;
         };
-
-        return array_map(static fn (array $edge): array => [
-            'source' => $resolve($edge['source']),
-            'target' => $resolve($edge['target']),
-            'type' => $edge['type'],
-        ], $edges);
     }
 
     /**
@@ -373,7 +401,22 @@ final class CodeGraphBuilder
      */
     public static function resolveShortControllerIds(array $edges, array $basenameToFqcns): array
     {
-        $resolve = static function (string $node) use ($basenameToFqcns): string {
+        $resolve = self::shortControllerIdResolver($basenameToFqcns);
+
+        return array_map(static fn (array $edge): array => [
+            'source' => $resolve($edge['source']),
+            'target' => $resolve($edge['target']),
+            'type' => $edge['type'],
+        ], $edges);
+    }
+
+    /**
+     * @param  array<string, list<string>>  $basenameToFqcns
+     * @return \Closure(string): string
+     */
+    private static function shortControllerIdResolver(array $basenameToFqcns): \Closure
+    {
+        return static function (string $node) use ($basenameToFqcns): string {
             if (preg_match('/^(?:controller|action)::([A-Za-z_]\w*)(?:::(\w+))?$/', $node, $matches) !== 1) {
                 return $node;
             }
@@ -395,12 +438,6 @@ final class CodeGraphBuilder
 
             return $candidates[0] . ($method !== null ? "::{$method}" : '');
         };
-
-        return array_map(static fn (array $edge): array => [
-            'source' => $resolve($edge['source']),
-            'target' => $resolve($edge['target']),
-            'type' => $edge['type'],
-        ], $edges);
     }
 
     /** @return array<string, list<string>> controller class basename → candidate FQCNs */

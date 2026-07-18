@@ -158,6 +158,8 @@ final class McpTest extends TestCase
             'coverage',
             'entryPoints',
             'entryPointPaths',
+            'entryPointLocations',
+            'entryPointSecurity',
             'impacted',
             'relatedModels',
             'risk',

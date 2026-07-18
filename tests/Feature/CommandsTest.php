@@ -237,6 +237,115 @@ final class CommandsTest extends TestCase
     }
 
     #[Test]
+    public function affected_tests_reports_an_empty_diff_as_a_determinable_empty_selection(): void
+    {
+        $this->withoutMockingConsoleOutput();
+        $exitCode = Artisan::call('richter:affected-tests', ['--base' => 'HEAD', '--plain' => true]);
+
+        $this->assertSame(0, $exitCode);
+        $this->assertSame('', trim(Artisan::output()));
+    }
+
+    #[Test]
+    public function affected_tests_text_mode_reports_a_determinable_empty_selection(): void
+    {
+        $this->runArtisan('richter:affected-tests', ['--base' => 'HEAD'])
+            ->expectsOutputToContain('Affected tests: 0')
+            ->assertSuccessful();
+    }
+
+    #[Test]
+    public function affected_tests_accepts_the_no_cache_flag(): void
+    {
+        $this->withoutMockingConsoleOutput();
+        $exitCode = Artisan::call('richter:affected-tests', ['--base' => 'HEAD', '--plain' => true, '--no-cache' => true]);
+
+        $this->assertSame(0, $exitCode);
+    }
+
+    #[Test]
+    public function affected_tests_json_empty_diff_is_determinable(): void
+    {
+        $this->withoutMockingConsoleOutput();
+        $exitCode = Artisan::call('richter:affected-tests', ['--base' => 'HEAD', '--json' => true]);
+        $decoded = json_decode(Artisan::output(), associative: true);
+
+        $this->assertSame(0, $exitCode);
+        $this->assertIsArray($decoded);
+        $this->assertSame('HEAD', $decoded['base']);
+        $this->assertTrue($decoded['determinable']);
+        $this->assertSame([], $decoded['tests']);
+    }
+
+    #[Test]
+    public function affected_tests_plain_prints_nothing_and_exits_2_when_undeterminable(): void
+    {
+        // Faked plumbing where `git show` fails → the changed file reads UNRESOLVED → the selection
+        // cannot be determined. Plain mode must keep stdout empty so command substitution degrades
+        // to the full suite, and the exit code must say why nothing was printed.
+        $diff = "diff --git a/app/Models/User.php b/app/Models/User.php\n--- a/app/Models/User.php\n+++ b/app/Models/User.php\n@@ -0,0 +1,1 @@\n+    public function added(): void {}\n";
+
+        Process::fake([
+            '*merge-base*' => Process::result("abc123\n"),
+            '*show*' => Process::result(errorOutput: 'bad object', exitCode: 128),
+            '*diff*' => Process::result($diff),
+        ]);
+
+        $this->withoutMockingConsoleOutput();
+        $exitCode = Artisan::call('richter:affected-tests', ['--base' => 'some-base', '--plain' => true]);
+
+        $this->assertSame(2, $exitCode);
+        $this->assertSame('', trim(Artisan::output()));
+    }
+
+    #[Test]
+    public function affected_tests_json_reports_the_undeterminable_reasons(): void
+    {
+        $diff = "diff --git a/app/Models/User.php b/app/Models/User.php\n--- a/app/Models/User.php\n+++ b/app/Models/User.php\n@@ -0,0 +1,1 @@\n+    public function added(): void {}\n";
+
+        Process::fake([
+            '*merge-base*' => Process::result("abc123\n"),
+            '*show*' => Process::result(errorOutput: 'bad object', exitCode: 128),
+            '*diff*' => Process::result($diff),
+        ]);
+
+        $this->withoutMockingConsoleOutput();
+        $exitCode = Artisan::call('richter:affected-tests', ['--base' => 'some-base', '--json' => true]);
+        $decoded = json_decode(Artisan::output(), associative: true);
+
+        $this->assertSame(2, $exitCode);
+        $this->assertIsArray($decoded);
+        $this->assertFalse($decoded['determinable']);
+        $this->assertIsArray($decoded['reasons']);
+        $this->assertStringContainsString('UNRESOLVED', json_encode($decoded['reasons'], JSON_THROW_ON_ERROR));
+    }
+
+    #[Test]
+    public function affected_tests_text_mode_names_the_reasons_and_exits_2(): void
+    {
+        $this->withoutMockingConsoleOutput();
+        $exitCode = Artisan::call('richter:affected-tests', ['--base' => 'this-ref-does-not-exist-zzz']);
+        $output = Artisan::output();
+
+        $this->assertSame(2, $exitCode);
+        $this->assertStringContainsString('run the full suite', $output);
+        $this->assertStringContainsString('this-ref-does-not-exist-zzz', $output);
+    }
+
+    #[Test]
+    public function affected_tests_rejects_json_combined_with_plain_as_a_json_error(): void
+    {
+        $this->withoutMockingConsoleOutput();
+        $exitCode = Artisan::call('richter:affected-tests', ['--json' => true, '--plain' => true]);
+        $decoded = json_decode(Artisan::output(), associative: true);
+
+        $this->assertSame(1, $exitCode);
+        $this->assertIsArray($decoded);
+        $this->assertIsString($decoded['error']);
+        $this->assertStringContainsString('mutually exclusive', $decoded['error']);
+    }
+
+    #[Test]
     public function benchmark_fails_a_case_whose_diff_cannot_be_resolved(): void
     {
         config()->set('richter.benchmark_cases', [self::benchmarkCase()]);

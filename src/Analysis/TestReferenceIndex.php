@@ -10,25 +10,25 @@ use Symfony\Component\Finder\Finder;
 use Throwable;
 
 /**
- * Answers "does any automated test reference this entry point?" so the impact report can say which
- * reached routes/commands a change touches *without* a test in the way — turning the entry-point
- * list from context into an action list. Reference-based, not coverage-based, by design: a regex
- * scan of tests/ runs in well under a second on every report, real line coverage would need an
- * instrumented full-suite run. A reference is a weaker claim than coverage — the annotation says
- * "referenced", never "covered".
+ * Answers "does any automated test reference this entry point?" — and since the index records which
+ * test file each reference came from, also "which tests?" ({@see testsReferencing()}), the mapping
+ * `richter:affected-tests` inverts into a test selection. Reference-based, not coverage-based, by
+ * design: a regex scan of tests/ runs in well under a second on every report, real line coverage
+ * would need an instrumented full-suite run. A reference is a weaker claim than coverage — the
+ * annotation says "referenced", never "covered".
  */
 final class TestReferenceIndex
 {
-    /** @var array<string, true> */
+    /** @var array<string, list<string>> uri => test files containing it */
     private array $uris = [];
 
-    /** @var array<string, true> */
+    /** @var array<string, list<string>> route name => test files containing it */
     private array $routeNames = [];
 
-    /** @var array<string, true> */
+    /** @var array<string, list<string>> artisan command name => test files containing it */
     private array $artisanNames = [];
 
-    /** @var array<string, true> */
+    /** @var array<string, list<string>> imported FQCN => test files importing it */
     private array $classes = [];
 
     /** @var list<array{regex: string, name: string|null, methods: list<string>}>|null */
@@ -36,7 +36,11 @@ final class TestReferenceIndex
 
     private bool $routerUnavailable = false;
 
-    public static function fromTests(string $testsDir): self
+    /**
+     * @param  string|null  $projectRoot  when given, recorded test-file paths are made relative to
+     *   it — the form a test-runner invocation (`php artisan test <file>`) expects
+     */
+    public static function fromTests(string $testsDir, ?string $projectRoot = null): self
     {
         $index = new self();
 
@@ -45,17 +49,27 @@ final class TestReferenceIndex
         }
 
         foreach (Finder::create()->files()->in($testsDir)->name('*.php') as $file) {
-            $index->addSource((string) file_get_contents($file->getPathname()));
+            $path = $file->getPathname();
+
+            if ($projectRoot !== null && str_starts_with($path, $projectRoot . '/')) {
+                $path = substr($path, strlen($projectRoot) + 1);
+            }
+
+            $index->addSource((string) file_get_contents($file->getPathname()), $path);
         }
 
         return $index;
     }
 
-    public function addSource(string $source): void
+    /**
+     * @param  string|null  $file  the test file the source came from; a null-file source still
+     *   counts for {@see hasReference()} but can never contribute a path to {@see testsReferencing()}
+     */
+    public function addSource(string $source, ?string $file = null): void
     {
         if (preg_match_all('/route\(\s*[\'"]([^\'"]+)[\'"]/', $source, $matches) > 0) {
             foreach ($matches[1] as $name) {
-                $this->routeNames[$name] = true;
+                $this->record($this->routeNames, $name, $file);
             }
         }
 
@@ -63,24 +77,40 @@ final class TestReferenceIndex
             foreach ($matches[1] as $uri) {
                 // A query string is not part of the route template.
                 $template = strstr($uri, '?', before_needle: true);
-                $this->uris[$template === false || $template === '' ? $uri : $template] = true;
+                $this->record($this->uris, $template === false || $template === '' ? $uri : $template, $file);
             }
         }
 
         if (preg_match_all('/(?:artisan|Artisan::call|Artisan::queue)\(\s*[\'"]([^\'"\s]+)[\'"]/', $source, $matches) > 0) {
             foreach ($matches[1] as $command) {
-                $this->artisanNames[$command] = true;
+                $this->record($this->artisanNames, $command, $file);
             }
         }
 
-        // Aliased imports (`use App\Jobs\Foo as FooJob;`) key on the FQCN, not the alias.
+        $this->recordClassReferences($source, $file);
+    }
+
+    /**
+     * Every way a test can name an `App\` class: single imports (aliased or not, keyed on the
+     * FQCN), grouped imports expanded per member, and qualified in-body references
+     * (`\App\Services\X::class`, `new \App\Services\X(...)`) — a test need not import a class to
+     * break when it changes. Strings and comments can over-match; for reference detection and
+     * test selection, over is the safe direction.
+     */
+    private function recordClassReferences(string $source, ?string $file): void
+    {
         if (preg_match_all('/^use\s+(App\\\\[^;\s{]+)(?:\s+as\s+\w+)?\s*;/mi', $source, $matches) > 0) {
             foreach ($matches[1] as $class) {
-                $this->classes[$class] = true;
+                $this->record($this->classes, $class, $file);
             }
         }
 
-        // Grouped imports: `use App\Jobs\{ImportJob, OtherJob as O};` — expand to one FQCN per member.
+        if (preg_match_all('/(?<![\w$\\\\])\\\\?(App\\\\(?:[A-Za-z_]\w*\\\\)*[A-Za-z_]\w*)/', $source, $matches) > 0) {
+            foreach ($matches[1] as $class) {
+                $this->record($this->classes, $class, $file);
+            }
+        }
+
         if (preg_match_all('/^use\s+(App\\\\[^;{]*)\{([^}]+)}\s*;/m', $source, $matches, PREG_SET_ORDER) > 0) {
             foreach ($matches as $group) {
                 foreach (explode(',', $group[2]) as $member) {
@@ -88,7 +118,7 @@ final class TestReferenceIndex
                     $member = $parts === false ? '' : trim($parts[0] ?? '');
 
                     if ($member !== '') {
-                        $this->classes[$group[1] . $member] = true;
+                        $this->record($this->classes, $group[1] . $member, $file);
                     }
                 }
             }
@@ -102,24 +132,64 @@ final class TestReferenceIndex
      */
     public function hasReference(string $entryPointNode): ?bool
     {
+        return $this->resolve($entryPointNode)['referenced'] ?? null;
+    }
+
+    /**
+     * The test files referencing the entry-point node, with {@see hasReference()}'s exact tri-state:
+     * null means "couldn't check" — a consumer selecting tests must then fall back to the full
+     * suite, never to a silently smaller set. A source added without a file counts for the boolean
+     * but cannot contribute a path, so the list may be empty while hasReference() is true.
+     *
+     * @return list<string>|null
+     */
+    public function testsReferencing(string $entryPointNode): ?array
+    {
+        return $this->resolve($entryPointNode)['tests'] ?? null;
+    }
+
+    /**
+     * The test files importing an `App\` class — always determinable (imports are a pure text
+     * scan), so no tri-state. This is `affected-tests`' second selection axis: a unit test that
+     * exercises a changed class directly never references an entry point.
+     *
+     * @return list<string>
+     */
+    public function testsImporting(string $fqcn): array
+    {
+        return $this->classes[ltrim($fqcn, '\\')] ?? [];
+    }
+
+    /**
+     * One resolver behind both queries so the boolean and the file list can never drift; null means
+     * the node cannot be checked at all.
+     *
+     * @return array{referenced: bool, tests: list<string>}|null
+     */
+    private function resolve(string $entryPointNode): ?array
+    {
         if (str_starts_with($entryPointNode, 'route::')) {
-            return $this->routeHasReference($entryPointNode);
+            return $this->resolveRoute($entryPointNode);
         }
 
         if (str_starts_with($entryPointNode, 'command::')) {
-            return $this->commandHasReference($entryPointNode);
+            return $this->resolveCommand($entryPointNode);
         }
 
         // A self-listed entry-point class (a changed listener/job with no app-side caller) — a test
         // referencing the class by import counts.
         if (preg_match('/^App\\\\[\w\\\\]+$/', $entryPointNode) === 1) {
-            return isset($this->classes[$entryPointNode]);
+            return [
+                'referenced' => isset($this->classes[$entryPointNode]),
+                'tests' => $this->classes[$entryPointNode] ?? [],
+            ];
         }
 
         return null;
     }
 
-    private function routeHasReference(string $node): ?bool
+    /** @return array{referenced: bool, tests: list<string>}|null */
+    private function resolveRoute(string $node): ?array
     {
         // `route::GET::/videos/{video}` → method + URI template.
         $parts = explode('::', $node, 3);
@@ -129,6 +199,8 @@ final class TestReferenceIndex
         }
 
         [, $method, $uri] = $parts;
+        $referenced = false;
+        $tests = [];
 
         foreach ($this->routeMap() as $route) {
             if (! in_array($method, $route['methods'], strict: true)) {
@@ -140,7 +212,8 @@ final class TestReferenceIndex
             }
 
             if ($route['name'] !== null && isset($this->routeNames[$route['name']])) {
-                return true;
+                $referenced = true;
+                $tests = [...$tests, ...$this->routeNames[$route['name']]];
             }
         }
 
@@ -148,16 +221,24 @@ final class TestReferenceIndex
         // against every literal URI the tests contain.
         $template = '#^' . preg_replace('/\\\{[^}]+\\\}/', '[^/]+', preg_quote($uri, '#')) . '$#';
 
-        if (array_any(array_keys($this->uris), fn (string $literal): bool => preg_match($template, $literal) === 1)) {
-            return true;
+        foreach ($this->uris as $literal => $files) {
+            if (preg_match($template, (string) $literal) === 1) {
+                $referenced = true;
+                $tests = [...$tests, ...$files];
+            }
+        }
+
+        if ($referenced) {
+            return ['referenced' => true, 'tests' => self::unique($tests)];
         }
 
         // With the router unavailable, name-based matching never ran — a miss here means "couldn't
         // check", not "unreferenced".
-        return $this->routerUnavailable ? null : false;
+        return $this->routerUnavailable ? null : ['referenced' => false, 'tests' => []];
     }
 
-    private function commandHasReference(string $node): ?bool
+    /** @return array{referenced: bool, tests: list<string>}|null */
+    private function resolveCommand(string $node): ?array
     {
         $signature = substr($node, strlen('command::'));
         $name = preg_split('/\s/', trim($signature), 2)[0] ?? '';
@@ -166,18 +247,47 @@ final class TestReferenceIndex
             return null;
         }
 
-        if (isset($this->artisanNames[$name])) {
-            return true;
-        }
+        $referenced = isset($this->artisanNames[$name]);
+        $tests = $this->artisanNames[$name] ?? [];
 
         try {
             $command = Artisan::all()[$name] ?? null;
         } catch (Throwable) {
-            // Console kernel unavailable — a class-import reference can't be ruled out.
-            return null;
+            // Console kernel unavailable — a class-import reference can't be ruled out. An artisan
+            // string match already in hand is still a determined (positive) answer.
+            return $referenced ? ['referenced' => true, 'tests' => self::unique($tests)] : null;
         }
 
-        return $command instanceof Command && isset($this->classes[$command::class]);
+        if ($command instanceof Command && isset($this->classes[$command::class])) {
+            $referenced = true;
+            $tests = [...$tests, ...$this->classes[$command::class]];
+        }
+
+        return ['referenced' => $referenced, 'tests' => self::unique($tests)];
+    }
+
+    /** @param  array<string, list<string>>  $bucket */
+    private function record(array &$bucket, string $key, ?string $file): void
+    {
+        $files = $bucket[$key] ?? [];
+
+        if ($file !== null && ! in_array($file, $files, strict: true)) {
+            $files[] = $file;
+        }
+
+        $bucket[$key] = $files;
+    }
+
+    /**
+     * @param  list<string>  $tests
+     * @return list<string>
+     */
+    private static function unique(array $tests): array
+    {
+        $tests = array_values(array_unique($tests));
+        sort($tests);
+
+        return $tests;
     }
 
     /**
@@ -207,7 +317,7 @@ final class TestReferenceIndex
             }
         } catch (Throwable) {
             // No booted router — URI matching still works, but a miss must degrade to "couldn't
-            // check" (see routeHasReference), never to an actionable "unreferenced".
+            // check" (see testsReferencingRoute), never to an actionable "unreferenced".
             $this->routerUnavailable = true;
         }
 

@@ -43,7 +43,7 @@ final class ImpactAnalyzerTest extends TestCase
     }
 
     /**
-     * @param  list<array{depth: int, node: string, via: string}>  $hops
+     * @param  list<array{depth: int, node: string, via: string, file?: string, line?: int}>  $hops
      * @return list<string>
      */
     private function nodes(array $hops): array
@@ -109,6 +109,164 @@ final class ImpactAnalyzerTest extends TestCase
             ['node' => 'App\Http\Controllers\VideoController::publish', 'via' => 'action-to-service'],
             ['node' => 'App\Services\VideoPublisher::publish', 'via' => ''],
         ], $result['entryPointPaths'][self::ROUTE]);
+    }
+
+    #[Test]
+    public function detect_changes_annotates_reached_entry_points_with_location_and_security(): void
+    {
+        $analyzer = new ImpactAnalyzer(new CodeGraph([
+            ['source' => self::ROUTE, 'target' => 'App\Services\VideoPublisher::publish', 'type' => 'route-to-controller'],
+        ], nodeMetadata: [
+            self::ROUTE => [
+                'file' => 'routes/web.php',
+                'line' => 8,
+                'security' => ['exposure' => 'public', 'riskLevel' => 'high', 'issues' => [
+                    ['type' => 'PUBLIC_WRITE', 'severity' => 'high', 'message' => 'POST route with no auth middleware'],
+                ]],
+            ],
+            'App\Services\VideoPublisher::publish' => ['file' => 'app/Services/VideoPublisher.php', 'line' => 30],
+        ]));
+
+        $result = $analyzer->detectChanges([
+            $this->changedMethod('app/Services/VideoPublisher.php', 'App\Services\VideoPublisher', 'publish'),
+        ]);
+
+        $this->assertSame(['file' => 'routes/web.php', 'line' => 8], $result['entryPointLocations'][self::ROUTE]);
+        $this->assertSame('public', $result['entryPointSecurity'][self::ROUTE]['exposure']);
+        // The explain chain carries each hop's location too.
+        $this->assertSame([
+            ['node' => self::ROUTE, 'via' => 'route-to-controller', 'file' => 'routes/web.php', 'line' => 8],
+            ['node' => 'App\Services\VideoPublisher::publish', 'via' => '', 'file' => 'app/Services/VideoPublisher.php', 'line' => 30],
+        ], $result['entryPointPaths'][self::ROUTE]);
+    }
+
+    #[Test]
+    public function a_self_listed_entry_class_gets_a_location_but_never_security(): void
+    {
+        // Security is a route classification — a job or listener has no exposure level, and a
+        // location on the self-listing still gives the reviewer a place to click through to.
+        $analyzer = new ImpactAnalyzer(new CodeGraph([
+            ['source' => 'App\Listeners\Saml\SamlLoginListener::handle', 'target' => 'App\Services\UserProvisioner::provision', 'type' => 'call'],
+        ], nodeMetadata: [
+            'App\Listeners\Saml\SamlLoginListener' => ['file' => 'app/Listeners/Saml/SamlLoginListener.php'],
+        ]));
+
+        $result = $analyzer->detectChanges([
+            $this->changedMethod('app/Listeners/Saml/SamlLoginListener.php', 'App\Listeners\Saml\SamlLoginListener', 'handle'),
+        ]);
+
+        $this->assertSame(['App\Listeners\Saml\SamlLoginListener'], $result['entryPoints']);
+        $this->assertSame(
+            ['file' => 'app/Listeners/Saml/SamlLoginListener.php'],
+            $result['entryPointLocations']['App\Listeners\Saml\SamlLoginListener'],
+        );
+        $this->assertSame([], $result['entryPointSecurity']);
+    }
+
+    #[Test]
+    public function impact_hops_carry_their_defining_locations(): void
+    {
+        $analyzer = new ImpactAnalyzer(new CodeGraph([
+            ['source' => 'route::GET::/r', 'target' => 'App\Services\S::run', 'type' => 'route-to-controller'],
+        ], nodeMetadata: [
+            'route::GET::/r' => ['file' => 'routes/web.php', 'line' => 4],
+        ]));
+
+        $result = $analyzer->impact('App\Services\S::run');
+
+        $this->assertSame(
+            [['depth' => 1, 'node' => 'route::GET::/r', 'via' => 'route-to-controller', 'file' => 'routes/web.php', 'line' => 4]],
+            $result['callers'],
+        );
+    }
+
+    #[Test]
+    public function an_upstream_livewire_component_counts_as_one_entry_surface_across_its_members(): void
+    {
+        // Blade-mounted components have no route:: node — reached upstream, the component IS the
+        // user-facing entry surface, and two of its members must collapse onto one class entry.
+        $analyzer = new ImpactAnalyzer(new CodeGraph([
+            ['source' => 'App\Livewire\Settings::save', 'target' => 'App\Services\VideoPublisher::publish', 'type' => 'call'],
+            ['source' => 'App\Livewire\Settings::render', 'target' => 'App\Services\VideoPublisher::publish', 'type' => 'call'],
+        ]));
+
+        $result = $analyzer->detectChanges([
+            $this->changedMethod('app/Services/VideoPublisher.php', 'App\Services\VideoPublisher', 'publish'),
+        ]);
+
+        $this->assertSame(['App\Livewire\Settings'], $result['entryPoints']);
+        $this->assertSame(RiskLevel::Medium, $result['risk']);
+        // The entry is class-normalised but the walk reached members — the shallowest member's
+        // chain stands in, so --explain still shows how the surface reaches the change.
+        $this->assertSame([
+            ['node' => 'App\Livewire\Settings::render', 'via' => 'call'],
+            ['node' => 'App\Services\VideoPublisher::publish', 'via' => ''],
+        ], $result['entryPointPaths']['App\Livewire\Settings']);
+    }
+
+    #[Test]
+    public function an_upstream_filament_resource_counts_as_an_entry_surface(): void
+    {
+        $analyzer = new ImpactAnalyzer(new CodeGraph([
+            ['source' => 'App\Filament\Resources\VideoResource::table', 'target' => 'App\Services\VideoPublisher::publish', 'type' => 'call'],
+        ]));
+
+        $result = $analyzer->detectChanges([
+            $this->changedMethod('app/Services/VideoPublisher.php', 'App\Services\VideoPublisher', 'publish'),
+        ]);
+
+        $this->assertSame(['App\Filament\Resources\VideoResource'], $result['entryPoints']);
+    }
+
+    #[Test]
+    public function a_class_merely_named_after_a_ui_framework_is_not_an_entry_surface(): void
+    {
+        // `Filament`/`Livewire` must match as a namespace segment, never as a name substring, and
+        // vendor classes outside App\ never qualify.
+        $analyzer = new ImpactAnalyzer(new CodeGraph([
+            ['source' => 'App\Services\FilamentExport::run', 'target' => 'App\Services\X::run', 'type' => 'call'],
+            ['source' => 'App\Services\Filament', 'target' => 'App\Services\X::run', 'type' => 'call'],
+            ['source' => 'Filament\Pages\Dashboard', 'target' => 'App\Services\X::run', 'type' => 'call'],
+        ]));
+
+        $result = $analyzer->detectChanges([
+            $this->changedMethod('app/Services/X.php', 'App\Services\X', 'run'),
+        ]);
+
+        $this->assertSame([], $result['entryPoints']);
+    }
+
+    #[Test]
+    public function a_changed_filament_class_gets_the_entry_class_floor_and_self_lists(): void
+    {
+        $analyzer = new ImpactAnalyzer(new CodeGraph([
+            ['source' => 'App\Filament\Resources\VideoResource::table', 'target' => 'App\Services\X::run', 'type' => 'call'],
+        ]));
+
+        $result = $analyzer->detectChanges([
+            $this->changedMethod('app/Filament/Resources/VideoResource.php', 'App\Filament\Resources\VideoResource', 'table'),
+        ]);
+
+        $this->assertSame(['App\Filament\Resources\VideoResource'], $result['entryPoints']);
+        $this->assertSame(RiskLevel::Medium, $result['risk']);
+    }
+
+    #[Test]
+    public function a_changed_component_reached_by_a_sibling_change_is_listed_once(): void
+    {
+        // The component is both a changed entry class AND an upstream caller of the sibling change —
+        // the self-listing guard must not append a duplicate.
+        $analyzer = new ImpactAnalyzer(new CodeGraph([
+            ['source' => 'App\Livewire\Settings::save', 'target' => 'App\Services\X::run', 'type' => 'call'],
+            ['source' => 'App\Livewire\Settings', 'target' => 'App\Livewire\Settings::save', 'type' => 'declares'],
+        ]));
+
+        $result = $analyzer->detectChanges([
+            $this->changedMethod('app/Services/X.php', 'App\Services\X', 'run'),
+            $this->changedMethod('app/Livewire/Settings.php', 'App\Livewire\Settings', 'save'),
+        ]);
+
+        $this->assertSame(['App\Livewire\Settings'], $result['entryPoints']);
     }
 
     #[Test]

@@ -7,12 +7,14 @@ namespace SanderMuller\Richter\Analysis;
  * The machine payload is complete (uncapped, unlike {@see ImpactFormatter}'s text lists) and stable:
  * its shape is a semver-governed contract. detect-changes deliberately omits the raw caller/dependency
  * walk internals, exposing only the meaningful blast-radius summary.
+ *
+ * @phpstan-import-type SecurityShape from \SanderMuller\Richter\Graph\NodeMetadata
  */
 final class JsonPresenter
 {
     /**
-     * @param  array{target: string, callers: list<array{depth: int, node: string, via: string}>, dependencies: list<array{depth: int, node: string, via: string}>}  $result
-     * @return array{target: string, callers: list<array{depth: int, node: string, via: string}>, dependencies: list<array{depth: int, node: string, via: string}>}
+     * @param  array{target: string, callers: list<array{depth: int, node: string, via: string, file?: string, line?: int}>, dependencies: list<array{depth: int, node: string, via: string, file?: string, line?: int}>}  $result
+     * @return array{target: string, callers: list<array{depth: int, node: string, via: string, file?: string, line?: int}>, dependencies: list<array{depth: int, node: string, via: string, file?: string, line?: int}>}
      */
     public static function impact(array $result): array
     {
@@ -21,8 +23,8 @@ final class JsonPresenter
     }
 
     /**
-     * @param  array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, entryPointPaths: array<string, list<array{node: string, via: string}>>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied: bool, findings: list<string>, ...}  $result  the full {@see ImpactAnalyzer::detectChanges()} result; the caller/dependency walk internals it also carries are ignored here
-     * @return array{base: string, changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, entryPointPaths: array<string, list<array{node: string, via: string}>>, impacted: int, relatedModels: list<string>, risk: string, lowConfidence: bool, coarseCapApplied: bool, findings: list<string>, unresolved: bool}
+     * @param  array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, SecurityShape>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied: bool, findings: list<string>, ...}  $result  the full {@see ImpactAnalyzer::detectChanges()} result; the caller/dependency walk internals it also carries are ignored here
+     * @return array{base: string, changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, SecurityShape>, impacted: int, relatedModels: list<string>, risk: string, lowConfidence: bool, coarseCapApplied: bool, findings: list<string>, unresolved: bool}
      */
     public static function detectChanges(array $result, string $base): array
     {
@@ -34,6 +36,10 @@ final class JsonPresenter
             // Chains are keyed by entry-point node; a self-listed entry class carries no chain, so
             // consumers can tell "reached from the change" apart from "is itself the entry surface".
             'entryPointPaths' => $result['entryPointPaths'],
+            'entryPointLocations' => $result['entryPointLocations'],
+            // Brain's per-route security surface, inherited as advisory annotation — routes only,
+            // and never an input to the risk level or the gate.
+            'entryPointSecurity' => $result['entryPointSecurity'],
             'impacted' => $result['impacted'],
             'relatedModels' => $result['relatedModels'],
             'risk' => $result['risk']->value,
@@ -48,7 +54,7 @@ final class JsonPresenter
      * The canonical zero-result for an empty diff — built without touching the graph, so the command's
      * no-build fast path stays intact. Same shape as {@see detectChanges()} minus the analyzer run.
      *
-     * @return array{base: string, changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, entryPointPaths: array<string, list<array{node: string, via: string}>>, impacted: int, relatedModels: list<string>, risk: string, lowConfidence: bool, coarseCapApplied: bool, findings: list<string>, unresolved: bool}
+     * @return array{base: string, changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, SecurityShape>, impacted: int, relatedModels: list<string>, risk: string, lowConfidence: bool, coarseCapApplied: bool, findings: list<string>, unresolved: bool}
      */
     public static function emptyDetectChanges(string $base): array
     {
@@ -58,6 +64,8 @@ final class JsonPresenter
             'coverage' => [],
             'entryPoints' => [],
             'entryPointPaths' => [],
+            'entryPointLocations' => [],
+            'entryPointSecurity' => [],
             'impacted' => 0,
             'relatedModels' => [],
             'risk' => RiskLevel::Low->value,

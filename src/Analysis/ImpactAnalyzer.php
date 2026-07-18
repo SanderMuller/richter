@@ -7,12 +7,28 @@ use SanderMuller\Richter\Changes\ChangedFileSymbols;
 use SanderMuller\Richter\Graph\CodeGraph;
 use SanderMuller\Richter\Support\Fqcn;
 
-/** Over a {@see CodeGraph}: impact(symbol) blast radius + detectChanges(files) reached entry points/risk. Advisory only: risk is a coarse signal, not a gate. */
+/**
+ * Over a {@see CodeGraph}: impact(symbol) blast radius + detectChanges(files) reached entry points/risk.
+ * Advisory only: risk is a coarse signal, not a gate. Node locations and Brain's per-route security
+ * surface are carried through as annotation — they inform the reader, never the risk model.
+ *
+ * @phpstan-import-type SecurityShape from \SanderMuller\Richter\Graph\NodeMetadata
+ */
 final readonly class ImpactAnalyzer
 {
     private const array ENTRY_POINT_PREFIXES = ['route::', 'command::', 'schedule::'];
 
-    private const array ENTRY_POINT_NAMESPACES = ['\\Jobs\\', '\\Console\\Commands\\', '\\Listeners\\', '\\Livewire\\', '\\Observers\\', '\\Http\\Middleware\\'];
+    private const array ENTRY_POINT_NAMESPACES = ['\\Jobs\\', '\\Console\\Commands\\', '\\Listeners\\', '\\Livewire\\', '\\Filament\\', '\\Observers\\', '\\Http\\Middleware\\'];
+
+    /**
+     * Namespaces whose classes are user-facing UI surfaces the way a route is: a Livewire component
+     * or Filament resource/page/widget reached UPSTREAM of a change is an entry point in its own
+     * right — Blade-mounted components and Filament table/bulk actions have no `route::` node, so
+     * without this they would read as plain callers. Deliberately narrower than
+     * {@see ENTRY_POINT_NAMESPACES}: an upstream job or listener is reach toward its own dispatcher,
+     * not a user surface.
+     */
+    private const array UI_COMPONENT_NAMESPACES = ['\\Livewire\\', '\\Filament\\'];
 
     /**
      * Edge types that associate rather than invoke — reach through them is not risk. `uses-trait`
@@ -27,8 +43,8 @@ final readonly class ImpactAnalyzer
     /**
      * @return array{
      *     target: string,
-     *     callers: list<array{depth: int, node: string, via: string}>,
-     *     dependencies: list<array{depth: int, node: string, via: string}>,
+     *     callers: list<array{depth: int, node: string, via: string, file?: string, line?: int}>,
+     *     dependencies: list<array{depth: int, node: string, via: string, file?: string, line?: int}>,
      * }
      */
     public function impact(string $symbol, int $maxDepth = 6): array
@@ -37,8 +53,8 @@ final readonly class ImpactAnalyzer
 
         return [
             'target' => $symbol,
-            'callers' => $this->graph->callersOf($seeds, $maxDepth),
-            'dependencies' => $this->graph->dependenciesOf($seeds, $maxDepth),
+            'callers' => $this->withHopLocations($this->graph->callersOf($seeds, $maxDepth)),
+            'dependencies' => $this->withHopLocations($this->graph->dependenciesOf($seeds, $maxDepth)),
         ];
     }
 
@@ -50,7 +66,9 @@ final readonly class ImpactAnalyzer
      *     callers: list<array{depth: int, node: string, via: string}>,
      *     dependencies: list<array{depth: int, node: string, via: string}>,
      *     entryPoints: list<string>,
-     *     entryPointPaths: array<string, list<array{node: string, via: string}>>,
+     *     entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>,
+     *     entryPointLocations: array<string, array{file: string, line?: int}>,
+     *     entryPointSecurity: array<string, SecurityShape>,
      *     impacted: int,
      *     relatedModels: list<string>,
      *     risk: RiskLevel,
@@ -128,7 +146,7 @@ final readonly class ImpactAnalyzer
         // Paths exist only for graph-reached entry points — computed before the self-listing below,
         // so a self-listed entry class (which IS the entry surface, not reached from the change)
         // deliberately carries no chain.
-        $entryPointPaths = $this->graph->callerPathsTo($seeds, $entryPoints, $maxDepth);
+        $entryPointPaths = $this->entryPointPathsFor($entryPoints, $callers, $seeds, $maxDepth);
 
         // A changed listener/job/command/Livewire class IS an entry surface even when nothing app-side
         // calls it (a vendor-fired event, an unfollowable dispatch) — "Entry points reached: 0"
@@ -200,6 +218,8 @@ final readonly class ImpactAnalyzer
             }
         }
 
+        [$entryPointLocations, $entryPointSecurity] = $this->entryPointAnnotations($entryPoints);
+
         return [
             'changed' => $summary,
             'coverage' => $coverage,
@@ -207,6 +227,8 @@ final readonly class ImpactAnalyzer
             'dependencies' => $dependencies,
             'entryPoints' => $entryPoints,
             'entryPointPaths' => $entryPointPaths,
+            'entryPointLocations' => $entryPointLocations,
+            'entryPointSecurity' => $entryPointSecurity,
             'impacted' => $impacted,
             'relatedModels' => $this->readableModelLabels($relatedModels),
             'risk' => $risk,
@@ -290,10 +312,92 @@ final readonly class ImpactAnalyzer
      */
     private function entryPointsAmong(array $callers): array
     {
-        return array_values(array_unique(array_filter(
-            array_map(static fn (array $hop): string => $hop['node'], $callers),
-            $this->isEntryPointNode(...),
-        )));
+        $entryPoints = [];
+
+        foreach ($callers as $hop) {
+            if ($this->isEntryPointNode($hop['node'])) {
+                $entryPoints[] = $hop['node'];
+
+                continue;
+            }
+
+            $component = $this->uiComponentClassOf($hop['node']);
+
+            if ($component !== null) {
+                $entryPoints[] = $component;
+            }
+        }
+
+        return array_values(array_unique($entryPoints));
+    }
+
+    /**
+     * The shortest chain per reached entry point. A UI-component entry is class-normalised while
+     * the walk reached its member, so the shallowest member's chain stands in when the class node
+     * itself has none.
+     *
+     * @param  list<string>  $entryPoints
+     * @param  list<array{depth: int, node: string, via: string}>  $callers
+     * @param  list<string>  $seeds
+     * @return array<string, list<array{node: string, via: string, file?: string, line?: int}>>
+     */
+    private function entryPointPathsFor(array $entryPoints, array $callers, array $seeds, int $maxDepth): array
+    {
+        $uiMemberByClass = $this->uiMembersAmong($callers);
+        $rawPaths = $this->graph->callerPathsTo(
+            $seeds,
+            array_values(array_unique([...$entryPoints, ...array_values($uiMemberByClass)])),
+            $maxDepth,
+        );
+        $paths = [];
+
+        foreach ($entryPoints as $entryPoint) {
+            $path = $rawPaths[$entryPoint] ?? $rawPaths[$uiMemberByClass[$entryPoint] ?? ''] ?? null;
+
+            if ($path !== null) {
+                $paths[$entryPoint] = $this->withPathLocations($path);
+            }
+        }
+
+        return $paths;
+    }
+
+    /**
+     * The first (shallowest, BFS order) reached member per UI-component class — the chain donor
+     * for a class-normalised entry point whose class node the walk never visited directly.
+     *
+     * @param  list<array{depth: int, node: string, via: string}>  $callers
+     * @return array<string, string>
+     */
+    private function uiMembersAmong(array $callers): array
+    {
+        $members = [];
+
+        foreach ($callers as $hop) {
+            $component = $this->uiComponentClassOf($hop['node']);
+
+            if ($component !== null && $component !== $hop['node'] && ! isset($members[$component])) {
+                $members[$component] = $hop['node'];
+            }
+        }
+
+        return $members;
+    }
+
+    /**
+     * The class of a caller inside a UI-component namespace ({@see UI_COMPONENT_NAMESPACES}), or
+     * null. Represented class-level — `App\Livewire\Settings::save` and `::render` are one entry
+     * surface, so members collapse onto the class and never double-count toward risk.
+     */
+    private function uiComponentClassOf(string $node): ?string
+    {
+        $class = explode('::', $node, 2)[0];
+
+        if (preg_match('/^App\\\\[\w\\\\]+$/', $class) !== 1) {
+            return null;
+        }
+
+        return Str::contains($class, self::UI_COMPONENT_NAMESPACES) ? $class : null;
     }
 
     /**
@@ -304,6 +408,65 @@ final readonly class ImpactAnalyzer
     private function isRiskBearing(array $viaTypes): bool
     {
         return array_diff_key($viaTypes, array_flip(self::RISK_EXCLUDED_EDGE_TYPES)) !== [];
+    }
+
+    /**
+     * Locations and security cover the FINAL entry-point list: a self-listed entry class gets its
+     * defining file too (no chain, but still a place to click through to), and security exists only
+     * for route nodes — Brain classifies nothing else.
+     *
+     * @param  list<string>  $entryPoints
+     * @return array{0: array<string, array{file: string, line?: int}>, 1: array<string, SecurityShape>}
+     */
+    private function entryPointAnnotations(array $entryPoints): array
+    {
+        $locations = [];
+        $security = [];
+
+        foreach ($entryPoints as $entryPoint) {
+            $location = $this->graph->locationOf($entryPoint);
+
+            if ($location !== null) {
+                $locations[$entryPoint] = $location;
+            }
+
+            $surface = $this->graph->securityOf($entryPoint);
+
+            if ($surface !== null) {
+                $security[$entryPoint] = $surface;
+            }
+        }
+
+        return [$locations, $security];
+    }
+
+    /**
+     * @param  list<array{depth: int, node: string, via: string}>  $hops
+     * @return list<array{depth: int, node: string, via: string, file?: string, line?: int}>
+     */
+    private function withHopLocations(array $hops): array
+    {
+        return array_map(fn (array $hop): array => $hop + $this->locationExtras($hop['node']), $hops);
+    }
+
+    /**
+     * @param  list<array{node: string, via: string}>  $path
+     * @return list<array{node: string, via: string, file?: string, line?: int}>
+     */
+    private function withPathLocations(array $path): array
+    {
+        return array_map(fn (array $hop): array => $hop + $this->locationExtras($hop['node']), $path);
+    }
+
+    /**
+     * The sparse location keys for a node — `[]` when the graph knows none, so `$hop + extras`
+     * annotates without ever disturbing the hop's own shape.
+     *
+     * @return array{}|array{file: string, line?: int}
+     */
+    private function locationExtras(string $node): array
+    {
+        return $this->graph->locationOf($node) ?? [];
     }
 
     /**

@@ -7,6 +7,8 @@ use Illuminate\Support\Str;
 /**
  * Renders {@see ImpactAnalyzer} results as plain text, shared by the artisan commands
  * and the MCP tools so output stays consistent across both surfaces.
+ *
+ * @phpstan-import-type SecurityShape from \SanderMuller\Richter\Graph\NodeMetadata
  */
 final class ImpactFormatter
 {
@@ -16,7 +18,7 @@ final class ImpactFormatter
      */
     private const int LIST_CAP = 15;
 
-    /** @param  array{target: string, callers: list<array{depth: int, node: string, via: string}>, dependencies: list<array{depth: int, node: string, via: string}>}  $result */
+    /** @param  array{target: string, callers: list<array{depth: int, node: string, via: string, file?: string, line?: int}>, dependencies: list<array{depth: int, node: string, via: string, file?: string, line?: int}>}  $result */
     public static function impact(array $result): string
     {
         if ($result['callers'] === [] && $result['dependencies'] === []) {
@@ -35,7 +37,7 @@ final class ImpactFormatter
     }
 
     /**
-     * @param  array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, entryPointPaths?: array<string, list<array{node: string, via: string}>>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied?: bool, findings?: list<string>, ...}  $result
+     * @param  array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, entryPointPaths?: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations?: array<string, array{file: string, line?: int}>, entryPointSecurity?: array<string, SecurityShape>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied?: bool, findings?: list<string>, ...}  $result
      * @param  bool  $gateActive  when a `--fail-on*` gate is active the command prints its own verdict, so the advisory suffix is dropped to avoid contradicting it
      * @param  bool  $explain  render the call chain from each reached entry point down to the changed symbol
      */
@@ -58,6 +60,8 @@ final class ImpactFormatter
         $lines = [...$lines, ...self::entryPointList(
             $result['entryPoints'],
             $explain ? ($result['entryPointPaths'] ?? []) : [],
+            $result['entryPointLocations'] ?? [],
+            $result['entryPointSecurity'] ?? [],
             $tests,
         )];
 
@@ -94,16 +98,23 @@ final class ImpactFormatter
      * The entry-point list with {@see summarisedList}'s sorting and capping, plus — when paths are
      * given — an explain chain under each entry showing how it reaches the changed symbol. Chain
      * sub-lines don't count toward the cap, and a path-less entry (a self-listed entry class) renders
-     * its bullet alone.
+     * its bullet alone. Each entry carries its defining location when known, and a route classified
+     * by Brain's security surface carries its exposure plus any issues — inherited advisory
+     * annotation, never an input to the risk level.
      *
      * @param  list<string>  $entryPoints
-     * @param  array<string, list<array{node: string, via: string}>>  $paths  keyed by entry-point node; empty when not explaining
+     * @param  array<string, list<array{node: string, via: string, file?: string, line?: int}>>  $paths  keyed by entry-point node; empty when not explaining
+     * @param  array<string, array{file: string, line?: int}>  $locations  keyed by entry-point node
+     * @param  array<string, SecurityShape>  $security  keyed by entry-point node; routes only
      * @return list<string>
      */
-    private static function entryPointList(array $entryPoints, array $paths, ?TestReferenceIndex $tests): array
+    private static function entryPointList(array $entryPoints, array $paths, array $locations, array $security, ?TestReferenceIndex $tests): array
     {
         $items = array_map(static fn (string $node): array => [
-            'label' => self::entryLabel($node) . self::testReferenceSuffix($tests, $node),
+            'label' => self::entryLabel($node)
+                . self::locationSuffix($locations[$node] ?? null)
+                . self::testReferenceSuffix($tests, $node)
+                . (isset($security[$node]) ? "  [{$security[$node]['exposure']}]" : ''),
             'node' => $node,
         ], $entryPoints);
         usort($items, static fn (array $a, array $b): int => $a['label'] <=> $b['label']);
@@ -120,6 +131,13 @@ final class ImpactFormatter
             if (count($path) > 1) {
                 $lines[] = '      ↳ ' . self::pathChain($path);
             }
+
+            foreach ($security[$item['node']]['issues'] ?? [] as $issue) {
+                $issueLocation = isset($issue['file'])
+                    ? ' — ' . $issue['file'] . (isset($issue['line']) ? ":{$issue['line']}" : '')
+                    : '';
+                $lines[] = "      ⚠ {$issue['type']} ({$issue['severity']}): {$issue['message']}{$issueLocation}";
+            }
         }
 
         if ($overCap) {
@@ -131,11 +149,21 @@ final class ImpactFormatter
         return $lines;
     }
 
+    /** @param  array{file: string, line?: int}|null  $location */
+    private static function locationSuffix(?array $location): string
+    {
+        if ($location === null) {
+            return '';
+        }
+
+        return '  (' . $location['file'] . (isset($location['line']) ? ":{$location['line']}" : '') . ')';
+    }
+
     /**
      * One explain chain: the entry point first, the changed symbol last, each arrow labelled with
      * the edge type connecting its two hops.
      *
-     * @param  list<array{node: string, via: string}>  $path
+     * @param  list<array{node: string, via: string, file?: string, line?: int}>  $path
      */
     private static function pathChain(array $path): string
     {
@@ -196,7 +224,7 @@ final class ImpactFormatter
     }
 
     /**
-     * @param  list<array{depth: int, node: string, via: string}>  $hops
+     * @param  list<array{depth: int, node: string, via: string, file?: string, line?: int}>  $hops
      * @return list<string>
      */
     private static function hops(array $hops): array
@@ -206,7 +234,13 @@ final class ImpactFormatter
         }
 
         return array_map(
-            static fn (array $hop): string => "  d{$hop['depth']}  {$hop['node']}  (via {$hop['via']})",
+            static function (array $hop): string {
+                $location = isset($hop['file'])
+                    ? '  — ' . $hop['file'] . (isset($hop['line']) ? ":{$hop['line']}" : '')
+                    : '';
+
+                return "  d{$hop['depth']}  {$hop['node']}  (via {$hop['via']}){$location}";
+            },
             $hops,
         );
     }

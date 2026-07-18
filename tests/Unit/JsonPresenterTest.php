@@ -50,16 +50,29 @@ final class JsonPresenterTest extends TestCase
     }
 
     #[Test]
-    public function detect_changes_carries_the_entry_point_chains_uncapped(): void
+    public function detect_changes_carries_the_entry_point_chains_with_hop_locations(): void
     {
         $json = JsonPresenter::detectChanges($this->detectChangesResult(), 'origin/main');
 
         $this->assertSame([
             'route::GET /a' => [
-                ['node' => 'route::GET /a', 'via' => 'route-to-controller'],
-                ['node' => 'App\\Jobs\\ProcessVideoJob::handle', 'via' => ''],
+                ['node' => 'route::GET /a', 'via' => 'route-to-controller', 'file' => 'routes/web.php', 'line' => 12],
+                ['node' => 'App\\Jobs\\ProcessVideoJob::handle', 'via' => '', 'file' => 'app/Jobs/ProcessVideoJob.php'],
             ],
         ], $json['entryPointPaths']);
+    }
+
+    #[Test]
+    public function detect_changes_carries_entry_point_locations_and_security_annotation(): void
+    {
+        $json = JsonPresenter::detectChanges($this->detectChangesResult(), 'origin/main');
+
+        $this->assertSame(['route::GET /a' => ['file' => 'routes/web.php', 'line' => 12]], $json['entryPointLocations']);
+        $this->assertSame([
+            'route::GET /a' => ['exposure' => 'public', 'riskLevel' => 'high', 'issues' => [
+                ['type' => 'PUBLIC_WRITE', 'severity' => 'high', 'message' => 'POST route with no auth middleware'],
+            ]],
+        ], $json['entryPointSecurity']);
     }
 
     #[Test]
@@ -94,6 +107,8 @@ final class JsonPresenterTest extends TestCase
         $this->assertSame([], $json['coverage']);
         $this->assertSame([], $json['entryPoints']);
         $this->assertSame([], $json['entryPointPaths']);
+        $this->assertSame([], $json['entryPointLocations']);
+        $this->assertSame([], $json['entryPointSecurity']);
         $this->assertSame(0, $json['impacted']);
         $this->assertFalse($json['unresolved']);
     }
@@ -108,7 +123,7 @@ final class JsonPresenterTest extends TestCase
 
     /**
      * @param  list<string>  $entryPoints
-     * @return array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, entryPointPaths: array<string, list<array{node: string, via: string}>>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied: bool, findings: list<string>}
+     * @return array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, array{exposure: string, riskLevel: string, issues: list<array{type: string, severity: string, message: string, file?: string, line?: int}>}>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied: bool, findings: list<string>}
      */
     private function detectChangesResult(RiskLevel $risk = RiskLevel::Low, bool $coverageUnresolved = false, array $entryPoints = ['route::GET /a', 'route::GET /b', 'route::GET /c']): array
     {
@@ -118,9 +133,17 @@ final class JsonPresenterTest extends TestCase
             'entryPoints' => $entryPoints,
             'entryPointPaths' => [
                 'route::GET /a' => [
-                    ['node' => 'route::GET /a', 'via' => 'route-to-controller'],
-                    ['node' => 'App\\Jobs\\ProcessVideoJob::handle', 'via' => ''],
+                    ['node' => 'route::GET /a', 'via' => 'route-to-controller', 'file' => 'routes/web.php', 'line' => 12],
+                    ['node' => 'App\\Jobs\\ProcessVideoJob::handle', 'via' => '', 'file' => 'app/Jobs/ProcessVideoJob.php'],
                 ],
+            ],
+            'entryPointLocations' => [
+                'route::GET /a' => ['file' => 'routes/web.php', 'line' => 12],
+            ],
+            'entryPointSecurity' => [
+                'route::GET /a' => ['exposure' => 'public', 'riskLevel' => 'high', 'issues' => [
+                    ['type' => 'PUBLIC_WRITE', 'severity' => 'high', 'message' => 'POST route with no auth middleware'],
+                ]],
             ],
             'impacted' => count($entryPoints),
             'relatedModels' => ['App\\Models\\Video'],

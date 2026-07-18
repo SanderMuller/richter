@@ -5,7 +5,12 @@ namespace SanderMuller\Richter\Graph;
 /**
  * A directed code graph (nodes connected by typed edges) with upstream/downstream traversal. Built
  * from Laravel Brain's analysis by {@see CodeGraphBuilder} but knows nothing about Brain, so it stays
- * trivially testable. Node ids are opaque strings carried verbatim from the edges.
+ * trivially testable. Node ids are opaque strings carried verbatim from the edges. Nodes may carry
+ * a sparse metadata record ({@see NodeMetadata}) — defining file/line, route uri, security surface —
+ * which annotates reports but never influences the walks.
+ *
+ * @phpstan-import-type MetadataShape from NodeMetadata
+ * @phpstan-import-type SecurityShape from NodeMetadata
  */
 final class CodeGraph
 {
@@ -32,8 +37,9 @@ final class CodeGraph
      * @param  list<array{source: string, target: string, type: string}>  $edges
      * @param  bool  $hasUnresolvedDispatches  a dispatch verb was seen whose job target couldn't be
      *   statically resolved — so a queue change reaching no entry point is "unknown", not "none".
+     * @param  array<string, MetadataShape>  $nodeMetadata  sparse per-node annotation, keyed by node id
      */
-    public function __construct(array $edges, private readonly bool $hasUnresolvedDispatches = false)
+    public function __construct(array $edges, private readonly bool $hasUnresolvedDispatches = false, private readonly array $nodeMetadata = [])
     {
         // Canonical order before building adjacency: a fresh build receives edges build-ordered,
         // a cache-revived graph receives them regrouped by source ({@see toArray()}). Without a
@@ -55,10 +61,44 @@ final class CodeGraph
     }
 
     /**
+     * The defining source location of a node, when the build could pin one. Sparse like the
+     * metadata itself: `line` is present only when known, so JSON consumers never see nulls.
+     *
+     * @return array{file: string, line?: int}|null
+     */
+    public function locationOf(string $node): ?array
+    {
+        $metadata = $this->nodeMetadata[$node] ?? [];
+
+        if (! isset($metadata['file'])) {
+            return null;
+        }
+
+        $location = ['file' => $metadata['file']];
+
+        if (isset($metadata['line'])) {
+            $location['line'] = $metadata['line'];
+        }
+
+        return $location;
+    }
+
+    /**
+     * Brain's security surface for a route node — exposure, risk level, issues. Annotation only:
+     * it never feeds the risk model or the walks.
+     *
+     * @return SecurityShape|null
+     */
+    public function securityOf(string $node): ?array
+    {
+        return $this->nodeMetadata[$node]['security'] ?? null;
+    }
+
+    /**
      * The graph as plain constructor input, for on-disk caching. Every edge lives in the downstream
      * adjacency (nodes only exist through edges), so deriving from it loses nothing.
      *
-     * @return array{edges: list<array{source: string, target: string, type: string}>, hasUnresolvedDispatches: bool}
+     * @return array{edges: list<array{source: string, target: string, type: string}>, hasUnresolvedDispatches: bool, nodeMetadata: array<string, MetadataShape>}
      */
     public function toArray(): array
     {
@@ -70,13 +110,13 @@ final class CodeGraph
             }
         }
 
-        return ['edges' => $edges, 'hasUnresolvedDispatches' => $this->hasUnresolvedDispatches];
+        return ['edges' => $edges, 'hasUnresolvedDispatches' => $this->hasUnresolvedDispatches, 'nodeMetadata' => $this->nodeMetadata];
     }
 
-    /** @param  array{edges: list<array{source: string, target: string, type: string}>, hasUnresolvedDispatches: bool}  $data */
+    /** @param  array{edges: list<array{source: string, target: string, type: string}>, hasUnresolvedDispatches: bool, nodeMetadata?: array<string, MetadataShape>}  $data */
     public static function fromArray(array $data): self
     {
-        return new self($data['edges'], $data['hasUnresolvedDispatches']);
+        return new self($data['edges'], $data['hasUnresolvedDispatches'], $data['nodeMetadata'] ?? []);
     }
 
     /**

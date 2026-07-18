@@ -41,6 +41,47 @@ final class CodeGraphBuilderTest extends TestCase
     }
 
     #[Test]
+    public function a_filament_resource_traces_as_an_upstream_entry_surface_of_its_model(): void
+    {
+        // The fixture VideoResource (app/Filament, a traced entry-point root) touches Video — a
+        // change to the model must surface the resource as a caller, and the analyzer must report
+        // it as a user-facing entry point even though no route:: node exists for it.
+        $callers = new ImpactAnalyzer($this->graph())->impact(Video::class)['callers'];
+        $callerNodes = array_column($callers, 'node');
+
+        $this->assertContains('App\Filament\Resources\VideoResource::table', $callerNodes);
+    }
+
+    #[Test]
+    public function a_route_node_carries_its_defining_file_from_brain(): void
+    {
+        $location = $this->graph()->locationOf('route::GET::/videos/{video}/edit');
+
+        $this->assertNotNull($location);
+        $this->assertStringEndsWith('routes/web.php', $location['file']);
+    }
+
+    #[Test]
+    public function a_class_only_reached_by_tracer_edges_gets_its_file_from_the_fqcn_fallback(): void
+    {
+        $location = $this->graph()->locationOf(Video::class);
+
+        $this->assertNotNull($location);
+        $this->assertSame('app/Models/Video.php', $location['file']);
+    }
+
+    #[Test]
+    public function a_route_node_carries_brains_security_surface(): void
+    {
+        // The fixture's edit route is guarded by the aliased `auth` middleware — whatever exposure
+        // Brain assigns, the surface must be present and shaped.
+        $security = $this->graph()->securityOf('route::GET::/videos/{video}/edit');
+
+        $this->assertNotNull($security);
+        $this->assertContains($security['exposure'], ['public', 'guest', 'authed', 'admin']);
+    }
+
+    #[Test]
     public function a_route_links_to_its_controller(): void
     {
         $this->assertSame([

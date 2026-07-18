@@ -56,6 +56,8 @@ final class ImpactTool extends Tool
             'depth' => $schema->integer(),
             'node' => $schema->string(),
             'via' => $schema->string(),
+            'file' => $schema->string()->description('Project-relative defining file, when known.'),
+            'line' => $schema->integer()->description('Defining line, when known.'),
         ]);
 
         return [

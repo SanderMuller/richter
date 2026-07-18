@@ -4,6 +4,7 @@ namespace SanderMuller\Richter;
 
 use Laravel\Mcp\Facades\Mcp;
 use Override;
+use SanderMuller\Richter\Console\AffectedTestsCommand;
 use SanderMuller\Richter\Console\BenchmarkAddCommand;
 use SanderMuller\Richter\Console\BenchmarkCommand;
 use SanderMuller\Richter\Console\DetectChangesCommand;
@@ -21,7 +22,7 @@ final class RichterServiceProvider extends PackageServiceProvider
         $package
             ->name('richter')
             ->hasConfigFile()
-            ->hasCommands(ImpactCommand::class, DetectChangesCommand::class, BenchmarkCommand::class, BenchmarkAddCommand::class);
+            ->hasCommands(ImpactCommand::class, DetectChangesCommand::class, AffectedTestsCommand::class, BenchmarkCommand::class, BenchmarkAddCommand::class);
     }
 
     #[Override]

@@ -9,13 +9,15 @@ namespace SanderMuller\Richter\Analysis;
  * into a `<details>` block, so the PR stays scannable while the full reach remains one click away.
  * Cell and code-span content is repo-derived (paths, FQCNs, route/command ids), so no markdown
  * escaping is applied — a `|` or backtick cannot occur in those identifiers.
+ *
+ * @phpstan-import-type SecurityShape from \SanderMuller\Richter\Graph\NodeMetadata
  */
 final class MarkdownFormatter
 {
     /** Entries rendered before the remainder collapses into a `<details>` block. */
     private const int LIST_CAP = 15;
 
-    /** @param  array{target: string, callers: list<array{depth: int, node: string, via: string}>, dependencies: list<array{depth: int, node: string, via: string}>}  $result */
+    /** @param  array{target: string, callers: list<array{depth: int, node: string, via: string, file?: string, line?: int}>, dependencies: list<array{depth: int, node: string, via: string, file?: string, line?: int}>}  $result */
     public static function impact(array $result): string
     {
         $lines = ["## Richter blast radius: `{$result['target']}`", ''];
@@ -37,7 +39,7 @@ final class MarkdownFormatter
     }
 
     /**
-     * @param  array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, entryPointPaths?: array<string, list<array{node: string, via: string}>>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied?: bool, findings?: list<string>, ...}  $result
+     * @param  array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, entryPointPaths?: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations?: array<string, array{file: string, line?: int}>, entryPointSecurity?: array<string, SecurityShape>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied?: bool, findings?: list<string>, ...}  $result
      * @param  bool  $gateActive  when a `--fail-on*` gate is active the command appends its own verdict, so the advisory suffix is dropped to avoid contradicting it
      * @param  bool  $explain  render the call chain from each reached entry point down to the changed symbol
      */
@@ -81,6 +83,8 @@ final class MarkdownFormatter
         $lines = [...$lines, ...self::entryPointChecklist(
             $result['entryPoints'],
             $explain ? ($result['entryPointPaths'] ?? []) : [],
+            $result['entryPointLocations'] ?? [],
+            $result['entryPointSecurity'] ?? [],
             $tests,
         )];
 
@@ -118,40 +122,68 @@ final class MarkdownFormatter
      * instead of being truncated.
      *
      * @param  list<string>  $entryPoints
-     * @param  array<string, list<array{node: string, via: string}>>  $paths  keyed by entry-point node; empty when not explaining
+     * @param  array<string, list<array{node: string, via: string, file?: string, line?: int}>>  $paths  keyed by entry-point node; empty when not explaining
+     * @param  array<string, array{file: string, line?: int}>  $locations  keyed by entry-point node
+     * @param  array<string, SecurityShape>  $security  keyed by entry-point node; routes only, inherited from Brain as advisory annotation
      * @return list<string>
      */
-    private static function entryPointChecklist(array $entryPoints, array $paths, ?TestReferenceIndex $tests): array
+    private static function entryPointChecklist(array $entryPoints, array $paths, array $locations, array $security, ?TestReferenceIndex $tests): array
     {
         if ($entryPoints === []) {
             return ['_None reached from the changed code._'];
         }
 
         $items = array_map(static fn (string $node): array => [
-            'label' => '`' . self::entryLabel($node) . '`' . self::testReferenceSuffix($tests, $node),
+            'label' => '`' . self::entryLabel($node) . '`'
+                . self::locationSuffix($locations[$node] ?? null)
+                . self::testReferenceSuffix($tests, $node)
+                . (isset($security[$node]) ? ' — ' . self::exposureBadge($security[$node]['exposure']) : ''),
             'node' => $node,
         ], $entryPoints);
         usort($items, static fn (array $a, array $b): int => $a['label'] <=> $b['label']);
 
-        $lines = self::checklistEntries(array_slice($items, 0, self::LIST_CAP), $paths);
+        $lines = self::checklistEntries(array_slice($items, 0, self::LIST_CAP), $paths, $security);
 
         if (count($items) > self::LIST_CAP) {
             $rest = array_slice($items, self::LIST_CAP);
             $lines = [...$lines, '', ...self::collapsed(
                 sprintf('… and %d more', count($rest)),
-                self::checklistEntries($rest, $paths),
+                self::checklistEntries($rest, $paths, $security),
             )];
         }
 
         return $lines;
     }
 
+    /** @param  array{file: string, line?: int}|null  $location */
+    private static function locationSuffix(?array $location): string
+    {
+        if ($location === null) {
+            return '';
+        }
+
+        return ' — `' . $location['file'] . (isset($location['line']) ? ":{$location['line']}" : '') . '`';
+    }
+
+    /** The exposure levels Brain classifies; an unrecognised value renders bare rather than guessing an icon. */
+    private static function exposureBadge(string $exposure): string
+    {
+        return match ($exposure) {
+            'public' => '🔓 public',
+            'guest' => '🚪 guest',
+            'authed' => '🔒 authed',
+            'admin' => '🛡️ admin',
+            default => $exposure,
+        };
+    }
+
     /**
      * @param  list<array{label: string, node: string}>  $items
-     * @param  array<string, list<array{node: string, via: string}>>  $paths
+     * @param  array<string, list<array{node: string, via: string, file?: string, line?: int}>>  $paths
+     * @param  array<string, SecurityShape>  $security
      * @return list<string>
      */
-    private static function checklistEntries(array $items, array $paths): array
+    private static function checklistEntries(array $items, array $paths, array $security): array
     {
         $lines = [];
 
@@ -163,6 +195,13 @@ final class MarkdownFormatter
             if (count($path) > 1) {
                 $lines[] = '  - ↳ ' . self::pathChain($path);
             }
+
+            foreach ($security[$item['node']]['issues'] ?? [] as $issue) {
+                $issueLocation = isset($issue['file'])
+                    ? ' — `' . $issue['file'] . (isset($issue['line']) ? ":{$issue['line']}" : '') . '`'
+                    : '';
+                $lines[] = "  - ⚠️ **{$issue['type']}** ({$issue['severity']}): {$issue['message']}{$issueLocation}";
+            }
         }
 
         return $lines;
@@ -172,7 +211,7 @@ final class MarkdownFormatter
      * One explain chain: the entry point first, the changed symbol last, each arrow labelled with
      * the edge type connecting its two hops.
      *
-     * @param  list<array{node: string, via: string}>  $path
+     * @param  list<array{node: string, via: string, file?: string, line?: int}>  $path
      */
     private static function pathChain(array $path): string
     {
@@ -209,7 +248,7 @@ final class MarkdownFormatter
     /**
      * A breadth list of walk hops, sorted by node with depth/via context, collapsing past the cap.
      *
-     * @param  list<array{depth: int, node: string, via: string}>  $hops
+     * @param  list<array{depth: int, node: string, via: string, file?: string, line?: int}>  $hops
      * @return list<string>
      */
     private static function hopList(array $hops): array
@@ -219,7 +258,13 @@ final class MarkdownFormatter
         }
 
         $items = array_map(
-            static fn (array $hop): string => "- `{$hop['node']}` _(via {$hop['via']}, depth {$hop['depth']})_",
+            static function (array $hop): string {
+                $location = isset($hop['file'])
+                    ? ' — `' . $hop['file'] . (isset($hop['line']) ? ":{$hop['line']}" : '') . '`'
+                    : '';
+
+                return "- `{$hop['node']}` _(via {$hop['via']}, depth {$hop['depth']})_{$location}";
+            },
             $hops,
         );
         sort($items);

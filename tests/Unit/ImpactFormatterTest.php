@@ -160,6 +160,58 @@ final class ImpactFormatterTest extends TestCase
     }
 
     #[Test]
+    public function entry_points_render_their_defining_location(): void
+    {
+        $result = $this->summary(['route::GET::/videos']) + [
+            'entryPointLocations' => ['route::GET::/videos' => ['file' => 'routes/web.php', 'line' => 14]],
+        ];
+
+        $this->assertStringContainsString('- route::GET::/videos  (routes/web.php:14)', ImpactFormatter::detectChanges($result));
+    }
+
+    #[Test]
+    public function a_route_with_a_security_surface_renders_its_exposure_and_issues(): void
+    {
+        $result = $this->summary(['route::POST::/checkout']) + [
+            'entryPointSecurity' => ['route::POST::/checkout' => ['exposure' => 'public', 'riskLevel' => 'high', 'issues' => [
+                ['type' => 'PUBLIC_WRITE', 'severity' => 'high', 'message' => 'POST route with no auth middleware', 'file' => 'app/Http/Controllers/CheckoutController.php', 'line' => 31],
+            ]]],
+        ];
+
+        $output = ImpactFormatter::detectChanges($result);
+
+        $this->assertStringContainsString('- route::POST::/checkout  [public]', $output);
+        $this->assertStringContainsString(
+            '⚠ PUBLIC_WRITE (high): POST route with no auth middleware — app/Http/Controllers/CheckoutController.php:31',
+            $output,
+        );
+    }
+
+    #[Test]
+    public function an_entry_point_without_annotation_renders_bare(): void
+    {
+        $output = ImpactFormatter::detectChanges($this->summary(['route::GET::/videos']));
+
+        $this->assertStringContainsString("- route::GET::/videos\n", $output);
+        $this->assertStringNotContainsString('(routes/', $output);
+        $this->assertStringNotContainsString('⚠ ', $output);
+    }
+
+    #[Test]
+    public function impact_hops_render_their_location_suffix(): void
+    {
+        $output = ImpactFormatter::impact([
+            'target' => 'App\Services\S::run',
+            'callers' => [['depth' => 1, 'node' => 'route::GET::/r', 'via' => 'route-to-controller', 'file' => 'routes/web.php', 'line' => 4]],
+            'dependencies' => [['depth' => 1, 'node' => 'App\Events\X', 'via' => 'action-to-event']],
+        ]);
+
+        $this->assertStringContainsString('d1  route::GET::/r  (via route-to-controller)  — routes/web.php:4', $output);
+        // A hop without a location keeps the exact pre-existing rendering.
+        $this->assertStringContainsString("d1  App\Events\X  (via action-to-event)\n", $output . "\n");
+    }
+
+    #[Test]
     public function explain_renders_the_call_chain_under_each_reached_entry_point(): void
     {
         $result = $this->summary(['route::GET::/videos']) + ['entryPointPaths' => [

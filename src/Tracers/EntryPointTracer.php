@@ -44,7 +44,7 @@ final readonly class EntryPointTracer
      *
      * @var list<string>
      */
-    private const array DEFAULT_ROOTS = ['Jobs', 'Listeners', 'Console/Commands', 'Helpers', 'Http/Middleware', 'Livewire', 'Observers'];
+    private const array DEFAULT_ROOTS = ['Jobs', 'Listeners', 'Console/Commands', 'Filament', 'Helpers', 'Http/Middleware', 'Livewire', 'Observers'];
 
     /**
      * Container registration methods that take (abstract, concrete) arguments. All kinds collapse

@@ -49,14 +49,18 @@ final class GraphCacheTest extends TestCase
         return "{$this->cacheDirectory}/graph.json";
     }
 
-    /** @param  list<array{source: string, target: string, type: string}>  $edges */
-    private function writeCacheFile(string $fingerprint, array $edges): void
+    /**
+     * @param  list<array{source: string, target: string, type: string}>  $edges
+     * @param  array<string, array{file?: string, line?: int, uri?: string, security?: array{exposure: string, riskLevel: string, issues: list<array{type: string, severity: string, message: string, file?: string, line?: int}>}}>|string  $nodeMetadata  a string writes a deliberately corrupt field
+     */
+    private function writeCacheFile(string $fingerprint, array $edges, array|string $nodeMetadata = []): void
     {
         mkdir($this->cacheDirectory, recursive: true);
         file_put_contents($this->cacheFile(), json_encode([
             'fingerprint' => $fingerprint,
             'edges' => $edges,
             'hasUnresolvedDispatches' => false,
+            'nodeMetadata' => $nodeMetadata,
         ], JSON_THROW_ON_ERROR));
     }
 
@@ -128,7 +132,7 @@ final class GraphCacheTest extends TestCase
 
         $graph = $cache->graph($this->projectRoot);
 
-        $this->assertSame(['edges' => $this->markerEdges(), 'hasUnresolvedDispatches' => false], $graph->toArray());
+        $this->assertSame(['edges' => $this->markerEdges(), 'hasUnresolvedDispatches' => false, 'nodeMetadata' => []], $graph->toArray());
     }
 
     #[Test]
@@ -155,6 +159,35 @@ final class GraphCacheTest extends TestCase
 
         $graph = $this->cache()->graph($this->projectRoot);
 
+        $this->assertNotContains($this->markerEdges()[0], $graph->toArray()['edges']);
+    }
+
+    #[Test]
+    public function node_metadata_round_trips_through_the_cache(): void
+    {
+        $cache = $this->cache();
+        $security = ['exposure' => 'public', 'riskLevel' => 'high', 'issues' => [
+            ['type' => 'PUBLIC_WRITE', 'severity' => 'high', 'message' => 'POST route with no auth middleware'],
+        ]];
+        $this->writeCacheFile($cache->fingerprint($this->projectRoot), $this->markerEdges(), [
+            'marker::A' => ['file' => 'app/A.php', 'line' => 3, 'security' => $security],
+        ]);
+
+        $graph = $cache->graph($this->projectRoot);
+
+        $this->assertSame(['file' => 'app/A.php', 'line' => 3], $graph->locationOf('marker::A'));
+        $this->assertSame($security, $graph->securityOf('marker::A'));
+    }
+
+    #[Test]
+    public function a_cache_entry_with_a_non_map_metadata_field_reads_as_a_miss(): void
+    {
+        $cache = $this->cache();
+        $this->writeCacheFile($cache->fingerprint($this->projectRoot), $this->markerEdges(), 'corrupt');
+
+        $graph = $cache->graph($this->projectRoot);
+
+        // The marker edges must not be served — the whole entry is a miss, rebuilt from source.
         $this->assertNotContains($this->markerEdges()[0], $graph->toArray()['edges']);
     }
 

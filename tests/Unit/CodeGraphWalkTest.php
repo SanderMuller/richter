@@ -42,7 +42,9 @@ final class CodeGraphWalkTest extends TestCase
         $graph = new CodeGraph([
             ['source' => 'route::GET::/r', 'target' => 'App\Http\Controllers\C::index', 'type' => 'route-to-controller'],
             ['source' => 'App\Http\Controllers\C::index', 'target' => 'App\Services\S::run', 'type' => 'action-to-service'],
-        ], hasUnresolvedDispatches: true);
+        ], hasUnresolvedDispatches: true, nodeMetadata: [
+            'route::GET::/r' => ['file' => 'routes/web.php', 'line' => 3, 'uri' => '/r'],
+        ]);
 
         $revived = CodeGraph::fromArray($graph->toArray());
 
@@ -50,6 +52,41 @@ final class CodeGraphWalkTest extends TestCase
         $this->assertSame($graph->callersOf(['App\Services\S::run']), $revived->callersOf(['App\Services\S::run']));
         $this->assertSame($graph->dependenciesOf(['route::GET::/r']), $revived->dependenciesOf(['route::GET::/r']));
         $this->assertTrue($revived->hasUnresolvedDispatches());
+        $this->assertSame(['file' => 'routes/web.php', 'line' => 3], $revived->locationOf('route::GET::/r'));
+    }
+
+    #[Test]
+    public function an_array_form_without_metadata_revives_as_an_unannotated_graph(): void
+    {
+        $revived = CodeGraph::fromArray([
+            'edges' => [['source' => 'A', 'target' => 'B', 'type' => 'call']],
+            'hasUnresolvedDispatches' => false,
+        ]);
+
+        $this->assertNull($revived->locationOf('A'));
+    }
+
+    #[Test]
+    public function location_and_security_read_from_the_node_metadata(): void
+    {
+        $graph = new CodeGraph(
+            [['source' => 'route::POST::/checkout', 'target' => 'App\Services\S::run', 'type' => 'route-to-controller']],
+            nodeMetadata: [
+                'route::POST::/checkout' => [
+                    'file' => 'routes/web.php',
+                    'line' => 21,
+                    'security' => ['exposure' => 'public', 'riskLevel' => 'high', 'issues' => []],
+                ],
+                'App\Services\S::run' => ['file' => 'app/Services/S.php'],
+            ],
+        );
+
+        $this->assertSame(['file' => 'routes/web.php', 'line' => 21], $graph->locationOf('route::POST::/checkout'));
+        // Sparse: no line means no line key, so JSON consumers never see nulls.
+        $this->assertSame(['file' => 'app/Services/S.php'], $graph->locationOf('App\Services\S::run'));
+        $this->assertSame(['exposure' => 'public', 'riskLevel' => 'high', 'issues' => []], $graph->securityOf('route::POST::/checkout'));
+        $this->assertNull($graph->locationOf('unknown'));
+        $this->assertNull($graph->securityOf('App\Services\S::run'));
     }
 
     #[Test]

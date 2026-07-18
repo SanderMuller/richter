@@ -17,11 +17,13 @@ use Throwable;
  * failed write is ignored: the cache is an optimisation and must never break or pollute a report
  * (JSON mode owns stdout). Registered as a singleton so one MCP session also reuses the parsed
  * graph in memory across tool calls.
+ *
+ * @phpstan-import-type MetadataShape from NodeMetadata
  */
 final class GraphCache
 {
     /** Bump on any change to the build pipeline that {@see fingerprint()}'s inputs cannot see. */
-    private const int FORMAT_VERSION = 1;
+    private const int FORMAT_VERSION = 3;
 
     private ?CodeGraph $memoized = null;
 
@@ -138,12 +140,13 @@ final class GraphCache
         }
 
         $edges = $this->validEdges($data['edges'] ?? null);
+        $metadata = $this->validNodeMetadata($data['nodeMetadata'] ?? null);
 
-        if ($edges === null) {
+        if ($edges === null || $metadata === null) {
             return null;
         }
 
-        return new CodeGraph($edges, ($data['hasUnresolvedDispatches'] ?? false) === true);
+        return new CodeGraph($edges, ($data['hasUnresolvedDispatches'] ?? false) === true, $metadata);
     }
 
     private function write(string $fingerprint, CodeGraph $graph): void
@@ -192,6 +195,46 @@ final class GraphCache
             }
 
             $valid[] = ['source' => $edge['source'], 'target' => $edge['target'], 'type' => $edge['type']];
+        }
+
+        return $valid;
+    }
+
+    /**
+     * The node-metadata map from a cache entry, re-shaped through {@see NodeMetadata} so a tampered
+     * or drifted entry degrades to the same conservative shapes a fresh build would produce. Only a
+     * non-map value is corrupt (→ miss, like {@see validEdges}); an individual record that doesn't
+     * shape-check simply loses its unusable fields — metadata annotates reports, it never feeds the
+     * impact walk, so partial loss here cannot under-report impact.
+     *
+     * @return array<string, MetadataShape>|null
+     */
+    private function validNodeMetadata(mixed $metadata): ?array
+    {
+        if ($metadata === null) {
+            // Pre-metadata entries can't reach here (FORMAT_VERSION is fingerprinted), but an
+            // absent map is still a valid empty annotation set, not corruption.
+            return [];
+        }
+
+        if (! is_array($metadata)) {
+            return null;
+        }
+
+        $valid = [];
+
+        foreach ($metadata as $node => $record) {
+            if (! is_string($node) || ! is_array($record)) {
+                return null;
+            }
+
+            // Re-extract through the same shape gate the builder uses: '' as root means "keep
+            // stored paths verbatim" — they were made project-relative at build time.
+            $shaped = NodeMetadata::fromBrainNodeData($record, '');
+
+            if ($shaped !== null) {
+                $valid[$node] = $shaped;
+            }
         }
 
         return $valid;
