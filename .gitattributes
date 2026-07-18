@@ -32,3 +32,6 @@ testbench.yaml export-ignore
 tests/ export-ignore
 workbench/ export-ignore
 # <<< package-boost (managed) <<<
+
+# README banner: Packagist renders the README from the repo, so the dist archive doesn't need the image.
+richter.png export-ignore
