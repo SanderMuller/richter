@@ -299,6 +299,80 @@ final class CommandsTest extends TestCase
     }
 
     #[Test]
+    public function benchmark_add_rejects_an_option_shaped_commit(): void
+    {
+        Process::fake();
+
+        $this->runArtisan('richter:benchmark:add', ['fix-commit' => '--upload-pack=x'])
+            ->expectsOutputToContain('may not start with')
+            ->assertFailed();
+    }
+
+    #[Test]
+    public function benchmark_add_reports_an_unavailable_commit(): void
+    {
+        Process::fake(['*cat-file*' => Process::result(exitCode: 1)]);
+
+        $this->runArtisan('richter:benchmark:add', ['fix-commit' => 'abc1234'])
+            ->expectsOutputToContain('is not available')
+            ->assertFailed();
+    }
+
+    #[Test]
+    public function benchmark_add_scaffolds_a_signal_case_from_a_replayed_fix(): void
+    {
+        $this->fakeBenchmarkReplayReachingRoutes(['*log*' => Process::result("PROJ-42 Fix duplicated video questions\n")]);
+
+        $this->runArtisan('richter:benchmark:add', ['fix-commit' => 'abc1234'])
+            ->expectsOutputToContain("'key' => 'PROJ-42'")
+            ->expectsOutputToContain("'fix_commit' => 'abc1234'")
+            ->expectsOutputToContain("'bug_class' => 'PROJ-42 Fix duplicated video questions'")
+            ->expectsOutputToContain("'expect_signal' => true")
+            ->expectsOutputToContain("'max_risk' => 'high'")
+            ->expectsOutputToContain('Would currently PASS')
+            ->assertSuccessful();
+    }
+
+    #[Test]
+    public function benchmark_add_scaffolds_a_control_case_capped_at_the_replayed_risk(): void
+    {
+        $this->fakeBenchmarkReplayReachingRoutes(['*log*' => Process::result("PROJ-42 Fix duplicated video questions\n")]);
+
+        $this->runArtisan('richter:benchmark:add', ['fix-commit' => 'abc1234', '--control' => true])
+            ->expectsOutputToContain("'expect_signal' => false")
+            ->expectsOutputToContain("'max_risk' => 'medium'")
+            ->assertSuccessful();
+    }
+
+    #[Test]
+    public function benchmark_add_falls_back_to_the_short_sha_key_when_the_subject_has_no_ticket(): void
+    {
+        $this->fakeBenchmarkReplayReachingRoutes([
+            '*log*' => Process::result("Fix duplicated video questions\n"),
+            '*rev-parse*' => Process::result("abc1234\n"),
+        ]);
+
+        $this->runArtisan('richter:benchmark:add', ['fix-commit' => 'deadbee'])
+            ->expectsOutputToContain("'key' => 'abc1234'")
+            ->assertSuccessful();
+    }
+
+    #[Test]
+    public function benchmark_add_fails_when_the_commit_changes_no_app_php(): void
+    {
+        Process::fake([
+            '*cat-file*' => Process::result(),
+            '*log*' => Process::result("subject\n"),
+            '*merge-base*' => Process::result("base123\n"),
+            '*diff*' => Process::result(''),
+        ]);
+
+        $this->runArtisan('richter:benchmark:add', ['fix-commit' => 'abc1234'])
+            ->expectsOutputToContain('would never exercise')
+            ->assertFailed();
+    }
+
+    #[Test]
     public function impact_json_emits_parseable_json_with_empty_arrays_for_a_no_match_symbol(): void
     {
         // No progress line pollutes stdout in JSON mode, so the whole buffer must decode.
@@ -494,8 +568,12 @@ final class CommandsTest extends TestCase
      * skeleton's app/ is empty, so its graph could never resolve a seed, let alone reach an entry
      * point. Both `git show` sides return the real fixture source; the diff's line number is derived
      * from that exact source so the change lands inside the method's span, not at class level.
+     *
+     * @param  array<string, mixed>  $extraFakes  additional `Process::fake` patterns layered in ahead
+     *   of the four replay patterns — kept in ONE `Process::fake` call, since repeated calls are an
+     *   ordering trap.
      */
-    private function fakeBenchmarkReplayReachingRoutes(): void
+    private function fakeBenchmarkReplayReachingRoutes(array $extraFakes = []): void
     {
         $app = $this->app;
         $this->assertInstanceOf(Application::class, $app);
@@ -514,11 +592,11 @@ final class CommandsTest extends TestCase
             . "-        return QuestionResource::make(\$video->withoutRelations());\n"
             . "+        return QuestionResource::make(\$video);\n";
 
-        Process::fake([
+        Process::fake(array_merge($extraFakes, [
             '*cat-file*' => Process::result(),
             '*merge-base*' => Process::result("base123\n"),
             '*diff*' => Process::result($diff),
             '*show*' => Process::result($source),
-        ]);
+        ]));
     }
 }
