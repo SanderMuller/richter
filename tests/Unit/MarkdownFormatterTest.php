@@ -80,6 +80,18 @@ final class MarkdownFormatterTest extends TestCase
     }
 
     #[Test]
+    public function a_path_containing_a_pipe_does_not_break_the_changed_files_table(): void
+    {
+        $output = MarkdownFormatter::detectChanges($this->summary([], coverage: [
+            'app/weird|name.php' => 'analyzed',
+            'app/back`tick.php' => 'analyzed',
+        ]));
+
+        $this->assertStringContainsString('| `app/weird\|name.php` | 1 | analyzed |', $output);
+        $this->assertStringContainsString('| ``app/back`tick.php`` | 1 | analyzed |', $output);
+    }
+
+    #[Test]
     public function entry_points_render_as_an_unchecked_review_checklist_with_test_tags(): void
     {
         $tests = new TestReferenceIndex();

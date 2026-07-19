@@ -9,8 +9,10 @@ use SanderMuller\Richter\Graph\NodeMetadata;
  * and comments — the workflow the README describes ("hand the reviewer your blast radius"). Unlike
  * {@see ImpactFormatter}'s capped text lists, nothing is truncated: entries beyond the cap collapse
  * into a `<details>` block, so the PR stays scannable while the full reach remains one click away.
- * Cell and code-span content is repo-derived (paths, FQCNs, route/command ids), so no markdown
- * escaping is applied — a `|` or backtick cannot occur in those identifiers.
+ * Cell and code-span content is repo-derived (FQCNs, route/command ids, node names), so no markdown
+ * escaping is applied to those — a `|` or backtick cannot occur in identifier-shaped values. File
+ * paths are the exception: they come straight from the diff and can legally contain `|` or
+ * backticks, so the changed-files table escapes them via {@see pathCell()}.
  *
  * @phpstan-import-type SecurityShape from NodeMetadata
  */
@@ -77,7 +79,7 @@ final class MarkdownFormatter
             $coverage = ($result['coverage'][$file] ?? 'analyzed') === 'unresolved'
                 ? '⚠️ **UNRESOLVED** — not graphed, never "no impact"'
                 : 'analyzed';
-            $lines[] = "| `{$file}` | {$nodeCount} | {$coverage} |";
+            $lines[] = '| ' . self::pathCell($file) . " | {$nodeCount} | {$coverage} |";
         }
 
         $lines = [...$lines, '', sprintf('### Entry points reached (%d)', count($result['entryPoints'])), ''];
@@ -112,6 +114,16 @@ final class MarkdownFormatter
         }
 
         return implode("\n", $lines);
+    }
+
+    /** A diff-derived file path may contain `|` or backticks — the one repo-derived value the
+     *  no-escaping rule in the class docblock cannot cover. Escape the pipe for table cells and
+     *  swap backticks out of the code span. */
+    private static function pathCell(string $file): string
+    {
+        $escaped = str_replace('|', '\|', $file);
+
+        return str_contains($escaped, '`') ? '``' . $escaped . '``' : "`{$escaped}`";
     }
 
     private static function riskBadge(RiskLevel $risk): string
