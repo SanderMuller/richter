@@ -121,6 +121,55 @@ final class CommandsTest extends TestCase
     }
 
     #[Test]
+    public function detect_changes_profile_prints_the_build_phase_split(): void
+    {
+        $diff = "diff --git a/app/Models/User.php b/app/Models/User.php\n--- a/app/Models/User.php\n+++ b/app/Models/User.php\n@@ -0,0 +1,1 @@\n+    public function added(): void {}\n";
+
+        Process::fake([
+            '*merge-base*' => Process::result("abc123\n"),
+            '*show*' => Process::result(errorOutput: 'bad object', exitCode: 128),
+            '*diff*' => Process::result($diff),
+        ]);
+
+        $this->withoutMockingConsoleOutput();
+        $exitCode = Artisan::call('richter:detect-changes', ['--base' => 'some-base', '--profile' => true]);
+        $output = Artisan::output();
+
+        $this->assertSame(0, $exitCode);
+        $this->assertStringContainsString('Build profile', $output);
+        $this->assertStringContainsString('brain-analyze', $output);
+        $this->assertStringContainsString('total', $output);
+        // The normal text report must still be there — --profile adds to the output, it never replaces it.
+        $this->assertStringContainsString('Changed files:', $output);
+    }
+
+    #[Test]
+    public function detect_changes_profile_json_still_emits_a_single_document(): void
+    {
+        $diff = "diff --git a/app/Models/User.php b/app/Models/User.php\n--- a/app/Models/User.php\n+++ b/app/Models/User.php\n@@ -0,0 +1,1 @@\n+    public function added(): void {}\n";
+
+        Process::fake([
+            '*merge-base*' => Process::result("abc123\n"),
+            '*show*' => Process::result(errorOutput: 'bad object', exitCode: 128),
+            '*diff*' => Process::result($diff),
+        ]);
+
+        $this->withoutMockingConsoleOutput();
+        $exitCode = Artisan::call('richter:detect-changes', ['--base' => 'some-base', '--json' => true, '--profile' => true]);
+        $output = Artisan::output();
+
+        $this->assertSame(0, $exitCode);
+        $this->assertStringContainsString('Build profile', $output);
+
+        // --profile writes to stderr, --json to stdout; the test harness captures both into one
+        // buffer (profile lines first), so decode the report from the first '{' onward.
+        $decoded = json_decode(substr($output, (int) strpos($output, '{')), associative: true);
+
+        $this->assertIsArray($decoded);
+        $this->assertArrayHasKey('entryPointPaths', $decoded);
+    }
+
+    #[Test]
     public function detect_changes_accepts_the_explain_flag(): void
     {
         $this->runArtisan('richter:detect-changes', ['--base' => 'HEAD', '--explain' => true])

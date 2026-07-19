@@ -34,7 +34,8 @@ final class DetectChangesCommand extends Command
         {--explain : Show the call chain from each reached entry point down to the changed code (JSON always carries the chains)}
         {--fail-on= : Exit non-zero when risk is at least this level (low|medium|high); advisory by default}
         {--fail-on-unresolved : Exit non-zero when any changed PHP file is UNRESOLVED}
-        {--no-cache : Build the code graph fresh, bypassing the graph cache}';
+        {--no-cache : Build the code graph fresh, bypassing the graph cache}
+        {--profile : Time each graph-build phase and print the split to stderr (forces a fresh build)}';
 
     /** @var string */
     protected $description = 'Report the advisory blast radius of the current branch diff (entry points reached + risk)';
@@ -200,7 +201,46 @@ final class DetectChangesCommand extends Command
 
     private function graph(GraphCache $graphs): CodeGraph
     {
-        return $graphs->graph(fresh: (bool) $this->option('no-cache'));
+        if (! (bool) $this->option('profile')) {
+            return $graphs->graph(fresh: (bool) $this->option('no-cache'));
+        }
+
+        /** @var array<string, float> $phases */
+        $phases = [];
+
+        $graph = $graphs->graph(
+            fresh: true,
+            onProgress: function (string $event, array $data) use (&$phases): void {
+                if ($event === 'richter:phase' && is_string($data['phase'] ?? null) && is_float($data['seconds'] ?? null)) {
+                    $phases[$data['phase']] = $data['seconds'];
+                }
+            },
+        );
+
+        $this->printProfile($phases);
+
+        return $graph;
+    }
+
+    /**
+     * Writes the phase-by-phase timing split to STDERR, never stdout — the split composes with
+     * --json (stdout stays one parseable document) and --markdown (stdout stays the pasteable body).
+     *
+     * @param  array<string, float>  $phases
+     */
+    private function printProfile(array $phases): void
+    {
+        $total = array_sum($phases);
+        $errorOutput = $this->getOutput()->getErrorStyle();
+
+        $errorOutput->writeln('Build profile (fresh build, cache bypassed):');
+
+        foreach ($phases as $phase => $seconds) {
+            $percent = $total > 0.0 ? $seconds / $total * 100 : 0.0;
+            $errorOutput->writeln(sprintf('  %-24s %6.2fs  %4.1f%%', $phase, $seconds, $percent));
+        }
+
+        $errorOutput->writeln(sprintf('  %-24s %6.2fs', 'total', $total));
     }
 
     /** @param  array<string, 'analyzed'|'unresolved'>  $coverage */
