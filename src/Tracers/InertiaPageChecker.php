@@ -20,13 +20,13 @@ use SanderMuller\Richter\Support\RichterConfig;
  * component names only. The page file resolves under `richter.frontend.pages_path` and is
  * existence-checked — a missing file is itself a signal (a deleted or renamed page).
  */
-final class InertiaPageChecker
+final readonly class InertiaPageChecker
 {
     /** The extensions `resolvePageComponent` conventionally resolves, most common first. */
     private const array PAGE_EXTENSIONS = ['vue', 'tsx', 'jsx', 'ts', 'js', 'svelte'];
 
     /** @param  string|null  $projectRoot  null resolves to the host app's base path at scan time */
-    public function __construct(private readonly ?string $projectRoot = null) {}
+    public function __construct(private ?string $projectRoot = null) {}
 
     /**
      * @param  list<array{int, int}>|null  $lineRanges  restrict to renders whose call starts inside

@@ -47,7 +47,8 @@ Richter adds two things over Laravel Brain alone: the tooling above (CLI, MCP, a
 - custom validation rules;
 - trait usage;
 - eager-load relation strings;
-- view-to-view includes.
+- view-to-view includes;
+- frontend endpoint references — Wayfinder imports, Ziggy calls, endpoint literals in changed TS/JS/Vue files and Blade inline scripts (opt-in, see [Frontend changes](#frontend-changes-wayfinder--ziggy)).
 
 ## Installation
 

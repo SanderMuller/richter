@@ -47,17 +47,15 @@ final class FrontendChanges
         foreach ($roots as $root) {
             $root = trim($root, '/');
 
-            if ($root === '' || ! str_starts_with($file, $root . '/')) {
+            if ($root === '') {
                 continue;
             }
 
-            foreach (RichterConfig::frontendGeneratedPaths() as $generated) {
-                if (str_starts_with($file, $root . '/' . trim($generated, '/') . '/')) {
-                    return false;
-                }
+            if (! str_starts_with($file, $root . '/')) {
+                continue;
             }
 
-            return true;
+            return array_all(RichterConfig::frontendGeneratedPaths(), fn (string $generated) => ! str_starts_with($file, $root . '/' . trim($generated, '/') . '/'));
         }
 
         return false;
@@ -131,8 +129,8 @@ final class FrontendChanges
     public function inlineUriSeeds(?string $headSrc, ?string $baseSrc): array
     {
         $uris = [
-            ...$this->scanner->scan(self::scriptSlices($headSrc ?? ''))['uris'],
-            ...$this->scanner->scan(self::scriptSlices($baseSrc ?? ''))['uris'],
+            ...$this->scanner->scan($this->scriptSlices($headSrc ?? ''))['uris'],
+            ...$this->scanner->scan($this->scriptSlices($baseSrc ?? ''))['uris'],
         ];
 
         if ($uris === []) {
@@ -148,7 +146,7 @@ final class FrontendChanges
         return array_values(array_unique($this->seedsForUris($uris, $indexes['uriTemplates'])));
     }
 
-    private static function scriptSlices(string $source): string
+    private function scriptSlices(string $source): string
     {
         preg_match_all('/<script\b[^>]*>(.*?)<\/script>/is', $source, $matches);
 

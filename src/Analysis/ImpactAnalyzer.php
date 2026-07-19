@@ -171,6 +171,7 @@ final readonly class ImpactAnalyzer
 
         $entryPoints = $this->withSelfListedEntryClasses($entryPoints, $changed, $perFileSeeds, $maxDepth);
         $entryPoints = $this->withFrontendEntryPoints($entryPoints, $frontendSeeds);
+
         $coverage = $this->withUnresolvedJobFlips($coverage, $changed, $perFileSeeds, $maxDepth);
 
         // A node only reachable through `model-relationship` is context, not risk — counting it lets touching a hub model saturate to HIGH on relation breadth alone. Any behavioural edge still counts.
@@ -266,7 +267,11 @@ final readonly class ImpactAnalyzer
     private function withSelfListedEntryClasses(array $entryPoints, array $changed, array $perFileSeeds, int $maxDepth): array
     {
         foreach ($changed as $file) {
-            if ($file->hasOnlyAdditiveOrCosmeticChanges() || ! $this->isEntryPointClass($file->file)) {
+            if ($file->hasOnlyAdditiveOrCosmeticChanges()) {
+                continue;
+            }
+
+            if (! $this->isEntryPointClass($file->file)) {
                 continue;
             }
 
@@ -326,7 +331,11 @@ final readonly class ImpactAnalyzer
         }
 
         foreach ($changed as $file) {
-            if ($file->hasOnlyAdditiveOrCosmeticChanges() || ($coverage[$file->file] ?? null) !== 'analyzed') {
+            if ($file->hasOnlyAdditiveOrCosmeticChanges()) {
+                continue;
+            }
+
+            if (($coverage[$file->file] ?? null) !== 'analyzed') {
                 continue;
             }
 
