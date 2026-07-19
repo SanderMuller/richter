@@ -57,6 +57,19 @@ jobs:
           php-version: ${{ matrix.php }}
           coverage: none
 
+      - name: Get Composer cache directory
+        id: composer-cache
+        run: echo "dir=$(composer config cache-files-dir)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Composer downloads
+        uses: actions/cache@v5
+        with:
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: composer-${{ runner.os }}-P${{ matrix.php }}-L${{ matrix.laravel }}-${{ matrix.stability }}-${{ hashFiles('composer.json') }}
+          restore-keys: |
+            composer-${{ runner.os }}-P${{ matrix.php }}-L${{ matrix.laravel }}-${{ matrix.stability }}-
+            composer-${{ runner.os }}-
+
       - name: Install dependencies
         run: |
           composer require "laravel/framework:${{ matrix.laravel }}" "orchestra/testbench:${{ matrix.testbench }}" --no-interaction --no-update
@@ -78,6 +91,19 @@ jobs:
         with:
           php-version: '8.4'
           coverage: none
+
+      - name: Get Composer cache directory
+        id: composer-cache
+        run: echo "dir=$(composer config cache-files-dir)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Composer downloads
+        uses: actions/cache@v5
+        with:
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: composer-${{ runner.os }}-P8.4-L12.*-prefer-stable-nomcp-${{ hashFiles('composer.json') }}
+          restore-keys: |
+            composer-${{ runner.os }}-P8.4-L12.*-prefer-stable-nomcp-
+            composer-${{ runner.os }}-
 
       - name: Install dependencies
         run: |
