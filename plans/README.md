@@ -63,6 +63,8 @@ your row when done.
 
 | 034  | Add --profile to detect-changes: phase timings for the incremental-rebuild decision (tier-3 handoff #1, measurement gate) | P3 | S–M | 033 (same command file) | TODO |
 
+| 035  | Draft the upstream laravel-brain incremental/provenance issue + profile decision procedure (tier-3 handoff #1 follow-through) | P3 | S | 034 soft (issue reads better once --profile exists) | TODO |
+
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED (with one-line rationale — finding fixed independently or approach abandoned)
 
 ## Dependency notes
