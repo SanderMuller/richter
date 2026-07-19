@@ -5,6 +5,26 @@ All notable changes to `sandermuller/richter` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.7.0 - 2026-07-19
+
+<!-- verified-sha: 3fff0c5627094e4e0c6eb1834bb8cf10e602020d -->
+### Added
+
+- **Frontend endpoint references** (opt-in via `frontend.roots`). Changed `.ts`/`.tsx`/`.js`/`.jsx`/`.vue` files are scanned for the backend endpoints they reference, all mapped through the app's router onto route entry points: [Wayfinder](https://github.com/laravel/wayfinder) action imports (the controller FQCN lives in the import path — deterministic, method-precise, aliasing and `import type` included), Wayfinder route imports and Ziggy `route('name')` calls (name index), and endpoint strings matched against the route templates — plain literals (`axios.post('/videos')`) and backtick templates whose `${…}` interpolations wildcard one segment (`fetch(`/videos/${id}`)` matches `/videos/{video}`). A verb-named call pins the HTTP method; anything unrecognisable stays method-agnostic and never narrows the match. Optional route parameters (`{user?}`) match with and without their segment. The touched routes are listed as entry points with their existing location, exposure and feature-gate annotations — and **never move `risk` or `impacted`**: a frontend edit does not change backend behaviour, and the report says so explicitly on frontend-heavy diffs.
+- **Fail-safe semantics carry over.** A dynamic `route(…)` argument or an unmatched Wayfinder action import marks the file UNRESOLVED and makes `richter:affected-tests` exit `2`; an unmatched route name or URI literal simply isn't a reference (`routes/` modules and `route()` helpers collide with frontend-router idioms — unmatched names never guess). Wayfinder's generated trees (`actions/`, `routes/`, `wayfinder/`) are excluded as regeneration churn.
+- **Blade inline scripts.** Endpoint literals inside `<script>` blocks of changed Blade views seed touched routes the same way — script slices only, since markup hrefs and form actions are navigation, not endpoint calls.
+- **Inertia reverse direction** (no configuration needed). A changed backend member rendering an Inertia page (`Inertia::render('Videos/Show')`, the `inertia()` helper, aliased facades included) is noted under Findings with the page file resolved and existence-checked under `frontend.pages_path` — a miss reads "no page file found", which usually means a renamed or deleted page. Scoped to the changed members, like every source checker.
+- **Advisory frontend test selection.** Frontend spec files (`*.test.*`, `*.spec.*`, `*.cy.*` under the frontend roots, or `frontend.test_paths`) referencing a touched route surface in `richter:affected-tests` as a `frontendTests` list — in `--json` and text output for the JS runner, never in `--plain` (which feeds the PHP runner), and never an input to determinability.
+
+New config keys: `frontend.roots` (default `[]`, bridge off), `frontend.generated_paths`, `frontend.pages_path`, `frontend.test_paths`.
+
+### Internal
+
+- Suite grows from 447 to 516 tests (1043 assertions), pinning the scanner idioms (aliased/default/invokable Wayfinder imports, verb pinning, template-literal wildcarding, optional parameters), the annotation-lane risk isolation, the Blade script-slice boundary, and the frontend spec index end-to-end.
+- `CodeGraph::hasNode()` provides exact node-id membership for route seeds, where substring matching would let a shorter route id match inside a longer one.
+
+**Full Changelog**: https://github.com/SanderMuller/richter/compare/v0.6.0...v0.7.0
+
 ## v0.6.0 - 2026-07-18
 
 <!-- verified-sha: 368b2015fda48b80a8efc4df271fe914d4d11e0c -->
