@@ -53,9 +53,10 @@ final class DetectChangesTool extends Tool
         }
 
         $result = new ImpactAnalyzer($this->graphs->graph())->detectChanges($changed);
+        $tests = TestReferenceIndex::fromTests(base_path('tests'));
 
-        return new ResponseFactory(Response::text(ImpactFormatter::detectChanges($result, TestReferenceIndex::fromTests(base_path('tests')))))
-            ->withStructuredContent(JsonPresenter::detectChanges($result, $base));
+        return new ResponseFactory(Response::text(ImpactFormatter::detectChanges($result, $tests)))
+            ->withStructuredContent(JsonPresenter::detectChanges($result, $base, $tests));
     }
 
     /** @return array<string, mixed> */
@@ -80,6 +81,8 @@ final class DetectChangesTool extends Tool
                 ->description('Entry-point route => Brain security surface {exposure, riskLevel, issues[]}. Advisory annotation inherited from laravel-brain; routes only, never an input to risk or the gate. Empty map serializes as [].'),
             'entryPointGates' => $schema->object()
                 ->description('Entry-point route => Pennant feature flags gating it (EnsureFeaturesAreActive middleware). Advisory annotation; never an input to risk or the gate. Empty map serializes as [].'),
+            'entryPointTestReferences' => $schema->object()
+                ->description('Entry-point node => "referenced" | "referenced-no-behavioural-assertion" | "unreferenced". A node whose reference state could not be determined is omitted. Advisory annotation; never an input to risk, the gate, or affected-tests selection. Empty map serializes as [].'),
             'impacted' => $schema->integer()->description('Distinct impacted graph nodes.'),
             'relatedModels' => $schema->array()->items($schema->string()),
             'risk' => $schema->string()->description('low, medium or high.'),

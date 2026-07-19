@@ -26,9 +26,9 @@ final class JsonPresenter
 
     /**
      * @param  array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, SecurityShape>, entryPointGates: array<string, list<string>>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied: bool, findings: list<string>, ...}  $result  the full {@see ImpactAnalyzer::detectChanges()} result; the caller/dependency walk internals it also carries are ignored here
-     * @return array{base: string, changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, SecurityShape>, entryPointGates: array<string, list<string>>, impacted: int, relatedModels: list<string>, risk: string, lowConfidence: bool, coarseCapApplied: bool, findings: list<string>, unresolved: bool}
+     * @return array{base: string, changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, SecurityShape>, entryPointGates: array<string, list<string>>, entryPointTestReferences: array<string, 'referenced'|'referenced-no-behavioural-assertion'|'unreferenced'>, impacted: int, relatedModels: list<string>, risk: string, lowConfidence: bool, coarseCapApplied: bool, findings: list<string>, unresolved: bool}
      */
-    public static function detectChanges(array $result, string $base): array
+    public static function detectChanges(array $result, string $base, ?TestReferenceIndex $tests = null): array
     {
         return [
             'base' => $base,
@@ -43,6 +43,10 @@ final class JsonPresenter
             // annotation — routes only, and never an input to the risk level or the gate.
             'entryPointSecurity' => $result['entryPointSecurity'],
             'entryPointGates' => $result['entryPointGates'],
+            // Advisory annotation, same iron rule as security/gates: never an input to risk, the
+            // gate, or affected-tests selection/determinability. A node whose tri-state is null
+            // (uncheckable) is omitted rather than guessed.
+            'entryPointTestReferences' => self::entryPointTestReferences($result['entryPoints'], $tests),
             'impacted' => $result['impacted'],
             'relatedModels' => $result['relatedModels'],
             'risk' => $result['risk']->value,
@@ -54,10 +58,39 @@ final class JsonPresenter
     }
 
     /**
+     * @param  list<string>  $entryPoints
+     * @return array<string, 'referenced'|'referenced-no-behavioural-assertion'|'unreferenced'>
+     */
+    private static function entryPointTestReferences(array $entryPoints, ?TestReferenceIndex $tests): array
+    {
+        if ($tests === null) {
+            return [];
+        }
+
+        $map = [];
+
+        foreach ($entryPoints as $node) {
+            $referenced = $tests->hasReference($node);
+
+            if ($referenced === null) {
+                continue;
+            }
+
+            $map[$node] = match (true) {
+                $referenced && $tests->referencedWithoutBehaviouralAssertion($node) => 'referenced-no-behavioural-assertion',
+                $referenced => 'referenced',
+                default => 'unreferenced',
+            };
+        }
+
+        return $map;
+    }
+
+    /**
      * The canonical zero-result for an empty diff — built without touching the graph, so the command's
      * no-build fast path stays intact. Same shape as {@see detectChanges()} minus the analyzer run.
      *
-     * @return array{base: string, changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, SecurityShape>, entryPointGates: array<string, list<string>>, impacted: int, relatedModels: list<string>, risk: string, lowConfidence: bool, coarseCapApplied: bool, findings: list<string>, unresolved: bool}
+     * @return array{base: string, changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, SecurityShape>, entryPointGates: array<string, list<string>>, entryPointTestReferences: array<string, 'referenced'|'referenced-no-behavioural-assertion'|'unreferenced'>, impacted: int, relatedModels: list<string>, risk: string, lowConfidence: bool, coarseCapApplied: bool, findings: list<string>, unresolved: bool}
      */
     public static function emptyDetectChanges(string $base): array
     {
@@ -70,6 +103,7 @@ final class JsonPresenter
             'entryPointLocations' => [],
             'entryPointSecurity' => [],
             'entryPointGates' => [],
+            'entryPointTestReferences' => [],
             'impacted' => 0,
             'relatedModels' => [],
             'risk' => RiskLevel::Low->value,

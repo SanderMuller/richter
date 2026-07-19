@@ -132,15 +132,21 @@ final class FormatterContractTest extends TestCase
     #[Test]
     public function the_json_presenter_carries_every_documented_key(): void
     {
-        $json = JsonPresenter::detectChanges($this->richFixture(), 'origin/main');
+        $json = JsonPresenter::detectChanges($this->richFixture(), 'origin/main', $this->richTestIndex());
 
         foreach ([
             'base', 'changed', 'coverage', 'entryPoints', 'entryPointPaths', 'entryPointLocations',
-            'entryPointSecurity', 'entryPointGates', 'impacted', 'relatedModels', 'risk',
-            'lowConfidence', 'coarseCapApplied', 'findings', 'unresolved',
+            'entryPointSecurity', 'entryPointGates', 'entryPointTestReferences', 'impacted',
+            'relatedModels', 'risk', 'lowConfidence', 'coarseCapApplied', 'findings', 'unresolved',
         ] as $key) {
             $this->assertArrayHasKey($key, $json);
         }
+
+        // The annotated entry's reference has no file to grade (fileless) — plain "referenced".
+        // The r01 entry carries only a shallow status-check assertion — the weak sub-state.
+        $this->assertSame('referenced', $json['entryPointTestReferences'][self::ANNOTATED_ENTRY]);
+        $this->assertSame('referenced-no-behavioural-assertion', $json['entryPointTestReferences']['route::GET::/r01']);
+        $this->assertSame('unreferenced', $json['entryPointTestReferences']['route::GET::/r02']);
 
         // Key presence alone is tautological — JsonPresenter hard-codes every key in one array
         // literal — so assert the populated VALUES survived the mapping, mirroring what the text

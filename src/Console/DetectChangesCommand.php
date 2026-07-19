@@ -167,7 +167,8 @@ final class DetectChangesCommand extends Command
         }
 
         $result = new ImpactAnalyzer($this->graph($graphs))->detectChanges($changed);
-        $payload = JsonPresenter::detectChanges($result, $base);
+        $tests = TestReferenceIndex::fromTests(base_path('tests'));
+        $payload = JsonPresenter::detectChanges($result, $base, $tests);
 
         if (! $gateActive) {
             $this->line(JsonPresenter::encode($payload));

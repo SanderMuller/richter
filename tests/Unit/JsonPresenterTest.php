@@ -5,6 +5,7 @@ namespace SanderMuller\Richter\Tests\Unit;
 use PHPUnit\Framework\Attributes\Test;
 use SanderMuller\Richter\Analysis\JsonPresenter;
 use SanderMuller\Richter\Analysis\RiskLevel;
+use SanderMuller\Richter\Analysis\TestReferenceIndex;
 use SanderMuller\Richter\Tests\TestCase;
 
 final class JsonPresenterTest extends TestCase
@@ -111,8 +112,36 @@ final class JsonPresenterTest extends TestCase
         $this->assertSame([], $json['entryPointLocations']);
         $this->assertSame([], $json['entryPointSecurity']);
         $this->assertSame([], $json['entryPointGates']);
+        $this->assertSame([], $json['entryPointTestReferences']);
         $this->assertSame(0, $json['impacted']);
         $this->assertFalse($json['unresolved']);
+    }
+
+    #[Test]
+    public function detect_changes_omits_the_test_reference_map_without_an_index(): void
+    {
+        $json = JsonPresenter::detectChanges($this->detectChangesResult(), 'origin/main');
+
+        $this->assertSame([], $json['entryPointTestReferences']);
+    }
+
+    #[Test]
+    public function detect_changes_carries_the_test_reference_map_referenced_weak_unreferenced_and_omitted(): void
+    {
+        $tests = new TestReferenceIndex();
+        $tests->addSource('<?php $this->get("/a"); $this->assertDatabaseHas("videos", ["id" => 1]);', 'tests/Feature/RichTest.php');
+        $tests->addSource('<?php $this->get("/b"); $response->assertOk();', 'tests/Feature/ShallowTest.php');
+
+        $entryPoints = ['route::GET::/a', 'route::GET::/b', 'route::GET::/c', 'schedule::nightly-report'];
+        $json = JsonPresenter::detectChanges($this->detectChangesResult(entryPoints: $entryPoints), 'origin/main', $tests);
+
+        $this->assertSame([
+            'route::GET::/a' => 'referenced',
+            'route::GET::/b' => 'referenced-no-behavioural-assertion',
+            'route::GET::/c' => 'unreferenced',
+        ], $json['entryPointTestReferences']);
+        // A schedule node cannot be checked at all — omitted, never guessed.
+        $this->assertArrayNotHasKey('schedule::nightly-report', $json['entryPointTestReferences']);
     }
 
     #[Test]

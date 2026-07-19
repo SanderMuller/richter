@@ -132,6 +132,7 @@ final class McpTest extends TestCase
             ->assertStructuredContent(function (AssertableJson $json): bool {
                 $json->has('base')
                     ->has('risk')
+                    ->has('entryPointTestReferences')
                     ->etc();
 
                 return true;
@@ -163,6 +164,7 @@ final class McpTest extends TestCase
             'entryPointLocations',
             'entryPointSecurity',
             'entryPointGates',
+            'entryPointTestReferences',
             'impacted',
             'relatedModels',
             'risk',
