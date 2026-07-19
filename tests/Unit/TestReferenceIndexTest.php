@@ -236,10 +236,8 @@ final class TestReferenceIndexTest extends TestCase
     {
         // Filament pages are often referenced relative to an imported resource class:
         // `VideoResource\Pages\ListVideos::class` resolves through the import at runtime, but the
-        // in-body class-reference regex anchors on a literal `App\` prefix, so this relative form is
-        // NOT recorded — only the imported resource class itself is. This pins the observed truth,
-        // not the ideal; widening to alias-aware resolution needs tracking imports as a namespace
-        // prefix map, which is out of scope here.
+        // in-body class-reference regex anchors on a literal `App\` prefix, so this relative form
+        // is NOT recorded — only the imported resource class itself is.
         $index = new TestReferenceIndex();
         $index->addSource(
             "<?php\nuse App\Filament\Resources\VideoResource;\nlivewire(VideoResource\Pages\ListVideos::class)->assertSuccessful();",

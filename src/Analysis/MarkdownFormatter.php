@@ -117,8 +117,7 @@ final class MarkdownFormatter
     }
 
     /** A diff-derived file path may contain `|` or backticks — the one repo-derived value the
-     *  no-escaping rule in the class docblock cannot cover. Escape the pipe for table cells and
-     *  swap backticks out of the code span. */
+     *  no-escaping rule in the class docblock cannot cover. */
     private static function pathCell(string $file): string
     {
         $escaped = str_replace('|', '\|', $file);
@@ -224,8 +223,8 @@ final class MarkdownFormatter
     }
 
     /**
-     * One explain chain: the entry point first (its already-computed plain label), the changed
-     * symbol last, each arrow labelled with the edge type connecting its two hops.
+     * One explain chain: the entry point first, the changed symbol last, each arrow labelled
+     * with the edge type connecting its two hops.
      *
      * @param  list<array{node: string, via: string, file?: string, line?: int}>  $path
      */

@@ -701,17 +701,22 @@ final class ImpactAnalyzerTest extends TestCase
 
         $riskInputs = new ReflectionMethod($analyzer, 'riskInputs');
         $memo = [];
+        $freshMemo = [];
 
-        // Both calls share one memo, so the second is a cache hit on the first — asserting they
-        // match proves the memoized retrieval reproduces the freshly-walked tuple exactly.
         $first = $riskInputs->invokeArgs($analyzer, [['App\Http\Controllers\VideoController::publish'], 6, &$memo]);
-        $second = $riskInputs->invokeArgs($analyzer, [['App\Http\Controllers\VideoController::publish'], 6, &$memo]);
+        // Cache hit on the shared memo…
+        $memoized = $riskInputs->invokeArgs($analyzer, [['App\Http\Controllers\VideoController::publish'], 6, &$memo]);
+        // …compared against a genuinely fresh walk (separate empty memo), so a stale or corrupted
+        // cached tuple cannot hide behind comparing the memo with itself.
+        $fresh = $riskInputs->invokeArgs($analyzer, [['App\Http\Controllers\VideoController::publish'], 6, &$freshMemo]);
 
         // Reflection erases riskInputs()'s real return type, so narrow it back explicitly rather
         // than indexing into `mixed`.
         $this->assertIsArray($first);
-        $this->assertIsArray($second);
-        $this->assertSame($first, $second);
+        $this->assertIsArray($memoized);
+        $this->assertIsArray($fresh);
+        $this->assertSame($fresh, $memoized);
+        $this->assertSame($first, $memoized);
         $this->assertSame(1, $first[0]);
     }
 

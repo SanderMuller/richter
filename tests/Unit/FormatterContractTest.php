@@ -109,7 +109,7 @@ final class FormatterContractTest extends TestCase
 
         $this->assertStringContainsString(self::ANNOTATED_ENTRY, $output);
         $this->assertStringContainsString('routes/web.php:9', $output);
-        $this->assertStringContainsString('public', $output);
+        $this->assertStringContainsString('🔓 public', $output);
         $this->assertStringContainsString('🚩 beta-feature', $output);
         $this->assertStringContainsString('test-referenced', $output);
         $this->assertStringContainsString('PUBLIC_WRITE** (high): POST route with no auth middleware', $output);
@@ -137,7 +137,21 @@ final class FormatterContractTest extends TestCase
             $this->assertArrayHasKey($key, $json);
         }
 
+        // Key presence alone is tautological — JsonPresenter hard-codes every key in one array
+        // literal — so assert the populated VALUES survived the mapping, mirroring what the text
+        // and markdown tests prove through substrings.
         $this->assertSame(self::ANNOTATED_ENTRY, array_key_first($json['entryPointPaths']));
+        $this->assertCount(3, $json['entryPointPaths'][self::ANNOTATED_ENTRY]);
+        $this->assertSame(['file' => 'routes/web.php', 'line' => 9], $json['entryPointLocations'][self::ANNOTATED_ENTRY]);
+        $this->assertSame('public', $json['entryPointSecurity'][self::ANNOTATED_ENTRY]['exposure']);
+        $this->assertSame('PUBLIC_WRITE', $json['entryPointSecurity'][self::ANNOTATED_ENTRY]['issues'][0]['type']);
+        $this->assertSame(['beta-feature'], $json['entryPointGates'][self::ANNOTATED_ENTRY]);
+        $this->assertSame(['App\Models\Interaction'], $json['relatedModels']);
+        $this->assertSame(['app/Models/Video.php' => 3, 'app/Services/Lost.php' => 1], $json['changed']);
+        $this->assertSame('unresolved', $json['coverage']['app/Services/Lost.php']);
+        $this->assertSame(["app/Exports/X.php: eager-load string 'interactionsquestions' matches no relation"], $json['findings']);
+        $this->assertSame(42, $json['impacted']);
+        $this->assertSame('origin/main', $json['base']);
         $this->assertTrue($json['unresolved']);
         $this->assertTrue($json['lowConfidence']);
         $this->assertTrue($json['coarseCapApplied']);

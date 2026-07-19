@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Process;
 use Illuminate\Support\Facades\Route;
 use PHPUnit\Framework\Attributes\Test;
+use SanderMuller\Richter\Analysis\FrontendTestIndex;
 use SanderMuller\Richter\Analysis\JsonPresenter;
 use SanderMuller\Richter\Changes\ChangedSymbols;
 use SanderMuller\Richter\Changes\FrontendChanges;
@@ -41,9 +42,6 @@ final class FrontendSeamTest extends TestCase
 
         config()->set('richter.frontend.roots', ['resources/js']);
 
-        // Mirrors tests/Fixtures/project/routes/web.php exactly, so the graph Brain builds from that
-        // file and the router-backed index FrontendChanges reads at runtime resolve onto the same
-        // route:: node ids.
         Route::get('/videos/{video}/questions', [QuestionController::class, 'show'])->name('videos.questions.show');
         Route::get('/videos/{video}/edit', [QuestionController::class, 'edit'])->name('videos.edit');
         Route::get('/dashboard/search', [DashboardSearchController::class, 'index'])->name('dashboard.search');
@@ -127,6 +125,19 @@ final class FrontendSeamTest extends TestCase
     }
 
     #[Test]
+    public function the_fixture_spec_file_registers_as_a_frontend_test_reference(): void
+    {
+        // The committed spec fixture references QuestionController::show via a Wayfinder action
+        // import — the index built from the configured roots must map it onto that route node.
+        $index = FrontendTestIndex::fromConfiguredPaths(base_path());
+
+        $this->assertSame(
+            ['resources/js/specs/video.spec.ts'],
+            $index->testsReferencing('route::GET::/videos/{video}/questions'),
+        );
+    }
+
+    #[Test]
     public function a_changed_blade_view_seeds_the_endpoint_its_inline_script_calls(): void
     {
         $diff = "diff --git a/resources/views/videos/inline.blade.php b/resources/views/videos/inline.blade.php\n"
@@ -155,9 +166,7 @@ final class FrontendSeamTest extends TestCase
         // The fixture view is a standalone page: no controller renders it and no other view
         // @includes/@extends it, so Brain's graph never gains a node for it (BladeViewTracer only
         // links views that are actually referenced) — the view seed itself resolves to nothing, and
-        // coverage honestly reads UNRESOLVED rather than a falsely-reassuring "analyzed". This is the
-        // documented fallback from plans/020 step 4: pin the honest behaviour instead of coupling this
-        // test to an existing fixture view's exact include graph.
+        // coverage honestly reads UNRESOLVED rather than a falsely-reassuring "analyzed".
         $coverage = $decoded['coverage'];
         $this->assertIsArray($coverage);
         $this->assertSame('unresolved', $coverage['resources/views/videos/inline.blade.php']);

@@ -143,12 +143,6 @@ final class FrontendReferenceScannerTest extends TestCase
     }
 
     #[Test]
-    public function a_variable_route_argument_flips_unresolved(): void
-    {
-        $this->assertTrue($this->scanner()->scan('const url = route(name);')['unresolved']);
-    }
-
-    #[Test]
     public function a_concatenated_route_name_marks_the_scan_unresolved(): void
     {
         // `route('videos.' + action)` starts with a quote, so the first-character check alone
@@ -237,8 +231,7 @@ final class FrontendReferenceScannerTest extends TestCase
     #[Test]
     public function an_undeclared_identifier_still_taints_the_scan(): void
     {
-        // Pins the pre-existing dynamic-argument behavior through the resolve-then-taint
-        // restructuring: with no declaration to resolve against, the argument stays dynamic.
+        // No declaration to resolve against, so the argument stays dynamic.
         $this->assertTrue($this->scanner()->scan('route(someName);')['unresolved']);
     }
 

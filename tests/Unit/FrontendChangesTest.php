@@ -68,7 +68,6 @@ final class FrontendChangesTest extends TestCase
         $this->assertFalse($frontend->handles('resources/js/api.generated.ts'));
         // Str::is's `*` crosses `/`, so the glob matches at any depth under the root.
         $this->assertFalse($frontend->handles('resources/js/deep/nested/api.generated.ts'));
-        // Directory-entry semantics keep working alongside the new file/glob matching.
         $this->assertFalse($frontend->handles('resources/js/actions/Foo.ts'));
         $this->assertTrue($frontend->handles('resources/js/lib/api.ts'));
     }
@@ -263,10 +262,8 @@ final class FrontendChangesTest extends TestCase
     #[Test]
     public function a_data_file_of_route_matching_literals_seeds_nothing(): void
     {
-        // Today (pre call-argument anchoring) this seeds route::POST::/videos,
-        // route::GET::/videos, and route::GET::/videos/{video} — the false-positive flood in
-        // miniature that a constants/nav-link file produces when its strings happen to match
-        // real route templates.
+        // The false-positive flood in miniature: a constants/nav-link file whose strings happen
+        // to match real route templates must not register those routes as touched.
         $symbols = $this->frontend()->resolve(
             'resources/js/Pages/Videos.vue',
             "const LINKS = { videos: '/videos', video: '/videos/9' };",

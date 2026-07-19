@@ -173,9 +173,8 @@ final class FrontendReferenceScanner
      * method; any other shape — `fetch()` options, wrappers — stays null so uncertainty never
      * narrows.
      *
-     * This supersedes the spike doc's "literal-URI over-matching is accepted" call: unbounded
-     * over-matching had a real cost — a data/constants/nav-link file or generated route map whose
-     * strings happen to match real route templates flooded seeds and, through
+     * Unanchored matching had a real cost — a data/constants/nav-link file or generated route
+     * map whose strings happen to match real route templates flooded seeds and, through
      * `richter:affected-tests`, false-selected unrelated backend tests. The call-argument anchor
      * trades two documented recall losses for eliminating that surface: a `/`-leading literal
      * assigned to a variable and fetched later (`const URL = '/x'; fetch(URL)`), and a

@@ -88,8 +88,7 @@ final readonly class ImpactAnalyzer
         $summary = [];
         $coverage = [];
         $touchesEntryClass = false;
-        // Scoped to this single detectChanges() run (never an instance property — this class is
-        // readonly) — see riskInputs()'s docblock.
+        // Scoped to this single detectChanges() run — see riskInputs()'s docblock.
         $riskInputsMemo = [];
 
         foreach ($changed as $file) {
@@ -442,7 +441,9 @@ final readonly class ImpactAnalyzer
 
         $sortedSeeds = $seeds;
         sort($sortedSeeds);
-        $key = $maxDepth . '|' . implode(',', $sortedSeeds);
+        // NUL-joined: no node-id shape carries a NUL byte, so two distinct seed sets can never
+        // alias one key (a comma could, in principle, appear inside a future node id).
+        $key = $maxDepth . '|' . implode("\0", $sortedSeeds);
 
         if (isset($memo[$key])) {
             return $memo[$key];

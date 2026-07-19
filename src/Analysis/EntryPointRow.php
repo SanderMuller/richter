@@ -34,10 +34,10 @@ final readonly class EntryPointRow
     ) {}
 
     /**
-     * One row per entry point, sorted by plain label. Both formatters previously sorted their own
-     * decorated label instead; since decoration is always appended after the label, sorting the
-     * plain label first yields the same order (a node name is never a prefix of another node's
-     * decorated label).
+     * One row per entry point, sorted by plain label — deliberately, so text and markdown agree.
+     * The formatters previously each sorted their own decorated label; for a label that is a
+     * prefix of another (`…/videos` vs `…/videos/{video}`), markdown's closing backtick used to
+     * invert that pair, so plain-label order is a small intended change there, not an oversight.
      *
      * @param  list<string>  $entryPoints
      * @param  array<string, list<array{node: string, via: string, file?: string, line?: int}>>  $paths  keyed by entry-point node; empty when not explaining

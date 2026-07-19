@@ -107,13 +107,10 @@ jobs:
 
       - name: Install dependencies
         run: |
-          # laravel/boost hard-requires laravel/mcp (see its composer.json), so both must go
-          # to actually exclude laravel/mcp from the resolved set. --no-scripts skips the
-          # post-autoload-dump workbench-skeleton scripts (package:purge-skeleton /
-          # package:discover), which read testbench.yaml's static provider list — including
-          # Laravel\Boost\BoostServiceProvider — and fatal once boost is gone. The PHPUnit run
-          # itself never touches testbench.yaml; TestCase::getPackageProviders() declares its
-          # providers explicitly, so skipping those scripts doesn't affect what is tested.
+          # laravel/boost hard-requires laravel/mcp, so both must go to actually exclude mcp.
+          # --no-scripts skips the post-autoload-dump skeleton scripts, which fatal on
+          # testbench.yaml's BoostServiceProvider entry once boost is gone; the PHPUnit run never
+          # reads testbench.yaml (TestCase::getPackageProviders() declares providers explicitly).
           composer remove laravel/mcp laravel/boost --dev --no-interaction --no-update
           composer update --prefer-stable --prefer-dist --no-interaction --no-scripts
 
