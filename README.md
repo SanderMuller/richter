@@ -357,6 +357,7 @@ Building the code graph is the dominant cost of every command. Richter caches th
 - The cache is on by default; set `richter.cache.enabled` to `false` to disable it.
 - `--no-cache` (on every command) bypasses it for one run, the escape hatch for an input the fingerprint doesn't cover.
 - A corrupt or mismatched cache file reads as a miss and is rebuilt; it never fails a run.
+- `--profile` (on `richter:detect-changes`) forces a fresh build and prints a phase-by-phase timing split to stderr, for judging where build time goes on a given codebase.
 
 ### MCP server
 
