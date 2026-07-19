@@ -36,6 +36,18 @@ final class RichterConfig
         return self::stringList('richter.entry_point_roots');
     }
 
+    /** @return list<string> empty when the frontend bridge is off (the default) */
+    public static function frontendRoots(): array
+    {
+        return self::stringList('richter.frontend.roots') ?? [];
+    }
+
+    /** @return list<string> */
+    public static function frontendGeneratedPaths(): array
+    {
+        return self::stringList('richter.frontend.generated_paths') ?? ['actions', 'routes', 'wayfinder'];
+    }
+
     public static function cacheEnabled(): bool
     {
         $value = config('richter.cache.enabled');

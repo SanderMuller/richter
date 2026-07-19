@@ -16,8 +16,11 @@ final readonly class ChangedFileSymbols
 {
     /**
      * @param  list<MemberChange>  $members
-     * @param  list<string>  $directSeeds  graph node ids to seed as-is (changed Blade views); empty for PHP files
+     * @param  list<string>  $directSeeds  graph node ids to seed as-is (changed Blade views, frontend-referenced routes); empty for PHP files
      * @param  list<string>  $findings  advisory notes about the changed source itself (e.g. an eager-load string matching no relation)
+     * @param  bool  $unresolvedFrontendReferences  a frontend file contained endpoint references the
+     *   scan could not resolve (a dynamic route() argument, an unmatched Wayfinder import) — the
+     *   file must read as UNRESOLVED, never as "touches nothing"
      */
     public function __construct(
         public string $file,
@@ -26,6 +29,7 @@ final readonly class ChangedFileSymbols
         public bool $cosmeticOnly,
         public array $directSeeds = [],
         public array $findings = [],
+        public bool $unresolvedFrontendReferences = false,
     ) {}
 
     /** @return list<MemberChange> */
@@ -52,7 +56,7 @@ final readonly class ChangedFileSymbols
 
     public function hasOnlyAdditiveOrCosmeticChanges(): bool
     {
-        if ($this->directSeeds !== []) {
+        if ($this->directSeeds !== [] || $this->unresolvedFrontendReferences) {
             return false;
         }
 

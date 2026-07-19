@@ -291,4 +291,34 @@ final class AffectedTestsTest extends TestCase
         $this->assertTrue($selection['determinable']);
         $this->assertSame(['tests/Feature/ErrorLogTest.php'], $selection['tests']);
     }
+
+    #[Test]
+    public function a_frontend_only_change_selects_tests_referencing_its_touched_routes(): void
+    {
+        // A frontend file carries no FQCN and its route seeds match no class pattern — selection
+        // runs purely on the entry-point axis the frontend lane appended to.
+        $selection = AffectedTests::select(
+            $this->detectResult(['route::GET::/errors/log'], coverage: ['resources/js/Pages/Errors.vue' => 'analyzed']),
+            [new ChangedFileSymbols('resources/js/Pages/Errors.vue', '', [], cosmeticOnly: false, directSeeds: ['route::GET::/errors/log'])],
+            $this->index(),
+            hasUnresolvedDispatches: false,
+        );
+
+        $this->assertTrue($selection['determinable']);
+        $this->assertSame(['tests/Feature/ErrorLogTest.php'], $selection['tests']);
+    }
+
+    #[Test]
+    public function an_unresolved_frontend_file_makes_the_selection_undeterminable(): void
+    {
+        $selection = AffectedTests::select(
+            $this->detectResult([], coverage: ['resources/js/Pages/Errors.vue' => 'unresolved']),
+            [new ChangedFileSymbols('resources/js/Pages/Errors.vue', '', [], cosmeticOnly: false, unresolvedFrontendReferences: true)],
+            $this->index(),
+            hasUnresolvedDispatches: false,
+        );
+
+        $this->assertFalse($selection['determinable']);
+        $this->assertSame(['changed file(s) could not be placed in the graph (UNRESOLVED)'], $selection['reasons']);
+    }
 }

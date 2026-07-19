@@ -938,4 +938,99 @@ final class ImpactAnalyzerTest extends TestCase
 
         $this->assertSame([], $result['findings']);
     }
+
+    /**
+     * A frontend file whose endpoint references were pre-mapped to route node ids.
+     *
+     * @param  list<string>  $routeSeeds
+     */
+    private function changedFrontend(string $file, array $routeSeeds, bool $unresolved = false): ChangedFileSymbols
+    {
+        return new ChangedFileSymbols($file, '', [], cosmeticOnly: false, directSeeds: $routeSeeds, unresolvedFrontendReferences: $unresolved);
+    }
+
+    #[Test]
+    public function a_frontend_referenced_route_is_an_entry_point_but_never_a_risk_input(): void
+    {
+        $result = $this->analyzer()->detectChanges([
+            $this->changedFrontend('resources/js/Pages/Videos.vue', [self::ROUTE]),
+        ]);
+
+        // The touched route is listed (with its annotations available to formatters)…
+        $this->assertSame([self::ROUTE], $result['entryPoints']);
+        $this->assertSame(['resources/js/Pages/Videos.vue' => 'analyzed'], $result['coverage']);
+        $this->assertSame(['resources/js/Pages/Videos.vue' => 1], $result['changed']);
+        // …but the backend behaviour behind it did not change: no walk, no risk.
+        $this->assertSame(RiskLevel::Low, $result['risk']);
+        $this->assertSame(0, $result['impacted']);
+        $this->assertSame([], $result['callers']);
+    }
+
+    #[Test]
+    public function a_frontend_route_already_reached_from_a_php_change_is_not_double_listed(): void
+    {
+        $result = $this->analyzer()->detectChanges([
+            $this->changedMethod('app/Services/VideoPublisher.php', 'App\Services\VideoPublisher', 'publish'),
+            $this->changedFrontend('resources/js/Pages/Videos.vue', [self::ROUTE]),
+        ]);
+
+        $this->assertSame([self::ROUTE], $result['entryPoints']);
+        // Risk comes from the PHP lane alone — one reached entry point → MEDIUM, unchanged by the frontend file.
+        $this->assertSame(RiskLevel::Medium, $result['risk']);
+    }
+
+    #[Test]
+    public function an_unresolved_frontend_reference_reads_as_unresolved_coverage(): void
+    {
+        $result = $this->analyzer()->detectChanges([
+            $this->changedFrontend('resources/js/Pages/Videos.vue', [self::ROUTE], unresolved: true),
+        ]);
+
+        // The mapped route still lists — partial context — but the file's coverage is honest.
+        $this->assertSame([self::ROUTE], $result['entryPoints']);
+        $this->assertSame(['resources/js/Pages/Videos.vue' => 'unresolved'], $result['coverage']);
+    }
+
+    #[Test]
+    public function a_frontend_route_the_graph_does_not_know_reads_as_unresolved(): void
+    {
+        $result = $this->analyzer()->detectChanges([
+            $this->changedFrontend('resources/js/Pages/Videos.vue', ['route::GET::/not-in-graph']),
+        ]);
+
+        $this->assertSame([], $result['entryPoints']);
+        $this->assertSame(['resources/js/Pages/Videos.vue' => 'unresolved'], $result['coverage']);
+    }
+
+    #[Test]
+    public function a_frontend_seed_matches_route_nodes_exactly_never_by_prefix(): void
+    {
+        $analyzer = new ImpactAnalyzer(new CodeGraph([
+            ['source' => 'route::GET::/videos', 'target' => 'App\Http\Controllers\VideoController::index', 'type' => 'route-to-action'],
+            ['source' => 'route::GET::/videos/{video}', 'target' => 'App\Http\Controllers\VideoController::show', 'type' => 'route-to-action'],
+        ]));
+
+        $result = $analyzer->detectChanges([
+            $this->changedFrontend('resources/js/Pages/Index.vue', ['route::GET::/videos']),
+        ]);
+
+        $this->assertSame(['route::GET::/videos'], $result['entryPoints']);
+    }
+
+    #[Test]
+    public function frontend_entry_points_carry_their_gate_and_location_annotations(): void
+    {
+        $analyzer = new ImpactAnalyzer(new CodeGraph(
+            [['source' => self::ROUTE, 'target' => 'App\Http\Controllers\VideoController', 'type' => 'route-to-controller']],
+            hasUnresolvedDispatches: false,
+            nodeMetadata: [self::ROUTE => ['file' => 'routes/web.php', 'line' => 12, 'gates' => ['interactive-video']]],
+        ));
+
+        $result = $analyzer->detectChanges([
+            $this->changedFrontend('resources/js/Pages/Videos.vue', [self::ROUTE]),
+        ]);
+
+        $this->assertSame(['interactive-video'], $result['entryPointGates'][self::ROUTE] ?? null);
+        $this->assertSame(['file' => 'routes/web.php', 'line' => 12], $result['entryPointLocations'][self::ROUTE] ?? null);
+    }
 }

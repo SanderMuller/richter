@@ -84,6 +84,7 @@ final readonly class ImpactAnalyzer
         $preciseSeeds = [];
         $coarseSeeds = [];
         $perFileSeeds = [];
+        $frontendSeeds = [];
         $summary = [];
         $coverage = [];
         $touchesEntryClass = false;
@@ -93,6 +94,14 @@ final readonly class ImpactAnalyzer
             if ($file->hasOnlyAdditiveOrCosmeticChanges()) {
                 $summary[$file->file] = 0;
                 $coverage[$file->file] = 'analyzed';
+
+                continue;
+            }
+
+            // A frontend file (never `.php`; Blade is `.blade.php`) takes the annotation lane:
+            // its routes join the entry-point list but never the walk seeds.
+            if (! str_ends_with($file->file, '.php')) {
+                [$frontendSeeds[$file->file], $summary[$file->file], $coverage[$file->file]] = $this->frontendLane($file);
 
                 continue;
             }
@@ -150,57 +159,9 @@ final readonly class ImpactAnalyzer
         // deliberately carries no chain.
         $entryPointPaths = $this->entryPointPathsFor($entryPoints, $callers, $seeds, $maxDepth);
 
-        // A changed listener/job/command/Livewire class IS an entry surface even when nothing app-side
-        // calls it (a vendor-fired event, an unfollowable dispatch) — "Entry points reached: 0"
-        // under-communicates "this runs on every SAML login". List the class itself, but only when its
-        // own seeds reached no entry point (a job whose dispatcher resolved to a route needs no echo).
-        // Excluded from the risk inputs: the risk floor for entry classes is touchesEntryClass, and
-        // counting self-listings would rate touching three jobs as HIGH by count alone.
-        foreach ($changed as $file) {
-            if ($file->hasOnlyAdditiveOrCosmeticChanges()) {
-                continue;
-            }
-
-            if (! $this->isEntryPointClass($file->file)) {
-                continue;
-            }
-
-            // Duplicate-append guard for two changed files of one class — graph entry points are
-            // prefix-keyed and never collide with a bare FQCN.
-            if (in_array($file->fqcn, $entryPoints, strict: true)) {
-                continue;
-            }
-
-            [$ownEntryPoints] = $this->riskInputs($perFileSeeds[$file->file] ?? [], $maxDepth);
-
-            if ($ownEntryPoints === 0) {
-                $entryPoints[] = $file->fqcn;
-            }
-        }
-
-        // A changed job reaching no entry point of its own is genuinely-empty only if every dispatcher resolved — an unfollowable dispatch means it could still be reached (UNRESOLVED). Decided per job on its own seeds so a sibling can't mask it.
-        if ($this->graph->hasUnresolvedDispatches()) {
-            foreach ($changed as $file) {
-                // Additive/cosmetic-only changes seeded nothing on purpose (raise no floor, even on jobs) — exempt them from the unresolved-dispatch flip.
-                if ($file->hasOnlyAdditiveOrCosmeticChanges()) {
-                    continue;
-                }
-
-                if (($coverage[$file->file] ?? null) !== 'analyzed') {
-                    continue;
-                }
-
-                if (! Str::contains($file->fqcn, '\\Jobs\\')) {
-                    continue;
-                }
-
-                [$jobEntryPoints] = $this->riskInputs($perFileSeeds[$file->file] ?? [], $maxDepth);
-
-                if ($jobEntryPoints === 0) {
-                    $coverage[$file->file] = 'unresolved';
-                }
-            }
-        }
+        $entryPoints = $this->withSelfListedEntryClasses($entryPoints, $changed, $perFileSeeds, $maxDepth);
+        $entryPoints = $this->withFrontendEntryPoints($entryPoints, $frontendSeeds);
+        $coverage = $this->withUnresolvedJobFlips($coverage, $changed, $perFileSeeds, $maxDepth);
 
         // A node only reachable through `model-relationship` is context, not risk — counting it lets touching a hub model saturate to HIGH on relation breadth alone. Any behavioural edge still counts.
         $reach = $this->graph->reachedViaTypes($seeds, $maxDepth);
@@ -260,6 +221,117 @@ final readonly class ImpactAnalyzer
         return $this->risk($preciseImpacted, $preciseEntryPoints, $touchesEntryClass) === RiskLevel::High
             ? [RiskLevel::High, false]
             : [RiskLevel::Medium, true];
+    }
+
+    /**
+     * The annotation lane for a changed frontend file: its pre-mapped route seeds filtered to
+     * exact graph membership — not {@see CodeGraph::nodesContaining()}, since a shorter route id
+     * is a boundary-clean substring of a longer one. Unresolvable references, or mapped routes the
+     * graph doesn't know, read "couldn't fully place this file", never a falsely-reassuring
+     * "no impact".
+     *
+     * @return array{0: list<string>, 1: int, 2: 'analyzed'|'unresolved'}
+     */
+    private function frontendLane(ChangedFileSymbols $file): array
+    {
+        $resolved = array_values(array_filter($file->directSeeds, $this->graph->hasNode(...)));
+        $unplaced = $file->unresolvedFrontendReferences || ($resolved === [] && $file->directSeeds !== []);
+
+        return [$resolved, count($resolved), $unplaced ? 'unresolved' : 'analyzed'];
+    }
+
+    /**
+     * A changed listener/job/command/Livewire class IS an entry surface even when nothing app-side
+     * calls it (a vendor-fired event, an unfollowable dispatch) — "Entry points reached: 0"
+     * under-communicates "this runs on every SAML login". List the class itself, but only when its
+     * own seeds reached no entry point (a job whose dispatcher resolved to a route needs no echo).
+     * Excluded from the risk inputs: the risk floor for entry classes is touchesEntryClass, and
+     * counting self-listings would rate touching three jobs as HIGH by count alone.
+     *
+     * @param  list<string>  $entryPoints
+     * @param  list<ChangedFileSymbols>  $changed
+     * @param  array<string, list<string>>  $perFileSeeds
+     * @return list<string>
+     */
+    private function withSelfListedEntryClasses(array $entryPoints, array $changed, array $perFileSeeds, int $maxDepth): array
+    {
+        foreach ($changed as $file) {
+            if ($file->hasOnlyAdditiveOrCosmeticChanges() || ! $this->isEntryPointClass($file->file)) {
+                continue;
+            }
+
+            // Duplicate-append guard for two changed files of one class — graph entry points are
+            // prefix-keyed and never collide with a bare FQCN.
+            if (in_array($file->fqcn, $entryPoints, strict: true)) {
+                continue;
+            }
+
+            [$ownEntryPoints] = $this->riskInputs($perFileSeeds[$file->file] ?? [], $maxDepth);
+
+            if ($ownEntryPoints === 0) {
+                $entryPoints[] = $file->fqcn;
+            }
+        }
+
+        return $entryPoints;
+    }
+
+    /**
+     * Frontend-referenced routes are entry surfaces the change touches directly — appended after
+     * the risk inputs are frozen (like the self-listing) so they carry their annotations and feed
+     * test selection without ever moving `risk`: the backend behaviour behind them did not change.
+     *
+     * @param  list<string>  $entryPoints
+     * @param  array<string, list<string>>  $frontendSeeds
+     * @return list<string>
+     */
+    private function withFrontendEntryPoints(array $entryPoints, array $frontendSeeds): array
+    {
+        foreach ($frontendSeeds as $nodes) {
+            foreach ($nodes as $node) {
+                if (! in_array($node, $entryPoints, strict: true)) {
+                    $entryPoints[] = $node;
+                }
+            }
+        }
+
+        return $entryPoints;
+    }
+
+    /**
+     * A changed job reaching no entry point of its own is genuinely-empty only if every dispatcher
+     * resolved — an unfollowable dispatch means it could still be reached (UNRESOLVED). Decided per
+     * job on its own seeds so a sibling can't mask it. Additive/cosmetic-only changes seeded
+     * nothing on purpose (raise no floor, even on jobs) and are exempt from the flip.
+     *
+     * @param  array<string, 'analyzed'|'unresolved'>  $coverage
+     * @param  list<ChangedFileSymbols>  $changed
+     * @param  array<string, list<string>>  $perFileSeeds
+     * @return array<string, 'analyzed'|'unresolved'>
+     */
+    private function withUnresolvedJobFlips(array $coverage, array $changed, array $perFileSeeds, int $maxDepth): array
+    {
+        if (! $this->graph->hasUnresolvedDispatches()) {
+            return $coverage;
+        }
+
+        foreach ($changed as $file) {
+            if ($file->hasOnlyAdditiveOrCosmeticChanges() || ($coverage[$file->file] ?? null) !== 'analyzed') {
+                continue;
+            }
+
+            if (! Str::contains($file->fqcn, '\\Jobs\\')) {
+                continue;
+            }
+
+            [$jobEntryPoints] = $this->riskInputs($perFileSeeds[$file->file] ?? [], $maxDepth);
+
+            if ($jobEntryPoints === 0) {
+                $coverage[$file->file] = 'unresolved';
+            }
+        }
+
+        return $coverage;
     }
 
     /**

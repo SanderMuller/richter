@@ -221,4 +221,30 @@ final class RichterConfigTest extends TestCase
 
         $this->assertSame(RiskLevel::High, $case->maxRisk);
     }
+
+    #[Test]
+    public function frontend_roots_default_to_off(): void
+    {
+        config()->offsetUnset('richter.frontend');
+
+        $this->assertSame([], RichterConfig::frontendRoots());
+    }
+
+    #[Test]
+    public function configured_frontend_roots_and_generated_paths_pass_through(): void
+    {
+        config()->set('richter.frontend.roots', ['resources/js']);
+        config()->set('richter.frontend.generated_paths', ['generated']);
+
+        $this->assertSame(['resources/js'], RichterConfig::frontendRoots());
+        $this->assertSame(['generated'], RichterConfig::frontendGeneratedPaths());
+    }
+
+    #[Test]
+    public function unset_generated_paths_default_to_the_wayfinder_trees(): void
+    {
+        config()->offsetUnset('richter.frontend');
+
+        $this->assertSame(['actions', 'routes', 'wayfinder'], RichterConfig::frontendGeneratedPaths());
+    }
 }

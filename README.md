@@ -265,6 +265,22 @@ In `--plain` mode an undeterminable run prints nothing, so the command-substitut
 to the full suite by construction — as does a determined-but-empty selection, which is why the
 exit-code branch above is the precise form.
 
+### Frontend changes (Wayfinder / Ziggy)
+
+Opt-in: set `frontend.roots` (e.g. `['resources/js']`) and changed `.ts`/`.tsx`/`.js`/`.jsx`/`.vue`
+files are scanned for the backend endpoints they reference — [Wayfinder](https://github.com/laravel/wayfinder)
+imports (`@/actions/App/Http/Controllers/VideoController`, `@/routes/videos`) and Ziggy
+`route('name')` calls. The referenced routes are reported as touched entry points, with their
+location, exposure and gate annotations, and they feed `richter:affected-tests` — but never the
+risk level or the impact counts: a frontend edit does not change backend behaviour. Wayfinder's
+generated trees (`actions/`, `routes/`, `wayfinder/` under each root) are excluded as
+regeneration churn.
+
+The scan is regex-based and says so when it can't see: a dynamic `route(`…`)` argument or an
+unmatched Wayfinder action import marks the file UNRESOLVED (and `richter:affected-tests` exits
+`2`), while an unmatched `route('name')` string simply isn't a reference — `routes/` modules and
+`route()` helpers collide with frontend-router idioms, so unmatched names never guess.
+
 ### Scoring accuracy against replayable history
 
 ```bash
@@ -326,6 +342,8 @@ Point Claude Code, Cursor, or any MCP client at the Artisan entry point, e.g. in
 | `default_base` | `origin/main` | Git ref `richter:detect-changes` diffs against when `--base` is omitted. |
 | `dispatch_helpers` | `[]` | Project-custom global job-dispatch helper functions (e.g. `dispatch_with_retries`) the dispatch tracer should follow. |
 | `entry_point_roots` | `Jobs`, `Listeners`, `Console/Commands`, `Filament`, `Helpers`, `Http/Middleware`, `Livewire`, `Observers` | Directories under `app/` traced as entry points beyond Brain's route-anchored graph (graph tracing only; the analyzer's risk-floor namespace heuristics are fixed). |
+| `frontend.roots` | `[]` (off) | Frontend roots whose changed TS/JS/Vue files are scanned for Wayfinder/Ziggy endpoint references (see [Frontend changes](#frontend-changes-wayfinder--ziggy)). |
+| `frontend.generated_paths` | `actions`, `routes`, `wayfinder` | Wayfinder's generated trees under each frontend root — excluded from scanning as regeneration churn. |
 | `cache.enabled` | `true` | On-disk graph cache, keyed by a content fingerprint of the build inputs (see [Graph cache](#graph-cache)). |
 | `cache.directory` | `null` | Cache location; `null` means `storage/framework/cache/richter`. |
 | `benchmark_cases` | `[]` | Replayable accuracy fixtures for `richter:benchmark`. |

@@ -21,6 +21,20 @@ return [
     'entry_point_roots' => ['Jobs', 'Listeners', 'Console/Commands', 'Filament', 'Helpers', 'Http/Middleware', 'Livewire', 'Observers'],
 
     /*
+     * Frontend roots (relative to the project root, e.g. 'resources/js') whose changed
+     * .ts/.tsx/.js/.jsx/.vue files are scanned for backend endpoint references — Wayfinder
+     * imports and Ziggy route() calls. Off when empty. The routes a changed frontend file
+     * references are reported as touched entry points (with their gates and security
+     * annotation) and feed richter:affected-tests, but never the risk level: a frontend
+     * change does not alter backend behaviour. `generated_paths` (relative to each root)
+     * are Wayfinder's generated trees — regeneration churn, not semantic frontend change.
+     */
+    'frontend' => [
+        'roots' => [],
+        'generated_paths' => ['actions', 'routes', 'wayfinder'],
+    ],
+
+    /*
      * On-disk cache for the built code graph, keyed by a content fingerprint of everything the
      * build reads (app/, routes/, resources/views, the richter and laravel-brain config, package
      * versions). Any input change rebuilds automatically; `--no-cache` bypasses it for one run.

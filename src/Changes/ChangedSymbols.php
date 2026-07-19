@@ -42,6 +42,7 @@ final class ChangedSymbols
         // added since the previous run (same long-lived process) is seen, never a false alarm.
         $eagerLoadChecker = new EagerLoadStringChecker();
         $featureGateChecker = new FeatureGateChecker();
+        $frontendChanges = new FrontendChanges();
 
         foreach (UnifiedDiffParser::parse($diff->output()) as $file => $hunk) {
             if (str_starts_with($file, 'app/') && str_ends_with($file, '.php')) {
@@ -75,6 +76,14 @@ final class ChangedSymbols
                 $baseSrc = self::baseSource($mergeBase, $hunk['oldPath']);
 
                 $changed[] = self::classifyFile($file, $headSrc, $baseSrc, ['added' => $hunk['added'], 'removed' => $hunk['removed']], $eagerLoadChecker, $featureGateChecker);
+
+                continue;
+            }
+
+            // A changed frontend file (opt-in via richter.frontend.roots) seeds the route nodes of
+            // the backend endpoints it references — Wayfinder imports and Ziggy route() calls.
+            if ($frontendChanges->handles($file)) {
+                $changed[] = $frontendChanges->resolve($file, self::headSource($head, $file), self::baseSource($mergeBase, $hunk['oldPath']));
 
                 continue;
             }

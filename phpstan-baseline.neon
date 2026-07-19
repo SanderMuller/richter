@@ -1,12 +1,6 @@
 parameters:
 	ignoreErrors:
 		-
-			rawMessage: 'Cognitive complexity for "SanderMuller\Richter\Analysis\ImpactAnalyzer::detectChanges()" is 27, keep it under 20'
-			identifier: complexity.functionLike
-			count: 1
-			path: src/Analysis/ImpactAnalyzer.php
-
-		-
 			rawMessage: 'Cognitive complexity for "SanderMuller\Richter\Tracers\ReferenceEdgeTracer::relationsLoadedIn()" is 21, keep it under 20'
 			identifier: complexity.functionLike
 			count: 1

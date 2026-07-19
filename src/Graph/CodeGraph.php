@@ -61,6 +61,15 @@ final class CodeGraph
     }
 
     /**
+     * Exact node-id membership — unlike {@see nodesContaining()}, `route::GET::/videos` never
+     * matches its own prefix inside `route::GET::/videos/{video}`.
+     */
+    public function hasNode(string $node): bool
+    {
+        return isset($this->nodes[$node]);
+    }
+
+    /**
      * The defining source location of a node, when the build could pin one. Sparse like the
      * metadata itself: `line` is present only when known, so JSON consumers never see nulls.
      *
