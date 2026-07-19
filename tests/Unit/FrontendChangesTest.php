@@ -153,6 +153,29 @@ final class FrontendChangesTest extends TestCase
     }
 
     #[Test]
+    public function an_optional_parameter_route_matches_a_trailing_slash_literal(): void
+    {
+        // '/videos/{video?}' would register alongside the required '/videos/{video}' — instead
+        // reuse the existing optional-param route and assert the trailing-slash form of its
+        // base path (without the segment) still matches.
+        $symbols = $this->frontend()->resolve('resources/js/a.ts', "fetch('/users/');", null);
+
+        $this->assertSame(['route::GET::/users/{user?}'], $symbols->directSeeds);
+    }
+
+    #[Test]
+    public function a_bare_root_literal_matches_a_root_optional_parameter_route(): void
+    {
+        // A registration-local route: '/{locale?}' is a catch-all shape that would otherwise
+        // swallow every other test's literal if registered in setUp().
+        Route::get('/{locale?}', ['App\Http\Controllers\HomeController', 'index'])->name('home.index');
+
+        $symbols = $this->frontend()->resolve('resources/js/a.ts', "fetch('/');", null);
+
+        $this->assertSame(['route::GET::/{locale?}'], $symbols->directSeeds);
+    }
+
+    #[Test]
     public function a_template_literal_endpoint_matches_through_its_wildcarded_interpolation(): void
     {
         $symbols = $this->frontend()->resolve('resources/js/lib/api.ts', 'fetch(`/videos/${id}`);', null);

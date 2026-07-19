@@ -315,7 +315,10 @@ final class FrontendChanges
 
         foreach ($parts === false ? [] : $parts as $part) {
             $regex .= match (true) {
-                str_starts_with($part, '/{') => str_ends_with($part, '?}') ? '(?:/[^/]+)?' : '/[^/]+',
+                // `?` zero-or-more (not `+` one-or-more) inside the group so the whole optional
+                // group also matches a bare trailing slash (`/users/`) and, at the route root
+                // (`/{locale?}`), the bare `/` itself — both legitimately serve the route.
+                str_starts_with($part, '/{') => str_ends_with($part, '?}') ? '(?:/[^/]*)?' : '/[^/]+',
                 str_starts_with($part, '{') => str_ends_with($part, '?}') ? '[^/]*' : '[^/]+',
                 default => preg_quote($part, '#'),
             };
