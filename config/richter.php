@@ -26,12 +26,15 @@ return [
      * imports and Ziggy route() calls. Off when empty. The routes a changed frontend file
      * references are reported as touched entry points (with their gates and security
      * annotation) and feed richter:affected-tests, but never the risk level: a frontend
-     * change does not alter backend behaviour. `generated_paths` (relative to each root)
-     * are Wayfinder's generated trees — regeneration churn, not semantic frontend change.
+     * change does not alter backend behaviour. `generated_paths` entries (relative to each
+     * root) match a directory, an exact file, or a `*`-glob (crosses `/`) — Wayfinder's
+     * generated trees and Ziggy's generated route map are excluded by default as
+     * regeneration churn, not semantic frontend change. `.d.ts` declaration files are
+     * always excluded, regardless of this list.
      */
     'frontend' => [
         'roots' => [],
-        'generated_paths' => ['actions', 'routes', 'wayfinder'],
+        'generated_paths' => ['actions', 'routes', 'wayfinder', 'ziggy.js'],
         // Where Inertia page components live — a changed backend member rendering a page is
         // noted under Findings with the resolved page file (works without `roots`).
         'pages_path' => 'resources/js/Pages',

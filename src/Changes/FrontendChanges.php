@@ -36,12 +36,16 @@ final class FrontendChanges
         $this->scanner = new FrontendReferenceScanner();
     }
 
-    /** Whether the file is a scannable frontend source: bridge on, under a configured root, a frontend extension, and not generated regeneration churn (a directory, exact file, or `*`-glob). */
+    /** Whether the file is a scannable frontend source: bridge on, under a configured root, a frontend extension, not a `.d.ts` declaration file, and not generated regeneration churn (a directory, exact file, or `*`-glob). */
     public function handles(string $file): bool
     {
         $roots = RichterConfig::frontendRoots();
 
-        if ($roots === [] || ! in_array(strtolower(pathinfo($file, PATHINFO_EXTENSION)), self::EXTENSIONS, strict: true)) {
+        // A `.d.ts` reports extension `ts` via pathinfo(), but carries types only — no executable
+        // endpoint calls — so scanning it is pure false-positive surface (route-name string-
+        // literal-union types); a determined "no impact" for a type-only change is honest, not
+        // under-reporting.
+        if ($roots === [] || str_ends_with(strtolower($file), '.d.ts') || ! in_array(strtolower(pathinfo($file, PATHINFO_EXTENSION)), self::EXTENSIONS, strict: true)) {
             return false;
         }
 

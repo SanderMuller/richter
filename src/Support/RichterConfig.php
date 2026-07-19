@@ -45,7 +45,7 @@ final class RichterConfig
     /** @return list<string> */
     public static function frontendGeneratedPaths(): array
     {
-        return self::stringList('richter.frontend.generated_paths') ?? ['actions', 'routes', 'wayfinder'];
+        return self::stringList('richter.frontend.generated_paths') ?? ['actions', 'routes', 'wayfinder', 'ziggy.js'];
     }
 
     /** @return list<string> empty means "derive from the frontend roots" */

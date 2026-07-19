@@ -81,6 +81,18 @@ final class FrontendChangesTest extends TestCase
     }
 
     #[Test]
+    public function handles_rejects_declaration_files(): void
+    {
+        // A .d.ts carries types only — no executable endpoint calls — so it is rejected outright,
+        // independent of generated_paths. pathinfo() reports extension `ts` for these, which the
+        // extension gate alone would otherwise accept.
+        $frontend = $this->frontend();
+
+        $this->assertFalse($frontend->handles('resources/js/ziggy.d.ts'));
+        $this->assertFalse($frontend->handles('resources/js/types/api.d.ts'));
+    }
+
+    #[Test]
     public function a_wayfinder_action_import_maps_to_the_routes_of_that_action(): void
     {
         $symbols = $this->frontend()->resolve(
