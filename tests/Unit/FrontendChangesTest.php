@@ -226,6 +226,23 @@ final class FrontendChangesTest extends TestCase
     }
 
     #[Test]
+    public function a_data_file_of_route_matching_literals_seeds_nothing(): void
+    {
+        // Today (pre call-argument anchoring) this seeds route::POST::/videos,
+        // route::GET::/videos, and route::GET::/videos/{video} — the false-positive flood in
+        // miniature that a constants/nav-link file produces when its strings happen to match
+        // real route templates.
+        $symbols = $this->frontend()->resolve(
+            'resources/js/Pages/Videos.vue',
+            "const LINKS = { videos: '/videos', video: '/videos/9' };",
+            null,
+        );
+
+        $this->assertSame([], $symbols->directSeeds);
+        $this->assertFalse($symbols->unresolvedFrontendReferences);
+    }
+
+    #[Test]
     public function an_unmatched_wayfinder_action_import_reads_as_unresolved(): void
     {
         $symbols = $this->frontend()->resolve(

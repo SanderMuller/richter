@@ -85,9 +85,22 @@ final class FrontendReferenceScanner
      * literals (`axios.get('/api/videos')`) and backtick templates (`fetch(`/videos/${id}`)` —
      * THE parameterised idiom in apps without Ziggy or Wayfinder, each `${…}` collapsing to a
      * one-segment wildcard token); the query/fragment is not part of the route template, and a
-     * template left containing whitespace is an HTML string, not a URL. A verb-named call
-     * directly around the literal (`.post('/x'`, `put('/x'`) pins the HTTP method; any other
-     * shape — `fetch()` options, wrappers — stays null so uncertainty never narrows.
+     * template left containing whitespace is an HTML string, not a URL. A literal only becomes a
+     * candidate in call-argument position — directly inside a call's `(` or after a `,` — so a
+     * verb-named call directly around the literal (`.post('/x'`, `put('/x'`) pins the HTTP
+     * method; any other shape — `fetch()` options, wrappers — stays null so uncertainty never
+     * narrows.
+     *
+     * This supersedes the spike doc's "literal-URI over-matching is accepted" call: unbounded
+     * over-matching had a real cost — a data/constants/nav-link file or generated route map whose
+     * strings happen to match real route templates flooded seeds and, through
+     * `richter:affected-tests`, false-selected unrelated backend tests. The call-argument anchor
+     * trades two documented recall losses for eliminating that surface: a `/`-leading literal
+     * assigned to a variable and fetched later (`const URL = '/x'; fetch(URL)`), and a
+     * `{url: '/x'}` options-object property (indistinguishable from any other property value at
+     * the regex level). One residual false-positive surface remains, accepted: an array tail —
+     * `['/a', '/b']` — still matches its comma-anchored elements, because dropping `,` from the
+     * anchor would also lose the real `request(method, url)` second-argument idiom.
      *
      * @return array<string, array{uri: string, method: string|null}>
      */
@@ -95,14 +108,14 @@ final class FrontendReferenceScanner
     {
         $uris = [];
 
-        preg_match_all('/(?:\b(get|post|put|patch|delete)\s*\(\s*)?[\'"](\/[^\'"\s?#]*)[?#]?[^\'"]*[\'"]/i', $source, $literals, PREG_SET_ORDER);
+        preg_match_all('/(?:\b(get|post|put|patch|delete)\s*\(|[(,])\s*[\'"](\/[^\'"\s?#]*)[?#]?[^\'"]*[\'"]/i', $source, $literals, PREG_SET_ORDER);
 
         foreach ($literals as $literal) {
             $method = $literal[1] === '' ? null : strtolower($literal[1]);
             $uris[$literal[2] . '|' . ($method ?? '')] = ['uri' => $literal[2], 'method' => $method];
         }
 
-        preg_match_all('/(?:\b(get|post|put|patch|delete)\s*\(\s*)?`(\/[^`]*)`/i', $source, $templates, PREG_SET_ORDER);
+        preg_match_all('/(?:\b(get|post|put|patch|delete)\s*\(|[(,])\s*`(\/[^`]*)`/i', $source, $templates, PREG_SET_ORDER);
 
         foreach ($templates as $template) {
             $uri = (string) preg_replace('/\$\{[^}]*\}/', self::INTERPOLATION, $template[2]);

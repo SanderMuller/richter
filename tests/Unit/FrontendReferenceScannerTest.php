@@ -253,6 +253,53 @@ final class FrontendReferenceScannerTest extends TestCase
     }
 
     #[Test]
+    public function a_string_literal_outside_call_argument_position_is_not_a_uri_candidate(): void
+    {
+        // Assignments, object-property values and array heads are data/navigation, not endpoint
+        // calls — this is the false-positive flood a hihaho-scale consumer demonstrated: a
+        // constants file or nav-link config whose strings happen to match real route templates.
+        $result = $this->scanner()->scan(<<<'TS'
+            const API = '/api/videos';
+            const NAV = [{ href: '/videos' }];
+            export default { uri: "/videos/9" };
+            TS);
+
+        $this->assertSame([], $result['uris']);
+    }
+
+    #[Test]
+    public function a_literal_in_second_argument_position_is_still_a_candidate(): void
+    {
+        // The `request(method, url)` wrapper idiom: the URI sits in the second argument, anchored
+        // by the preceding comma rather than an opening paren.
+        $result = $this->scanner()->scan("request('GET', '/videos');");
+
+        $this->assertSame([['uri' => '/videos', 'method' => null]], $result['uris']);
+    }
+
+    #[Test]
+    public function a_template_literal_outside_call_argument_position_is_not_a_candidate(): void
+    {
+        // The called form (`fetch(`/videos/${id}`)`) is already pinned above; only the uncalled
+        // assignment is excluded here.
+        $result = $this->scanner()->scan(<<<'TS'
+            const t = `/videos/${id}`;
+            TS);
+
+        $this->assertSame([], $result['uris']);
+    }
+
+    #[Test]
+    public function an_options_object_url_property_is_a_documented_recall_loss(): void
+    {
+        // Deliberately traded away: an options object's `url` property is indistinguishable from
+        // any other property value at the regex level.
+        $result = $this->scanner()->scan("axios({ url: '/videos', method: 'post' });");
+
+        $this->assertSame([], $result['uris']);
+    }
+
+    #[Test]
     public function non_root_relative_strings_are_not_uri_candidates(): void
     {
         $result = $this->scanner()->scan(<<<'TS'
