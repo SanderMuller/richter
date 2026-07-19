@@ -14,7 +14,7 @@ use SanderMuller\Richter\Graph\NodeMetadata;
  * @internal
  * @phpstan-import-type SecurityShape from NodeMetadata
  */
-final class EntryPointRow
+final readonly class EntryPointRow
 {
     /**
      * @param  list<array{node: string, via: string, file?: string, line?: int}>  $path  the explain chain from this entry point down to the changed symbol; empty when not explaining or when this entry point has no path (a self-listed entry class)
@@ -24,13 +24,13 @@ final class EntryPointRow
      * @param  list<string>  $gates  Pennant flags gating this route; empty when ungated
      */
     private function __construct(
-        public readonly string $node,
-        public readonly string $label,
-        public readonly array $path,
-        public readonly ?array $location,
-        public readonly ?bool $testReferenced,
-        public readonly ?array $security,
-        public readonly array $gates,
+        public string $node,
+        public string $label,
+        public array $path,
+        public ?array $location,
+        public ?bool $testReferenced,
+        public ?array $security,
+        public array $gates,
     ) {}
 
     /**

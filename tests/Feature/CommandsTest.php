@@ -504,7 +504,7 @@ final class CommandsTest extends TestCase
 
         $this->assertSame(0, $exitCode);
         $this->assertStringContainsString('        \'key\' => \'O\\\'Brien-7\',', $output);
-        $this->assertStringContainsString('        \'fix_commit\' => \'abc1234\',', $output);
+        $this->assertStringContainsString("        'fix_commit' => 'abc1234',", $output);
         $this->assertStringContainsString('        \'bug_class\' => \'Fix user\\\'s dash\\\\board rendering\',', $output);
     }
 
