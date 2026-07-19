@@ -85,10 +85,14 @@ final class MarkdownFormatterTest extends TestCase
         $output = MarkdownFormatter::detectChanges($this->summary([], coverage: [
             'app/weird|name.php' => 'analyzed',
             'app/back`tick.php' => 'analyzed',
+            'app/double``tick.php' => 'analyzed',
         ]));
 
         $this->assertStringContainsString('| `app/weird\|name.php` | 1 | analyzed |', $output);
-        $this->assertStringContainsString('| ``app/back`tick.php`` | 1 | analyzed |', $output);
+        $this->assertStringContainsString('| `` app/back`tick.php `` | 1 | analyzed |', $output);
+        // Two consecutive backticks in the path would close a fixed ``-fence mid-filename; the
+        // fence must outrun the longest run.
+        $this->assertStringContainsString('| ``` app/double``tick.php ``` | 1 | analyzed |', $output);
     }
 
     #[Test]

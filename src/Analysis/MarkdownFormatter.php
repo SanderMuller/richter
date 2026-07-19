@@ -122,7 +122,17 @@ final class MarkdownFormatter
     {
         $escaped = str_replace('|', '\|', $file);
 
-        return str_contains($escaped, '`') ? '``' . $escaped . '``' : "`{$escaped}`";
+        if (! str_contains($escaped, '`')) {
+            return "`{$escaped}`";
+        }
+
+        // The span's fence must outrun the longest backtick run inside the path, or the span
+        // closes mid-filename; the padding spaces keep a leading/trailing backtick off the fence
+        // (CommonMark strips one symmetric space pair).
+        preg_match_all('/`+/', $escaped, $runs);
+        $fence = str_repeat('`', max([1, ...array_map(strlen(...), $runs[0])]) + 1);
+
+        return "{$fence} {$escaped} {$fence}";
     }
 
     private static function riskBadge(RiskLevel $risk): string
