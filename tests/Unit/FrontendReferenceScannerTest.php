@@ -129,6 +129,24 @@ final class FrontendReferenceScannerTest extends TestCase
     }
 
     #[Test]
+    public function a_concatenated_route_name_marks_the_scan_unresolved(): void
+    {
+        // `route('videos.' + action)` starts with a quote, so the first-character check alone
+        // stays silent — the captured partial name ('videos.') matches nothing and would
+        // silently drop, the forbidden falsely-determined result for a dynamic argument.
+        $this->assertTrue($this->scanner()->scan("route('videos.' + action);")['unresolved']);
+    }
+
+    #[Test]
+    public function a_route_call_with_a_options_object_after_the_name_stays_resolved(): void
+    {
+        $result = $this->scanner()->scan("route('videos.show', { video: 1 });");
+
+        $this->assertSame(['videos.show'], $result['routeNames']);
+        $this->assertFalse($result['unresolved']);
+    }
+
+    #[Test]
     public function whitespace_before_the_call_parenthesis_still_matches(): void
     {
         // `route ('x')` is valid JS/TS — a missed literal under-selects tests, and a missed

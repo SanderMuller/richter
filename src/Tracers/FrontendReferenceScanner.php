@@ -67,8 +67,11 @@ final class FrontendReferenceScanner
             'uris' => array_values($this->uriCandidates($source)),
             // `route(` followed by anything but a string literal or `)` is a dynamic argument —
             // a template literal or variable the scan cannot resolve. Ziggy's argless `route()`
-            // fluent form is not dynamic.
-            'unresolved' => preg_match('/(?<![\w$])route\s*\(\s*[^\'")\s]/', $source) === 1,
+            // fluent form is not dynamic. A string literal immediately followed by `+` is a
+            // concatenated name (`route('videos.' + action)`) — the captured partial name matches
+            // nothing and would silently drop, so this is flagged as a second dynamic shape.
+            'unresolved' => preg_match('/(?<![\w$])route\s*\(\s*[^\'")\s]/', $source) === 1
+                || preg_match('/(?<![\w$])route\s*\(\s*[\'"][^\'"]*[\'"]\s*\+/', $source) === 1,
         ];
     }
 
