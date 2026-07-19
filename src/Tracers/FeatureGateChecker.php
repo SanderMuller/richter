@@ -13,6 +13,7 @@ use PhpParser\Node\Name;
 use PhpParser\Node\Scalar\String_;
 use PhpParser\NodeFinder;
 use SanderMuller\Richter\Support\AppFiles;
+use SanderMuller\Richter\Tracers\Concerns\ChecksChangedLineRanges;
 use Throwable;
 
 /**
@@ -23,6 +24,8 @@ use Throwable;
  */
 final class FeatureGateChecker
 {
+    use ChecksChangedLineRanges;
+
     /** The Pennant Feature-facade methods whose first argument names the flag being checked. */
     private const array FEATURE_METHODS = ['active', 'inactive', 'when', 'unless', 'allAreActive', 'someAreActive', 'activeForEveryone'];
 
@@ -92,12 +95,6 @@ final class FeatureGateChecker
         $class = AppFiles::resolveName($root->class);
 
         return $class === 'Laravel\\Pennant\\Feature' || $class === 'Feature';
-    }
-
-    /** @param  list<array{int, int}>  $ranges */
-    private function withinRanges(int $line, array $ranges): bool
-    {
-        return array_any($ranges, static fn (array $range): bool => $line >= $range[0] && $line <= $range[1]);
     }
 
     /**

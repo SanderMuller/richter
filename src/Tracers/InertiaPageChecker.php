@@ -11,6 +11,7 @@ use PhpParser\Node\Scalar\String_;
 use PhpParser\NodeFinder;
 use SanderMuller\Richter\Support\AppFiles;
 use SanderMuller\Richter\Support\RichterConfig;
+use SanderMuller\Richter\Tracers\Concerns\ChecksChangedLineRanges;
 
 /**
  * Notes the Inertia pages a changed source renders — the reverse direction of the frontend
@@ -22,6 +23,8 @@ use SanderMuller\Richter\Support\RichterConfig;
  */
 final readonly class InertiaPageChecker
 {
+    use ChecksChangedLineRanges;
+
     /** The extensions `resolvePageComponent` conventionally resolves, most common first. */
     private const array PAGE_EXTENSIONS = ['vue', 'tsx', 'jsx', 'ts', 'js', 'svelte'];
 
@@ -86,12 +89,6 @@ final readonly class InertiaPageChecker
     private function componentName(mixed $argument): ?string
     {
         return $argument instanceof String_ && $argument->value !== '' ? $argument->value : null;
-    }
-
-    /** @param  list<array{int, int}>  $ranges */
-    private function withinRanges(int $line, array $ranges): bool
-    {
-        return array_any($ranges, static fn (array $range): bool => $line >= $range[0] && $line <= $range[1]);
     }
 
     /**
