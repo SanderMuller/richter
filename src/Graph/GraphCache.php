@@ -35,13 +35,17 @@ final class GraphCache
      * The current graph — from memory, then disk, then a fresh build (which also warms the cache).
      * `$fresh` bypasses the cache entirely for one call: no read, no write, no memo — the escape
      * hatch for the one failure mode a content fingerprint cannot rule out (an input it doesn't cover).
+     * `$onProgress`, when given, is forwarded to the builder on every build path; a cache HIT never
+     * invokes it — nothing was built, so there is nothing to time.
+     *
+     * @param  (callable(string, array<string, mixed>): void)|null  $onProgress
      */
-    public function graph(?string $projectRoot = null, bool $fresh = false): CodeGraph
+    public function graph(?string $projectRoot = null, bool $fresh = false, ?callable $onProgress = null): CodeGraph
     {
         $projectRoot ??= base_path();
 
         if ($fresh || ! RichterConfig::cacheEnabled()) {
-            return $this->builder->build($projectRoot);
+            return $this->builder->build($projectRoot, $onProgress);
         }
 
         $fingerprint = $this->fingerprint($projectRoot);
@@ -53,7 +57,7 @@ final class GraphCache
         $graph = $this->read($fingerprint);
 
         if (! $graph instanceof CodeGraph) {
-            $graph = $this->builder->build($projectRoot);
+            $graph = $this->builder->build($projectRoot, $onProgress);
             $this->write($fingerprint, $graph);
         }
 
