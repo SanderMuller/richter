@@ -89,7 +89,7 @@ final class TestReferenceIndex
         // Graded once, from whichever source is seen first for this file — a file fed a second
         // time (e.g. re-added by a caller) keeps its original grade rather than being re-scanned.
         if ($file !== null && ! isset($this->assertionWeakByFile[$file])) {
-            $this->assertionWeakByFile[$file] = self::sourceLacksBehaviouralAssertions($source);
+            $this->assertionWeakByFile[$file] = $this->sourceLacksBehaviouralAssertions($source);
         }
 
         if (preg_match_all('/route\(\s*[\'"]([^\'"]+)[\'"]/', $source, $matches) > 0) {
@@ -211,13 +211,7 @@ final class TestReferenceIndex
             return false;
         }
 
-        foreach ($tests as $file) {
-            if (($this->assertionWeakByFile[$file] ?? false) === false) {
-                return false;
-            }
-        }
-
-        return true;
+        return array_all($tests, fn (string $file): bool => $this->assertionWeakByFile[$file] ?? false);
     }
 
     /**
@@ -371,7 +365,7 @@ final class TestReferenceIndex
      * `expect(`, `assertJson*`, `assertDatabaseHas`, a custom helper, ...) disqualifies the whole
      * file; no allowlist of "behavioural" names is needed.
      */
-    private static function sourceLacksBehaviouralAssertions(string $source): bool
+    private function sourceLacksBehaviouralAssertions(string $source): bool
     {
         if (preg_match('/(?<![\w$>])expect\s*\(/', $source) === 1) {
             return false;

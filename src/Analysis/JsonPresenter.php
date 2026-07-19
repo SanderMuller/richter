@@ -63,7 +63,7 @@ final class JsonPresenter
      */
     private static function entryPointTestReferences(array $entryPoints, ?TestReferenceIndex $tests): array
     {
-        if ($tests === null) {
+        if (! $tests instanceof TestReferenceIndex) {
             return [];
         }
 
