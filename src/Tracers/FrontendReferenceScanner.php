@@ -14,7 +14,7 @@ namespace SanderMuller\Richter\Tracers;
 final class FrontendReferenceScanner
 {
     /**
-     * @return array{actions: list<array{class: string, method: string|null}>, routeNames: list<string>, unresolved: bool}
+     * @return array{actions: list<array{class: string, method: string|null}>, routeNames: list<string>, uris: list<array{uri: string, method: string|null}>, unresolved: bool}
      */
     public function scan(string $source): array
     {
@@ -54,9 +54,25 @@ final class FrontendReferenceScanner
 
         preg_match_all('/(?<![\w$])route\s*\(\s*[\'"]([^\'"]+)[\'"]/', $source, $ziggy);
 
+        // Every root-relative string literal is a candidate endpoint (`axios.get('/api/videos')`,
+        // `fetch('/videos?page=2')`) — the query/fragment is not part of the route template. Plain
+        // literals only, never template literals: interpolated URL-building is usually frontend
+        // routing, and an unmatched candidate is silently dropped downstream anyway. A verb-named
+        // call directly around the literal (`.post('/x'`, `put('/x'`) pins the HTTP method; any
+        // other shape — `fetch()` options, wrappers — stays null so uncertainty never narrows.
+        preg_match_all('/(?:\b(get|post|put|patch|delete)\s*\(\s*)?[\'"](\/[^\'"\s?#]*)[?#]?[^\'"]*[\'"]/i', $source, $literals, PREG_SET_ORDER);
+
+        $uris = [];
+
+        foreach ($literals as $literal) {
+            $method = $literal[1] === '' ? null : strtolower($literal[1]);
+            $uris[$literal[2] . '|' . ($method ?? '*')] = ['uri' => $literal[2], 'method' => $method];
+        }
+
         return [
             'actions' => $this->uniqueActions($actions),
             'routeNames' => array_values(array_unique([...$routeNames, ...$ziggy[1]])),
+            'uris' => array_values($uris),
             // `route(` followed by anything but a string literal or `)` is a dynamic argument —
             // a template literal or variable the scan cannot resolve. Ziggy's argless `route()`
             // fluent form is not dynamic.

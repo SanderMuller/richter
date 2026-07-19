@@ -181,6 +181,61 @@ final class FrontendReferenceScannerTest extends TestCase
             const count = ref(0);
             TS);
 
-        $this->assertSame(['actions' => [], 'routeNames' => [], 'unresolved' => false], $result);
+        $this->assertSame(['actions' => [], 'routeNames' => [], 'uris' => [], 'unresolved' => false], $result);
+    }
+
+    #[Test]
+    public function root_relative_string_literals_are_uri_candidates_with_query_and_fragment_stripped(): void
+    {
+        $result = $this->scanner()->scan(<<<'TS'
+            axios.get('/api/videos?page=2');
+            fetch("/videos/123#stats");
+            TS);
+
+        $this->assertSame([
+            ['uri' => '/api/videos', 'method' => 'get'],
+            ['uri' => '/videos/123', 'method' => null],
+        ], $result['uris']);
+    }
+
+    #[Test]
+    public function a_verb_named_call_pins_the_http_method_and_wrappers_stay_unpinned(): void
+    {
+        $result = $this->scanner()->scan(<<<'TS'
+            axios.post('/videos');
+            api.PUT("/videos/9");
+            load('/videos/7');
+            TS);
+
+        $this->assertSame([
+            ['uri' => '/videos', 'method' => 'post'],
+            ['uri' => '/videos/9', 'method' => 'put'],
+            ['uri' => '/videos/7', 'method' => null],
+        ], $result['uris']);
+    }
+
+    #[Test]
+    public function non_root_relative_strings_are_not_uri_candidates(): void
+    {
+        $result = $this->scanner()->scan(<<<'TS'
+            import { show } from "@/actions/App/Http/Controllers/VideoController";
+            const url = "https://example.com/path";
+            const name = 'videos.show';
+            const template = `/videos/${id}`;
+            TS);
+
+        $this->assertSame([], $result['uris']);
+    }
+
+    #[Test]
+    public function duplicate_uri_literals_deduplicate_per_method(): void
+    {
+        $result = $this->scanner()->scan("fetch('/videos'); request('/videos'); post('/videos');");
+
+        // The two unpinned references collapse; the verb-pinned one is a distinct reference.
+        $this->assertSame([
+            ['uri' => '/videos', 'method' => null],
+            ['uri' => '/videos', 'method' => 'post'],
+        ], $result['uris']);
     }
 }

@@ -269,8 +269,9 @@ exit-code branch above is the precise form.
 
 Opt-in: set `frontend.roots` (e.g. `['resources/js']`) and changed `.ts`/`.tsx`/`.js`/`.jsx`/`.vue`
 files are scanned for the backend endpoints they reference — [Wayfinder](https://github.com/laravel/wayfinder)
-imports (`@/actions/App/Http/Controllers/VideoController`, `@/routes/videos`) and Ziggy
-`route('name')` calls. The referenced routes are reported as touched entry points, with their
+imports (`@/actions/App/Http/Controllers/VideoController`, `@/routes/videos`), Ziggy
+`route('name')` calls, and literal endpoint strings (`axios.post('/videos')`) matched against
+the app's route templates. The referenced routes are reported as touched entry points, with their
 location, exposure and gate annotations, and they feed `richter:affected-tests` — but never the
 risk level or the impact counts: a frontend edit does not change backend behaviour. Wayfinder's
 generated trees (`actions/`, `routes/`, `wayfinder/` under each root) are excluded as

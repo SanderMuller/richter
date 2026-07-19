@@ -15,7 +15,9 @@ final class FrontendChangesTest extends TestCase
         config()->set('richter.frontend.roots', ['resources/js']);
         Route::get('/videos/{video}', ['App\Http\Controllers\VideoController', 'show'])->name('videos.show');
         Route::post('/videos', ['App\Http\Controllers\VideoController', 'store'])->name('videos.store');
+        Route::get('/videos', ['App\Http\Controllers\VideoController', 'index'])->name('videos.index');
         Route::get('/ping', ['App\Http\Controllers\PingController', '__invoke']);
+        Route::get('/users/{user?}', ['App\Http\Controllers\UserController', 'show'])->name('users.show');
     }
 
     private function frontend(): FrontendChanges
@@ -78,7 +80,7 @@ final class FrontendChangesTest extends TestCase
             null,
         );
 
-        $this->assertSame(['route::GET::/videos/{video}', 'route::POST::/videos'], $symbols->directSeeds);
+        $this->assertSame(['route::GET::/videos/{video}', 'route::POST::/videos', 'route::GET::/videos'], $symbols->directSeeds);
     }
 
     #[Test]
@@ -103,6 +105,64 @@ final class FrontendChangesTest extends TestCase
         );
 
         $this->assertSame(['route::GET::/videos/{video}', 'route::POST::/videos'], $symbols->directSeeds);
+    }
+
+    #[Test]
+    public function a_literal_uri_maps_through_the_route_templates(): void
+    {
+        $symbols = $this->frontend()->resolve(
+            'resources/js/lib/api.ts',
+            "axios.post('/videos'); fetch('/videos/123?tab=stats');",
+            null,
+        );
+
+        // '/videos' matches only its own path (never the parameterised '/videos/{video}'), and
+        // the pinned `.post` scopes it past the GET registration sharing that path.
+        $this->assertSame(['route::POST::/videos', 'route::GET::/videos/{video}'], $symbols->directSeeds);
+        $this->assertFalse($symbols->unresolvedFrontendReferences);
+    }
+
+    #[Test]
+    public function an_unpinned_literal_on_a_shared_path_seeds_every_method(): void
+    {
+        $symbols = $this->frontend()->resolve('resources/js/lib/api.ts', "load('/videos');", null);
+
+        $this->assertSame(['route::POST::/videos', 'route::GET::/videos'], $symbols->directSeeds);
+    }
+
+    #[Test]
+    public function a_verb_no_route_serves_keeps_the_path_match_whole(): void
+    {
+        // Tests referencing '/ping' are method-agnostic — dropping the match on a verb mismatch
+        // would under-select them.
+        $symbols = $this->frontend()->resolve('resources/js/lib/api.ts', "axios.delete('/ping');", null);
+
+        $this->assertSame(['route::GET::/ping'], $symbols->directSeeds);
+    }
+
+    #[Test]
+    public function an_optional_parameter_route_matches_literals_with_and_without_the_segment(): void
+    {
+        $frontend = $this->frontend();
+
+        $withSegment = $frontend->resolve('resources/js/a.ts', "fetch('/users/7');", null);
+        $withoutSegment = $frontend->resolve('resources/js/b.ts', "fetch('/users');", null);
+
+        $this->assertSame(['route::GET::/users/{user?}'], $withSegment->directSeeds);
+        $this->assertSame(['route::GET::/users/{user?}'], $withoutSegment->directSeeds);
+    }
+
+    #[Test]
+    public function a_non_endpoint_literal_matches_no_template_and_is_not_a_reference(): void
+    {
+        $symbols = $this->frontend()->resolve(
+            'resources/js/Pages/Videos.vue',
+            "const logo = '/img/logo.svg';",
+            null,
+        );
+
+        $this->assertSame([], $symbols->directSeeds);
+        $this->assertFalse($symbols->unresolvedFrontendReferences);
     }
 
     #[Test]

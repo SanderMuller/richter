@@ -25,7 +25,7 @@ final class FrontendChanges
 
     private readonly FrontendReferenceScanner $scanner;
 
-    /** @var array{byName: array<string, list<string>>, byAction: array<string, list<string>>, byClass: array<string, list<string>>}|null */
+    /** @var array{byName: array<string, list<string>>, byAction: array<string, list<string>>, byClass: array<string, list<string>>, uriTemplates: list<array{regex: string, nodes: list<string>}>}|null */
     private ?array $indexes = null;
 
     private bool $routerUnavailable = false;
@@ -74,10 +74,16 @@ final class FrontendChanges
 
         $actions = [...$head['actions'], ...$base['actions']];
         $routeNames = array_values(array_unique([...$head['routeNames'], ...$base['routeNames']]));
+        $uris = [];
+
+        foreach ([...$head['uris'], ...$base['uris']] as $literal) {
+            $uris[$literal['uri'] . '|' . ($literal['method'] ?? '*')] = $literal;
+        }
+
         $unresolved = $head['unresolved'] || $base['unresolved'];
         $findings = $unresolved ? ['a dynamic route() argument prevents resolving every referenced endpoint'] : [];
 
-        if ($actions === [] && $routeNames === []) {
+        if ($actions === [] && $routeNames === [] && $uris === []) {
             return new ChangedFileSymbols($file, '', [], cosmeticOnly: false, findings: $findings, unresolvedFrontendReferences: $unresolved);
         }
 
@@ -107,17 +113,20 @@ final class FrontendChanges
             $seeds = [...$seeds, ...$indexes['byName'][$name] ?? []];
         }
 
+        $seeds = [...$seeds, ...$this->seedsForUris(array_values($uris), $indexes['uriTemplates'])];
+
         return new ChangedFileSymbols($file, '', [], cosmeticOnly: false, directSeeds: array_values(array_unique($seeds)), findings: $findings, unresolvedFrontendReferences: $unresolved);
     }
 
     /**
-     * Route-node ids per route name, per controller action, and per controller class — the same
-     * `route::{METHOD}::/{uri}` id shape the graph builder derives from Brain's route nodes. Null
-     * when no router is booted; the caller then degrades to "couldn't check", never to "touches
-     * nothing" ({@see TestReferenceIndex} makes the same tri-state
-     * call for the same reason).
+     * Route-node ids per route name, per controller action, per controller class, and per URI
+     * template (each template as a regex with `{param}` segments wildcarded, the same matching
+     * {@see TestReferenceIndex} uses) — node ids in the `route::{METHOD}::/{uri}` shape the graph
+     * builder derives from Brain's route nodes. Null when no router is booted; the caller then
+     * degrades to "couldn't check", never to "touches nothing" ({@see TestReferenceIndex} makes
+     * the same tri-state call for the same reason).
      *
-     * @return array{byName: array<string, list<string>>, byAction: array<string, list<string>>, byClass: array<string, list<string>>}|null
+     * @return array{byName: array<string, list<string>>, byAction: array<string, list<string>>, byClass: array<string, list<string>>, uriTemplates: list<array{regex: string, nodes: list<string>}>}|null
      */
     private function indexes(): ?array
     {
@@ -132,6 +141,7 @@ final class FrontendChanges
         $byName = [];
         $byAction = [];
         $byClass = [];
+        $uriTemplates = [];
 
         try {
             /** @var RoutingRoute $route */
@@ -147,6 +157,11 @@ final class FrontendChanges
                 if ($nodes === []) {
                     continue;
                 }
+
+                $uriTemplates[] = [
+                    'regex' => $this->uriTemplateRegex('/' . ltrim($route->uri(), '/')),
+                    'nodes' => $nodes,
+                ];
 
                 $name = $route->getName();
 
@@ -171,6 +186,67 @@ final class FrontendChanges
             return null;
         }
 
-        return $this->indexes = ['byName' => $byName, 'byAction' => $byAction, 'byClass' => $byClass];
+        return $this->indexes = ['byName' => $byName, 'byAction' => $byAction, 'byClass' => $byClass, 'uriTemplates' => $uriTemplates];
+    }
+
+    /**
+     * A URI literal is a weak candidate (any root-relative string matches the shape) — the route
+     * templates are the filter, and a non-endpoint literal simply matches none of them. A pinned
+     * verb then scopes the match to its method's nodes — across every matched template, since GET
+     * and POST on one path can be separate registrations. When the verb is served by none of
+     * them, the path match stays whole: the tests referencing that URI are method-agnostic, and
+     * dropping them would under-select.
+     *
+     * @param  list<array{uri: string, method: string|null}>  $uris
+     * @param  list<array{regex: string, nodes: list<string>}>  $templates
+     * @return list<string>
+     */
+    private function seedsForUris(array $uris, array $templates): array
+    {
+        $seeds = [];
+
+        foreach ($uris as $literal) {
+            $matched = [];
+
+            foreach ($templates as $template) {
+                if (preg_match($template['regex'], $literal['uri']) === 1) {
+                    $matched = [...$matched, ...$template['nodes']];
+                }
+            }
+
+            if ($literal['method'] !== null) {
+                $verbScoped = array_values(array_filter(
+                    $matched,
+                    static fn (string $node): bool => str_starts_with($node, 'route::' . strtoupper((string) $literal['method']) . '::'),
+                ));
+                $matched = $verbScoped === [] ? $matched : $verbScoped;
+            }
+
+            $seeds = [...$seeds, ...$matched];
+        }
+
+        return $seeds;
+    }
+
+    /**
+     * A route URI as a regex over concrete request paths: `{param}` wildcards one segment, and
+     * `{param?}` is optional together with its leading slash — `/users/{user?}` serves `/users`,
+     * so a literal `/users` must match it. Split on the raw parameters first, then quote only the
+     * literal parts: quoting first would demand matching `\{`/`\?` escapes inside the pattern.
+     */
+    private function uriTemplateRegex(string $uri): string
+    {
+        $parts = preg_split('~(/\{[^}]+\}|\{[^}]+\})~', $uri, -1, PREG_SPLIT_DELIM_CAPTURE | PREG_SPLIT_NO_EMPTY);
+        $regex = '';
+
+        foreach ($parts === false ? [] : $parts as $part) {
+            $regex .= match (true) {
+                str_starts_with($part, '/{') => str_ends_with($part, '?}') ? '(?:/[^/]+)?' : '/[^/]+',
+                str_starts_with($part, '{') => str_ends_with($part, '?}') ? '[^/]*' : '[^/]+',
+                default => preg_quote($part, '#'),
+            };
+        }
+
+        return "#^{$regex}$#";
     }
 }
