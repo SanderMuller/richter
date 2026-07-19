@@ -59,6 +59,8 @@ your row when done.
 | 031  | Anchor literal-URI candidates to call arguments; extend generated-path exclusion to files/globs, Ziggy defaults, and `.d.ts` (handoff H1+H2) | P2 | M | 019 | DONE (reviewed; main `1d04678`+`23d90ac`+`b398c51`+`fc7dd3d`+`fb4845d`, 2026-07-19; supersedes the spike doc over-matching acceptance, recall losses documented in the scanner docblock) |
 | 032  | Resolve same-module constant `route()` arguments before tainting a file UNRESOLVED (handoff H3) | P3 | M | 019; 031 soft | DONE (reviewed; main `b2ece91`+`9b221c8`, 2026-07-19; no-guess const/enum resolution, taint preserved on any miss) |
 
+| 033  | Tag test-referenced entry points whose referencing tests prove nothing (tier-3 handoff #2) | P2 | M | — | TODO |
+
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED (with one-line rationale — finding fixed independently or approach abandoned)
 
 ## Dependency notes
