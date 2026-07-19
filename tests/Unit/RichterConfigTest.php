@@ -241,11 +241,11 @@ final class RichterConfigTest extends TestCase
     }
 
     #[Test]
-    public function unset_generated_paths_default_to_the_wayfinder_trees(): void
+    public function unset_generated_paths_default_to_the_wayfinder_trees_and_ziggy(): void
     {
         config()->offsetUnset('richter.frontend');
 
-        $this->assertSame(['actions', 'routes', 'wayfinder'], RichterConfig::frontendGeneratedPaths());
+        $this->assertSame(['actions', 'routes', 'wayfinder', 'ziggy.js'], RichterConfig::frontendGeneratedPaths());
     }
 
     #[Test]
