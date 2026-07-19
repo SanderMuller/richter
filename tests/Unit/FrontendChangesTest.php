@@ -315,6 +315,34 @@ final class FrontendChangesTest extends TestCase
     }
 
     #[Test]
+    public function a_const_resolved_route_name_maps_through_the_name_index(): void
+    {
+        $symbols = $this->frontend()->resolve(
+            'resources/js/Pages/Videos.vue',
+            "const SHOW = 'videos.show';\nroute(SHOW);",
+            null,
+        );
+
+        $this->assertSame(['route::GET::/videos/{video}'], $symbols->directSeeds);
+        $this->assertFalse($symbols->unresolvedFrontendReferences);
+        $this->assertSame([], $symbols->findings);
+    }
+
+    #[Test]
+    public function a_residual_dynamic_argument_still_reads_unresolved_with_the_finding(): void
+    {
+        $symbols = $this->frontend()->resolve(
+            'resources/js/Pages/Videos.vue',
+            "const SHOW = 'videos.show';\nroute(SHOW);\nroute(other);",
+            null,
+        );
+
+        $this->assertSame(['route::GET::/videos/{video}'], $symbols->directSeeds);
+        $this->assertTrue($symbols->unresolvedFrontendReferences);
+        $this->assertSame(['a dynamic route() argument prevents resolving every referenced endpoint'], $symbols->findings);
+    }
+
+    #[Test]
     public function a_reference_removed_by_the_change_still_seeds_from_the_base_side(): void
     {
         $symbols = $this->frontend()->resolve(
