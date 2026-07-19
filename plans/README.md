@@ -61,7 +61,7 @@ your row when done.
 
 | 033  | Tag test-referenced entry points whose referencing tests prove nothing (tier-3 handoff #2) | P2 | M | — | DONE (reviewed; main, 5 commits ending at the Rector-conventions fixup, 2026-07-20; per-file certainty-gated grading, entryPointTestReferences in JSON+MCP) |
 
-| 034  | Add --profile to detect-changes: phase timings for the incremental-rebuild decision (tier-3 handoff #1, measurement gate) | P3 | S–M | 033 (same command file) | TODO |
+| 034  | Add --profile to detect-changes: phase timings for the incremental-rebuild decision (tier-3 handoff #1, measurement gate) | P3 | S–M | 033 (same command file) | DONE (reviewed; main, 4 commits, 2026-07-20; emitPhase helper holds the complexity limit, split prints to stderr so --json/--markdown contracts stay intact) |
 
 | 035  | Draft the upstream laravel-brain incremental/provenance issue + profile decision procedure (tier-3 handoff #1 follow-through) | P3 | S | 034 soft (issue reads better once --profile exists) | DONE (executed inline by the reviewer 2026-07-20 — internal/ is gitignored so no worktree; draft at internal/upstream-brain-incremental-issue.md, decision procedure appended to the tier-3 research doc; issue NOT posted — maintainer posts) |
 
