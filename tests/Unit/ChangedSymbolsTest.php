@@ -469,6 +469,28 @@ final class ChangedSymbolsTest extends TestCase
     }
 
     #[Test]
+    public function a_failing_git_show_for_an_adding_frontend_diff_reads_unresolved(): void
+    {
+        // The identical I/O failure on a frontend file must not scan as an empty string — that
+        // would read as a determined "no references", the forbidden falsely-empty result.
+        config()->set('richter.frontend.roots', ['resources/js']);
+
+        $diff = "diff --git a/resources/js/Pages/Videos.vue b/resources/js/Pages/Videos.vue\n--- a/resources/js/Pages/Videos.vue\n+++ b/resources/js/Pages/Videos.vue\n@@ -0,0 +1,1 @@\n+<template>x</template>\n";
+
+        Process::fake([
+            '*merge-base*' => Process::result("abc123\n"),
+            '*diff*' => Process::result($diff),
+            '*show*' => Process::result(errorOutput: 'bad object', exitCode: 128),
+        ]);
+
+        $changed = ChangedSymbols::resolve('base-ref', 'head-ref');
+
+        $this->assertCount(1, $changed);
+        $this->assertTrue($changed[0]->unresolvedFrontendReferences);
+        $this->assertSame([], $changed[0]->directSeeds);
+    }
+
+    #[Test]
     public function a_pure_rename_is_a_class_level_change_that_seeds_both_fqcns(): void
     {
         // A 100%-similarity rename has no hunks, but the old FQCN vanishes — every caller of it

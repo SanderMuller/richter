@@ -85,7 +85,20 @@ final class ChangedSymbols
             // A changed frontend file (opt-in via richter.frontend.roots) seeds the route nodes of
             // the backend endpoints it references — Wayfinder imports and Ziggy route() calls.
             if ($frontendChanges->handles($file)) {
-                $changed[] = $frontendChanges->resolve($file, self::headSource($head, $file), self::baseSource($mergeBase, $hunk['oldPath']));
+                $headSrc = self::headSource($head, $file);
+
+                // Same honesty rule as the PHP branch above: a diff that adds lines proves the file
+                // exists at head, so an unreadable head is an I/O failure, not a deletion — scanning
+                // '' would read as a determined "no references", the forbidden falsely-empty result.
+                if ($headSrc === null && $hunk['added'] !== []) {
+                    $changed[] = new ChangedFileSymbols($file, '', [], cosmeticOnly: false,
+                        findings: ['frontend source could not be read at head — references could not be checked'],
+                        unresolvedFrontendReferences: true);
+
+                    continue;
+                }
+
+                $changed[] = $frontendChanges->resolve($file, $headSrc, self::baseSource($mergeBase, $hunk['oldPath']));
 
                 continue;
             }
