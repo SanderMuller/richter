@@ -129,30 +129,26 @@ final class ImpactFormatter
      */
     private static function entryPointList(array $entryPoints, array $paths, array $locations, array $security, array $gates, ?TestReferenceIndex $tests): array
     {
-        $items = array_map(static fn (string $node): array => [
-            'label' => self::entryLabel($node)
-                . self::locationSuffix($locations[$node] ?? null)
-                . self::testReferenceSuffix($tests, $node)
-                . (isset($security[$node]) ? "  [{$security[$node]['exposure']}]" : '')
-                . (isset($gates[$node]) ? '  [gated: ' . implode(', ', $gates[$node]) . ']' : ''),
-            'node' => $node,
-        ], $entryPoints);
-        usort($items, static fn (array $a, array $b): int => $a['label'] <=> $b['label']);
+        $rows = EntryPointRow::build($entryPoints, $paths, $locations, $security, $gates, $tests);
 
-        $overCap = count($items) > self::LIST_CAP;
-        $shown = $overCap ? array_slice($items, 0, self::LIST_CAP) : $items;
+        $overCap = count($rows) > self::LIST_CAP;
+        $shown = $overCap ? array_slice($rows, 0, self::LIST_CAP) : $rows;
         $lines = [];
 
-        foreach ($shown as $item) {
-            $lines[] = "  - {$item['label']}";
-            $path = $paths[$item['node']] ?? [];
+        foreach ($shown as $row) {
+            $label = $row->label
+                . self::locationSuffix($row->location)
+                . self::testReferenceSuffix($row->testReferenced)
+                . ($row->security !== null ? "  [{$row->security['exposure']}]" : '')
+                . ($row->gates !== [] ? '  [gated: ' . implode(', ', $row->gates) . ']' : '');
+            $lines[] = "  - {$label}";
 
             // A single-hop path is the entry point itself — there is no chain to explain.
-            if (count($path) > 1) {
-                $lines[] = '      ↳ ' . self::pathChain($path);
+            if (count($row->path) > 1) {
+                $lines[] = '      ↳ ' . self::pathChain($row->label, $row->path);
             }
 
-            foreach ($security[$item['node']]['issues'] ?? [] as $issue) {
+            foreach ($row->security['issues'] ?? [] as $issue) {
                 $issueLocation = isset($issue['file'])
                     ? ' — ' . $issue['file'] . (isset($issue['line']) ? ":{$issue['line']}" : '')
                     : '';
@@ -161,7 +157,7 @@ final class ImpactFormatter
         }
 
         if ($overCap) {
-            $more = count($items) - self::LIST_CAP;
+            $more = count($rows) - self::LIST_CAP;
             $lines[] = "  … and {$more} more";
             $lines[] = '  Note: a large reach here is breadth (a central change touching many call sites), not a precise checklist to verify one by one.';
         }
@@ -180,14 +176,14 @@ final class ImpactFormatter
     }
 
     /**
-     * One explain chain: the entry point first, the changed symbol last, each arrow labelled with
-     * the edge type connecting its two hops.
+     * One explain chain: the entry point first (its already-computed plain label), the changed
+     * symbol last, each arrow labelled with the edge type connecting its two hops.
      *
      * @param  list<array{node: string, via: string, file?: string, line?: int}>  $path
      */
-    private static function pathChain(array $path): string
+    private static function pathChain(string $firstLabel, array $path): string
     {
-        $chain = self::entryLabel($path[0]['node']);
+        $chain = $firstLabel;
         $count = count($path);
 
         for ($i = 1; $i < $count; ++$i) {
@@ -197,19 +193,10 @@ final class ImpactFormatter
         return $chain;
     }
 
-    /**
-     * A console-command entry-point node carries its whole `$signature`
-     * (`command::foo {--opt : desc}`); show just the command name. Routes/schedules are unaffected.
-     */
-    private static function entryLabel(string $node): string
-    {
-        return str_starts_with($node, 'command::') ? explode(' ', $node, 2)[0] : $node;
-    }
-
     /** "Referenced" is deliberately weak phrasing: the index matches references, it does not prove coverage. */
-    private static function testReferenceSuffix(?TestReferenceIndex $tests, string $node): string
+    private static function testReferenceSuffix(?bool $referenced): string
     {
-        return match ($tests?->hasReference($node)) {
+        return match ($referenced) {
             true => '  [test-referenced]',
             false => '  [⚠ no test references this]',
             default => '',
