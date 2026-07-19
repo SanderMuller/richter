@@ -14,6 +14,7 @@ use App\Models\VideoContainer;
 use App\Policies\UserPolicy;
 use App\Policies\VideoPolicy;
 use PHPUnit\Framework\Attributes\Test;
+use ReflectionMethod;
 use SanderMuller\Richter\Analysis\ImpactAnalyzer;
 use SanderMuller\Richter\Analysis\ImpactFormatter;
 use SanderMuller\Richter\Analysis\RiskLevel;
@@ -642,6 +643,52 @@ final class ImpactAnalyzerTest extends TestCase
         ]);
 
         $this->assertSame('analyzed', $result['coverage']['app/Jobs/ImportJob.php']);
+    }
+
+    #[Test]
+    public function two_changed_job_files_with_identical_per_file_seeds_each_flip_independently(): void
+    {
+        // Both files change the same job member, so their per-file seed sets are identical
+        // (`App\Jobs\ImportJob::handle`) — a memoized riskInputs() must still evaluate each
+        // file's own coverage on its own key, never collapse the two.
+        $graph = new CodeGraph([
+            ['source' => 'App\Jobs\ImportJob::handle', 'target' => 'App\Services\X::run', 'type' => 'job'],
+        ], hasUnresolvedDispatches: true);
+
+        $result = new ImpactAnalyzer($graph)->detectChanges([
+            $this->changedMethod('app/Jobs/ImportJobCopyOne.php', 'App\Jobs\ImportJob', 'handle'),
+            $this->changedMethod('app/Jobs/ImportJobCopyTwo.php', 'App\Jobs\ImportJob', 'handle'),
+        ]);
+
+        $this->assertSame('unresolved', $result['coverage']['app/Jobs/ImportJobCopyOne.php']);
+        $this->assertSame('unresolved', $result['coverage']['app/Jobs/ImportJobCopyTwo.php']);
+        $this->assertSame(['App\Jobs\ImportJob'], $result['entryPoints']);
+    }
+
+    #[Test]
+    public function riskinputs_returns_identical_tuples_for_identical_seed_sets(): void
+    {
+        // White-box check on the memoized method itself: the same seed set (same order, same
+        // maxDepth) must yield the exact same tuple both times — the safety net the full suite
+        // above already exercises through detectChanges().
+        $analyzer = new ImpactAnalyzer(new CodeGraph([
+            ['source' => self::ROUTE, 'target' => 'App\Http\Controllers\VideoController::publish', 'type' => 'route-to-controller'],
+        ]));
+
+        $riskInputs = new ReflectionMethod($analyzer, 'riskInputs');
+        $memo = [];
+
+        // Both calls share one memo, so the second is a cache hit on the first — asserting they
+        // match proves the memoized retrieval reproduces the freshly-walked tuple exactly.
+        $first = $riskInputs->invokeArgs($analyzer, [['App\Http\Controllers\VideoController::publish'], 6, &$memo]);
+        $second = $riskInputs->invokeArgs($analyzer, [['App\Http\Controllers\VideoController::publish'], 6, &$memo]);
+
+        // Reflection erases riskInputs()'s real return type, so narrow it back explicitly rather
+        // than indexing into `mixed`.
+        $this->assertIsArray($first);
+        $this->assertIsArray($second);
+        $this->assertSame($first, $second);
+        $this->assertSame(1, $first[0]);
     }
 
     #[Test]

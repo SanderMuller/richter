@@ -88,6 +88,9 @@ final readonly class ImpactAnalyzer
         $summary = [];
         $coverage = [];
         $touchesEntryClass = false;
+        // Scoped to this single detectChanges() run (never an instance property — this class is
+        // readonly) — see riskInputs()'s docblock.
+        $riskInputsMemo = [];
 
         foreach ($changed as $file) {
             // Additive (new member) or cosmetic (whitespace/import-reorder) change has no existing callers — seeds nothing, raises no risk floor (even on jobs).
@@ -169,10 +172,10 @@ final readonly class ImpactAnalyzer
         // deliberately carries no chain.
         $entryPointPaths = $this->entryPointPathsFor($entryPoints, $callers, $seeds, $maxDepth);
 
-        $entryPoints = $this->withSelfListedEntryClasses($entryPoints, $changed, $perFileSeeds, $maxDepth);
+        $entryPoints = $this->withSelfListedEntryClasses($entryPoints, $changed, $perFileSeeds, $maxDepth, $riskInputsMemo);
         $entryPoints = $this->withFrontendEntryPoints($entryPoints, $frontendSeeds);
 
-        $coverage = $this->withUnresolvedJobFlips($coverage, $changed, $perFileSeeds, $maxDepth);
+        $coverage = $this->withUnresolvedJobFlips($coverage, $changed, $perFileSeeds, $maxDepth, $riskInputsMemo);
 
         // A node only reachable through `model-relationship` is context, not risk — counting it lets touching a hub model saturate to HIGH on relation breadth alone. Any behavioural edge still counts.
         $reach = $this->graph->reachedViaTypes($seeds, $maxDepth);
@@ -182,7 +185,7 @@ final readonly class ImpactAnalyzer
             fn (array $types): bool => ! $this->isRiskBearing($types) && isset($types['model-relationship']),
         ));
 
-        [$risk, $coarseCapApplied] = $this->riskWithCoarseCap($impacted, $riskEntryPointCount, $touchesEntryClass, $preciseSeeds, $lowConfidence, $maxDepth);
+        [$risk, $coarseCapApplied] = $this->riskWithCoarseCap($impacted, $riskEntryPointCount, $touchesEntryClass, $preciseSeeds, $lowConfidence, $maxDepth, $riskInputsMemo);
 
         $findings = [];
 
@@ -217,9 +220,10 @@ final readonly class ImpactAnalyzer
      * Cap a coarse low-confidence HIGH to MEDIUM only when precise seeds alone don't already justify HIGH (so a genuine method change isn't masked by a co-touched $fillable). Second element: whether the cap actually downgraded.
      *
      * @param  list<string>  $preciseSeeds
+     * @param  array<string, array{0: int, 1: int}>  $riskInputsMemo
      * @return array{0: RiskLevel, 1: bool}
      */
-    private function riskWithCoarseCap(int $impacted, int $entryPoints, bool $touchesEntryClass, array $preciseSeeds, bool $lowConfidence, int $maxDepth): array
+    private function riskWithCoarseCap(int $impacted, int $entryPoints, bool $touchesEntryClass, array $preciseSeeds, bool $lowConfidence, int $maxDepth, array &$riskInputsMemo): array
     {
         $risk = $this->risk($impacted, $entryPoints, $touchesEntryClass);
 
@@ -227,7 +231,7 @@ final readonly class ImpactAnalyzer
             return [$risk, false];
         }
 
-        [$preciseEntryPoints, $preciseImpacted] = $this->riskInputs($preciseSeeds, $maxDepth);
+        [$preciseEntryPoints, $preciseImpacted] = $this->riskInputs($preciseSeeds, $maxDepth, $riskInputsMemo);
 
         return $this->risk($preciseImpacted, $preciseEntryPoints, $touchesEntryClass) === RiskLevel::High
             ? [RiskLevel::High, false]
@@ -262,9 +266,10 @@ final readonly class ImpactAnalyzer
      * @param  list<string>  $entryPoints
      * @param  list<ChangedFileSymbols>  $changed
      * @param  array<string, list<string>>  $perFileSeeds
+     * @param  array<string, array{0: int, 1: int}>  $riskInputsMemo
      * @return list<string>
      */
-    private function withSelfListedEntryClasses(array $entryPoints, array $changed, array $perFileSeeds, int $maxDepth): array
+    private function withSelfListedEntryClasses(array $entryPoints, array $changed, array $perFileSeeds, int $maxDepth, array &$riskInputsMemo): array
     {
         foreach ($changed as $file) {
             if ($file->hasOnlyAdditiveOrCosmeticChanges()) {
@@ -281,7 +286,7 @@ final readonly class ImpactAnalyzer
                 continue;
             }
 
-            [$ownEntryPoints] = $this->riskInputs($perFileSeeds[$file->file] ?? [], $maxDepth);
+            [$ownEntryPoints] = $this->riskInputs($perFileSeeds[$file->file] ?? [], $maxDepth, $riskInputsMemo);
 
             if ($ownEntryPoints === 0) {
                 $entryPoints[] = $file->fqcn;
@@ -322,9 +327,10 @@ final readonly class ImpactAnalyzer
      * @param  array<string, 'analyzed'|'unresolved'>  $coverage
      * @param  list<ChangedFileSymbols>  $changed
      * @param  array<string, list<string>>  $perFileSeeds
+     * @param  array<string, array{0: int, 1: int}>  $riskInputsMemo
      * @return array<string, 'analyzed'|'unresolved'>
      */
-    private function withUnresolvedJobFlips(array $coverage, array $changed, array $perFileSeeds, int $maxDepth): array
+    private function withUnresolvedJobFlips(array $coverage, array $changed, array $perFileSeeds, int $maxDepth, array &$riskInputsMemo): array
     {
         if (! $this->graph->hasUnresolvedDispatches()) {
             return $coverage;
@@ -343,7 +349,7 @@ final readonly class ImpactAnalyzer
                 continue;
             }
 
-            [$jobEntryPoints] = $this->riskInputs($perFileSeeds[$file->file] ?? [], $maxDepth);
+            [$jobEntryPoints] = $this->riskInputs($perFileSeeds[$file->file] ?? [], $maxDepth, $riskInputsMemo);
 
             if ($jobEntryPoints === 0) {
                 $coverage[$file->file] = 'unresolved';
@@ -385,19 +391,37 @@ final readonly class ImpactAnalyzer
     }
 
     /**
+     * Two graph walks (`callersOf` + `reachedViaTypes`) over one seed set — called once per
+     * changed entry-point-class file and once per changed job file, so the same seed set (an
+     * identical member change, or two files resolving to the same node) recurs often within one
+     * {@see detectChanges()} run. `$memo` is a plain local array threaded by reference from
+     * `detectChanges()` for that single run's lifetime (never an instance property: this class is
+     * `readonly`, so an instance property could not be reassigned after construction — the memo has
+     * to live in the call stack instead), keyed on maxDepth + the seed set sorted on a COPY so the
+     * caller's array order is never disturbed.
+     *
      * @param  list<string>  $seeds
+     * @param  array<string, array{0: int, 1: int}>  $memo
      * @return array{0: int, 1: int} [entryPointCount, impactedCount]
      */
-    private function riskInputs(array $seeds, int $maxDepth): array
+    private function riskInputs(array $seeds, int $maxDepth, array &$memo): array
     {
         if ($seeds === []) {
             return [0, 0];
         }
 
+        $sortedSeeds = $seeds;
+        sort($sortedSeeds);
+        $key = $maxDepth . '|' . implode(',', $sortedSeeds);
+
+        if (isset($memo[$key])) {
+            return $memo[$key];
+        }
+
         $entryPoints = $this->entryPointsAmong($this->graph->callersOf($seeds, $maxDepth));
         $impacted = count(array_filter($this->graph->reachedViaTypes($seeds, $maxDepth), $this->isRiskBearing(...)));
 
-        return [count($entryPoints), $impacted];
+        return $memo[$key] = [count($entryPoints), $impacted];
     }
 
     /**
