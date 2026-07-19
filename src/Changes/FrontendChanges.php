@@ -4,6 +4,7 @@ namespace SanderMuller\Richter\Changes;
 
 use Illuminate\Routing\Route as RoutingRoute;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Str;
 use SanderMuller\Richter\Analysis\TestReferenceIndex;
 use SanderMuller\Richter\Support\RichterConfig;
 use SanderMuller\Richter\Tracers\FrontendReferenceScanner;
@@ -35,7 +36,7 @@ final class FrontendChanges
         $this->scanner = new FrontendReferenceScanner();
     }
 
-    /** Whether the file is a scannable frontend source: bridge on, under a configured root, a frontend extension, and not Wayfinder-generated regeneration churn. */
+    /** Whether the file is a scannable frontend source: bridge on, under a configured root, a frontend extension, and not generated regeneration churn (a directory, exact file, or `*`-glob). */
     public function handles(string $file): bool
     {
         $roots = RichterConfig::frontendRoots();
@@ -55,7 +56,15 @@ final class FrontendChanges
                 continue;
             }
 
-            return array_all(RichterConfig::frontendGeneratedPaths(), fn (string $generated) => ! str_starts_with($file, $root . '/' . trim($generated, '/') . '/'));
+            return array_all(RichterConfig::frontendGeneratedPaths(), function (string $generated) use ($file, $root): bool {
+                $entry = trim($generated, '/');
+
+                // Directory-prefix semantics (the original contract), plus exact files and
+                // `*`-globs via Str::is — a generated file directly under a root (ziggy.js) was
+                // inexpressible before. Str::is with no wildcard is exact equality; its `*`
+                // crosses `/`, so `*.generated.ts` matches at any depth.
+                return ! str_starts_with($file, "{$root}/{$entry}/") && ! Str::is("{$root}/{$entry}", $file);
+            });
         }
 
         return false;

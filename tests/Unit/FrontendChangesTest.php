@@ -58,6 +58,29 @@ final class FrontendChangesTest extends TestCase
     }
 
     #[Test]
+    public function handles_excludes_generated_files_and_globs(): void
+    {
+        config()->set('richter.frontend.generated_paths', ['actions', 'ziggy.js', '*.generated.ts']);
+        $frontend = $this->frontend();
+
+        // An exact file directly under a root — inexpressible under directory-prefix-only rules.
+        $this->assertFalse($frontend->handles('resources/js/ziggy.js'));
+        $this->assertFalse($frontend->handles('resources/js/api.generated.ts'));
+        // Str::is's `*` crosses `/`, so the glob matches at any depth under the root.
+        $this->assertFalse($frontend->handles('resources/js/deep/nested/api.generated.ts'));
+        // Directory-entry semantics keep working alongside the new file/glob matching.
+        $this->assertFalse($frontend->handles('resources/js/actions/Foo.ts'));
+        $this->assertTrue($frontend->handles('resources/js/lib/api.ts'));
+    }
+
+    #[Test]
+    public function handles_excludes_ziggy_output_by_default(): void
+    {
+        // No generated_paths override — exercises the shipped default (ziggy.js joins it).
+        $this->assertFalse($this->frontend()->handles('resources/js/ziggy.js'));
+    }
+
+    #[Test]
     public function a_wayfinder_action_import_maps_to_the_routes_of_that_action(): void
     {
         $symbols = $this->frontend()->resolve(
