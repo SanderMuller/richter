@@ -247,8 +247,10 @@ else php artisan test; fi   # exit 2: not determinable — full suite
 
 Inverts the test-reference index into a selection: the test files that reference any entry point
 the diff reaches, plus the tests that import any changed **or reached** class (a unit test of an
-intermediate caller never touches an entry point). A `schedule::` entry resolves through the
-command it runs. Only conventionally-named `*Test.php` files are selected — helpers and fixtures
+intermediate caller never touches an entry point). A test naming a Livewire component by string
+(`Livewire::test('admin.dashboard')`, the `livewire()` helper) counts as referencing
+`App\Livewire\Admin\Dashboard` via the default naming convention. A `schedule::` entry resolves
+through the command it runs. Only conventionally-named `*Test.php` files are selected — helpers and fixtures
 under `tests/` never end up as runner arguments, and an entry point whose only references live in
 a support trait blocks determination rather than silently dropping the tests using that trait.
 Selection is reference-based recall, not proof of coverage — reached entry points nothing
@@ -308,7 +310,11 @@ determinability input.
 The scan is regex-based and says so when it can't see: a dynamic `route(`…`)` argument or an
 unmatched Wayfinder action import marks the file UNRESOLVED (and `richter:affected-tests` exits
 `2`), while an unmatched `route('name')` string simply isn't a reference — `routes/` modules and
-`route()` helpers collide with frontend-router idioms, so unmatched names never guess.
+`route()` helpers collide with frontend-router idioms, so unmatched names never guess. Before a
+dynamic argument taints the file, it gets one resolution attempt against a same-module
+`const`/`enum` string constant (`route(ROUTES.player)` resolves when `ROUTES` is a flat `const`
+with exactly one `player` member); anything less certain — `let`, multiple declarations, imported
+constants, nested bodies — keeps the fail-safe.
 
 The bridge also runs in reverse, without any configuration: a changed backend member that
 renders an Inertia page (`Inertia::render('Videos/Show')`, the `inertia()` helper) is noted
@@ -394,8 +400,12 @@ Richter assumes standard Laravel conventions: the `App\` root namespace, `app/Mo
 ## Testing
 
 ```bash
-composer test
+composer test        # test suite only
+composer qa-check    # read-only pre-push gate: Rector + Pint dry-runs, PHPStan, tests — mirrors CI
 ```
+
+`composer qa` is the auto-fixing variant — it rewrites the working tree (Rector, Pint), so use
+`qa-check` when you only want to verify.
 
 ## Changelog
 
