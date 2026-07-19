@@ -5,6 +5,40 @@ All notable changes to `sandermuller/richter` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.8.0 - 2026-07-19
+
+<!-- verified-sha: 64e0c766dbe6c7249f9e7b3ce15fb0eade1e3f01 -->
+### Added
+
+- **`laravel/mcp` version boundary.** The supported range is `^0.8||^0.9` (0.9.0 validated against the full suite); `composer.json` now carries a matching `conflict` entry, so an unvalidated future release fails at Composer resolution time instead of fataling at framework boot. The README's MCP section names the range, and CI covers the mcp-absent install so the CLI-only consumer path can't regress silently.
+- **Generated-file exclusion for the frontend bridge.** `frontend.generated_paths` entries now match a directory, an exact file, or a `*`-glob (crossing `/`) — a generated file directly under a root was inexpressible before. Ziggy's generated route map (`ziggy.js`) joins the default exclusions next to Wayfinder's trees, and `.d.ts` declaration files are never scanned: they carry types only, and a route-name string-literal-union type is pure false-positive surface.
+- **Same-module constant resolution for dynamic `route()` arguments.** A `route(ROUTES.player)` or `route(RouteName.Player)` whose referent is a same-module `const`/`enum` string constant now resolves to that name instead of tainting the file UNRESOLVED. Resolution never guesses: `const`-only (never `let`/`var`), exactly one declaration, flat object/enum bodies only — anything uncertain keeps the file-level fail-safe, and a resolved reference beside an unresolvable one still taints.
+- **String-named Livewire components in test selection.** `Livewire::test('admin.dashboard')` and the `livewire('show-posts')` helper now map onto their conventional classes (`App\Livewire\Admin\Dashboard`, `App\Livewire\ShowPosts`) in the test-reference index, so `richter:affected-tests` selects those tests when the component class changes. Convention-based, registry-free; custom component namespaces don't match.
+- **Quoted-pathname handling in the diff parser.** Paths git C-quotes under `core.quotePath` (accented or non-Latin filenames, embedded quotes/backslashes) are now decoded, and the diff runs with `core.quotepath=off` — a changed Blade view or frontend file with a non-ASCII name previously dropped out of classification entirely and read as "no impact".
+
+### Changed
+
+- **Literal endpoint strings only count in call-argument position.** A `/`-leading string literal or backtick template now becomes a route candidate only directly inside a call's `(` or after a `,` — previously any such literal anywhere in a scanned file matched, so a constants file, nav-link map, or generated data file whose strings coincide with real route templates flooded the touched-endpoint list and, through `richter:affected-tests`, false-selected unrelated backend tests. Two recall losses are accepted and documented: a literal assigned to a variable and fetched later, and a `{url: '/x'}` options-object property.
+- **Blade-view seeds resolve by exact node membership.** A changed view seeds exactly its own node — previously `components.card` also seeded every nested sibling (`components.card.header`, …) through boundary-substring matching, inflating `impacted` and `risk` and potentially tripping a `--fail-on` gate on views that didn't change.
+
+### Fixed
+
+- An unreadable frontend head source (an I/O failure on a file the diff proves exists) reads UNRESOLVED instead of a determined "no references" — the same honesty guard the PHP path already had.
+- A concatenated Ziggy name (`route('videos.' + action)`) is recognized as a dynamic argument and flags the file, instead of silently dropping a partial name.
+- Optional-parameter route templates match a bare `/` (root `/{locale?}` routes) and trailing-slash literals (`/videos/` against `/videos/{video?}`).
+- Extension-suffixed Wayfinder module specifiers (`…/VideoController.ts`, `@/routes/videos.ts`) resolve instead of passing unseen.
+- The markdown changed-files table escapes `|` and backticks in file paths — the code-span fence now outruns the longest backtick run in the path, so a legal filename can no longer break the table that lands in a PR description.
+
+### Internal
+
+- Suite grows from 516 to 562 tests (1213 assertions): end-to-end coverage of the frontend/Blade-inline seam against the fixture project, a formatter contract test rendering one rich fixture through all three output surfaces, and characterization of the `benchmark:add` stanza escaping.
+- `EntryPointRow` now owns the entry-point facts and ordering both formatters previously duplicated; decoration stays per-format. Both formatters sort on the plain label.
+- `riskInputs()` graph walks are memoized per run, so a broad diff no longer repeats identical caller/reach walks per changed entry-class or job file.
+- The shared line-range locality rule of the per-source checkers lives in one trait.
+- CI: the run-tests matrix caches Composer downloads, and a dedicated job runs the suite without `laravel/mcp` installed (pinned to the Laravel 12 floor) to exercise the optional-dependency guard.
+
+**Full Changelog**: https://github.com/SanderMuller/richter/compare/v0.7.0...v0.8.0
+
 ## v0.7.0 - 2026-07-19
 
 <!-- verified-sha: 3fff0c5627094e4e0c6eb1834bb8cf10e602020d -->
@@ -12,7 +46,7 @@ The report crosses the stack boundary: changed frontend files report the backend
 
 ### Added
 
-- **Frontend endpoint references** (opt-in via `frontend.roots`). Changed `.ts`/`.tsx`/`.js`/`.jsx`/`.vue` files are scanned for the backend endpoints they reference, all mapped through the app's router onto route entry points: [Wayfinder](https://github.com/laravel/wayfinder) action imports (the controller FQCN lives in the import path — deterministic, method-precise, aliasing and `import type` included), Wayfinder route imports and Ziggy `route('name')` calls (name index), and endpoint strings matched against the route templates — plain literals (`axios.post('/videos')`) and backtick templates whose `${…}` interpolations wildcard one segment (`` fetch(`/videos/${id}`) `` matches `/videos/{video}`). A verb-named call pins the HTTP method; anything unrecognisable stays method-agnostic and never narrows the match. Optional route parameters (`{user?}`) match with and without their segment. The touched routes are listed as entry points with their existing location, exposure and feature-gate annotations — and **never move `risk` or `impacted`**: a frontend edit does not change backend behaviour, and the report says so explicitly on frontend-heavy diffs.
+- **Frontend endpoint references** (opt-in via `frontend.roots`). Changed `.ts`/`.tsx`/`.js`/`.jsx`/`.vue` files are scanned for the backend endpoints they reference, all mapped through the app's router onto route entry points: [Wayfinder](https://github.com/laravel/wayfinder) action imports (the controller FQCN lives in the import path — deterministic, method-precise, aliasing and `import type` included), Wayfinder route imports and Ziggy `route('name')` calls (name index), and endpoint strings matched against the route templates — plain literals (`axios.post('/videos')`) and backtick templates whose `${…}` interpolations wildcard one segment (`fetch(`/videos/${id}`)` matches `/videos/{video}`). A verb-named call pins the HTTP method; anything unrecognisable stays method-agnostic and never narrows the match. Optional route parameters (`{user?}`) match with and without their segment. The touched routes are listed as entry points with their existing location, exposure and feature-gate annotations — and **never move `risk` or `impacted`**: a frontend edit does not change backend behaviour, and the report says so explicitly on frontend-heavy diffs.
 - **Fail-safe semantics carry over.** A dynamic `route(…)` argument or an unmatched Wayfinder action import marks the file UNRESOLVED and makes `richter:affected-tests` exit `2`; an unmatched route name or URI literal simply isn't a reference (`routes/` modules and `route()` helpers collide with frontend-router idioms — unmatched names never guess). Wayfinder's generated trees (`actions/`, `routes/`, `wayfinder/`) are excluded as regeneration churn.
 - **Blade inline scripts.** Endpoint literals inside `<script>` blocks of changed Blade views seed touched routes the same way — script slices only, since markup hrefs and form actions are navigation, not endpoint calls.
 - **Inertia reverse direction** (no configuration needed). A changed backend member rendering an Inertia page (`Inertia::render('Videos/Show')`, the `inertia()` helper, aliased facades included) is noted under Findings with the page file resolved and existence-checked under `frontend.pages_path` — a miss reads "no page file found", which usually means a renamed or deleted page. Scoped to the changed members, like every source checker.
