@@ -216,6 +216,37 @@ final class CodeGraphBuilderTest extends TestCase
         $this->assertSame(['host/sentinel/*.php'], config('laravel-brain.route_paths'));
     }
 
+    #[Test]
+    public function the_build_reports_its_phase_timings_through_the_progress_callback(): void
+    {
+        // Brain's own progress events flow through the same callback — filtering on the
+        // richter:phase event name is what isolates the six phase-timing events from those.
+        $events = [];
+
+        new CodeGraphBuilder()->build(
+            self::fixtureProjectPath(),
+            function (string $event, array $data) use (&$events): void {
+                if ($event === 'richter:phase') {
+                    $events[] = $data;
+                }
+            },
+        );
+
+        $this->assertSame([
+            'brain-analyze',
+            'canonicalize-metadata',
+            'consolidated-tracers',
+            'entry-point-tracer',
+            'blade-tracers',
+            'rewrites-and-members',
+        ], array_column($events, 'phase'));
+
+        foreach ($events as $event) {
+            $this->assertIsFloat($event['seconds']);
+            $this->assertGreaterThanOrEqual(0.0, $event['seconds']);
+        }
+    }
+
     /** @return array<string, string> caller node → edge type, sorted by node */
     private function directCallersOf(string $node): array
     {

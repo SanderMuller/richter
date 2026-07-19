@@ -55,6 +55,10 @@ final class CodeGraphBuilder
         ];
         $snapshot = array_map(config(...), array_combine(array_keys($overrides), array_keys($overrides)));
 
+        // Timing is opt-in: hrtime() and event dispatch only run when a caller supplied a callback,
+        // so the no-listener path (the common case — cache warms silently) stays allocation-free.
+        $phaseStart = $onProgress !== null ? (float) hrtime(true) : 0.0;
+
         try {
             foreach ($overrides as $key => $paths) {
                 config()->set($key, $paths);
@@ -69,6 +73,8 @@ final class CodeGraphBuilder
                 config()->set($key, $original);
             }
         }
+
+        $phaseStart = $this->emitPhase($onProgress, 'brain-analyze', $phaseStart);
 
         // One FQCN-keyed id per symbol, read from Brain's own node data — the anti-corruption boundary
         // that lets the post-hoc tracers below address symbols by plain FQCN and join the route chain.
@@ -107,6 +113,8 @@ final class CodeGraphBuilder
             ];
         }
 
+        $phaseStart = $this->emitPhase($onProgress, 'canonicalize-metadata', $phaseStart);
+
         // One instance serves both passes below: the consolidated pass reads its roots to decide
         // which ASTs to retain, and trace() consumes them — same instance, so they can never diverge.
         $entryPointTracer = new EntryPointTracer(RichterConfig::entryPointRoots());
@@ -119,12 +127,16 @@ final class CodeGraphBuilder
             $edges[] = $tracerEdge;
         }
 
+        $phaseStart = $this->emitPhase($onProgress, 'consolidated-tracers', $phaseStart);
+
         // Brain's graph is route-anchored; add queue/console/helper entry points (+ `$listen`
         // event→listener and interface→impl links) Brain misses. Tracer edges are FQCN-keyed, so they
         // join the normalised nodes above directly.
         foreach ($entryPointTracer->trace($projectRoot, $consolidated['entryPointAsts']) as $entryPointEdge) {
             $edges[] = $entryPointEdge;
         }
+
+        $phaseStart = $this->emitPhase($onProgress, 'entry-point-tracer', $phaseStart);
 
         // Descend into the views a view renders (`<x-...>`, `@include`/`@extends`) and link the
         // policies views gate on — both surfaces Brain's route-anchored graph misses.
@@ -135,6 +147,8 @@ final class CodeGraphBuilder
         foreach (new PolicyEdgeTracer()->bladeEdges($projectRoot) as $bladePolicyEdge) {
             $edges[] = $bladePolicyEdge;
         }
+
+        $phaseStart = $this->emitPhase($onProgress, 'blade-tracers', $phaseStart);
 
         $controllerBasenames = $this->controllerBasenames($projectRoot);
         $middlewareAliases = MiddlewareAliases::forProject($projectRoot);
@@ -156,7 +170,30 @@ final class CodeGraphBuilder
 
         $edges = AppFiles::dedupeEdges($edges, byType: true);
 
-        return new CodeGraph($edges, $consolidated['unresolvedDispatches'] > 0, NodeMetadata::withFallbackFiles($edges, $metadata, $projectRoot));
+        $graph = new CodeGraph($edges, $consolidated['unresolvedDispatches'] > 0, NodeMetadata::withFallbackFiles($edges, $metadata, $projectRoot));
+
+        $this->emitPhase($onProgress, 'rewrites-and-members', $phaseStart);
+
+        return $graph;
+    }
+
+    /**
+     * Emits one `richter:phase` timing event and returns the next phase's start timestamp — or,
+     * when nobody is listening, does nothing and hands the same (unused) timestamp straight back.
+     * Centralised so build()'s six call sites share one branch instead of each carrying their own,
+     * which is what had pushed the method over PHPStan's cognitive-complexity limit.
+     *
+     * @param  (callable(string, array<string, mixed>): void)|null  $onProgress
+     */
+    private function emitPhase(?callable $onProgress, string $phase, float $phaseStart): float
+    {
+        if ($onProgress === null) {
+            return $phaseStart;
+        }
+
+        $onProgress('richter:phase', ['phase' => $phase, 'seconds' => (hrtime(true) - $phaseStart) / 1e9]);
+
+        return (float) hrtime(true);
     }
 
     /**
