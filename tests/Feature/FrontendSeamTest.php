@@ -47,6 +47,28 @@ final class FrontendSeamTest extends TestCase
         Route::get('/dashboard/search', [DashboardSearchController::class, 'index'])->name('dashboard.search');
     }
 
+    /** A one-added-line diff for the path — enough to register the file as changed; UnifiedDiffParser only needs a hunk to exist, and FrontendChanges::resolve() scans the whole head source, not the hunk. */
+    private function additionDiff(string $path, string $addedLine): string
+    {
+        return "diff --git a/{$path} b/{$path}\n--- a/{$path}\n+++ b/{$path}\n@@ -0,0 +1,1 @@\n+{$addedLine}\n";
+    }
+
+    /** Fakes the git plumbing for one diff, runs richter:detect-changes --json, asserts success, and returns the decoded report. */
+    private function detectChangesFor(string $diff): mixed
+    {
+        Process::fake([
+            '*merge-base*' => Process::result("abc123\n"),
+            '*show*' => Process::result(errorOutput: 'bad object', exitCode: 128),
+            '*diff*' => Process::result($diff),
+        ]);
+
+        $this->withoutMockingConsoleOutput();
+        $exitCode = Artisan::call('richter:detect-changes', ['--base' => 'some-base', '--json' => true]);
+        $this->assertSame(0, $exitCode);
+
+        return json_decode(Artisan::output(), associative: true);
+    }
+
     #[Test]
     public function the_fixture_project_is_the_working_tree(): void
     {
@@ -56,25 +78,8 @@ final class FrontendSeamTest extends TestCase
     #[Test]
     public function a_changed_frontend_file_seeds_the_backend_routes_it_references(): void
     {
-        // One added line is enough to register the file as changed — UnifiedDiffParser only needs a
-        // hunk to exist; FrontendChanges::resolve() scans the whole head source, not the hunk.
-        $diff = "diff --git a/resources/js/components/VideoApi.ts b/resources/js/components/VideoApi.ts\n"
-            . "--- a/resources/js/components/VideoApi.ts\n"
-            . "+++ b/resources/js/components/VideoApi.ts\n"
-            . "@@ -0,0 +1,1 @@\n"
-            . "+export function searchDashboard() {}\n";
+        $decoded = $this->detectChangesFor($this->additionDiff('resources/js/components/VideoApi.ts', 'export function searchDashboard() {}'));
 
-        Process::fake([
-            '*merge-base*' => Process::result("abc123\n"),
-            '*show*' => Process::result(errorOutput: 'bad object', exitCode: 128),
-            '*diff*' => Process::result($diff),
-        ]);
-
-        $this->withoutMockingConsoleOutput();
-        $exitCode = Artisan::call('richter:detect-changes', ['--base' => 'some-base', '--json' => true]);
-        $decoded = json_decode(Artisan::output(), associative: true);
-
-        $this->assertSame(0, $exitCode);
         $this->assertIsArray($decoded);
 
         $changed = $decoded['changed'];
@@ -104,23 +109,8 @@ final class FrontendSeamTest extends TestCase
         // Inside resources/js/actions/ — the default richter.frontend.generated_paths tree. handles()
         // must gate it out before any source is even read, so the file never enters $changed at all;
         // the report reads as if the diff were empty.
-        $diff = "diff --git a/resources/js/actions/App/Http/Controllers/Video/QuestionController.ts b/resources/js/actions/App/Http/Controllers/Video/QuestionController.ts\n"
-            . "--- a/resources/js/actions/App/Http/Controllers/Video/QuestionController.ts\n"
-            . "+++ b/resources/js/actions/App/Http/Controllers/Video/QuestionController.ts\n"
-            . "@@ -0,0 +1,1 @@\n"
-            . "+export function show() {}\n";
+        $decoded = $this->detectChangesFor($this->additionDiff('resources/js/actions/App/Http/Controllers/Video/QuestionController.ts', 'export function show() {}'));
 
-        Process::fake([
-            '*merge-base*' => Process::result("abc123\n"),
-            '*show*' => Process::result(errorOutput: 'bad object', exitCode: 128),
-            '*diff*' => Process::result($diff),
-        ]);
-
-        $this->withoutMockingConsoleOutput();
-        $exitCode = Artisan::call('richter:detect-changes', ['--base' => 'some-base', '--json' => true]);
-        $decoded = json_decode(Artisan::output(), associative: true);
-
-        $this->assertSame(0, $exitCode);
         $this->assertSame(JsonPresenter::emptyDetectChanges('some-base'), $decoded);
     }
 
@@ -140,23 +130,8 @@ final class FrontendSeamTest extends TestCase
     #[Test]
     public function a_changed_blade_view_seeds_the_endpoint_its_inline_script_calls(): void
     {
-        $diff = "diff --git a/resources/views/videos/inline.blade.php b/resources/views/videos/inline.blade.php\n"
-            . "--- a/resources/views/videos/inline.blade.php\n"
-            . "+++ b/resources/views/videos/inline.blade.php\n"
-            . "@@ -0,0 +1,1 @@\n"
-            . "+<script>fetch('/dashboard/search');</script>\n";
+        $decoded = $this->detectChangesFor($this->additionDiff('resources/views/videos/inline.blade.php', "<script>fetch('/dashboard/search');</script>"));
 
-        Process::fake([
-            '*merge-base*' => Process::result("abc123\n"),
-            '*show*' => Process::result(errorOutput: 'bad object', exitCode: 128),
-            '*diff*' => Process::result($diff),
-        ]);
-
-        $this->withoutMockingConsoleOutput();
-        $exitCode = Artisan::call('richter:detect-changes', ['--base' => 'some-base', '--json' => true]);
-        $decoded = json_decode(Artisan::output(), associative: true);
-
-        $this->assertSame(0, $exitCode);
         $this->assertIsArray($decoded);
 
         $changed = $decoded['changed'];

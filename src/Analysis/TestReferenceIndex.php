@@ -5,6 +5,7 @@ namespace SanderMuller\Richter\Analysis;
 use Illuminate\Routing\Route as RoutingRoute;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Str;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Finder\Finder;
 use Throwable;
@@ -140,10 +141,7 @@ final class TestReferenceIndex
      */
     private function livewireClassFor(string $name): string
     {
-        $segments = array_map(
-            static fn (string $segment): string => str_replace(' ', '', ucwords(str_replace('-', ' ', $segment))),
-            explode('.', $name),
-        );
+        $segments = array_map(Str::studly(...), explode('.', $name));
 
         return 'App\\Livewire\\' . implode('\\', $segments);
     }
