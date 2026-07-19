@@ -286,13 +286,19 @@ Detected references:
   `@/actions/App/Http/Controllers/VideoController` resolves through the router's action index
   (method-precise; aliased, default, invokable and `import type` forms included), and
   `@/routes/videos` route imports plus Ziggy `route('name')` calls resolve through the route
-  names. Wayfinder's generated trees (`actions/`, `routes/`, `wayfinder/` under each root) are
-  excluded as regeneration churn.
+  names. Wayfinder's generated trees (`actions/`, `routes/`, `wayfinder/` under each root) and
+  Ziggy's generated route map (`ziggy.js`) are excluded as regeneration churn, and `.d.ts`
+  declaration files are never scanned — see `frontend.generated_paths` above.
 - **Endpoint strings**, matched against the app's route templates: plain literals
   (`axios.post('/videos')`) and backtick templates whose interpolations wildcard one segment
   (`` fetch(`/videos/${id}`) `` matches `/videos/{video}`). A verb-named call pins the HTTP
   method; anything unrecognisable stays method-agnostic and never narrows the match. Inline
-  `<script>` blocks in changed Blade views get the same literal scan.
+  `<script>` blocks in changed Blade views get the same literal scan. A `/`-leading literal or
+  template only counts in **call-argument position** — a call's first argument or a later one
+  after a comma — so a constants file, nav-link config, or fixture whose strings happen to match
+  real routes is never mistaken for an endpoint call. Two idioms are a documented, deliberate
+  recall loss: a URL assigned to a variable and used later (`const URL = '/x'; fetch(URL)`), and
+  an options object's `url` property (`axios({ url: '/x' })`).
 
 Frontend spec files (`*.test.*`, `*.spec.*`, `*.cy.*` under the roots, or `frontend.test_paths`)
 referencing a touched route surface in `richter:affected-tests` as an advisory `frontendTests`
@@ -372,7 +378,7 @@ Point Claude Code, Cursor, or any MCP client at the Artisan entry point, e.g. in
 | `dispatch_helpers` | `[]` | Project-custom global job-dispatch helper functions (e.g. `dispatch_with_retries`) the dispatch tracer should follow. |
 | `entry_point_roots` | `Jobs`, `Listeners`, `Console/Commands`, `Filament`, `Helpers`, `Http/Middleware`, `Livewire`, `Observers` | Directories under `app/` traced as entry points beyond Brain's route-anchored graph (graph tracing only; the analyzer's risk-floor namespace heuristics are fixed). |
 | `frontend.roots` | `[]` (off) | Frontend roots whose changed TS/JS/Vue files are scanned for Wayfinder/Ziggy endpoint references (see [Frontend changes](#frontend-changes-wayfinder--ziggy)). |
-| `frontend.generated_paths` | `actions`, `routes`, `wayfinder` | Wayfinder's generated trees under each frontend root — excluded from scanning as regeneration churn. |
+| `frontend.generated_paths` | `actions`, `routes`, `wayfinder`, `ziggy.js` | Wayfinder's generated trees and Ziggy's generated route map under each frontend root — excluded from scanning as regeneration churn. Each entry matches a directory, an exact file, or a `*`-glob (crosses `/`). `.d.ts` files are always excluded, regardless of this list. |
 | `frontend.pages_path` | `resources/js/Pages` | Where Inertia page components live — a changed member rendering a page is noted under Findings with the resolved file. |
 | `frontend.test_paths` | `[]` (the frontend roots) | Directories scanned for frontend spec files whose endpoint references feed `richter:affected-tests`' advisory `frontendTests` list. |
 | `cache.enabled` | `true` | On-disk graph cache, keyed by a content fingerprint of the build inputs (see [Graph cache](#graph-cache)). |
