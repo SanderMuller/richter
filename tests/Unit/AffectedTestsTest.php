@@ -2,8 +2,10 @@
 
 namespace SanderMuller\Richter\Tests\Unit;
 
+use Illuminate\Support\Facades\Route;
 use PHPUnit\Framework\Attributes\Test;
 use SanderMuller\Richter\Analysis\AffectedTests;
+use SanderMuller\Richter\Analysis\FrontendTestIndex;
 use SanderMuller\Richter\Analysis\TestReferenceIndex;
 use SanderMuller\Richter\Changes\ChangedFileSymbols;
 use SanderMuller\Richter\Changes\MemberChange;
@@ -306,6 +308,27 @@ final class AffectedTestsTest extends TestCase
 
         $this->assertTrue($selection['determinable']);
         $this->assertSame(['tests/Feature/ErrorLogTest.php'], $selection['tests']);
+    }
+
+    #[Test]
+    public function frontend_specs_referencing_a_reached_route_are_suggested_without_gating_determinability(): void
+    {
+        Route::get('/errors/log', ['App\Http\Controllers\ErrorController', 'index'])->name('errors.log');
+        $frontendTests = new FrontendTestIndex();
+        $frontendTests->addSource("route('errors.log');", 'resources/js/errors.spec.ts');
+
+        $selection = AffectedTests::select(
+            $this->detectResult(['route::GET::/errors/log']),
+            [$this->changed('app/Services/X.php', 'App\Services\X')],
+            $this->index(),
+            hasUnresolvedDispatches: false,
+            frontendTests: $frontendTests,
+        );
+
+        $this->assertTrue($selection['determinable']);
+        $this->assertSame(['resources/js/errors.spec.ts'], $selection['frontendTests']);
+        // The PHP selection is untouched by the frontend axis.
+        $this->assertSame(['tests/Feature/ErrorLogTest.php', 'tests/Unit/XTest.php'], $selection['tests']);
     }
 
     #[Test]

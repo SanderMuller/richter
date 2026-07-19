@@ -229,7 +229,7 @@ The workflow analyzes the pull request's code, and analysis autoloads classes fr
 ```bash
 php artisan richter:affected-tests                        # human-readable selection
 php artisan richter:affected-tests --base=origin/develop
-php artisan richter:affected-tests --json                 # {base, determinable, reasons, tests, unreferencedEntryPoints}
+php artisan richter:affected-tests --json                 # {base, determinable, reasons, tests, frontendTests, unreferencedEntryPoints}
 php artisan test $(php artisan richter:affected-tests --plain)   # simple form — coarse but safe
 ```
 
@@ -270,8 +270,16 @@ exit-code branch above is the precise form.
 Opt-in: set `frontend.roots` (e.g. `['resources/js']`) and changed `.ts`/`.tsx`/`.js`/`.jsx`/`.vue`
 files are scanned for the backend endpoints they reference — [Wayfinder](https://github.com/laravel/wayfinder)
 imports (`@/actions/App/Http/Controllers/VideoController`, `@/routes/videos`), Ziggy
-`route('name')` calls, and literal endpoint strings (`axios.post('/videos')`) matched against
-the app's route templates. The referenced routes are reported as touched entry points, with their
+`route('name')` calls, and endpoint strings matched against the app's route templates: plain
+literals (`axios.post('/videos')`) and backtick templates whose interpolations wildcard one
+segment (`` fetch(`/videos/${id}`) `` matches `/videos/{video}`). A verb-named call pins the
+HTTP method; anything unrecognisable stays method-agnostic and never narrows the match. Inline
+scripts in changed Blade views get the same literal-endpoint scan. Because a frontend edit
+never changes backend behaviour, the report says so explicitly: risk reflects backend impact
+only. Frontend spec files (`*.test.*`, `*.spec.*`, `*.cy.*` under the roots, or
+`frontend.test_paths`) referencing a touched route surface in `richter:affected-tests` as an
+advisory `frontendTests` list for the JS runner — never in `--plain`, and never a
+determinability input. The referenced routes are reported as touched entry points, with their
 location, exposure and gate annotations, and they feed `richter:affected-tests` — but never the
 risk level or the impact counts: a frontend edit does not change backend behaviour. Wayfinder's
 generated trees (`actions/`, `routes/`, `wayfinder/` under each root) are excluded as
@@ -281,6 +289,12 @@ The scan is regex-based and says so when it can't see: a dynamic `route(`…`)` 
 unmatched Wayfinder action import marks the file UNRESOLVED (and `richter:affected-tests` exits
 `2`), while an unmatched `route('name')` string simply isn't a reference — `routes/` modules and
 `route()` helpers collide with frontend-router idioms, so unmatched names never guess.
+
+The bridge also runs in reverse, without any configuration: a changed backend member that
+renders an Inertia page (`Inertia::render('Videos/Show')`, the `inertia()` helper) is noted
+under Findings with the resolved page file under `frontend.pages_path` — or with an explicit
+"no page file found" when the component doesn't resolve, which usually means a renamed or
+deleted page.
 
 ### Scoring accuracy against replayable history
 
@@ -345,6 +359,8 @@ Point Claude Code, Cursor, or any MCP client at the Artisan entry point, e.g. in
 | `entry_point_roots` | `Jobs`, `Listeners`, `Console/Commands`, `Filament`, `Helpers`, `Http/Middleware`, `Livewire`, `Observers` | Directories under `app/` traced as entry points beyond Brain's route-anchored graph (graph tracing only; the analyzer's risk-floor namespace heuristics are fixed). |
 | `frontend.roots` | `[]` (off) | Frontend roots whose changed TS/JS/Vue files are scanned for Wayfinder/Ziggy endpoint references (see [Frontend changes](#frontend-changes-wayfinder--ziggy)). |
 | `frontend.generated_paths` | `actions`, `routes`, `wayfinder` | Wayfinder's generated trees under each frontend root — excluded from scanning as regeneration churn. |
+| `frontend.pages_path` | `resources/js/Pages` | Where Inertia page components live — a changed member rendering a page is noted under Findings with the resolved file. |
+| `frontend.test_paths` | `[]` (the frontend roots) | Directories scanned for frontend spec files whose endpoint references feed `richter:affected-tests`' advisory `frontendTests` list. |
 | `cache.enabled` | `true` | On-disk graph cache, keyed by a content fingerprint of the build inputs (see [Graph cache](#graph-cache)). |
 | `cache.directory` | `null` | Cache location; `null` means `storage/framework/cache/richter`. |
 | `benchmark_cases` | `[]` | Replayable accuracy fixtures for `richter:benchmark`. |

@@ -1018,6 +1018,26 @@ final class ImpactAnalyzerTest extends TestCase
     }
 
     #[Test]
+    public function a_blade_views_inline_fetch_route_is_a_touched_entry_point_not_a_walk_seed(): void
+    {
+        $analyzer = new ImpactAnalyzer(new CodeGraph([
+            ['source' => self::ROUTE, 'target' => 'App\Http\Controllers\VideoController', 'type' => 'route-to-controller'],
+            ['source' => 'route::GET::/errors/log', 'target' => 'App\Http\Controllers\ErrorController', 'type' => 'route-to-controller'],
+            ['source' => 'App\Http\Controllers\VideoController::publish', 'target' => 'view::blade__videos.show', 'type' => 'action-to-view'],
+        ]));
+
+        $result = $analyzer->detectChanges([
+            new ChangedFileSymbols('resources/views/videos/show.blade.php', '', [], cosmeticOnly: false, directSeeds: ['view::blade__videos.show', 'route::GET::/errors/log']),
+        ]);
+
+        // The inline-fetch route lists as touched surface; the view node still walks normally.
+        $this->assertContains('route::GET::/errors/log', $result['entryPoints']);
+        $this->assertContains('App\Http\Controllers\VideoController::publish', $this->nodes($result['callers']));
+        // The fetched route contributed no callers walk of its own — it is annotation, not reach.
+        $this->assertNotContains('App\Http\Controllers\ErrorController', $this->nodes($result['dependencies']));
+    }
+
+    #[Test]
     public function frontend_entry_points_carry_their_gate_and_location_annotations(): void
     {
         $analyzer = new ImpactAnalyzer(new CodeGraph(

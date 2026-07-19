@@ -23,9 +23,12 @@ final class AffectedTests
      * @param  CodeGraph|null  $graph  when given, a `schedule::` entry point resolves through its
      *   scheduled command (the schedule node id itself is an opaque hash) instead of blocking
      *   determination outright
-     * @return array{determinable: bool, reasons: list<string>, tests: list<string>, unreferencedEntryPoints: int}
+     * @param  FrontendTestIndex|null  $frontendTests  when given, frontend specs referencing a
+     *   reached route are suggested under `frontendTests` — advisory for the JS runner, never an
+     *   input to determinability (a route no spec references is not a blocker)
+     * @return array{determinable: bool, reasons: list<string>, tests: list<string>, frontendTests: list<string>, unreferencedEntryPoints: int}
      */
-    public static function select(array $result, array $changed, TestReferenceIndex $tests, bool $hasUnresolvedDispatches, ?CodeGraph $graph = null): array
+    public static function select(array $result, array $changed, TestReferenceIndex $tests, bool $hasUnresolvedDispatches, ?CodeGraph $graph = null, ?FrontendTestIndex $frontendTests = null): array
     {
         $reasons = [];
 
@@ -42,9 +45,11 @@ final class AffectedTests
         }
 
         $selected = [];
+        $frontendSelected = [];
         $unreferenced = 0;
 
         foreach ($result['entryPoints'] as $entryPoint) {
+            $frontendSelected = [...$frontendSelected, ...$frontendTests?->testsReferencing($entryPoint) ?? []];
             $referencing = self::testsReferencingEntryPoint($entryPoint, $tests, $graph);
 
             if ($referencing === null) {
@@ -84,6 +89,8 @@ final class AffectedTests
 
         $selected = array_values(array_unique($selected));
         sort($selected);
+        $frontendSelected = array_values(array_unique($frontendSelected));
+        sort($frontendSelected);
 
         return [
             'determinable' => $reasons === [],
@@ -91,6 +98,7 @@ final class AffectedTests
             // The selection is still reported when not determinable — useful context — but a
             // consumer must treat it as incomplete and run the full suite.
             'tests' => $selected,
+            'frontendTests' => $frontendSelected,
             'unreferencedEntryPoints' => $unreferenced,
         ];
     }

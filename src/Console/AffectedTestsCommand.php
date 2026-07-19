@@ -6,6 +6,7 @@ use Illuminate\Console\Command;
 use InvalidArgumentException;
 use RuntimeException;
 use SanderMuller\Richter\Analysis\AffectedTests;
+use SanderMuller\Richter\Analysis\FrontendTestIndex;
 use SanderMuller\Richter\Analysis\ImpactAnalyzer;
 use SanderMuller\Richter\Analysis\JsonPresenter;
 use SanderMuller\Richter\Analysis\TestReferenceIndex;
@@ -68,6 +69,7 @@ final class AffectedTestsCommand extends Command
                     'determinable' => true,
                     'reasons' => [],
                     'tests' => [],
+                    'frontendTests' => [],
                     'unreferencedEntryPoints' => 0,
                 ]);
             }
@@ -80,6 +82,7 @@ final class AffectedTestsCommand extends Command
                 TestReferenceIndex::fromTests(base_path('tests'), base_path()),
                 $graph->hasUnresolvedDispatches(),
                 $graph,
+                $this->frontendTestIndex(),
             );
 
             return $this->emit($json, $plain, $base, $selection);
@@ -100,7 +103,20 @@ final class AffectedTestsCommand extends Command
         }
     }
 
-    /** @param  array{determinable: bool, reasons: list<string>, tests: list<string>, unreferencedEntryPoints: int}  $selection */
+    /**
+     * The frontend spec index, only when the bridge (or an explicit test path) is configured —
+     * an unconfigured project must not pay a directory scan per run.
+     */
+    private function frontendTestIndex(): ?FrontendTestIndex
+    {
+        if (RichterConfig::frontendRoots() === [] && RichterConfig::frontendTestPaths() === []) {
+            return null;
+        }
+
+        return FrontendTestIndex::fromConfiguredPaths(base_path());
+    }
+
+    /** @param  array{determinable: bool, reasons: list<string>, tests: list<string>, frontendTests: list<string>, unreferencedEntryPoints: int}  $selection */
     private function emit(bool $json, bool $plain, string $base, array $selection): int
     {
         $exit = $selection['determinable'] ? self::SUCCESS : self::UNDETERMINED;
@@ -113,7 +129,8 @@ final class AffectedTestsCommand extends Command
 
         if ($plain) {
             // Only a determinable selection may print — an undetermined one keeps stdout empty so
-            // command substitution degrades to the full suite.
+            // command substitution degrades to the full suite. Frontend specs never print here:
+            // this output feeds the PHP test runner.
             if ($selection['determinable']) {
                 foreach ($selection['tests'] as $test) {
                     $this->line($test);
@@ -139,6 +156,14 @@ final class AffectedTestsCommand extends Command
             $this->line("  - {$test}");
         }
 
+        if ($selection['frontendTests'] !== []) {
+            $this->line('Frontend specs referencing the touched routes (run with your JS runner): ' . count($selection['frontendTests']));
+
+            foreach ($selection['frontendTests'] as $test) {
+                $this->line("  - {$test}");
+            }
+        }
+
         if ($selection['unreferencedEntryPoints'] > 0) {
             $this->line("Note: {$selection['unreferencedEntryPoints']} reached entry point(s) have no referencing test — the selection cannot cover them.");
         }
@@ -153,6 +178,7 @@ final class AffectedTestsCommand extends Command
             'determinable' => false,
             'reasons' => $reasons,
             'tests' => [],
+            'frontendTests' => [],
             'unreferencedEntryPoints' => 0,
         ]);
     }

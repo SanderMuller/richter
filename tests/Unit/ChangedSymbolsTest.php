@@ -10,6 +10,7 @@ use SanderMuller\Richter\Changes\ChangedSymbols;
 use SanderMuller\Richter\Changes\MemberChange;
 use SanderMuller\Richter\Tests\TestCase;
 use SanderMuller\Richter\Tracers\EagerLoadStringChecker;
+use SanderMuller\Richter\Tracers\InertiaPageChecker;
 
 final class ChangedSymbolsTest extends TestCase
 {
@@ -43,6 +44,33 @@ final class ChangedSymbolsTest extends TestCase
         $bar = $result->resolvableMembers()[0];
         $this->assertSame('bar', $bar->name);
         $this->assertSame(MemberChange::CHANGE_MODIFIED, $bar->change);
+    }
+
+    #[Test]
+    public function an_inertia_render_in_a_changed_member_is_noted_with_its_page_file(): void
+    {
+        $head = "<?php\nuse Inertia\\Inertia;\n\nclass VideoController\n{\n    public function show(): mixed\n    {\n        return Inertia::render('Videos/Show');\n    }\n}\n";
+        $base = "<?php\nuse Inertia\\Inertia;\n\nclass VideoController\n{\n    public function show(): mixed\n    {\n        return null;\n    }\n}\n";
+        $hunk = $this->hunk([[8, "        return Inertia::render('Videos/Show');"]], [[8, '        return null;']]);
+
+        $result = ChangedSymbols::classifyFile('app/Http/Controllers/VideoController.php', $head, $base, $hunk, inertiaPageChecker: new InertiaPageChecker(self::fixtureProjectPath()));
+
+        $this->assertSame(
+            ["renders Inertia page 'Videos/Show' (resources/js/Pages/Videos/Show.vue) — that page is part of this change's surface"],
+            $result->findings,
+        );
+    }
+
+    #[Test]
+    public function an_inertia_render_in_an_untouched_sibling_member_is_not_noted(): void
+    {
+        $head = "<?php\nuse Inertia\\Inertia;\n\nclass VideoController\n{\n    public function show(): mixed\n    {\n        return Inertia::render('Videos/Show');\n    }\n\n    public function touch(): int\n    {\n        return 1;\n    }\n}\n";
+        $base = "<?php\nuse Inertia\\Inertia;\n\nclass VideoController\n{\n    public function show(): mixed\n    {\n        return Inertia::render('Videos/Show');\n    }\n\n    public function touch(): int\n    {\n        return 0;\n    }\n}\n";
+        $hunk = $this->hunk([[13, '        return 1;']], [[13, '        return 0;']]);
+
+        $result = ChangedSymbols::classifyFile('app/Http/Controllers/VideoController.php', $head, $base, $hunk, inertiaPageChecker: new InertiaPageChecker(self::fixtureProjectPath()));
+
+        $this->assertSame([], $result->findings);
     }
 
     #[Test]

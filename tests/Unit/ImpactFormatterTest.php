@@ -58,6 +58,25 @@ final class ImpactFormatterTest extends TestCase
     }
 
     #[Test]
+    public function a_frontend_change_notes_that_risk_covers_backend_impact_only(): void
+    {
+        $result = $this->summary(['route::GET::/videos']);
+        $result['changed'] = ['resources/js/Pages/Videos.vue' => 1];
+        $result['coverage'] = ['resources/js/Pages/Videos.vue' => 'analyzed'];
+
+        $this->assertStringContainsString(
+            'frontend change — risk reflects backend impact only',
+            ImpactFormatter::detectChanges($result),
+        );
+    }
+
+    #[Test]
+    public function a_backend_only_change_carries_no_frontend_note(): void
+    {
+        $this->assertStringNotContainsString('backend impact only', ImpactFormatter::detectChanges($this->summary([])));
+    }
+
+    #[Test]
     public function it_renders_source_findings_between_the_reach_and_the_risk(): void
     {
         $result = $this->summary(['route::GET /videos']) + ['findings' => ["app/Exports/X.php: eager-load string 'interactionsquestions' matches no relation"]];

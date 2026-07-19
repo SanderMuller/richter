@@ -37,6 +37,17 @@ final class MarkdownFormatterTest extends TestCase
     }
 
     #[Test]
+    public function a_frontend_change_notes_that_risk_covers_backend_impact_only(): void
+    {
+        $output = MarkdownFormatter::detectChanges($this->summary(
+            ['route::GET::/videos'],
+            coverage: ['resources/js/Pages/Videos.vue' => 'analyzed'],
+        ));
+
+        $this->assertStringContainsString('> ℹ️ Frontend change: risk reflects backend impact only', $output);
+    }
+
+    #[Test]
     public function detect_changes_leads_with_a_risk_badge_and_the_advisory_note(): void
     {
         $output = MarkdownFormatter::detectChanges($this->summary(['route::GET::/videos'], risk: RiskLevel::High));

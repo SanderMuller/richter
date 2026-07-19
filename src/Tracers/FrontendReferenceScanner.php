@@ -14,6 +14,13 @@ namespace SanderMuller\Richter\Tracers;
 final class FrontendReferenceScanner
 {
     /**
+     * What a template-literal interpolation collapses to before route-template matching: a
+     * single-segment wildcard-ish token, mirroring the `{param}` → one-segment assumption the
+     * templates themselves make.
+     */
+    public const string INTERPOLATION = '*';
+
+    /**
      * @return array{actions: list<array{class: string, method: string|null}>, routeNames: list<string>, uris: list<array{uri: string, method: string|null}>, unresolved: bool}
      */
     public function scan(string $source): array
@@ -54,30 +61,54 @@ final class FrontendReferenceScanner
 
         preg_match_all('/(?<![\w$])route\s*\(\s*[\'"]([^\'"]+)[\'"]/', $source, $ziggy);
 
-        // Every root-relative string literal is a candidate endpoint (`axios.get('/api/videos')`,
-        // `fetch('/videos?page=2')`) — the query/fragment is not part of the route template. Plain
-        // literals only, never template literals: interpolated URL-building is usually frontend
-        // routing, and an unmatched candidate is silently dropped downstream anyway. A verb-named
-        // call directly around the literal (`.post('/x'`, `put('/x'`) pins the HTTP method; any
-        // other shape — `fetch()` options, wrappers — stays null so uncertainty never narrows.
-        preg_match_all('/(?:\b(get|post|put|patch|delete)\s*\(\s*)?[\'"](\/[^\'"\s?#]*)[?#]?[^\'"]*[\'"]/i', $source, $literals, PREG_SET_ORDER);
-
-        $uris = [];
-
-        foreach ($literals as $literal) {
-            $method = $literal[1] === '' ? null : strtolower($literal[1]);
-            $uris[$literal[2] . '|' . ($method ?? '*')] = ['uri' => $literal[2], 'method' => $method];
-        }
-
         return [
             'actions' => $this->uniqueActions($actions),
             'routeNames' => array_values(array_unique([...$routeNames, ...$ziggy[1]])),
-            'uris' => array_values($uris),
+            'uris' => array_values($this->uriCandidates($source)),
             // `route(` followed by anything but a string literal or `)` is a dynamic argument —
             // a template literal or variable the scan cannot resolve. Ziggy's argless `route()`
             // fluent form is not dynamic.
             'unresolved' => preg_match('/(?<![\w$])route\s*\(\s*[^\'")\s]/', $source) === 1,
         ];
+    }
+
+    /**
+     * Every root-relative endpoint candidate, deduplicated per (uri, method). Plain string
+     * literals (`axios.get('/api/videos')`) and backtick templates (`fetch(`/videos/${id}`)` —
+     * THE parameterised idiom in apps without Ziggy or Wayfinder, each `${…}` collapsing to a
+     * one-segment wildcard token); the query/fragment is not part of the route template, and a
+     * template left containing whitespace is an HTML string, not a URL. A verb-named call
+     * directly around the literal (`.post('/x'`, `put('/x'`) pins the HTTP method; any other
+     * shape — `fetch()` options, wrappers — stays null so uncertainty never narrows.
+     *
+     * @return array<string, array{uri: string, method: string|null}>
+     */
+    private function uriCandidates(string $source): array
+    {
+        $uris = [];
+
+        preg_match_all('/(?:\b(get|post|put|patch|delete)\s*\(\s*)?[\'"](\/[^\'"\s?#]*)[?#]?[^\'"]*[\'"]/i', $source, $literals, PREG_SET_ORDER);
+
+        foreach ($literals as $literal) {
+            $method = $literal[1] === '' ? null : strtolower($literal[1]);
+            $uris[$literal[2] . '|' . ($method ?? '')] = ['uri' => $literal[2], 'method' => $method];
+        }
+
+        preg_match_all('/(?:\b(get|post|put|patch|delete)\s*\(\s*)?`(\/[^`]*)`/i', $source, $templates, PREG_SET_ORDER);
+
+        foreach ($templates as $template) {
+            $uri = (string) preg_replace('/\$\{[^}]*\}/', self::INTERPOLATION, $template[2]);
+            $uri = (string) preg_replace('/[?#].*/s', '', $uri);
+
+            if (preg_match('/\s/', $uri) === 1) {
+                continue;
+            }
+
+            $method = $template[1] === '' ? null : strtolower($template[1]);
+            $uris[$uri . '|' . ($method ?? '')] = ['uri' => $uri, 'method' => $method];
+        }
+
+        return $uris;
     }
 
     /**

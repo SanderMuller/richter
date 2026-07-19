@@ -93,7 +93,23 @@ final class ImpactFormatter
             $lines[] = "Note: low confidence — a changed member could not be pinned to a graph node, so part of this is a coarse class-level estimate{$cap}.";
         }
 
+        // A LOW on a frontend-heavy diff is easily misread as "nothing to see" — say what the
+        // number does and does not measure.
+        if (self::hasFrontendFiles($result['changed'])) {
+            $lines[] = 'Note: frontend change — risk reflects backend impact only; the routes listed are the surface this change touches.';
+        }
+
         return implode("\n", $lines);
+    }
+
+    /**
+     * Whether the changed set contains frontend files (never `.php`; Blade is `.blade.php`).
+     *
+     * @param  array<string, int>  $changed
+     */
+    public static function hasFrontendFiles(array $changed): bool
+    {
+        return array_any(array_keys($changed), static fn (string $file): bool => ! str_ends_with($file, '.php'));
     }
 
     /**

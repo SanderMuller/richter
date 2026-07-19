@@ -8,6 +8,7 @@ use SanderMuller\Richter\Graph\BladeViews;
 use SanderMuller\Richter\Support\Fqcn;
 use SanderMuller\Richter\Tracers\EagerLoadStringChecker;
 use SanderMuller\Richter\Tracers\FeatureGateChecker;
+use SanderMuller\Richter\Tracers\InertiaPageChecker;
 
 /** Resolves which class members a branch changed (and how) vs a base ref, so impact seeds on the member not the file. {@see resolve()} holds git plumbing; {@see classifyFile()} is pure over source + hunk. */
 final class ChangedSymbols
@@ -42,6 +43,7 @@ final class ChangedSymbols
         // added since the previous run (same long-lived process) is seen, never a false alarm.
         $eagerLoadChecker = new EagerLoadStringChecker();
         $featureGateChecker = new FeatureGateChecker();
+        $inertiaPageChecker = new InertiaPageChecker();
         $frontendChanges = new FrontendChanges();
 
         foreach (UnifiedDiffParser::parse($diff->output()) as $file => $hunk) {
@@ -75,7 +77,7 @@ final class ChangedSymbols
                 // Use the pre-change path so a rename still resolves the base-side members.
                 $baseSrc = self::baseSource($mergeBase, $hunk['oldPath']);
 
-                $changed[] = self::classifyFile($file, $headSrc, $baseSrc, ['added' => $hunk['added'], 'removed' => $hunk['removed']], $eagerLoadChecker, $featureGateChecker);
+                $changed[] = self::classifyFile($file, $headSrc, $baseSrc, ['added' => $hunk['added'], 'removed' => $hunk['removed']], $eagerLoadChecker, $featureGateChecker, $inertiaPageChecker);
 
                 continue;
             }
@@ -94,7 +96,13 @@ final class ChangedSymbols
 
             if ($viewSeed !== null) {
                 // An unreadable view source just skips the flag note — the seed itself is unaffected.
-                $changed[] = new ChangedFileSymbols($file, '', [], cosmeticOnly: false, directSeeds: [$viewSeed], findings: $featureGateChecker->bladeFindingsFor(self::headSource($head, $file) ?? ''));
+                // Inline-script endpoint literals (`fetch('/api/…')` in Alpine/vanilla JS) ride along
+                // as touched-surface seeds next to the view node.
+                $headSrc = self::headSource($head, $file);
+                $changed[] = new ChangedFileSymbols($file, '', [], cosmeticOnly: false, directSeeds: [
+                    $viewSeed,
+                    ...$frontendChanges->inlineUriSeeds($headSrc, self::baseSource($mergeBase, $hunk['oldPath'])),
+                ], findings: $featureGateChecker->bladeFindingsFor($headSrc ?? ''));
             }
         }
 
@@ -102,7 +110,7 @@ final class ChangedSymbols
     }
 
     /** @param  array{added: list<array{line: int, text: string}>, removed: list<array{line: int, text: string}>}  $hunk */
-    public static function classifyFile(string $file, string $headSrc, ?string $baseSrc, array $hunk, ?EagerLoadStringChecker $eagerLoadChecker = null, ?FeatureGateChecker $featureGateChecker = null): ChangedFileSymbols
+    public static function classifyFile(string $file, string $headSrc, ?string $baseSrc, array $hunk, ?EagerLoadStringChecker $eagerLoadChecker = null, ?FeatureGateChecker $featureGateChecker = null, ?InertiaPageChecker $inertiaPageChecker = null): ChangedFileSymbols
     {
         $head = MemberResolver::resolve($headSrc);
         $base = $baseSrc !== null ? MemberResolver::resolve($baseSrc) : ['parsed' => true, 'members' => [], 'classRanges' => []];
@@ -164,28 +172,31 @@ final class ChangedSymbols
             $members[] = self::coarseClassChange();
         }
 
-        return new ChangedFileSymbols($file, Fqcn::fromPath($file), $members, $members === [], findings: self::sourceFindings($members, $head['members'], $headSrc, $eagerLoadChecker, $featureGateChecker));
+        return new ChangedFileSymbols($file, Fqcn::fromPath($file), $members, $members === [], findings: self::sourceFindings($members, $head['members'], $headSrc, $eagerLoadChecker, $featureGateChecker, $inertiaPageChecker));
     }
 
     /**
      * Advisory notes about the changed source itself, from every source checker — nothing to note
-     * on a file without member-level changes. Feature-gate notes are scoped to the CHANGED members'
-     * line spans (a class-level coarse change scans the whole file): an untouched sibling method's
-     * flag check must never imply the change itself is gated.
+     * on a file without member-level changes. Feature-gate and Inertia-page notes are scoped to
+     * the CHANGED members' line spans (a class-level coarse change scans the whole file): an
+     * untouched sibling method's flag check or render must never read as part of the change.
      *
      * @param  list<MemberChange>  $members
      * @param  list<array{name: string, kind: string, resolvable: bool, start: int, end: int}>  $headMembers
      * @return list<string>
      */
-    private static function sourceFindings(array $members, array $headMembers, string $headSrc, ?EagerLoadStringChecker $eagerLoadChecker, ?FeatureGateChecker $featureGateChecker): array
+    private static function sourceFindings(array $members, array $headMembers, string $headSrc, ?EagerLoadStringChecker $eagerLoadChecker, ?FeatureGateChecker $featureGateChecker, ?InertiaPageChecker $inertiaPageChecker): array
     {
         if ($members === []) {
             return [];
         }
 
+        $changedRanges = self::changedMemberRanges($members, $headMembers);
+
         return [
             ...($eagerLoadChecker ?? new EagerLoadStringChecker())->findingsFor($headSrc),
-            ...($featureGateChecker ?? new FeatureGateChecker())->findingsFor($headSrc, self::changedMemberRanges($members, $headMembers)),
+            ...($featureGateChecker ?? new FeatureGateChecker())->findingsFor($headSrc, $changedRanges),
+            ...($inertiaPageChecker ?? new InertiaPageChecker())->findingsFor($headSrc, $changedRanges),
         ];
     }
 

@@ -221,7 +221,31 @@ final class FrontendReferenceScannerTest extends TestCase
             import { show } from "@/actions/App/Http/Controllers/VideoController";
             const url = "https://example.com/path";
             const name = 'videos.show';
-            const template = `/videos/${id}`;
+            TS);
+
+        $this->assertSame([], $result['uris']);
+    }
+
+    #[Test]
+    public function a_template_literal_endpoint_wildcards_its_interpolations(): void
+    {
+        $result = $this->scanner()->scan(<<<'TS'
+            fetch(`/videos/${id}`);
+            axios.post(`/videos/${id}/questions?draft=${draft}`);
+            TS);
+
+        $this->assertSame([
+            ['uri' => '/videos/*', 'method' => null],
+            ['uri' => '/videos/*/questions', 'method' => 'post'],
+        ], $result['uris']);
+    }
+
+    #[Test]
+    public function a_template_literal_with_whitespace_is_markup_not_an_endpoint(): void
+    {
+        $result = $this->scanner()->scan(<<<'TS'
+            const html = `/videos <b>${title}</b>`;
+            const rooted = `${base}/videos`;
             TS);
 
         $this->assertSame([], $result['uris']);

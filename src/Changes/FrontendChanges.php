@@ -119,6 +119,82 @@ final class FrontendChanges
     }
 
     /**
+     * The route nodes referenced by URI literals in inline `<script>` blocks — the surface a
+     * changed Blade view's `fetch('/api/…')` touches. Script slices only: markup hrefs, form
+     * actions and Blade's `route()` helper are navigation/link *generation* (every layout renders
+     * dozens), not endpoint calls — scanning them would register every linked route as touched.
+     * Alpine attribute handlers are a known miss. Annotation-grade: an unavailable router yields
+     * nothing rather than blocking anything.
+     *
+     * @return list<string>
+     */
+    public function inlineUriSeeds(?string $headSrc, ?string $baseSrc): array
+    {
+        $uris = [
+            ...$this->scanner->scan(self::scriptSlices($headSrc ?? ''))['uris'],
+            ...$this->scanner->scan(self::scriptSlices($baseSrc ?? ''))['uris'],
+        ];
+
+        if ($uris === []) {
+            return [];
+        }
+
+        $indexes = $this->indexes();
+
+        if ($indexes === null) {
+            return [];
+        }
+
+        return array_values(array_unique($this->seedsForUris($uris, $indexes['uriTemplates'])));
+    }
+
+    private static function scriptSlices(string $source): string
+    {
+        preg_match_all('/<script\b[^>]*>(.*?)<\/script>/is', $source, $matches);
+
+        return implode("\n", $matches[1]);
+    }
+
+    /**
+     * Every route node one frontend source references, across all three reference kinds — the
+     * building block for indexing frontend TEST files, where a missed reference only means a test
+     * isn't suggested (nothing to flag unresolved).
+     *
+     * @return list<string>
+     */
+    public function routeNodesIn(string $source): array
+    {
+        $scan = $this->scanner->scan($source);
+
+        if ($scan['actions'] === [] && $scan['routeNames'] === [] && $scan['uris'] === []) {
+            return [];
+        }
+
+        $indexes = $this->indexes();
+
+        if ($indexes === null) {
+            return [];
+        }
+
+        $seeds = [];
+
+        foreach ($scan['actions'] as $action) {
+            $seeds = [
+                ...$seeds,
+                ...$action['method'] === null
+                    ? $indexes['byClass'][$action['class']] ?? []
+                    : $indexes['byAction']["{$action['class']}::{$action['method']}"] ?? [],
+            ];
+        }
+
+        foreach ($scan['routeNames'] as $name) {
+            $seeds = [...$seeds, ...$indexes['byName'][$name] ?? []];
+        }
+
+        return array_values(array_unique([...$seeds, ...$this->seedsForUris($scan['uris'], $indexes['uriTemplates'])]));
+    }
+
+    /**
      * Route-node ids per route name, per controller action, per controller class, and per URI
      * template (each template as a regex with `{param}` segments wildcarded, the same matching
      * {@see TestReferenceIndex} uses) — node ids in the `route::{METHOD}::/{uri}` shape the graph

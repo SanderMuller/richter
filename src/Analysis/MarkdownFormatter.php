@@ -64,6 +64,11 @@ final class MarkdownFormatter
             $lines[] = "> ⚠️ Low confidence: a changed member could not be pinned to a graph node, so part of this is a coarse class-level estimate{$cap}.";
         }
 
+        if (ImpactFormatter::hasFrontendFiles($result['changed'])) {
+            $lines[] = '';
+            $lines[] = '> ℹ️ Frontend change: risk reflects backend impact only — the routes listed below are the surface this change touches.';
+        }
+
         $lines = [...$lines, '', '### Changed files', ''];
         $lines[] = '| File | Graph nodes | Coverage |';
         $lines[] = '|---|---:|---|';

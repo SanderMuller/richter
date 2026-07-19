@@ -114,8 +114,18 @@ final readonly class ImpactAnalyzer
 
             // A changed Blade view seeds its own node directly (no members to pin) — a precise seed,
             // so it raises no low-confidence flag; it resolves to nothing only when the view is
-            // unreachable, which then reads as UNRESOLVED below, not "no impact".
+            // unreachable, which then reads as UNRESOLVED below, not "no impact". An entry-prefixed
+            // direct seed (a route an inline `fetch()` calls) instead takes the same annotation
+            // lane as frontend files: a touched surface, never a walk seed.
             foreach ($file->directSeeds as $directSeed) {
+                if (Str::startsWith($directSeed, self::ENTRY_POINT_PREFIXES)) {
+                    if ($this->graph->hasNode($directSeed)) {
+                        $frontendSeeds[$file->file] = [...$frontendSeeds[$file->file] ?? [], $directSeed];
+                    }
+
+                    continue;
+                }
+
                 $fileSeeds = [...$fileSeeds, ...$this->seedsFor($directSeed)];
             }
 

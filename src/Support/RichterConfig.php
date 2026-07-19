@@ -48,6 +48,27 @@ final class RichterConfig
         return self::stringList('richter.frontend.generated_paths') ?? ['actions', 'routes', 'wayfinder'];
     }
 
+    /** @return list<string> empty means "derive from the frontend roots" */
+    public static function frontendTestPaths(): array
+    {
+        return self::stringList('richter.frontend.test_paths') ?? [];
+    }
+
+    public static function frontendPagesPath(): string
+    {
+        $value = config('richter.frontend.pages_path');
+
+        if ($value === null || $value === '') {
+            return 'resources/js/Pages';
+        }
+
+        if (! is_string($value)) {
+            throw new InvalidArgumentException('The richter.frontend.pages_path config value must be a string path.');
+        }
+
+        return $value;
+    }
+
     public static function cacheEnabled(): bool
     {
         $value = config('richter.cache.enabled');

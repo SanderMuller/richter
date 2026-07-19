@@ -247,4 +247,14 @@ final class RichterConfigTest extends TestCase
 
         $this->assertSame(['actions', 'routes', 'wayfinder'], RichterConfig::frontendGeneratedPaths());
     }
+
+    #[Test]
+    public function the_pages_path_defaults_to_the_inertia_convention(): void
+    {
+        config()->offsetUnset('richter.frontend');
+        $this->assertSame('resources/js/Pages', RichterConfig::frontendPagesPath());
+
+        config()->set('richter.frontend.pages_path', 'resources/js/pages');
+        $this->assertSame('resources/js/pages', RichterConfig::frontendPagesPath());
+    }
 }

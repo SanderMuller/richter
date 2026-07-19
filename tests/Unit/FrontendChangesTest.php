@@ -153,6 +153,43 @@ final class FrontendChangesTest extends TestCase
     }
 
     #[Test]
+    public function a_template_literal_endpoint_matches_through_its_wildcarded_interpolation(): void
+    {
+        $symbols = $this->frontend()->resolve('resources/js/lib/api.ts', 'fetch(`/videos/${id}`);', null);
+
+        $this->assertSame(['route::GET::/videos/{video}'], $symbols->directSeeds);
+        $this->assertFalse($symbols->unresolvedFrontendReferences);
+    }
+
+    #[Test]
+    public function inline_uri_seeds_map_script_literals_only(): void
+    {
+        // The Blade lane: fetch literals inside <script> seed; markup hrefs, form actions and
+        // Blade's route() helper are navigation, not endpoint calls.
+        $seeds = $this->frontend()->inlineUriSeeds(
+            "<a href=\"/videos/9\">watch</a>\n<form action=\"/videos\" method=\"POST\"></form>\n<script>fetch('/videos/7', {method: 'GET'});</script>",
+            "<a href=\"{{ route('videos.store') }}\">old</a>",
+        );
+
+        $this->assertSame(['route::GET::/videos/{video}'], $seeds);
+    }
+
+    #[Test]
+    public function route_nodes_in_unions_all_three_reference_kinds(): void
+    {
+        $nodes = $this->frontend()->routeNodesIn(<<<'TS'
+            import { store } from "@/actions/App/Http/Controllers/VideoController";
+            route('users.show');
+            fetch(`/videos/${id}`);
+            TS);
+
+        $this->assertSame(
+            ['route::POST::/videos', 'route::GET::/users/{user?}', 'route::GET::/videos/{video}'],
+            $nodes,
+        );
+    }
+
+    #[Test]
     public function a_non_endpoint_literal_matches_no_template_and_is_not_a_reference(): void
     {
         $symbols = $this->frontend()->resolve(

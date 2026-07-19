@@ -32,6 +32,13 @@ return [
     'frontend' => [
         'roots' => [],
         'generated_paths' => ['actions', 'routes', 'wayfinder'],
+        // Where Inertia page components live — a changed backend member rendering a page is
+        // noted under Findings with the resolved page file (works without `roots`).
+        'pages_path' => 'resources/js/Pages',
+        // Directories scanned for frontend spec files (*.test.*/*.spec.*/*.cy.*) whose endpoint
+        // references feed richter:affected-tests' advisory frontendTests list. Empty means
+        // "the frontend roots".
+        'test_paths' => [],
     ],
 
     /*
