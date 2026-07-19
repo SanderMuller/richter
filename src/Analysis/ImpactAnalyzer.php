@@ -120,17 +120,7 @@ final readonly class ImpactAnalyzer
             // unreachable, which then reads as UNRESOLVED below, not "no impact". An entry-prefixed
             // direct seed (a route an inline `fetch()` calls) instead takes the same annotation
             // lane as frontend files: a touched surface, never a walk seed.
-            foreach ($file->directSeeds as $directSeed) {
-                if (Str::startsWith($directSeed, self::ENTRY_POINT_PREFIXES)) {
-                    if ($this->graph->hasNode($directSeed)) {
-                        $frontendSeeds[$file->file] = [...$frontendSeeds[$file->file] ?? [], $directSeed];
-                    }
-
-                    continue;
-                }
-
-                $fileSeeds = [...$fileSeeds, ...$this->seedsFor($directSeed)];
-            }
+            $fileSeeds = [...$fileSeeds, ...$this->directWalkSeeds($file, $frontendSeeds)];
 
             $preciseSeeds = [...$preciseSeeds, ...$fileSeeds];
 
@@ -253,6 +243,46 @@ final readonly class ImpactAnalyzer
         $unplaced = $file->unresolvedFrontendReferences || ($resolved === [] && $file->directSeeds !== []);
 
         return [$resolved, count($resolved), $unplaced ? 'unresolved' : 'analyzed'];
+    }
+
+    /**
+     * A changed file's directSeeds, split by kind: entry-prefixed seeds (a route an inline `fetch()`
+     * calls) are appended to `$frontendSeeds` by reference and never walked, matching frontendLane's
+     * annotation-only treatment. A view node id (`view::`) is exact graph membership too — the same
+     * reason as above: `components.card` is a boundary-clean substring of `components.card.header`,
+     * and a sibling view that didn't change must never seed. An absent view node seeds nothing,
+     * which reads UNRESOLVED at the caller, exactly as before. Everything else (a pure-rename's old
+     * FQCN) falls through to substring matching via {@see seedsFor()} — intentional, so both the
+     * class node and its member nodes seed.
+     *
+     * @param  array<string, list<string>>  $frontendSeeds
+     * @return list<string>
+     */
+    private function directWalkSeeds(ChangedFileSymbols $file, array &$frontendSeeds): array
+    {
+        $fileSeeds = [];
+
+        foreach ($file->directSeeds as $directSeed) {
+            if (Str::startsWith($directSeed, self::ENTRY_POINT_PREFIXES)) {
+                if ($this->graph->hasNode($directSeed)) {
+                    $frontendSeeds[$file->file] = [...$frontendSeeds[$file->file] ?? [], $directSeed];
+                }
+
+                continue;
+            }
+
+            if (str_starts_with($directSeed, 'view::')) {
+                if ($this->graph->hasNode($directSeed)) {
+                    $fileSeeds[] = $directSeed;
+                }
+
+                continue;
+            }
+
+            $fileSeeds = [...$fileSeeds, ...$this->seedsFor($directSeed)];
+        }
+
+        return $fileSeeds;
     }
 
     /**

@@ -342,6 +342,30 @@ final class ImpactAnalyzerTest extends TestCase
     }
 
     #[Test]
+    public function a_changed_view_never_seeds_a_nested_sibling_view(): void
+    {
+        // `components.card` is a boundary-clean substring of `components.card.header` — a changed
+        // card must never drag its unrelated header sibling's entry point along for the ride.
+        $card = 'view::blade__components.card';
+        $cardHeader = 'view::blade__components.card.header';
+        $analyzer = new ImpactAnalyzer(new CodeGraph([
+            ['source' => 'route::GET::/card', 'target' => 'App\Http\Controllers\CardController', 'type' => 'route-to-controller'],
+            ['source' => 'App\Http\Controllers\CardController', 'target' => $card, 'type' => 'action-to-view'],
+            ['source' => 'route::GET::/card-header', 'target' => 'App\Http\Controllers\CardHeaderController', 'type' => 'route-to-controller'],
+            ['source' => 'App\Http\Controllers\CardHeaderController', 'target' => $cardHeader, 'type' => 'action-to-view'],
+        ]));
+
+        $file = 'resources/views/components/card.blade.php';
+        $result = $analyzer->detectChanges([
+            new ChangedFileSymbols($file, '', [], cosmeticOnly: false, directSeeds: [$card]),
+        ]);
+
+        $this->assertContains('route::GET::/card', $result['entryPoints']);
+        $this->assertNotContains('route::GET::/card-header', $result['entryPoints']);
+        $this->assertSame('analyzed', $result['coverage'][$file]);
+    }
+
+    #[Test]
     public function a_pure_rename_reaches_the_old_fqcns_callers(): void
     {
         // A pure rename seeds the vanished OLD FQCN directly — head-tree callers still reference
