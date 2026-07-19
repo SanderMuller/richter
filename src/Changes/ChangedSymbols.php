@@ -22,7 +22,7 @@ final class ChangedSymbols
      */
     public static function resolve(string $base, string $head = 'HEAD'): array
     {
-        $diff = Process::path(base_path())->run(['git', 'diff', '-U0', '--end-of-options', "{$base}...{$head}"]);
+        $diff = Process::path(base_path())->run(['git', '-c', 'core.quotepath=off', 'diff', '-U0', '--end-of-options', "{$base}...{$head}"]);
 
         if (! $diff->successful()) {
             throw new RuntimeException("git diff against '{$base}' failed: " . trim($diff->errorOutput()));

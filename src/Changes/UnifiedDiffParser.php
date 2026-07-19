@@ -50,13 +50,13 @@ final class UnifiedDiffParser
             }
 
             if (! $inHunk && str_starts_with($line, 'rename from ')) {
-                $pendingRenameFrom = substr($line, 12);
+                $pendingRenameFrom = self::unquote(substr($line, 12));
 
                 continue;
             }
 
             if (! $inHunk && str_starts_with($line, 'rename to ')) {
-                $pendingRenameTo = substr($line, 10);
+                $pendingRenameTo = self::unquote(substr($line, 10));
 
                 continue;
             }
@@ -146,7 +146,7 @@ final class UnifiedDiffParser
 
     private static function stripPrefix(string $path): ?string
     {
-        $path = trim($path);
+        $path = self::unquote(trim($path));
 
         if ($path === '/dev/null') {
             return null;
@@ -157,5 +157,31 @@ final class UnifiedDiffParser
         }
 
         return $path;
+    }
+
+    /**
+     * Undo git's core.quotePath C-style quoting: a path containing bytes ≥ 0x80 or
+     * specials is emitted double-quoted with octal (\303\251) and character (\" \\ \t \n)
+     * escapes. Unquoted values pass through untouched, so this is safe on every path.
+     */
+    private static function unquote(string $path): string
+    {
+        if (strlen($path) < 2 || ! str_starts_with($path, '"') || ! str_ends_with($path, '"')) {
+            return $path;
+        }
+
+        $inner = substr($path, 1, -1);
+
+        return (string) preg_replace_callback(
+            '/\\\\(?:([0-7]{1,3})|(.))/',
+            // A byte escape is at most 3 octal digits, but that allows \400-\777 (256-511) — values
+            // no byte can hold. Git never emits those (an octal escape is always one raw byte), but
+            // `chr()` itself only accepts int<0,255>; masking the low byte keeps the type honest
+            // without changing behaviour for any escape git actually produces.
+            static fn (array $m): string => $m[1] !== '' ? chr((int) octdec($m[1]) & 0xFF) : match ($m[2]) {
+                'n' => "\n", 't' => "\t", 'r' => "\r", default => $m[2],
+            },
+            $inner,
+        );
     }
 }

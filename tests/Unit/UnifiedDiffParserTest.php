@@ -299,4 +299,65 @@ final class UnifiedDiffParserTest extends TestCase
 
         $this->assertSame([], UnifiedDiffParser::parse($diff));
     }
+
+    #[Test]
+    public function a_quoted_unicode_path_is_decoded(): void
+    {
+        // core.quotePath=true (git's default) C-quotes any header path with a byte ≥ 0x80, escaping
+        // it as octal — "café.blade.php" becomes "caf\303\251.blade.php" in the raw diff text.
+        $diff = <<<'DIFF'
+        diff --git "a/resources/views/caf\303\251.blade.php" "b/resources/views/caf\303\251.blade.php"
+        --- "a/resources/views/caf\303\251.blade.php"
+        +++ "b/resources/views/caf\303\251.blade.php"
+        @@ -0,0 +1 @@
+        +<h1>Bienvenue</h1>
+        DIFF;
+
+        $parsed = UnifiedDiffParser::parse($diff);
+
+        $this->assertSame(["resources/views/caf\xC3\xA9.blade.php"], array_keys($parsed));
+        $this->assertSame(
+            [['line' => 1, 'text' => '<h1>Bienvenue</h1>']],
+            $parsed["resources/views/caf\xC3\xA9.blade.php"]['added'],
+        );
+    }
+
+    #[Test]
+    public function a_quoted_pure_rename_is_decoded(): void
+    {
+        $diff = <<<'DIFF'
+        diff --git "a/resources/views/caf\303\251.blade.php" "b/resources/views/th\303\251.blade.php"
+        similarity index 100%
+        rename from "resources/views/caf\303\251.blade.php"
+        rename to "resources/views/th\303\251.blade.php"
+        DIFF;
+
+        $parsed = UnifiedDiffParser::parse($diff);
+
+        $this->assertSame([
+            "resources/views/th\xC3\xA9.blade.php" => [
+                'added' => [],
+                'removed' => [],
+                'oldPath' => "resources/views/caf\xC3\xA9.blade.php",
+            ],
+        ], $parsed);
+    }
+
+    #[Test]
+    public function a_quoted_path_with_escaped_quote_and_backslash_is_decoded(): void
+    {
+        // Beyond octal byte escapes, git also C-escapes a literal `"` and `\` inside a quoted path.
+        $diff = <<<'DIFF'
+        diff --git "a/we\"ird\\name.php" "b/we\"ird\\name.php"
+        --- "a/we\"ird\\name.php"
+        +++ "b/we\"ird\\name.php"
+        @@ -0,0 +1 @@
+        +new content
+        DIFF;
+
+        $parsed = UnifiedDiffParser::parse($diff);
+
+        $this->assertSame(['we"ird\\name.php'], array_keys($parsed));
+        $this->assertSame([['line' => 1, 'text' => 'new content']], $parsed['we"ird\\name.php']['added']);
+    }
 }
