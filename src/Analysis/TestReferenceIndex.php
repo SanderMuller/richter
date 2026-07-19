@@ -20,6 +20,17 @@ use Throwable;
  */
 final class TestReferenceIndex
 {
+    /**
+     * Assert-ish calls provably incapable of proving behaviour: a bare HTTP-status check. Kept
+     * deliberately tiny — see the plan's maintenance notes before growing it.
+     *
+     * @var list<string>
+     */
+    private const array SHALLOW_ASSERTIONS = [
+        'assertOk', 'assertSuccessful', 'assertNoContent', 'assertNotFound',
+        'assertForbidden', 'assertUnauthorized', 'assertStatus',
+    ];
+
     /** @var array<string, list<string>> uri => test files containing it */
     private array $uris = [];
 
@@ -31,6 +42,13 @@ final class TestReferenceIndex
 
     /** @var array<string, list<string>> imported FQCN => test files importing it */
     private array $classes = [];
+
+    /**
+     * @var array<string, bool> test file => whether every assert-ish call the scan finds in its
+     *   whole source is provably shallow (or the file has none at all) — graded once, from the
+     *   file's first-seen source, in {@see addSource()}
+     */
+    private array $assertionWeakByFile = [];
 
     /** @var list<array{regex: string, name: string|null, methods: list<string>}>|null */
     private ?array $routeMap = null;
@@ -68,6 +86,12 @@ final class TestReferenceIndex
      */
     public function addSource(string $source, ?string $file = null): void
     {
+        // Graded once, from whichever source is seen first for this file — a file fed a second
+        // time (e.g. re-added by a caller) keeps its original grade rather than being re-scanned.
+        if ($file !== null && ! isset($this->assertionWeakByFile[$file])) {
+            $this->assertionWeakByFile[$file] = self::sourceLacksBehaviouralAssertions($source);
+        }
+
         if (preg_match_all('/route\(\s*[\'"]([^\'"]+)[\'"]/', $source, $matches) > 0) {
             foreach ($matches[1] as $name) {
                 $this->record($this->routeNames, $name, $file);
@@ -167,6 +191,33 @@ final class TestReferenceIndex
     public function testsReferencing(string $entryPointNode): ?array
     {
         return $this->resolve($entryPointNode)['tests'] ?? null;
+    }
+
+    /**
+     * Whether every test file referencing this entry point is certain to contain nothing but
+     * provably-shallow assert-ish calls (or none at all) — the grading is per file, not per
+     * method, and ALL referencing files must grade weak for this to be true. Uncertainty always
+     * collapses to false (plain "referenced"), never to this sub-tag: a behavioural or
+     * unrecognised assertion anywhere in a referencing file, or a reference with no file to grade
+     * (a source added with a null file), suppresses it. A false "proves nothing" would make a
+     * reviewer distrust a test that actually asserts behaviour, so under-firing is the safe
+     * direction here.
+     */
+    public function referencedWithoutBehaviouralAssertion(string $entryPointNode): bool
+    {
+        $tests = $this->testsReferencing($entryPointNode);
+
+        if ($tests === null || $tests === []) {
+            return false;
+        }
+
+        foreach ($tests as $file) {
+            if (($this->assertionWeakByFile[$file] ?? false) === false) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**
@@ -309,6 +360,46 @@ final class TestReferenceIndex
         sort($tests);
 
         return $tests;
+    }
+
+    /**
+     * Whether a whole test file's source is certain to contain no behavioural assertion: every
+     * assert-ish call in it (`->assertX(...)`, `::assertX(...)`, or a bare Pest `expect(...)`) is
+     * in {@see SHALLOW_ASSERTIONS}, or there are none at all. `assertTrue`/`assertFalse` are weak
+     * only with a literal `true`/`false` argument — a non-literal argument could be asserting
+     * anything, so it counts as behavioural-or-unknown. Anything not provably shallow (a bare
+     * `expect(`, `assertJson*`, `assertDatabaseHas`, a custom helper, ...) disqualifies the whole
+     * file; no allowlist of "behavioural" names is needed.
+     */
+    private static function sourceLacksBehaviouralAssertions(string $source): bool
+    {
+        if (preg_match('/(?<![\w$>])expect\s*\(/', $source) === 1) {
+            return false;
+        }
+
+        preg_match_all('/(?:->|::)\s*((?:assert|expect)[A-Z_]\w*)\s*\(/', $source, $matches);
+
+        if ($matches[1] === []) {
+            return true;
+        }
+
+        $boolCalls = 0;
+
+        foreach ($matches[1] as $name) {
+            if ($name === 'assertTrue' || $name === 'assertFalse') {
+                ++$boolCalls;
+
+                continue;
+            }
+
+            if (! in_array($name, self::SHALLOW_ASSERTIONS, strict: true)) {
+                return false;
+            }
+        }
+
+        $literalBoolCalls = preg_match_all('/(?:->|::)\s*(?:assertTrue|assertFalse)\s*\(\s*(?:true|false)\s*\)/', $source);
+
+        return $literalBoolCalls === $boolCalls;
     }
 
     /**

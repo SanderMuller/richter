@@ -283,4 +283,85 @@ final class TestReferenceIndexTest extends TestCase
 
         $this->assertSame(['tests/Feature/ErrorLogTest.php'], $index->testsReferencing('route::GET::/errors/log'));
     }
+
+    #[Test]
+    public function a_file_whose_only_assertion_is_a_shallow_status_check_is_assertion_weak(): void
+    {
+        $index = new TestReferenceIndex();
+        $index->addSource('<?php $this->get("/errors/log"); $response->assertOk();', 'tests/Feature/ErrorLogTest.php');
+
+        $this->assertTrue($index->referencedWithoutBehaviouralAssertion('route::GET::/errors/log'));
+    }
+
+    #[Test]
+    public function a_file_with_zero_assertions_referencing_a_class_is_assertion_weak(): void
+    {
+        $index = new TestReferenceIndex();
+        $index->addSource("<?php\nuse App\Listeners\Saml\SamlLoginListener;\n", 'tests/Unit/SamlLoginListenerTest.php');
+
+        $this->assertTrue($index->referencedWithoutBehaviouralAssertion('App\Listeners\Saml\SamlLoginListener'));
+    }
+
+    #[Test]
+    public function a_behavioural_assertion_anywhere_in_the_file_disqualifies_it(): void
+    {
+        $index = new TestReferenceIndex();
+        $index->addSource(
+            '<?php $this->get("/errors/log"); $response->assertOk(); $this->assertDatabaseHas("logs", ["level" => "error"]);',
+            'tests/Feature/ErrorLogTest.php',
+        );
+
+        $this->assertFalse($index->referencedWithoutBehaviouralAssertion('route::GET::/errors/log'));
+    }
+
+    #[Test]
+    public function a_custom_assert_ish_helper_is_unknown_and_not_assertion_weak(): void
+    {
+        $index = new TestReferenceIndex();
+        $index->addSource('<?php $this->get("/videos/1"); $this->assertVideoPublished($video);', 'tests/Feature/VideoTest.php');
+
+        $this->assertFalse($index->referencedWithoutBehaviouralAssertion('route::GET::/videos/{video}'));
+    }
+
+    #[Test]
+    public function assert_true_is_weak_only_with_a_literal_argument(): void
+    {
+        $nonLiteral = new TestReferenceIndex();
+        $nonLiteral->addSource('<?php $this->get("/videos/1"); $this->assertTrue($video->published);', 'tests/Feature/VideoTest.php');
+
+        $this->assertFalse($nonLiteral->referencedWithoutBehaviouralAssertion('route::GET::/videos/{video}'));
+
+        $literal = new TestReferenceIndex();
+        $literal->addSource('<?php $this->get("/videos/1"); $this->assertTrue(true);', 'tests/Feature/VideoTest.php');
+
+        $this->assertTrue($literal->referencedWithoutBehaviouralAssertion('route::GET::/videos/{video}'));
+    }
+
+    #[Test]
+    public function a_pest_style_bare_expect_call_is_not_assertion_weak(): void
+    {
+        $index = new TestReferenceIndex();
+        $index->addSource('<?php $this->get("/videos/1"); expect($video->status)->toBe("published");', 'tests/Feature/VideoTest.php');
+
+        $this->assertFalse($index->referencedWithoutBehaviouralAssertion('route::GET::/videos/{video}'));
+    }
+
+    #[Test]
+    public function all_referencing_files_must_grade_weak_for_the_sub_tag_to_apply(): void
+    {
+        $index = new TestReferenceIndex();
+        $index->addSource('<?php $this->get("/videos/1"); $response->assertOk();', 'tests/Feature/ShallowTest.php');
+        $index->addSource('<?php $this->get("/videos/1"); $this->assertDatabaseHas("videos", ["id" => 1]);', 'tests/Feature/RichTest.php');
+
+        $this->assertFalse($index->referencedWithoutBehaviouralAssertion('route::GET::/videos/{video}'));
+    }
+
+    #[Test]
+    public function a_fileless_reference_is_not_assertion_weak(): void
+    {
+        $index = $this->index('<?php $this->get("/errors/log"); $response->assertOk();');
+
+        $this->assertTrue($index->hasReference('route::GET::/errors/log'));
+        $this->assertFalse($index->referencedWithoutBehaviouralAssertion('route::GET::/errors/log'));
+    }
 }
