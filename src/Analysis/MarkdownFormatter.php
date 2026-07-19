@@ -211,7 +211,7 @@ final class MarkdownFormatter
         foreach ($rows as $row) {
             $label = '`' . $row->label . '`'
                 . self::locationSuffix($row->location)
-                . self::testReferenceSuffix($row->testReferenced)
+                . self::testReferenceSuffix($row->testReferenced, $row->assertionWeak)
                 . ($row->security !== null ? ' — ' . self::exposureBadge($row->security['exposure']) : '')
                 . ($row->gates !== [] ? ' — 🚩 ' . implode(', ', $row->gates) : '');
             $lines[] = "- [ ] {$label}";
@@ -307,12 +307,17 @@ final class MarkdownFormatter
         ];
     }
 
-    /** "Referenced" is deliberately weak phrasing: the index matches references, it does not prove coverage. */
-    private static function testReferenceSuffix(?bool $referenced): string
+    /**
+     * "Referenced" is deliberately weak phrasing: the index matches references, it does not prove
+     * coverage. The assertion-weak variant is a heuristic prompt, not a coverage verdict — always
+     * "no behavioural assertion found", never "not covered" / "untested".
+     */
+    private static function testReferenceSuffix(?bool $referenced, bool $assertionWeak): string
     {
-        return match ($referenced) {
-            true => ' — ✅ test-referenced',
-            false => ' — ⚠️ no test references this',
+        return match (true) {
+            $referenced === true && $assertionWeak => ' — 🟡 test-referenced, no behavioural assertion found',
+            $referenced === true => ' — ✅ test-referenced',
+            $referenced === false => ' — ⚠️ no test references this',
             default => '',
         };
     }

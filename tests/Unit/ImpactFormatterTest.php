@@ -119,6 +119,17 @@ final class ImpactFormatterTest extends TestCase
     }
 
     #[Test]
+    public function a_reference_with_no_behavioural_assertion_renders_the_weaker_wording(): void
+    {
+        $tests = new TestReferenceIndex();
+        $tests->addSource('<?php $this->get("/covered"); $response->assertOk();', 'tests/Feature/ShallowTest.php');
+
+        $output = ImpactFormatter::detectChanges($this->summary(['route::GET::/covered']), $tests);
+
+        $this->assertStringContainsString('route::GET::/covered  [test-referenced — no behavioural assertion found]', $output);
+    }
+
+    #[Test]
     #[DataProvider('unmappedChanges')]
     public function a_change_resolving_to_no_graph_node_reads_unresolved(string $file, string $fqcn): void
     {

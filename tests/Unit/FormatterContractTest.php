@@ -76,6 +76,9 @@ final class FormatterContractTest extends TestCase
     {
         $tests = new TestReferenceIndex();
         $tests->addSource('<?php $this->get("/annotated");');
+        // A second, shallow-only reference (with a file, so it is gradable) exercises the
+        // assertion-weak sub-tag on one of the plain entry points.
+        $tests->addSource('<?php $this->get("/r01"); $response->assertOk();', 'tests/Feature/ShallowR01Test.php');
 
         return $tests;
     }
@@ -90,6 +93,7 @@ final class FormatterContractTest extends TestCase
         $this->assertStringContainsString('[public]', $output);
         $this->assertStringContainsString('[gated: beta-feature]', $output);
         $this->assertStringContainsString('test-referenced', $output);
+        $this->assertStringContainsString('route::GET::/r01  [test-referenced — no behavioural assertion found]', $output);
         $this->assertStringContainsString('PUBLIC_WRITE (high): POST route with no auth middleware', $output);
         $this->assertStringContainsString('app/Http/Controllers/AnnotatedController.php:31', $output);
         $this->assertStringContainsString('App\Http\Controllers\AnnotatedController::show', $output);
@@ -112,6 +116,7 @@ final class FormatterContractTest extends TestCase
         $this->assertStringContainsString('🔓 public', $output);
         $this->assertStringContainsString('🚩 beta-feature', $output);
         $this->assertStringContainsString('test-referenced', $output);
+        $this->assertStringContainsString('`route::GET::/r01` — 🟡 test-referenced, no behavioural assertion found', $output);
         $this->assertStringContainsString('PUBLIC_WRITE** (high): POST route with no auth middleware', $output);
         $this->assertStringContainsString('app/Http/Controllers/AnnotatedController.php:31', $output);
         $this->assertStringContainsString('App\Http\Controllers\AnnotatedController::show', $output);

@@ -22,6 +22,7 @@ final readonly class EntryPointRow
      * @param  bool|null  $testReferenced  {@see TestReferenceIndex::hasReference()}'s tri-state: null means "couldn't check", never rendered as unreferenced
      * @param  SecurityShape|null  $security  Brain's exposure/issues annotation; routes only
      * @param  list<string>  $gates  Pennant flags gating this route; empty when ungated
+     * @param  bool  $assertionWeak  {@see TestReferenceIndex::referencedWithoutBehaviouralAssertion()}; false whenever it cannot be graded true, never a tri-state
      */
     private function __construct(
         public string $node,
@@ -31,6 +32,7 @@ final readonly class EntryPointRow
         public ?bool $testReferenced,
         public ?array $security,
         public array $gates,
+        public bool $assertionWeak,
     ) {}
 
     /**
@@ -56,6 +58,7 @@ final readonly class EntryPointRow
             testReferenced: $tests?->hasReference($node),
             security: $security[$node] ?? null,
             gates: $gates[$node] ?? [],
+            assertionWeak: $tests?->referencedWithoutBehaviouralAssertion($node) ?? false,
         ), $entryPoints);
 
         usort($rows, static fn (self $a, self $b): int => $a->label <=> $b->label);
