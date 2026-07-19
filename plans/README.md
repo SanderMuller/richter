@@ -43,16 +43,16 @@ your row when done.
 | 015  | Emit structured MCP output — prose plus the documented --json contract (D3) | P2 | S | — | DONE (reviewed; cherry-picked to main as `1ac82de`, 2026-07-18) |
 | 016  | Add richter:benchmark:add — scaffold a benchmark fixture from a fix commit (D4) | P3 | M | — | DONE (reviewed; cherry-picked to main as `d69e15b`, 2026-07-18) |
 | 017  | Bound the laravel/mcp compatibility range and test the mcp-absent path in CI (F1) | P1 | S | — | DONE (reviewed; main `1cb683c`, 2026-07-19; 0.9.0 validated compatible; no-mcp CI job removes boost too — see commit body) |
-| 018  | Resolve Blade-view seeds by exact node membership, not boundary substring (F2) | P1 | S | 020 preferred first | TODO |
-| 019  | Close the frontend lane's fail-toward-under-reporting gaps (F3, F4, F11) | P1 | M | 020 preferred first | TODO |
+| 018  | Resolve Blade-view seeds by exact node membership, not boundary substring (F2) | P1 | S | 020 preferred first | DONE (reviewed; main `e616a55`, 2026-07-19; directSeed loop extracted to directWalkSeeds() to hold the complexity limit) |
+| 019  | Close the frontend lane's fail-toward-under-reporting gaps (F3, F4, F11) | P1 | M | 020 preferred first | DONE (reviewed; main `962ad33`+`2596859`+`85a1374`+`1a3f2ad`, 2026-07-19; four fixes test-first) |
 | 020  | Cover the frontend/Blade-inline seam of ChangedSymbols::resolve() end-to-end (F5) | P1 | M | — | DONE (reviewed; main `46fae5f`, 2026-07-19; fixtures aligned to real routes/web.php, standalone view pins honest UNRESOLVED) |
 | 021  | Handle git's quoted pathnames so non-ASCII files never read as "no impact" (F6) | P2 | M | — | DONE (reviewed; main `7d24245`, 2026-07-19) |
 | 022  | Extract the duplicated line-range scoping shared by the source checkers (F7) | P3 | S | — | DONE (reviewed; main `5c84800`, 2026-07-19) |
 | 023  | Pin benchmark:add's config-stanza escaping with tests (F8) | P3 | S | — | DONE (reviewed; main `24a7d90`, 2026-07-19; eval round-trip replaced by exact-line pins per the plan's ruleset escape hatch) |
 | 024  | Escape file paths in the markdown formatter's structural positions (F9) | P2 | S | — | DONE (reviewed; main `5f5fb43`, 2026-07-19) |
-| 025  | One report fixture across all three formatters, then de-duplicate the row building (F10) | P2 | M | 024 | TODO |
+| 025  | One report fixture across all three formatters, then de-duplicate the row building (F10) | P2 | M | 024 | DONE (reviewed; main `a55f5eb`+`82874aa`, 2026-07-19; EntryPointRow owns facts+ordering, zero golden-assertion changes; ordering now plain-label in both formatters — cosmetic edge-case difference vs old decorated sort, deliberate) |
 | 026  | Memoize riskInputs' repeated graph walks within one detectChanges run (F12) | P3 | M | — | DONE (reviewed; main `b2019b0`, 2026-07-19; run-scoped memo by reference — instance property impossible on a readonly class, the plan's documented fallback) |
-| 027  | Cache Composer downloads in the run-tests matrix (F13) | P3 | S | 017 soft (reconcile jobs) | TODO |
+| 027  | Cache Composer downloads in the run-tests matrix (F13) | P3 | S | 017 soft (reconcile jobs) | DONE (reviewed; main `146b6a6`, 2026-07-19; both jobs cached, -nomcp key suffix) |
 | 028  | Align the v0.7.0 CHANGELOG entry with the release notes (F14) | P3 | S | — | DONE (reviewed; main `f19fd14`, 2026-07-19; published release body verified identical to notes file — no maintainer reconciliation needed) |
 | 029  | Spike: a real benchmark corpus and a CI replay (DIR-1) | P2 | L | — | DONE (design doc at internal/spike-benchmark-corpus.md; option B confirmed infeasible — git pathspecs resolve against repo root; recommendation: host-app corpus, CI YAML copy-ready in the doc) |
 | 030  | Pin the Livewire/Filament test-selection idioms and close the string-name gap (DIR-2) | P2 | M | — | DONE (reviewed; main `c3d7735`+`41b1a23`, 2026-07-19; relative-qualification miss pinned as characterization) |
