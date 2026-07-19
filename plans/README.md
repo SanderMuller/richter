@@ -59,7 +59,7 @@ your row when done.
 | 031  | Anchor literal-URI candidates to call arguments; extend generated-path exclusion to files/globs, Ziggy defaults, and `.d.ts` (handoff H1+H2) | P2 | M | 019 | DONE (reviewed; main `1d04678`+`23d90ac`+`b398c51`+`fc7dd3d`+`fb4845d`, 2026-07-19; supersedes the spike doc over-matching acceptance, recall losses documented in the scanner docblock) |
 | 032  | Resolve same-module constant `route()` arguments before tainting a file UNRESOLVED (handoff H3) | P3 | M | 019; 031 soft | DONE (reviewed; main `b2ece91`+`9b221c8`, 2026-07-19; no-guess const/enum resolution, taint preserved on any miss) |
 
-| 033  | Tag test-referenced entry points whose referencing tests prove nothing (tier-3 handoff #2) | P2 | M | — | TODO |
+| 033  | Tag test-referenced entry points whose referencing tests prove nothing (tier-3 handoff #2) | P2 | M | — | DONE (reviewed; main, 5 commits ending at the Rector-conventions fixup, 2026-07-20; per-file certainty-gated grading, entryPointTestReferences in JSON+MCP) |
 
 | 034  | Add --profile to detect-changes: phase timings for the incremental-rebuild decision (tier-3 handoff #1, measurement gate) | P3 | S–M | 033 (same command file) | TODO |
 
