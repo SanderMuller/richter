@@ -61,6 +61,8 @@ your row when done.
 
 | 033  | Tag test-referenced entry points whose referencing tests prove nothing (tier-3 handoff #2) | P2 | M | — | TODO |
 
+| 034  | Add --profile to detect-changes: phase timings for the incremental-rebuild decision (tier-3 handoff #1, measurement gate) | P3 | S–M | 033 (same command file) | TODO |
+
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED (with one-line rationale — finding fixed independently or approach abandoned)
 
 ## Dependency notes
