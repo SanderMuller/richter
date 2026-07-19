@@ -100,6 +100,26 @@ final class FrontendReferenceScannerTest extends TestCase
     }
 
     #[Test]
+    public function an_extension_suffixed_action_import_still_resolves(): void
+    {
+        $result = $this->scanner()->scan(<<<'TS'
+            import { show } from "@/actions/App/Http/Controllers/VideoController.ts";
+            TS);
+
+        $this->assertSame([['class' => 'App\Http\Controllers\VideoController', 'method' => 'show']], $result['actions']);
+    }
+
+    #[Test]
+    public function an_extension_suffixed_route_import_still_resolves(): void
+    {
+        $result = $this->scanner()->scan(<<<'TS'
+            import { index } from "@/routes/videos.ts";
+            TS);
+
+        $this->assertSame(['videos.index'], $result['routeNames']);
+    }
+
+    #[Test]
     public function ziggy_route_calls_yield_literal_route_names(): void
     {
         $result = $this->scanner()->scan(<<<'TS'

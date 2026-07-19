@@ -34,8 +34,10 @@ final class FrontendReferenceScanner
             [, $clause, $module] = $import;
 
             // Two-plus path segments after actions/ — Wayfinder mirrors the controller namespace,
-            // so a single-segment `actions/foo` is some other module, never a Wayfinder one.
-            if (preg_match('#(?:^|/)actions/((?:[A-Za-z_]\w*/)+[A-Za-z_]\w*)$#', $module, $matches) === 1) {
+            // so a single-segment `actions/foo` is some other module, never a Wayfinder one. An
+            // optional trailing extension (`.ts`) is allowed — a bundler-resolved specifier omits
+            // it, but an explicit one is still unambiguously Wayfinder.
+            if (preg_match('#(?:^|/)actions/((?:[A-Za-z_]\w*/)+[A-Za-z_]\w*)(?:\.\w+)?$#', $module, $matches) === 1) {
                 $class = str_replace('/', '\\', $matches[1]);
 
                 foreach ($this->clauseImports($clause) as $name) {
@@ -45,7 +47,10 @@ final class FrontendReferenceScanner
                 continue;
             }
 
-            if (preg_match('#(?:^|/)routes(?:/([A-Za-z0-9_/-]+))?$#', $module, $matches) === 1) {
+            // Same trailing-extension allowance as the actions branch above; a bare `routes.ts`
+            // module (no `/` segment) also matches here — self-gated by the route-name map like
+            // the existing `routes/` collision, since a name that matches nothing is dropped.
+            if (preg_match('#(?:^|/)routes(?:/([A-Za-z0-9_/-]+))?(?:\.\w+)?$#', $module, $matches) === 1) {
                 $prefix = isset($matches[1]) ? str_replace('/', '.', $matches[1]) . '.' : '';
 
                 foreach ($this->clauseImports($clause) as $name) {
