@@ -9,7 +9,11 @@ namespace SanderMuller\Richter\Tracers;
  * and Ziggy `route('name')` calls. Matching anchors on the `actions/` / `routes/` path segment,
  * not the `@/` prefix, so Vite alias configuration stays out of scope. No TypeScript parser:
  * recall is bounded, and a detected-but-unresolvable reference (a dynamic `route()` argument)
- * flips `unresolved` so downstream never mistakes "couldn't see it" for "touches nothing".
+ * flips `unresolved` so downstream never mistakes "couldn't see it" for "touches nothing". A
+ * dynamic argument first gets one resolution attempt against a same-module `const`/`enum` string
+ * constant (a bare identifier or a flat object/enum member access); only what survives that
+ * attempt flips the flag. Resolution never guesses: exactly-one-declaration discipline, flat
+ * bodies only, `const` only — never `let`/`var`.
  */
 final class FrontendReferenceScanner
 {
@@ -66,18 +70,96 @@ final class FrontendReferenceScanner
 
         preg_match_all('/(?<![\w$])route\s*\(\s*[\'"]([^\'"]+)[\'"]/', $source, $ziggy);
 
+        [$resolvedNames, $unresolved] = $this->resolveDynamicRouteArguments($source);
+
         return [
             'actions' => $this->uniqueActions($actions),
-            'routeNames' => array_values(array_unique([...$routeNames, ...$ziggy[1]])),
+            'routeNames' => array_values(array_unique([...$routeNames, ...$ziggy[1], ...$resolvedNames])),
             'uris' => array_values($this->uriCandidates($source)),
-            // `route(` followed by anything but a string literal or `)` is a dynamic argument —
-            // a template literal or variable the scan cannot resolve. Ziggy's argless `route()`
-            // fluent form is not dynamic. A string literal immediately followed by `+` is a
-            // concatenated name (`route('videos.' + action)`) — the captured partial name matches
-            // nothing and would silently drop, so this is flagged as a second dynamic shape.
-            'unresolved' => preg_match('/(?<![\w$])route\s*\(\s*[^\'")\s]/', $source) === 1
-                || preg_match('/(?<![\w$])route\s*\(\s*[\'"][^\'"]*[\'"]\s*\+/', $source) === 1,
+            'unresolved' => $unresolved,
         ];
+    }
+
+    /**
+     * Every dynamic `route(...)` argument gets one resolution attempt against a same-module
+     * `const`/`enum` string constant before it is allowed to flip the file-level fail-safe.
+     * Anything the resolver cannot pin with certainty (no declaration, `let`/`var`, more than one
+     * declaration, a nested object body, an imported constant, …) stays unresolved — resolution
+     * never guesses.
+     *
+     * @return array{0: list<string>, 1: bool} route names recovered from same-module constants,
+     *   and whether any dynamic argument stayed unresolvable
+     */
+    private function resolveDynamicRouteArguments(string $source): array
+    {
+        // A string literal followed by `+` is concatenation — never resolvable to one constant.
+        $unresolved = preg_match('/(?<![\w$])route\s*\(\s*[\'"][^\'"]*[\'"]\s*\+/', $source) === 1;
+
+        // Same first-character discipline as the original detector: anything after `route(` that
+        // is not a quote, `)`, or whitespace is a dynamic argument. Capture up to the first `,` or
+        // `)` — the name expression, options excluded.
+        preg_match_all('/(?<![\w$])route\s*\(\s*([^\'")\s][^),]*)/', $source, $dynamic);
+
+        $resolved = [];
+
+        foreach ($dynamic[1] as $argument) {
+            $name = $this->sameModuleConstant(trim($argument), $source);
+
+            if ($name === null) {
+                $unresolved = true;
+
+                continue;
+            }
+
+            $resolved[] = $name;
+        }
+
+        return [$resolved, $unresolved];
+    }
+
+    /**
+     * Resolves a `route()` argument expression to a string constant declared in the same module,
+     * or null when the resolution cannot be made with certainty. Two shapes are readable without a
+     * parser:
+     *
+     * - a bare identifier: exactly one `const NAME = '…'` (optionally typed) declaration in the
+     *   source — `let`/`var` never resolve, since a reassignable binding is not the runtime value
+     *   with certainty;
+     * - a member access (`OBJ.PROP`): exactly one `const`/`enum` declaration of `OBJ` with a
+     *   *flat* brace body (no nested braces — a nested body could put `PROP` under a different
+     *   sub-object, which would be a guess), and exactly one `PROP` member inside that body.
+     *
+     * Anything else — a backtick, a nested call, a `+` inside the expression, bracket access — is
+     * rejected by the shape checks and resolves to null.
+     */
+    private function sameModuleConstant(string $expression, string $source): ?string
+    {
+        if (preg_match('/^[A-Za-z_$][\w$]*$/', $expression) === 1) {
+            $name = preg_quote($expression, '/');
+
+            if (preg_match_all('/\bconst\s+' . $name . '\s*(?::[^=\n]+)?=\s*([\'"])((?:(?!\1).)+)\1/', $source, $matches) === 1) {
+                return $matches[2][0];
+            }
+
+            return null;
+        }
+
+        if (preg_match('/^([A-Za-z_$][\w$]*)\.([A-Za-z_$][\w$]*)$/', $expression, $parts) === 1) {
+            [, $object, $property] = $parts;
+            $objectPattern = preg_quote($object, '/');
+
+            if (preg_match_all('/\b(?:const|enum)\s+' . $objectPattern . '\s*(?::[^={]+)?=?\s*\{([^{}]*)\}/', $source, $bodies) !== 1) {
+                return null;
+            }
+
+            $propertyPattern = preg_quote($property, '/');
+
+            if (preg_match_all('/\b' . $propertyPattern . '\s*[:=]\s*([\'"])((?:(?!\1).)+)\1/', $bodies[1][0], $members) === 1) {
+                return $members[2][0];
+            }
+        }
+
+        return null;
     }
 
     /**

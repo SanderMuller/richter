@@ -199,6 +199,116 @@ final class FrontendReferenceScannerTest extends TestCase
     }
 
     #[Test]
+    public function a_route_argument_naming_a_same_module_const_string_resolves(): void
+    {
+        $result = $this->scanner()->scan(<<<'TS'
+            const PLAYER_ROUTE = 'videos.player';
+            route(PLAYER_ROUTE);
+            TS);
+
+        $this->assertSame(['videos.player'], $result['routeNames']);
+        $this->assertFalse($result['unresolved']);
+    }
+
+    #[Test]
+    public function a_route_argument_via_a_flat_const_object_member_resolves(): void
+    {
+        $result = $this->scanner()->scan(<<<'TS'
+            const ROUTES = { player: 'videos.player', list: "videos.index" } as const;
+            route(ROUTES.player, { id: 1 });
+            TS);
+
+        $this->assertSame(['videos.player'], $result['routeNames']);
+        $this->assertFalse($result['unresolved']);
+    }
+
+    #[Test]
+    public function a_route_argument_via_a_string_enum_member_resolves(): void
+    {
+        $result = $this->scanner()->scan(<<<'TS'
+            enum RouteName { Player = 'videos.player' }
+            route(RouteName.Player);
+            TS);
+
+        $this->assertSame(['videos.player'], $result['routeNames']);
+        $this->assertFalse($result['unresolved']);
+    }
+
+    #[Test]
+    public function an_undeclared_identifier_still_taints_the_scan(): void
+    {
+        // Pins the pre-existing dynamic-argument behavior through the resolve-then-taint
+        // restructuring: with no declaration to resolve against, the argument stays dynamic.
+        $this->assertTrue($this->scanner()->scan('route(someName);')['unresolved']);
+    }
+
+    #[Test]
+    public function a_let_declared_name_does_not_resolve(): void
+    {
+        // `let`/`var` are reassignable, so the initializer is not the runtime value with
+        // certainty — only `const` resolves.
+        $result = $this->scanner()->scan(<<<'TS'
+            let name = 'videos.player';
+            route(name);
+            TS);
+
+        $this->assertTrue($result['unresolved']);
+    }
+
+    #[Test]
+    public function a_redeclared_const_is_ambiguous_and_does_not_resolve(): void
+    {
+        // "Exactly one declaration" is the rule — two candidates means no certain answer.
+        $result = $this->scanner()->scan(<<<'TS'
+            const P = 'videos.player';
+            const P = 'videos.index';
+            route(P);
+            TS);
+
+        $this->assertTrue($result['unresolved']);
+    }
+
+    #[Test]
+    public function a_nested_object_member_does_not_resolve(): void
+    {
+        // Only flat object/enum bodies are readable without a parser; matching a property inside
+        // a nested body would be a guess (it may belong to a different sub-object entirely).
+        $result = $this->scanner()->scan(<<<'TS'
+            const ROUTES = { videos: { player: 'videos.player' } };
+            route(ROUTES.player);
+            TS);
+
+        $this->assertTrue($result['unresolved']);
+    }
+
+    #[Test]
+    public function an_imported_constant_does_not_resolve(): void
+    {
+        // Same-module only — an imported constant's value is not visible to a regex scanner.
+        $result = $this->scanner()->scan(<<<'TS'
+            import { ROUTES } from './routes-config';
+            route(ROUTES.player);
+            TS);
+
+        $this->assertTrue($result['unresolved']);
+    }
+
+    #[Test]
+    public function a_resolved_reference_beside_an_unresolvable_one_keeps_the_file_tainted(): void
+    {
+        // The contract test: a resolvable reference still contributes its name, but the
+        // file-level fail-safe stays on as long as any dynamic argument remains unresolvable.
+        $result = $this->scanner()->scan(<<<'TS'
+            const PLAYER_ROUTE = 'videos.player';
+            route(PLAYER_ROUTE);
+            route(other);
+            TS);
+
+        $this->assertSame(['videos.player'], $result['routeNames']);
+        $this->assertTrue($result['unresolved']);
+    }
+
+    #[Test]
     public function duplicate_references_deduplicate(): void
     {
         $result = $this->scanner()->scan(<<<'TS'
