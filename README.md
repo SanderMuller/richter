@@ -268,23 +268,36 @@ exit-code branch above is the precise form.
 
 ### Frontend changes (Wayfinder / Ziggy)
 
-Opt-in: set `frontend.roots` (e.g. `['resources/js']`) and changed `.ts`/`.tsx`/`.js`/`.jsx`/`.vue`
-files are scanned for the backend endpoints they reference — [Wayfinder](https://github.com/laravel/wayfinder)
-imports (`@/actions/App/Http/Controllers/VideoController`, `@/routes/videos`), Ziggy
-`route('name')` calls, and endpoint strings matched against the app's route templates: plain
-literals (`axios.post('/videos')`) and backtick templates whose interpolations wildcard one
-segment (`` fetch(`/videos/${id}`) `` matches `/videos/{video}`). A verb-named call pins the
-HTTP method; anything unrecognisable stays method-agnostic and never narrows the match. Inline
-scripts in changed Blade views get the same literal-endpoint scan. Because a frontend edit
-never changes backend behaviour, the report says so explicitly: risk reflects backend impact
-only. Frontend spec files (`*.test.*`, `*.spec.*`, `*.cy.*` under the roots, or
-`frontend.test_paths`) referencing a touched route surface in `richter:affected-tests` as an
-advisory `frontendTests` list for the JS runner — never in `--plain`, and never a
-determinability input. The referenced routes are reported as touched entry points, with their
-location, exposure and gate annotations, and they feed `richter:affected-tests` — but never the
-risk level or the impact counts: a frontend edit does not change backend behaviour. Wayfinder's
-generated trees (`actions/`, `routes/`, `wayfinder/` under each root) are excluded as
-regeneration churn.
+Opt-in — point `frontend.roots` at your frontend source in `config/richter.php`:
+
+```php
+'frontend' => [
+    'roots' => ['resources/js'],
+],
+```
+
+Changed `.ts`/`.tsx`/`.js`/`.jsx`/`.vue` files are then scanned for the backend endpoints they
+reference, and those routes are reported as touched entry points — with their location, exposure
+and gate annotations, feeding `richter:affected-tests` — while `risk` and `impacted` stay
+untouched: a frontend edit does not change backend behaviour, and the report says so explicitly.
+Detected references:
+
+- **[Wayfinder](https://github.com/laravel/wayfinder) imports** —
+  `@/actions/App/Http/Controllers/VideoController` resolves through the router's action index
+  (method-precise; aliased, default, invokable and `import type` forms included), and
+  `@/routes/videos` route imports plus Ziggy `route('name')` calls resolve through the route
+  names. Wayfinder's generated trees (`actions/`, `routes/`, `wayfinder/` under each root) are
+  excluded as regeneration churn.
+- **Endpoint strings**, matched against the app's route templates: plain literals
+  (`axios.post('/videos')`) and backtick templates whose interpolations wildcard one segment
+  (`` fetch(`/videos/${id}`) `` matches `/videos/{video}`). A verb-named call pins the HTTP
+  method; anything unrecognisable stays method-agnostic and never narrows the match. Inline
+  `<script>` blocks in changed Blade views get the same literal scan.
+
+Frontend spec files (`*.test.*`, `*.spec.*`, `*.cy.*` under the roots, or `frontend.test_paths`)
+referencing a touched route surface in `richter:affected-tests` as an advisory `frontendTests`
+list for the JS runner — never in `--plain` (which feeds the PHP runner), and never a
+determinability input.
 
 The scan is regex-based and says so when it can't see: a dynamic `route(`…`)` argument or an
 unmatched Wayfinder action import marks the file UNRESOLVED (and `richter:affected-tests` exits
