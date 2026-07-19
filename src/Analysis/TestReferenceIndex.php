@@ -123,6 +123,29 @@ final class TestReferenceIndex
                 }
             }
         }
+
+        if (preg_match_all('/(?:Livewire::test|(?<![\w$])livewire)\(\s*[\'"]([a-z0-9\-.]+)[\'"]/', $source, $matches) > 0) {
+            foreach ($matches[1] as $name) {
+                $this->record($this->classes, self::livewireClassFor($name), $file);
+            }
+        }
+    }
+
+    /**
+     * `admin.dashboard-stats` → `App\Livewire\Admin\DashboardStats` — Livewire's default naming
+     * convention, applied in reverse, mirroring the README's "assumes standard Laravel conventions"
+     * stance. A custom-namespaced or manually-registered component won't match; over-recording a
+     * non-existent class is harmless (nothing imports it), under-recording a real one is the
+     * direction this closes.
+     */
+    private static function livewireClassFor(string $name): string
+    {
+        $segments = array_map(
+            static fn (string $segment): string => str_replace(' ', '', ucwords(str_replace('-', ' ', $segment))),
+            explode('.', $name),
+        );
+
+        return 'App\\Livewire\\' . implode('\\', $segments);
     }
 
     /**

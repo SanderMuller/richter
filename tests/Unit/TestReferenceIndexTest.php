@@ -251,6 +251,33 @@ final class TestReferenceIndexTest extends TestCase
     }
 
     #[Test]
+    public function a_string_named_livewire_component_maps_to_its_conventional_class(): void
+    {
+        $index = new TestReferenceIndex();
+        $index->addSource("<?php Livewire::test('admin.dashboard')->assertSuccessful();", 'tests/Feature/AdminDashboardTest.php');
+
+        $this->assertSame(['tests/Feature/AdminDashboardTest.php'], $index->testsImporting('App\Livewire\Admin\Dashboard'));
+    }
+
+    #[Test]
+    public function a_kebab_case_string_named_component_maps_to_its_conventional_class(): void
+    {
+        $index = new TestReferenceIndex();
+        $index->addSource("<?php livewire('show-posts')->assertSuccessful();", 'tests/Feature/ShowPostsTest.php');
+
+        $this->assertSame(['tests/Feature/ShowPostsTest.php'], $index->testsImporting('App\Livewire\ShowPosts'));
+    }
+
+    #[Test]
+    public function a_variable_named_livewire_component_records_nothing_new(): void
+    {
+        $index = new TestReferenceIndex();
+        $index->addSource('<?php Livewire::test($component)->assertSuccessful();', 'tests/Feature/DynamicComponentTest.php');
+
+        $this->assertSame([], $index->testsImporting('App\Livewire\Component'));
+    }
+
+    #[Test]
     public function the_same_file_is_recorded_once_per_reference(): void
     {
         $index = new TestReferenceIndex();
