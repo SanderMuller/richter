@@ -478,6 +478,37 @@ final class CommandsTest extends TestCase
     }
 
     #[Test]
+    public function benchmark_add_escapes_quotes_and_backslashes_in_the_stanza(): void
+    {
+        // An apostrophe in a commit subject is completely ordinary ("Fix user's dashboard");
+        // this pins the one code path that keeps the printed stanza syntactically valid PHP.
+        $this->fakeBenchmarkReplayReachingRoutes(['*log*' => Process::result("Fix user's dash\\board rendering\n")]);
+
+        $this->runArtisan('richter:benchmark:add', ['fix-commit' => 'abc1234', '--key' => "O'Brien-7"])
+            ->expectsOutputToContain('\'key\' => \'O\\\'Brien-7\'')
+            ->expectsOutputToContain('\'bug_class\' => \'Fix user\\\'s dash\\\\board rendering\'')
+            ->assertSuccessful();
+    }
+
+    #[Test]
+    public function benchmark_add_stanza_is_valid_php_for_awkward_subjects(): void
+    {
+        // Same fixture as the test above, but pins the exact printed lines — indentation and
+        // trailing comma included — rather than round-tripping the stanza through eval(), which
+        // spaze/phpstan-disallowed-calls forbids in this codebase.
+        $this->fakeBenchmarkReplayReachingRoutes(['*log*' => Process::result("Fix user's dash\\board rendering\n")]);
+
+        $this->withoutMockingConsoleOutput();
+        $exitCode = Artisan::call('richter:benchmark:add', ['fix-commit' => 'abc1234', '--key' => "O'Brien-7"]);
+        $output = Artisan::output();
+
+        $this->assertSame(0, $exitCode);
+        $this->assertStringContainsString('        \'key\' => \'O\\\'Brien-7\',', $output);
+        $this->assertStringContainsString('        \'fix_commit\' => \'abc1234\',', $output);
+        $this->assertStringContainsString('        \'bug_class\' => \'Fix user\\\'s dash\\\\board rendering\',', $output);
+    }
+
+    #[Test]
     public function benchmark_add_fails_when_the_commit_changes_no_app_php(): void
     {
         Process::fake([
