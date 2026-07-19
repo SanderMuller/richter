@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## v0.8.0 - 2026-07-19
 
 <!-- verified-sha: 64e0c766dbe6c7249f9e7b3ce15fb0eade1e3f01 -->
+Precision and honesty hardening across the frontend bridge, sourced from real-world adoption feedback, plus a version boundary for the MCP integration and a set of correctness fixes in the diff and seed pipeline.
+
 ### Added
 
 - **`laravel/mcp` version boundary.** The supported range is `^0.8||^0.9` (0.9.0 validated against the full suite); `composer.json` now carries a matching `conflict` entry, so an unvalidated future release fails at Composer resolution time instead of fataling at framework boot. The README's MCP section names the range, and CI covers the mcp-absent install so the CLI-only consumer path can't regress silently.
