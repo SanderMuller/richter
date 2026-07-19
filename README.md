@@ -29,7 +29,7 @@ Richter is advisory by default: `richter:detect-changes` exits 0, and a low or e
 Richter shows what a change reaches, before you or your reviewer have to guess.
 
 - **Catch what you missed, before review.** Run `richter:detect-changes` on your branch and read the entry points and flows the diff reaches. Anything you didn't expect it to touch is worth a look before you open the PR.
-- **Turn reach into a test-coverage prompt.** Every reached entry point is tagged `[test-referenced]` or `[⚠ no test references this]`. An entry point whose behaviour you changed with nothing referencing it is a place to add a test; the tag flags a missing reference, not proof the code is untested.
+- **Turn reach into a test-coverage prompt.** Every reached entry point is tagged `[test-referenced]` or `[⚠ no test references this]`, and a referenced entry point whose referencing tests contain no behavioural assertion the scan recognises is tagged `[test-referenced — no behavioural assertion found]` — a heuristic prompt, not a coverage verdict. An entry point whose behaviour you changed with nothing referencing it is a place to add a test; the tag flags a missing reference, not proof the code is untested.
 - **Hand the reviewer your blast radius.** Drop the report into the pull request description, or let a coding agent read it over MCP, so review starts from what the change reaches instead of a cold diff.
 - **Size a refactor first.** Before you rename or rework a symbol, `richter:impact "App\Models\User"` lists its callers (what breaks if you change it) and its dependencies (what it reaches).
 
@@ -166,6 +166,7 @@ With `--json`, stdout is a single JSON document (the full, uncapped report) with
 | `entryPointLocations` | object | per entry point, its defining `{file, line?}` (project-relative), when known |
 | `entryPointSecurity` | object | per reached route, Brain's security surface `{exposure, riskLevel, issues[]}` — advisory annotation, routes only, never an input to `risk` or the gate |
 | `entryPointGates` | object | per reached route, the Pennant feature flags gating it — advisory annotation, never an input to `risk` or the gate |
+| `entryPointTestReferences` | object | per reached entry point, `"referenced"` / `"referenced-no-behavioural-assertion"` / `"unreferenced"` — advisory annotation, never an input to `risk`, the gate, or `affected-tests` selection |
 | `impacted` | int | count of risk-bearing nodes reached |
 | `relatedModels` | string[] | models reached only via association edges (context, not risk) |
 | `risk` | string | `"low"` / `"medium"` / `"high"` |
