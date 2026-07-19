@@ -32,7 +32,7 @@
         "driftingly/rector-laravel": "^2.5",
         "larastan/larastan": "^3.10",
         "laravel/boost": "^2.4",
-        "laravel/mcp": "^0.8",
+        "laravel/mcp": "^0.8||^0.9",
         "laravel/pao": "^1.1",
         "laravel/pint": "^1.29",
         "nunomaduro/collision": "^8.9",
@@ -51,6 +51,9 @@
         "symplify/phpstan-rules": "^14.12",
         "tomasvotruba/cognitive-complexity": "^1.2",
         "tomasvotruba/type-coverage": "^2.2"
+    },
+    "conflict": {
+        "laravel/mcp": "<0.8.0 || >=0.10.0"
     },
     "autoload": {
         "psr-4": {
@@ -119,6 +122,6 @@
     "minimum-stability": "stable",
     "prefer-stable": true,
     "suggest": {
-        "laravel/mcp": "Exposes the impact and detect-changes tools over MCP (richter registers a local MCP server when installed)."
+        "laravel/mcp": "Exposes the impact and detect-changes tools over MCP — supported range ^0.8||^0.9; richter registers a local MCP server when installed."
     }
 }

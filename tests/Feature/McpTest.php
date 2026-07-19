@@ -10,6 +10,7 @@ use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
 use Laravel\Mcp\Server\McpServiceProvider;
 use Override;
+use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\Attributes\Test;
 use SanderMuller\Richter\Analysis\JsonPresenter;
 use SanderMuller\Richter\Mcp\RichterServer;
@@ -17,6 +18,7 @@ use SanderMuller\Richter\Mcp\Tools\DetectChangesTool;
 use SanderMuller\Richter\Mcp\Tools\ImpactTool;
 use SanderMuller\Richter\Tests\TestCase;
 
+#[Group('requires-mcp')]
 final class McpTest extends TestCase
 {
     /**
