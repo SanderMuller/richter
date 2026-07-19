@@ -111,6 +111,7 @@ jobs:
           # --no-scripts skips the post-autoload-dump skeleton scripts, which fatal on
           # testbench.yaml's BoostServiceProvider entry once boost is gone; the PHPUnit run never
           # reads testbench.yaml (TestCase::getPackageProviders() declares providers explicitly).
+          composer require "laravel/framework:12.*" "orchestra/testbench:10.*" --no-interaction --no-update
           composer remove laravel/mcp laravel/boost --dev --no-interaction --no-update
           composer update --prefer-stable --prefer-dist --no-interaction --no-scripts
 
