@@ -4,6 +4,7 @@ namespace SanderMuller\Richter\Tests\Feature;
 
 use Illuminate\Filesystem\Filesystem;
 use PHPUnit\Framework\Attributes\Test;
+use SanderMuller\Richter\Graph\CodeGraphBuilder;
 use SanderMuller\Richter\Graph\GraphCache;
 use SanderMuller\Richter\Tests\TestCase;
 
@@ -59,6 +60,7 @@ final class GraphCacheTest extends TestCase
         file_put_contents($this->cacheFile(), json_encode([
             'fingerprint' => $fingerprint,
             'edges' => $edges,
+            'hasUnparseableFiles' => false,
             'hasUnresolvedDispatches' => false,
             'nodeMetadata' => $nodeMetadata,
         ], JSON_THROW_ON_ERROR));
@@ -146,7 +148,12 @@ final class GraphCacheTest extends TestCase
 
         $graph = $cache->graph($this->projectRoot);
 
-        $this->assertSame(['edges' => $this->markerEdges(), 'hasUnresolvedDispatches' => false, 'nodeMetadata' => []], $graph->toArray());
+        $this->assertSame([
+            'edges' => $this->markerEdges(),
+            'hasUnparseableFiles' => false,
+            'hasUnresolvedDispatches' => false,
+            'nodeMetadata' => [],
+        ], $graph->toArray());
     }
 
     #[Test]
@@ -163,6 +170,40 @@ final class GraphCacheTest extends TestCase
         $stored = json_decode((string) file_get_contents($this->cacheFile()), associative: true);
         $this->assertIsArray($stored);
         $this->assertSame($cache->fingerprint($this->projectRoot), $stored['fingerprint']);
+    }
+
+    #[Test]
+    public function a_pre_split_format_cache_entry_is_a_miss_not_a_wrong_flag_hit(): void
+    {
+        // Simulates a cache entry written by the pre-036 combined-flag code: no `hasUnparseableFiles`
+        // key at all, and `hasUnresolvedDispatches` folding S1||S2 together (here `true`, as either an
+        // unparseable file or a variable dispatch would have set it). Its fingerprint is necessarily
+        // stale after the FORMAT_VERSION 3 → 4 bump, so this must read as a MISS and rebuild — never
+        // revive with `hasUnparseableFiles` silently defaulted `false` while the stale combined `true`
+        // rides along as `hasUnresolvedDispatches` (which would under-select: a change reaching no
+        // dispatchable would wrongly narrow even though the entry might really be S1-tainted).
+        mkdir($this->cacheDirectory, recursive: true);
+        file_put_contents($this->cacheFile(), json_encode([
+            'fingerprint' => 'pre-split-format-fingerprint',
+            'edges' => $this->markerEdges(),
+            'hasUnresolvedDispatches' => true,
+            'nodeMetadata' => [],
+        ], JSON_THROW_ON_ERROR));
+
+        $cache = $this->cache();
+        $graph = $cache->graph($this->projectRoot);
+
+        // Rebuilt from source — the stale marker graph is not served.
+        $this->assertNotContains($this->markerEdges()[0], $graph->toArray()['edges']);
+        // The fresh build's correctly-split flags for this dispatch/parse-free fixture — not a
+        // revival of the stale combined `true`.
+        $this->assertFalse($graph->hasUnparseableFiles());
+        $this->assertFalse($graph->hasUnresolvedDispatches());
+        // The rewritten entry now carries both split flags and the current fingerprint.
+        $stored = json_decode((string) file_get_contents($this->cacheFile()), associative: true);
+        $this->assertIsArray($stored);
+        $this->assertSame($cache->fingerprint($this->projectRoot), $stored['fingerprint']);
+        $this->assertArrayHasKey('hasUnparseableFiles', $stored);
     }
 
     #[Test]
@@ -215,6 +256,7 @@ final class GraphCacheTest extends TestCase
         file_put_contents($this->cacheFile(), json_encode([
             'fingerprint' => $cache->fingerprint($this->projectRoot),
             'edges' => [['source' => 'marker::A', 'target' => 42, 'type' => 'call']],
+            'hasUnparseableFiles' => false,
             'hasUnresolvedDispatches' => false,
         ], JSON_THROW_ON_ERROR));
 
@@ -260,6 +302,47 @@ final class GraphCacheTest extends TestCase
         $this->assertIsArray($stored);
         $this->assertSame($cache->fingerprint($this->projectRoot), $stored['fingerprint']);
         $this->assertSame($graph->toArray()['edges'], $stored['edges']);
+    }
+
+    #[Test]
+    public function an_unparseable_app_file_sets_only_has_unparseable_files_not_has_unresolved_dispatches(): void
+    {
+        // A syntax error the pinned parser cannot read at all (S1) — no dispatch verb anywhere in
+        // the fixture, so the dispatch-only flag must stay false; conflating the two would make an
+        // unrelated unparseable file masquerade as a scopeable dispatch signal (plan 036).
+        file_put_contents("{$this->projectRoot}/app/Services/Broken.php", "<?php\n\nnamespace App\\Services;\n\nclass Broken {\n");
+
+        $graph = $this->cache()->graph($this->projectRoot);
+
+        $this->assertTrue($graph->hasUnparseableFiles());
+        $this->assertFalse($graph->hasUnresolvedDispatches());
+
+        // Round-trips through a fresh process reading the just-written cache from disk.
+        $reread = new GraphCache(new CodeGraphBuilder())->graph($this->projectRoot);
+        $this->assertTrue($reread->hasUnparseableFiles());
+        $this->assertFalse($reread->hasUnresolvedDispatches());
+    }
+
+    #[Test]
+    public function a_variable_dispatch_with_every_file_parseable_sets_only_has_unresolved_dispatches(): void
+    {
+        // A dispatch verb whose argument is a variable (S2) — its target is unresolvable but bounded
+        // to "a dispatchable"; every file in the fixture parses fine, so the global S1 flag must
+        // stay false.
+        file_put_contents(
+            "{$this->projectRoot}/app/Services/Dispatcher.php",
+            "<?php\n\nnamespace App\\Services;\n\nclass Dispatcher\n{\n    public function run(\$job): void\n    {\n        dispatch(\$job);\n    }\n}\n",
+        );
+
+        $graph = $this->cache()->graph($this->projectRoot);
+
+        $this->assertFalse($graph->hasUnparseableFiles());
+        $this->assertTrue($graph->hasUnresolvedDispatches());
+
+        // Round-trips through a fresh process reading the just-written cache from disk.
+        $reread = new GraphCache(new CodeGraphBuilder())->graph($this->projectRoot);
+        $this->assertFalse($reread->hasUnparseableFiles());
+        $this->assertTrue($reread->hasUnresolvedDispatches());
     }
 
     #[Test]

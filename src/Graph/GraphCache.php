@@ -22,8 +22,14 @@ use Throwable;
  */
 final class GraphCache
 {
-    /** Bump on any change to the build pipeline that {@see fingerprint()}'s inputs cannot see. */
-    private const int FORMAT_VERSION = 3;
+    /**
+     * Bump on any change to the build pipeline that {@see fingerprint()}'s inputs cannot see.
+     * 3 → 4 (plan 036): {@see CodeGraph::toArray()} gained the `hasUnparseableFiles` key. Adding a
+     * key to the payload is invisible to the fingerprint's other inputs, so without this bump a
+     * stale pre-split cache entry (written by the old combined-flag code) would be served to the
+     * new code and revive with `hasUnparseableFiles` silently defaulted — under-selection.
+     */
+    private const int FORMAT_VERSION = 4;
 
     private ?CodeGraph $memoized = null;
 
@@ -150,7 +156,12 @@ final class GraphCache
             return null;
         }
 
-        return new CodeGraph($edges, ($data['hasUnresolvedDispatches'] ?? false) === true, $metadata);
+        return new CodeGraph(
+            $edges,
+            ($data['hasUnparseableFiles'] ?? false) === true,
+            ($data['hasUnresolvedDispatches'] ?? false) === true,
+            $metadata,
+        );
     }
 
     private function write(string $fingerprint, CodeGraph $graph): void

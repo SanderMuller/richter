@@ -14,7 +14,7 @@ final class CodeGraphWalkTest extends TestCase
         $graph = new CodeGraph([
             ['source' => 'A', 'target' => 'B', 'type' => 'call'],      // downstream of A
             ['source' => 'C', 'target' => 'A', 'type' => 'relation'],  // upstream of A
-        ]);
+        ], hasUnparseableFiles: false);
 
         $reach = $graph->reachedViaTypes(['A']);
 
@@ -31,7 +31,7 @@ final class CodeGraphWalkTest extends TestCase
         $graph = new CodeGraph([
             ['source' => 'A', 'target' => 'X', 'type' => 'model-relationship'],
             ['source' => 'A', 'target' => 'X', 'type' => 'action-to-service'],
-        ]);
+        ], hasUnparseableFiles: false);
 
         $this->assertSame(['action-to-service' => true, 'model-relationship' => true], $graph->reachedViaTypes(['A'])['X']);
     }
@@ -42,7 +42,7 @@ final class CodeGraphWalkTest extends TestCase
         $graph = new CodeGraph([
             ['source' => 'route::GET::/r', 'target' => 'App\Http\Controllers\C::index', 'type' => 'route-to-controller'],
             ['source' => 'App\Http\Controllers\C::index', 'target' => 'App\Services\S::run', 'type' => 'action-to-service'],
-        ], hasUnresolvedDispatches: true, nodeMetadata: [
+        ], hasUnparseableFiles: false, hasUnresolvedDispatches: true, nodeMetadata: [
             'route::GET::/r' => ['file' => 'routes/web.php', 'line' => 3, 'uri' => '/r', 'gates' => ['labs']],
         ]);
 
@@ -61,6 +61,7 @@ final class CodeGraphWalkTest extends TestCase
     {
         $revived = CodeGraph::fromArray([
             'edges' => [['source' => 'A', 'target' => 'B', 'type' => 'call']],
+            'hasUnparseableFiles' => false,
             'hasUnresolvedDispatches' => false,
         ]);
 
@@ -72,6 +73,7 @@ final class CodeGraphWalkTest extends TestCase
     {
         $graph = new CodeGraph(
             [['source' => 'route::POST::/checkout', 'target' => 'App\Services\S::run', 'type' => 'route-to-controller']],
+            hasUnparseableFiles: false,
             nodeMetadata: [
                 'route::POST::/checkout' => [
                     'file' => 'routes/web.php',
@@ -100,7 +102,7 @@ final class CodeGraphWalkTest extends TestCase
             ['source' => 'route::GET::/a', 'target' => 'App\X::run', 'type' => 'route-to-controller'],
             ['source' => 'route::GET::/b', 'target' => 'App\S::run', 'type' => 'route-to-controller'],
             ['source' => 'route::GET::/a', 'target' => 'App\S::run', 'type' => 'route-to-controller'],
-        ]);
+        ], hasUnparseableFiles: false);
 
         $revived = CodeGraph::fromArray($graph->toArray());
 
@@ -119,7 +121,7 @@ final class CodeGraphWalkTest extends TestCase
         $graph = new CodeGraph([
             ['source' => 'route::GET::/r', 'target' => 'App\Http\Controllers\C::index', 'type' => 'route-to-controller'],
             ['source' => 'App\Http\Controllers\C::index', 'target' => 'App\Services\S::run', 'type' => 'action-to-service'],
-        ]);
+        ], hasUnparseableFiles: false);
 
         $paths = $graph->callerPathsTo(['App\Services\S::run'], ['route::GET::/r']);
 
@@ -139,7 +141,7 @@ final class CodeGraphWalkTest extends TestCase
             ['source' => 'route::GET::/r', 'target' => 'App\Services\S::run', 'type' => 'direct'],
             ['source' => 'route::GET::/r', 'target' => 'App\Support\M::mid', 'type' => 'call'],
             ['source' => 'App\Support\M::mid', 'target' => 'App\Services\S::run', 'type' => 'call'],
-        ]);
+        ], hasUnparseableFiles: false);
 
         $paths = $graph->callerPathsTo(['App\Services\S::run'], ['route::GET::/r']);
 
@@ -152,7 +154,7 @@ final class CodeGraphWalkTest extends TestCase
     {
         $graph = new CodeGraph([
             ['source' => 'route::GET::/r', 'target' => 'App\Services\S::run', 'type' => 'direct'],
-        ]);
+        ], hasUnparseableFiles: false);
 
         $paths = $graph->callerPathsTo(['App\Services\S::run'], ['route::GET::/unrelated']);
 
@@ -164,7 +166,7 @@ final class CodeGraphWalkTest extends TestCase
     {
         $graph = new CodeGraph([
             ['source' => 'A', 'target' => 'B', 'type' => 'call'],
-        ]);
+        ], hasUnparseableFiles: false);
 
         $paths = $graph->callerPathsTo(['A'], ['A']);
 
@@ -179,7 +181,7 @@ final class CodeGraphWalkTest extends TestCase
             ['source' => 'route::GET::/r', 'target' => 'App\Services\A::run', 'type' => 'route-to-controller'],
             ['source' => 'App\Services\A::run', 'target' => 'App\Services\B::run', 'type' => 'call'],
             ['source' => 'App\Services\B::run', 'target' => 'App\Services\A::run', 'type' => 'call'],
-        ]);
+        ], hasUnparseableFiles: false);
 
         $paths = $graph->callerPathsTo(['App\Services\B::run'], ['route::GET::/r']);
 
@@ -196,7 +198,7 @@ final class CodeGraphWalkTest extends TestCase
         $graph = new CodeGraph([
             ['source' => 'model::App\Models\Post', 'target' => 'App\Models\PostContainer', 'type' => 'model-relationship'],
             ['source' => 'App\Models\SuperPost', 'target' => 'App\Models\PostContainer', 'type' => 'model-relationship'],
-        ]);
+        ], hasUnparseableFiles: false);
 
         // "Post" must match only the exact identifier, not as a prefix or suffix of a sibling name.
         $this->assertSame(['model::App\Models\Post'], $graph->nodesContaining('Post'));
@@ -210,7 +212,7 @@ final class CodeGraphWalkTest extends TestCase
     {
         $graph = new CodeGraph([
             ['source' => 'model::App\Models\Post', 'target' => 'App\Models\PostContainer', 'type' => 'model-relationship'],
-        ]);
+        ], hasUnparseableFiles: false);
 
         $this->assertSame(['model::App\Models\Post'], $graph->nodesContaining('post'));
     }
@@ -220,7 +222,7 @@ final class CodeGraphWalkTest extends TestCase
     {
         $graph = new CodeGraph([
             ['source' => 'App\Models\Post::query', 'target' => 'App\Services\S::run', 'type' => 'action-to-service'],
-        ]);
+        ], hasUnparseableFiles: false);
 
         // The full member needle matches, and so does the bare method name — the "::" left of it
         // is itself a boundary character.
@@ -233,7 +235,7 @@ final class CodeGraphWalkTest extends TestCase
     {
         $graph = new CodeGraph([
             ['source' => 'App\Models\Post::query', 'target' => 'App\Services\S::run', 'type' => 'action-to-service'],
-        ]);
+        ], hasUnparseableFiles: false);
 
         $this->assertSame([], $graph->nodesContaining(''));
     }
@@ -249,7 +251,7 @@ final class CodeGraphWalkTest extends TestCase
         $graph = new CodeGraph([
             ['source' => 'App\Models\Post::query', 'target' => 'App\Services\S::run', 'type' => 'action-to-service'],
             ['source' => 'route::GET::/r', 'target' => 'App\Http\Controllers\C::index', 'type' => 'route-to-controller'],
-        ]);
+        ], hasUnparseableFiles: false);
 
         $this->assertSame([], $graph->nodesContaining('::'));
     }

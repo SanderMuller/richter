@@ -170,7 +170,12 @@ final class CodeGraphBuilder
 
         $edges = AppFiles::dedupeEdges($edges, byType: true);
 
-        $graph = new CodeGraph($edges, $consolidated['unresolvedDispatches'] > 0, NodeMetadata::withFallbackFiles($edges, $metadata, $projectRoot));
+        $graph = new CodeGraph(
+            $edges,
+            $consolidated['unparseableFiles'] > 0,
+            $consolidated['unresolvedDispatches'] > 0,
+            NodeMetadata::withFallbackFiles($edges, $metadata, $projectRoot),
+        );
 
         $this->emitPhase($onProgress, 'rewrites-and-members', $phaseStart);
 
@@ -205,7 +210,14 @@ final class CodeGraphBuilder
      * absolute path. Only that subset is kept: retaining every AST would trade the parse win for a
      * memory blow-up on large apps.
      *
-     * @return array{edges: list<array{source: string, target: string, type: string}>, unresolvedDispatches: int, entryPointAsts: array<string, list<Node\Stmt>>}
+     * Two independent counts, per plan 036: `unparseableFiles` (S1 — a file the parser could not
+     * read at all; unknown content could hide any edge, so this stays a GLOBAL determinability
+     * blocker) and `unresolvedDispatches` (S2 — a bus dispatch whose target could not be resolved
+     * statically; the target is still bounded to "a dispatchable", so this is change-scopeable).
+     * Conflating the two (as pre-036 code did) would make an unrelated unparseable file's taint
+     * masquerade as a scopeable dispatch signal — see plan 036 "Why v1 was unsound".
+     *
+     * @return array{edges: list<array{source: string, target: string, type: string}>, unparseableFiles: int, unresolvedDispatches: int, entryPointAsts: array<string, list<Node\Stmt>>}
      */
     private function consolidatedTracerEdges(string $projectRoot, EntryPointTracer $entryPointTracer): array
     {
@@ -223,16 +235,17 @@ final class CodeGraphBuilder
 
         $edges = [];
         $entryPointAsts = [];
-        $unresolved = 0;
+        $unparseableFiles = 0;
+        $unresolvedDispatches = 0;
 
         foreach (AppFiles::phpClasses($projectRoot . '/app', $projectRoot) as $class) {
             $ast = AppFiles::parseResolved((string) file_get_contents($class['path']));
 
             if ($ast === null) {
-                // A file the graph cannot read is an unfollowable dispatch surface by definition —
-                // counting it keeps the unresolved-dispatch honesty (a job whose only dispatcher
-                // lives in this file must read "unknown", not "none").
-                ++$unresolved;
+                // A file the graph cannot read has no edges of its own and could reach anything —
+                // "could-be-anything" taint (S1). Unlike S2 below, its unknown target is NOT bounded
+                // to a dispatchable, so this can never be scoped to a change — it stays global.
+                ++$unparseableFiles;
 
                 continue;
             }
@@ -245,9 +258,10 @@ final class CodeGraphBuilder
             $nodes = $this->collectTracerNodes($ast);
 
             // Dispatchers → jobs incl. configured custom helpers + the unresolved-dispatch signal
-            // (a variable dispatch must make a job read "unknown", not "none").
+            // (a variable dispatch must make a job read "unknown", not "none"). The target is
+            // bounded to "a dispatchable" (S2), so unlike S1 above this IS change-scopeable.
             $dispatch = $dispatchTracer->edgesForMethods($nodes['classMethods'], $class['fqcn']);
-            $unresolved += $dispatch['unresolved'];
+            $unresolvedDispatches += $dispatch['unresolved'];
 
             array_push($edges, ...$dispatch['edges']);
             array_push($edges, ...$policyTracer->edgesForMethods($nodes['classMethods'], $class['fqcn']));
@@ -255,7 +269,12 @@ final class CodeGraphBuilder
             array_push($edges, ...$entryPointTracer->interfaceEdgesForClassLikes($nodes['classLikes'], $class['fqcn']));
         }
 
-        return ['edges' => AppFiles::dedupeEdges($edges, byType: true), 'unresolvedDispatches' => $unresolved, 'entryPointAsts' => $entryPointAsts];
+        return [
+            'edges' => AppFiles::dedupeEdges($edges, byType: true),
+            'unparseableFiles' => $unparseableFiles,
+            'unresolvedDispatches' => $unresolvedDispatches,
+            'entryPointAsts' => $entryPointAsts,
+        ];
     }
 
     /**

@@ -244,7 +244,7 @@ final class AffectedTestsTest extends TestCase
     {
         $graph = new CodeGraph([
             ['source' => 'schedule::abc123', 'target' => 'command::post:seed-views {--without-relations : x}', 'type' => 'schedule-to-command'],
-        ]);
+        ], hasUnparseableFiles: false);
         $index = new TestReferenceIndex();
         $index->addSource("<?php \$this->artisan('post:seed-views');", 'tests/Feature/SeedViewsTest.php');
 
@@ -265,7 +265,7 @@ final class AffectedTestsTest extends TestCase
     {
         $graph = new CodeGraph([
             ['source' => 'schedule::abc123', 'target' => 'App\Jobs\NightlyJob', 'type' => 'schedule-to-job'],
-        ]);
+        ], hasUnparseableFiles: false);
 
         $selection = AffectedTests::select(
             $this->detectResult(['schedule::abc123']),

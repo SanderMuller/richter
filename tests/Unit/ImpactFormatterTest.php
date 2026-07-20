@@ -133,7 +133,7 @@ final class ImpactFormatterTest extends TestCase
     #[DataProvider('unmappedChanges')]
     public function a_change_resolving_to_no_graph_node_reads_unresolved(string $file, string $fqcn): void
     {
-        $result = new ImpactAnalyzer(new CodeGraph([]))->detectChanges([
+        $result = new ImpactAnalyzer(new CodeGraph([], hasUnparseableFiles: false))->detectChanges([
             $this->method($file, $fqcn, 'run'),
         ]);
 
@@ -147,7 +147,7 @@ final class ImpactFormatterTest extends TestCase
         // "analyzed" (no impact), not "couldn't determine".
         $result = new ImpactAnalyzer(new CodeGraph([
             ['source' => 'App\Services\Lonely::run', 'target' => Post::class, 'type' => 'action-to-model'],
-        ]))->detectChanges([
+        ], hasUnparseableFiles: false))->detectChanges([
             $this->method('app/Services/Lonely.php', 'App\Services\Lonely', 'run'),
         ]);
 
@@ -159,7 +159,7 @@ final class ImpactFormatterTest extends TestCase
     {
         $result = new ImpactAnalyzer(new CodeGraph([
             ['source' => Post::class, 'target' => Comment::class, 'type' => 'model-relationship'],
-        ]))->detectChanges([
+        ], hasUnparseableFiles: false))->detectChanges([
             new ChangedFileSymbols('app/Models/Post.php', Post::class, [
                 new MemberChange('fillable', MemberChange::KIND_PROPERTY, MemberChange::CHANGE_MODIFIED, resolvable: false),
             ], cosmeticOnly: false),

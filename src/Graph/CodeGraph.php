@@ -35,11 +35,16 @@ final class CodeGraph
 
     /**
      * @param  list<array{source: string, target: string, type: string}>  $edges
-     * @param  bool  $hasUnresolvedDispatches  a dispatch verb was seen whose job target couldn't be
-     *   statically resolved — so a queue change reaching no entry point is "unknown", not "none".
+     * @param  bool  $hasUnparseableFiles  an app file could not be parsed at all (S1 — see plan
+     *   036). Its content and edges are unknown, so it could reach anything — this is a GLOBAL,
+     *   unscopeable determinability blocker. Required (no default) so a missed construction site
+     *   fails loud (ArgumentCountError → fail-safe backstop) instead of silently reading `false`.
+     * @param  bool  $hasUnresolvedDispatches  a dispatch verb was seen whose target couldn't be
+     *   statically resolved (S2 — see plan 036). The target is still bounded to "a dispatchable",
+     *   so unlike `$hasUnparseableFiles` this one is change-scopeable by the caller.
      * @param  array<string, MetadataShape>  $nodeMetadata  sparse per-node annotation, keyed by node id
      */
-    public function __construct(array $edges, private readonly bool $hasUnresolvedDispatches = false, private readonly array $nodeMetadata = [])
+    public function __construct(array $edges, private readonly bool $hasUnparseableFiles, private readonly bool $hasUnresolvedDispatches = false, private readonly array $nodeMetadata = [])
     {
         // Canonical order before building adjacency: a fresh build receives edges build-ordered,
         // a cache-revived graph receives them regrouped by source ({@see toArray()}). Without a
@@ -58,6 +63,16 @@ final class CodeGraph
     public function hasUnresolvedDispatches(): bool
     {
         return $this->hasUnresolvedDispatches;
+    }
+
+    /**
+     * An app file the build could not parse at all — S1, see plan 036. Its content is unknown, so
+     * it could hide an edge to anything; unlike {@see hasUnresolvedDispatches()} this can never be
+     * scoped to a change and must stay a global determinability blocker.
+     */
+    public function hasUnparseableFiles(): bool
+    {
+        return $this->hasUnparseableFiles;
     }
 
     /**
@@ -118,7 +133,7 @@ final class CodeGraph
      * The graph as plain constructor input, for on-disk caching. Every edge lives in the downstream
      * adjacency (nodes only exist through edges), so deriving from it loses nothing.
      *
-     * @return array{edges: list<array{source: string, target: string, type: string}>, hasUnresolvedDispatches: bool, nodeMetadata: array<string, MetadataShape>}
+     * @return array{edges: list<array{source: string, target: string, type: string}>, hasUnparseableFiles: bool, hasUnresolvedDispatches: bool, nodeMetadata: array<string, MetadataShape>}
      */
     public function toArray(): array
     {
@@ -130,13 +145,18 @@ final class CodeGraph
             }
         }
 
-        return ['edges' => $edges, 'hasUnresolvedDispatches' => $this->hasUnresolvedDispatches, 'nodeMetadata' => $this->nodeMetadata];
+        return [
+            'edges' => $edges,
+            'hasUnparseableFiles' => $this->hasUnparseableFiles,
+            'hasUnresolvedDispatches' => $this->hasUnresolvedDispatches,
+            'nodeMetadata' => $this->nodeMetadata,
+        ];
     }
 
-    /** @param  array{edges: list<array{source: string, target: string, type: string}>, hasUnresolvedDispatches: bool, nodeMetadata?: array<string, MetadataShape>}  $data */
+    /** @param  array{edges: list<array{source: string, target: string, type: string}>, hasUnparseableFiles: bool, hasUnresolvedDispatches: bool, nodeMetadata?: array<string, MetadataShape>}  $data */
     public static function fromArray(array $data): self
     {
-        return new self($data['edges'], $data['hasUnresolvedDispatches'], $data['nodeMetadata'] ?? []);
+        return new self($data['edges'], $data['hasUnparseableFiles'], $data['hasUnresolvedDispatches'], $data['nodeMetadata'] ?? []);
     }
 
     /**

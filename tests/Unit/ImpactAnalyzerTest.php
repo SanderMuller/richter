@@ -40,7 +40,7 @@ final class ImpactAnalyzerTest extends TestCase
             ['source' => 'App\Http\Controllers\PostController::publish', 'target' => 'App\Services\PostPublisher::publish', 'type' => 'action-to-service'],
             ['source' => 'App\Services\PostPublisher::publish', 'target' => 'App\Events\PostPublished', 'type' => 'action-to-event'],
             ['source' => Post::class, 'target' => Comment::class, 'type' => 'model-relationship'],
-        ]));
+        ], hasUnparseableFiles: false));
     }
 
     /**
@@ -117,7 +117,7 @@ final class ImpactAnalyzerTest extends TestCase
     {
         $analyzer = new ImpactAnalyzer(new CodeGraph([
             ['source' => self::ROUTE, 'target' => 'App\Services\PostPublisher::publish', 'type' => 'route-to-controller'],
-        ], nodeMetadata: [
+        ], hasUnparseableFiles: false, nodeMetadata: [
             self::ROUTE => [
                 'file' => 'routes/web.php',
                 'line' => 8,
@@ -152,7 +152,7 @@ final class ImpactAnalyzerTest extends TestCase
         $analyzer = new ImpactAnalyzer(new CodeGraph([
             ['source' => 'route::GET::/posts/{post}', 'target' => 'App\Services\PostPublisher::publish', 'type' => 'route-to-controller'],
             ['source' => 'App\Livewire\StatusPanel::render', 'target' => 'App\Services\PostPublisher::publish', 'type' => 'call'],
-        ], nodeMetadata: [
+        ], hasUnparseableFiles: false, nodeMetadata: [
             'route::GET::/posts/{post}' => [
                 'security' => ['exposure' => 'public', 'riskLevel' => 'high', 'issues' => []],
             ],
@@ -173,7 +173,7 @@ final class ImpactAnalyzerTest extends TestCase
     {
         $analyzer = new ImpactAnalyzer(new CodeGraph([
             ['source' => self::ROUTE, 'target' => 'App\Services\PostPublisher::publish', 'type' => 'route-to-controller'],
-        ], nodeMetadata: [
+        ], hasUnparseableFiles: false, nodeMetadata: [
             self::ROUTE => ['gates' => ['ai-coach']],
         ]));
 
@@ -193,7 +193,7 @@ final class ImpactAnalyzerTest extends TestCase
         // location on the self-listing still gives the reviewer a place to click through to.
         $analyzer = new ImpactAnalyzer(new CodeGraph([
             ['source' => 'App\Listeners\Saml\SamlLoginListener::handle', 'target' => 'App\Services\UserProvisioner::provision', 'type' => 'call'],
-        ], nodeMetadata: [
+        ], hasUnparseableFiles: false, nodeMetadata: [
             'App\Listeners\Saml\SamlLoginListener' => ['file' => 'app/Listeners/Saml/SamlLoginListener.php'],
         ]));
 
@@ -214,7 +214,7 @@ final class ImpactAnalyzerTest extends TestCase
     {
         $analyzer = new ImpactAnalyzer(new CodeGraph([
             ['source' => 'route::GET::/r', 'target' => 'App\Services\S::run', 'type' => 'route-to-controller'],
-        ], nodeMetadata: [
+        ], hasUnparseableFiles: false, nodeMetadata: [
             'route::GET::/r' => ['file' => 'routes/web.php', 'line' => 4],
         ]));
 
@@ -234,7 +234,7 @@ final class ImpactAnalyzerTest extends TestCase
         $analyzer = new ImpactAnalyzer(new CodeGraph([
             ['source' => 'App\Livewire\Settings::save', 'target' => 'App\Services\PostPublisher::publish', 'type' => 'call'],
             ['source' => 'App\Livewire\Settings::render', 'target' => 'App\Services\PostPublisher::publish', 'type' => 'call'],
-        ]));
+        ], hasUnparseableFiles: false));
 
         $result = $analyzer->detectChanges([
             $this->changedMethod('app/Services/PostPublisher.php', 'App\Services\PostPublisher', 'publish'),
@@ -255,7 +255,7 @@ final class ImpactAnalyzerTest extends TestCase
     {
         $analyzer = new ImpactAnalyzer(new CodeGraph([
             ['source' => 'App\Filament\Resources\PostResource::table', 'target' => 'App\Services\PostPublisher::publish', 'type' => 'call'],
-        ]));
+        ], hasUnparseableFiles: false));
 
         $result = $analyzer->detectChanges([
             $this->changedMethod('app/Services/PostPublisher.php', 'App\Services\PostPublisher', 'publish'),
@@ -273,7 +273,7 @@ final class ImpactAnalyzerTest extends TestCase
             ['source' => 'App\Services\FilamentExport::run', 'target' => 'App\Services\X::run', 'type' => 'call'],
             ['source' => 'App\Services\Filament', 'target' => 'App\Services\X::run', 'type' => 'call'],
             ['source' => 'Filament\Pages\Dashboard', 'target' => 'App\Services\X::run', 'type' => 'call'],
-        ]));
+        ], hasUnparseableFiles: false));
 
         $result = $analyzer->detectChanges([
             $this->changedMethod('app/Services/X.php', 'App\Services\X', 'run'),
@@ -287,7 +287,7 @@ final class ImpactAnalyzerTest extends TestCase
     {
         $analyzer = new ImpactAnalyzer(new CodeGraph([
             ['source' => 'App\Filament\Resources\PostResource::table', 'target' => 'App\Services\X::run', 'type' => 'call'],
-        ]));
+        ], hasUnparseableFiles: false));
 
         $result = $analyzer->detectChanges([
             $this->changedMethod('app/Filament/Resources/PostResource.php', 'App\Filament\Resources\PostResource', 'table'),
@@ -305,7 +305,7 @@ final class ImpactAnalyzerTest extends TestCase
         $analyzer = new ImpactAnalyzer(new CodeGraph([
             ['source' => 'App\Livewire\Settings::save', 'target' => 'App\Services\X::run', 'type' => 'call'],
             ['source' => 'App\Livewire\Settings', 'target' => 'App\Livewire\Settings::save', 'type' => 'declares'],
-        ]));
+        ], hasUnparseableFiles: false));
 
         $result = $analyzer->detectChanges([
             $this->changedMethod('app/Services/X.php', 'App\Services\X', 'run'),
@@ -322,7 +322,7 @@ final class ImpactAnalyzerTest extends TestCase
         // be fiction; its absence is what tells a consumer apart "reached" from "self-listed".
         $analyzer = new ImpactAnalyzer(new CodeGraph([
             ['source' => 'App\Listeners\Saml\SamlLoginListener::handle', 'target' => 'App\Services\UserProvisioner::provision', 'type' => 'call'],
-        ]));
+        ], hasUnparseableFiles: false));
 
         $result = $analyzer->detectChanges([
             $this->changedMethod('app/Listeners/Saml/SamlLoginListener.php', 'App\Listeners\Saml\SamlLoginListener', 'handle'),
@@ -344,7 +344,7 @@ final class ImpactAnalyzerTest extends TestCase
             ['source' => 'App\Http\Controllers\PostController::index', 'target' => 'view::blade__dashboard.home.post_item', 'type' => 'action-to-view'],
             ['source' => 'view::blade__dashboard.home.post_item', 'target' => $component, 'type' => 'view-to-view'],
             ['source' => $component, 'target' => PostPolicy::class, 'type' => 'authorizes'],
-        ]));
+        ], hasUnparseableFiles: false));
 
         $file = 'resources/views/components/post-dashboard/post-action-buttons.blade.php';
         $result = $analyzer->detectChanges([
@@ -380,7 +380,7 @@ final class ImpactAnalyzerTest extends TestCase
             ['source' => 'App\Http\Controllers\CardController', 'target' => $card, 'type' => 'action-to-view'],
             ['source' => 'route::GET::/card-header', 'target' => 'App\Http\Controllers\CardHeaderController', 'type' => 'route-to-controller'],
             ['source' => 'App\Http\Controllers\CardHeaderController', 'target' => $cardHeader, 'type' => 'action-to-view'],
-        ]));
+        ], hasUnparseableFiles: false));
 
         $file = 'resources/views/components/card.blade.php';
         $result = $analyzer->detectChanges([
@@ -399,7 +399,7 @@ final class ImpactAnalyzerTest extends TestCase
         // it, so the blast radius must walk up from the old name to its entry points.
         $analyzer = new ImpactAnalyzer(new CodeGraph([
             ['source' => 'route::GET::/r', 'target' => 'App\Services\Old', 'type' => 'references'],
-        ]));
+        ], hasUnparseableFiles: false));
 
         $result = $analyzer->detectChanges([
             new ChangedFileSymbols('app/Services/New.php', 'App\Services\New', [
@@ -466,7 +466,7 @@ final class ImpactAnalyzerTest extends TestCase
             $edges[] = ['source' => "App\\Http\\Controllers\\C{$i}::index", 'target' => Post::class, 'type' => 'action-to-model'];
         }
 
-        $result = new ImpactAnalyzer(new CodeGraph($edges))->detectChanges([
+        $result = new ImpactAnalyzer(new CodeGraph($edges, hasUnparseableFiles: false))->detectChanges([
             $this->changedCoarse('app/Models/Post.php', Post::class),
         ]);
 
@@ -495,7 +495,7 @@ final class ImpactAnalyzerTest extends TestCase
             'removed' => [['line' => 4, 'text' => "    protected array \$fillable = ['a'];"]],
         ];
 
-        $result = new ImpactAnalyzer(new CodeGraph($edges))->detectChanges([
+        $result = new ImpactAnalyzer(new CodeGraph($edges, hasUnparseableFiles: false))->detectChanges([
             ChangedSymbols::classifyFile('app/Models/Post.php', $head, $base, $hunk),
         ]);
 
@@ -514,7 +514,7 @@ final class ImpactAnalyzerTest extends TestCase
             $edges[] = ['source' => "route::GET::/r{$i}", 'target' => 'App\Services\Big::run', 'type' => 'route-to-controller'];
         }
 
-        $result = new ImpactAnalyzer(new CodeGraph($edges))->detectChanges([
+        $result = new ImpactAnalyzer(new CodeGraph($edges, hasUnparseableFiles: false))->detectChanges([
             $this->changedMethod('app/Services/Big.php', 'App\Services\Big', 'run'),
             $this->changedCoarse('app/Models/Post.php', Post::class),
         ]);
@@ -531,7 +531,7 @@ final class ImpactAnalyzerTest extends TestCase
         $analyzer = new ImpactAnalyzer(new CodeGraph([
             ['source' => self::ROUTE, 'target' => 'App\Services\X::publish', 'type' => 'action-to-service'],
             ['source' => 'route::GET::/other', 'target' => 'App\Services\X::publishNow', 'type' => 'action-to-service'],
-        ]));
+        ], hasUnparseableFiles: false));
 
         $result = $analyzer->detectChanges([
             $this->changedMethod('app/Services/X.php', 'App\Services\X', 'publish'),
@@ -547,7 +547,7 @@ final class ImpactAnalyzerTest extends TestCase
         $analyzer = new ImpactAnalyzer(new CodeGraph([
             ['source' => 'App\Models\User::isAdmin', 'target' => 'App\Traits\HasRoles::isAdmin', 'type' => 'inherits-method'],
             ['source' => self::ROUTE, 'target' => 'App\Models\User::isAdmin', 'type' => 'action-to-model'],
-        ]));
+        ], hasUnparseableFiles: false));
 
         $result = $analyzer->detectChanges([
             $this->changedMethod('app/Traits/HasRoles.php', 'App\Traits\HasRoles', 'isAdmin'),
@@ -563,7 +563,7 @@ final class ImpactAnalyzerTest extends TestCase
         $analyzer = new ImpactAnalyzer(new CodeGraph([
             ['source' => Post::class, 'target' => Comment::class, 'type' => 'model-relationship'],
             ['source' => Post::class, 'target' => Review::class, 'type' => 'model-relationship'],
-        ]));
+        ], hasUnparseableFiles: false));
 
         $result = $analyzer->detectChanges([
             $this->changedCoarse('app/Models/Post.php', Post::class),
@@ -582,7 +582,7 @@ final class ImpactAnalyzerTest extends TestCase
         $analyzer = new ImpactAnalyzer(new CodeGraph([
             ['source' => Post::class, 'target' => Comment::class, 'type' => 'model-relationship'],
             ['source' => Post::class, 'target' => Comment::class, 'type' => 'model-relationship'],
-        ]));
+        ], hasUnparseableFiles: false));
 
         $result = $analyzer->detectChanges([
             $this->changedCoarse('app/Models/Post.php', Post::class),
@@ -597,7 +597,7 @@ final class ImpactAnalyzerTest extends TestCase
         $analyzer = new ImpactAnalyzer(new CodeGraph([
             ['source' => Post::class, 'target' => 'App\Services\X::run', 'type' => 'model-relationship'],
             ['source' => Post::class, 'target' => 'App\Services\X::run', 'type' => 'action-to-service'],
-        ]));
+        ], hasUnparseableFiles: false));
 
         $result = $analyzer->detectChanges([
             $this->changedCoarse('app/Models/Post.php', Post::class),
@@ -682,7 +682,7 @@ final class ImpactAnalyzerTest extends TestCase
             ['source' => self::ROUTE, 'target' => 'App\Http\Controllers\X', 'type' => 'route-to-controller'],
             ['source' => 'App\Http\Controllers\X', 'target' => 'App\Http\Controllers\X::store', 'type' => 'controller-to-action'],
             ['source' => 'App\Http\Controllers\X::store', 'target' => 'App\Jobs\ImportJob::handle', 'type' => 'action-to-job'],
-        ]));
+        ], hasUnparseableFiles: false));
 
         $result = $analyzer->detectChanges([
             $this->changedMethod('app/Jobs/ImportJob.php', 'App\Jobs\ImportJob', 'handle'),
@@ -699,7 +699,7 @@ final class ImpactAnalyzerTest extends TestCase
     {
         $graph = new CodeGraph([
             ['source' => 'App\Jobs\ImportJob::handle', 'target' => 'App\Services\X::run', 'type' => 'job'],
-        ], hasUnresolvedDispatches: true);
+        ], hasUnparseableFiles: false, hasUnresolvedDispatches: true);
 
         $result = new ImpactAnalyzer($graph)->detectChanges([
             $this->changedMethod('app/Jobs/ImportJob.php', 'App\Jobs\ImportJob', 'handle'),
@@ -718,7 +718,7 @@ final class ImpactAnalyzerTest extends TestCase
         // flip it to UNRESOLVED, or every "just added a field to a job" PR reads as noise.
         $graph = new CodeGraph([
             ['source' => 'App\Jobs\ImportJob::handle', 'target' => 'App\Services\X::run', 'type' => 'job'],
-        ], hasUnresolvedDispatches: true);
+        ], hasUnparseableFiles: false, hasUnresolvedDispatches: true);
 
         $result = new ImpactAnalyzer($graph)->detectChanges([
             $this->changedAdditive('app/Jobs/ImportJob.php', 'App\Jobs\ImportJob'),
@@ -735,7 +735,7 @@ final class ImpactAnalyzerTest extends TestCase
         $graph = new CodeGraph([
             ['source' => self::ROUTE, 'target' => 'App\Services\X::run', 'type' => 'route-to-controller'],
             ['source' => 'App\Jobs\ImportJob::handle', 'target' => 'App\Services\Y::run', 'type' => 'job'],
-        ], hasUnresolvedDispatches: true);
+        ], hasUnparseableFiles: false, hasUnresolvedDispatches: true);
 
         $result = new ImpactAnalyzer($graph)->detectChanges([
             $this->changedMethod('app/Services/X.php', 'App\Services\X', 'run'),
@@ -753,7 +753,7 @@ final class ImpactAnalyzerTest extends TestCase
     {
         $graph = new CodeGraph([
             ['source' => 'App\Jobs\ImportJob::handle', 'target' => 'App\Services\X::run', 'type' => 'job'],
-        ]);
+        ], hasUnparseableFiles: false);
 
         $result = new ImpactAnalyzer($graph)->detectChanges([
             $this->changedMethod('app/Jobs/ImportJob.php', 'App\Jobs\ImportJob', 'handle'),
@@ -770,7 +770,7 @@ final class ImpactAnalyzerTest extends TestCase
         // file's own coverage on its own key, never collapse the two.
         $graph = new CodeGraph([
             ['source' => 'App\Jobs\ImportJob::handle', 'target' => 'App\Services\X::run', 'type' => 'job'],
-        ], hasUnresolvedDispatches: true);
+        ], hasUnparseableFiles: false, hasUnresolvedDispatches: true);
 
         $result = new ImpactAnalyzer($graph)->detectChanges([
             $this->changedMethod('app/Jobs/ImportJobCopyOne.php', 'App\Jobs\ImportJob', 'handle'),
@@ -790,7 +790,7 @@ final class ImpactAnalyzerTest extends TestCase
         // above already exercises through detectChanges().
         $analyzer = new ImpactAnalyzer(new CodeGraph([
             ['source' => self::ROUTE, 'target' => 'App\Http\Controllers\PostController::publish', 'type' => 'route-to-controller'],
-        ]));
+        ], hasUnparseableFiles: false));
 
         $riskInputs = new ReflectionMethod($analyzer, 'riskInputs');
         $memo = [];
@@ -818,7 +818,7 @@ final class ImpactAnalyzerTest extends TestCase
     {
         $analyzer = new ImpactAnalyzer(new CodeGraph([
             ['source' => Post::class, 'target' => PostContainer::class, 'type' => 'model-relationship'],
-        ]));
+        ], hasUnparseableFiles: false));
 
         // "App\Models\Post" must seed only Post, not the sibling "App\Models\PostContainer".
         $result = $analyzer->detectChanges([
@@ -833,7 +833,7 @@ final class ImpactAnalyzerTest extends TestCase
     {
         $analyzer = new ImpactAnalyzer(new CodeGraph([
             ['source' => 'App\Models\SuperPost', 'target' => PostContainer::class, 'type' => 'model-relationship'],
-        ]));
+        ], hasUnparseableFiles: false));
 
         // "Post" must match neither "SuperPost" (left) nor "PostContainer" (right).
         $result = $analyzer->impact('Post');
@@ -849,7 +849,7 @@ final class ImpactAnalyzerTest extends TestCase
         $analyzer = new ImpactAnalyzer(new CodeGraph([
             ['source' => 'App\Services\A::run', 'target' => 'App\Services\B::run', 'type' => 'action-to-service'],
             ['source' => 'App\Services\B::run', 'target' => 'App\Services\A::run', 'type' => 'action-to-service'],
-        ]));
+        ], hasUnparseableFiles: false));
 
         $result = $analyzer->detectChanges([
             $this->changedMethod('app/Services/A.php', 'App\Services\A', 'run'),
@@ -871,7 +871,7 @@ final class ImpactAnalyzerTest extends TestCase
     {
         $analyzer = new ImpactAnalyzer(new CodeGraph([
             ['source' => Post::class, 'target' => Comment::class, 'type' => 'model-relationship'],
-        ]));
+        ], hasUnparseableFiles: false));
 
         // A leading-backslash FQCN must resolve the same as one without it.
         $leadingBackslash = $this->nodes($analyzer->impact('\\' . Post::class)['dependencies']);
@@ -918,7 +918,7 @@ final class ImpactAnalyzerTest extends TestCase
         // A job appears as an FQCN-keyed deep-call node; a change to its file must resolve to it.
         $analyzer = new ImpactAnalyzer(new CodeGraph([
             ['source' => 'App\Jobs\Post\SomeImportJob::handle', 'target' => 'App\Services\Importer::run', 'type' => 'job'],
-        ]));
+        ], hasUnparseableFiles: false));
 
         $result = $analyzer->detectChanges([
             $this->changedMethod('app/Jobs/Post/SomeImportJob.php', 'App\Jobs\Post\SomeImportJob', 'handle'),
@@ -937,7 +937,7 @@ final class ImpactAnalyzerTest extends TestCase
             ['source' => self::ROUTE, 'target' => 'App\Http\Controllers\UserController::destroy', 'type' => 'route-to-controller'],
             ['source' => 'App\Http\Controllers\UserController::destroy', 'target' => UserPolicy::class, 'type' => 'authorizes'],
             ['source' => UserPolicy::class, 'target' => 'App\Policies\UserPolicy::forceDelete', 'type' => 'declares'],
-        ]));
+        ], hasUnparseableFiles: false));
 
         $result = $analyzer->detectChanges([
             $this->changedMethod('app/Policies/UserPolicy.php', UserPolicy::class, 'forceDelete'),
@@ -956,7 +956,7 @@ final class ImpactAnalyzerTest extends TestCase
             ['source' => Post::class, 'target' => Post::class . '::comments', 'type' => 'declares'],
             ['source' => Post::class, 'target' => Post::class . '::reviews', 'type' => 'declares'],
             ['source' => Post::class, 'target' => Post::class . '::publish', 'type' => 'declares'],
-        ]));
+        ], hasUnparseableFiles: false));
 
         $result = $analyzer->detectChanges([
             $this->changedCoarse('app/Models/Post.php', Post::class),
@@ -973,7 +973,7 @@ final class ImpactAnalyzerTest extends TestCase
         // "Entry points reached: 0" would under-communicate that.
         $analyzer = new ImpactAnalyzer(new CodeGraph([
             ['source' => 'App\Listeners\Saml\SamlLoginListener::handle', 'target' => 'App\Services\UserProvisioner::provision', 'type' => 'call'],
-        ]));
+        ], hasUnparseableFiles: false));
 
         $result = $analyzer->detectChanges([
             $this->changedMethod('app/Listeners/Saml/SamlLoginListener.php', 'App\Listeners\Saml\SamlLoginListener', 'handle'),
@@ -991,7 +991,7 @@ final class ImpactAnalyzerTest extends TestCase
         // every request — it must place as its own entry surface, never "no impact".
         $analyzer = new ImpactAnalyzer(new CodeGraph([
             ['source' => 'App\Http\Middleware\FirstPartySessionCookie::handle', 'target' => 'App\Services\CookieJar::set', 'type' => 'call'],
-        ]));
+        ], hasUnparseableFiles: false));
 
         $result = $analyzer->detectChanges([
             $this->changedMethod('app/Http/Middleware/FirstPartySessionCookie.php', 'App\Http\Middleware\FirstPartySessionCookie', 'handle'),
@@ -1010,7 +1010,7 @@ final class ImpactAnalyzerTest extends TestCase
             ['source' => 'App\Http\Controllers\UserController::show', 'target' => User::class, 'type' => 'model'],
             ['source' => User::class, 'target' => WithAudits::class, 'type' => 'uses-trait'],
             ['source' => WithAudits::class, 'target' => 'App\Models\Concerns\WithAudits::audits', 'type' => 'declares'],
-        ]));
+        ], hasUnparseableFiles: false));
 
         $result = $analyzer->detectChanges([
             $this->changedMethod('app/Models/Concerns/WithAudits.php', WithAudits::class, 'audits'),
@@ -1026,7 +1026,7 @@ final class ImpactAnalyzerTest extends TestCase
         $analyzer = new ImpactAnalyzer(new CodeGraph([
             ['source' => self::ROUTE, 'target' => CategoryAuthenticate::class, 'type' => 'route-to-middleware'],
             ['source' => CategoryAuthenticate::class, 'target' => 'App\Http\Middleware\CategoryAuthenticate::handle', 'type' => 'declares'],
-        ]));
+        ], hasUnparseableFiles: false));
 
         $result = $analyzer->detectChanges([
             $this->changedMethod('app/Http/Middleware/CategoryAuthenticate.php', CategoryAuthenticate::class, 'handle'),
@@ -1054,7 +1054,7 @@ final class ImpactAnalyzerTest extends TestCase
             ['source' => PostContainer::class, 'target' => Post::class, 'type' => 'model-relationship'],
             ['source' => PostContainer::class, 'target' => 'model::Post', 'type' => 'model-relationship'],
             ['source' => PostContainer::class, 'target' => 'model::Category', 'type' => 'model-relationship'],
-        ]));
+        ], hasUnparseableFiles: false));
 
         $result = $analyzer->detectChanges([
             $this->changedCoarse('app/Models/PostContainer.php', PostContainer::class),
@@ -1073,7 +1073,7 @@ final class ImpactAnalyzerTest extends TestCase
             ['source' => PostContainer::class, 'target' => Tag::class, 'type' => 'model-relationship'],
             ['source' => PostContainer::class, 'target' => \App\Models\Category\Tag::class, 'type' => 'model-relationship'],
             ['source' => PostContainer::class, 'target' => 'model::Tag', 'type' => 'model-relationship'],
-        ]));
+        ], hasUnparseableFiles: false));
 
         $result = $analyzer->detectChanges([
             $this->changedCoarse('app/Models/PostContainer.php', PostContainer::class),
@@ -1177,7 +1177,7 @@ final class ImpactAnalyzerTest extends TestCase
         $analyzer = new ImpactAnalyzer(new CodeGraph([
             ['source' => 'route::GET::/posts', 'target' => 'App\Http\Controllers\PostController::index', 'type' => 'route-to-action'],
             ['source' => 'route::GET::/posts/{post}', 'target' => 'App\Http\Controllers\PostController::show', 'type' => 'route-to-action'],
-        ]));
+        ], hasUnparseableFiles: false));
 
         $result = $analyzer->detectChanges([
             $this->changedFrontend('resources/js/Pages/Index.vue', ['route::GET::/posts']),
@@ -1193,7 +1193,7 @@ final class ImpactAnalyzerTest extends TestCase
             ['source' => self::ROUTE, 'target' => 'App\Http\Controllers\PostController', 'type' => 'route-to-controller'],
             ['source' => 'route::GET::/errors/log', 'target' => 'App\Http\Controllers\ErrorController', 'type' => 'route-to-controller'],
             ['source' => 'App\Http\Controllers\PostController::publish', 'target' => 'view::blade__posts.show', 'type' => 'action-to-view'],
-        ]));
+        ], hasUnparseableFiles: false));
 
         $result = $analyzer->detectChanges([
             new ChangedFileSymbols('resources/views/posts/show.blade.php', '', [], cosmeticOnly: false, directSeeds: ['view::blade__posts.show', 'route::GET::/errors/log']),
@@ -1211,6 +1211,7 @@ final class ImpactAnalyzerTest extends TestCase
     {
         $analyzer = new ImpactAnalyzer(new CodeGraph(
             [['source' => self::ROUTE, 'target' => 'App\Http\Controllers\PostController', 'type' => 'route-to-controller']],
+            hasUnparseableFiles: false,
             hasUnresolvedDispatches: false,
             nodeMetadata: [self::ROUTE => ['file' => 'routes/web.php', 'line' => 12, 'gates' => ['interactive-post']]],
         ));
