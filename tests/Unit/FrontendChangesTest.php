@@ -13,9 +13,9 @@ final class FrontendChangesTest extends TestCase
     {
         parent::setUp();
         config()->set('richter.frontend.roots', ['resources/js']);
-        Route::get('/videos/{video}', ['App\Http\Controllers\VideoController', 'show'])->name('videos.show');
-        Route::post('/videos', ['App\Http\Controllers\VideoController', 'store'])->name('videos.store');
-        Route::get('/videos', ['App\Http\Controllers\VideoController', 'index'])->name('videos.index');
+        Route::get('/posts/{post}', ['App\Http\Controllers\PostController', 'show'])->name('posts.show');
+        Route::post('/posts', ['App\Http\Controllers\PostController', 'store'])->name('posts.store');
+        Route::get('/posts', ['App\Http\Controllers\PostController', 'index'])->name('posts.index');
         Route::get('/ping', ['App\Http\Controllers\PingController', '__invoke']);
         Route::get('/users/{user?}', ['App\Http\Controllers\UserController', 'show'])->name('users.show');
     }
@@ -30,7 +30,7 @@ final class FrontendChangesTest extends TestCase
     {
         config()->set('richter.frontend.roots', []);
 
-        $this->assertFalse($this->frontend()->handles('resources/js/Pages/Videos.vue'));
+        $this->assertFalse($this->frontend()->handles('resources/js/Pages/Posts.vue'));
     }
 
     #[Test]
@@ -38,10 +38,10 @@ final class FrontendChangesTest extends TestCase
     {
         $frontend = $this->frontend();
 
-        $this->assertTrue($frontend->handles('resources/js/Pages/Videos.vue'));
+        $this->assertTrue($frontend->handles('resources/js/Pages/Posts.vue'));
         $this->assertTrue($frontend->handles('resources/js/lib/api.ts'));
         $this->assertFalse($frontend->handles('resources/css/app.css'));
-        $this->assertFalse($frontend->handles('app/Models/Video.php'));
+        $this->assertFalse($frontend->handles('app/Models/Post.php'));
         $this->assertFalse($frontend->handles('other/js/thing.ts'));
     }
 
@@ -50,8 +50,8 @@ final class FrontendChangesTest extends TestCase
     {
         $frontend = $this->frontend();
 
-        $this->assertFalse($frontend->handles('resources/js/actions/App/Http/Controllers/VideoController.ts'));
-        $this->assertFalse($frontend->handles('resources/js/routes/videos.ts'));
+        $this->assertFalse($frontend->handles('resources/js/actions/App/Http/Controllers/PostController.ts'));
+        $this->assertFalse($frontend->handles('resources/js/routes/posts.ts'));
         $this->assertFalse($frontend->handles('resources/js/wayfinder/index.ts'));
         // A file merely named after them, outside the generated tree, still scans.
         $this->assertTrue($frontend->handles('resources/js/Pages/actions.ts'));
@@ -95,12 +95,12 @@ final class FrontendChangesTest extends TestCase
     public function a_wayfinder_action_import_maps_to_the_routes_of_that_action(): void
     {
         $symbols = $this->frontend()->resolve(
-            'resources/js/Pages/Videos.vue',
-            'import { store } from "@/actions/App/Http/Controllers/VideoController";',
+            'resources/js/Pages/Posts.vue',
+            'import { store } from "@/actions/App/Http/Controllers/PostController";',
             null,
         );
 
-        $this->assertSame(['route::POST::/videos'], $symbols->directSeeds);
+        $this->assertSame(['route::POST::/posts'], $symbols->directSeeds);
         $this->assertFalse($symbols->unresolvedFrontendReferences);
         $this->assertSame([], $symbols->findings);
     }
@@ -109,12 +109,12 @@ final class FrontendChangesTest extends TestCase
     public function a_default_action_import_maps_to_every_route_of_the_controller(): void
     {
         $symbols = $this->frontend()->resolve(
-            'resources/js/Pages/Videos.vue',
-            'import VideoController from "@/actions/App/Http/Controllers/VideoController";',
+            'resources/js/Pages/Posts.vue',
+            'import PostController from "@/actions/App/Http/Controllers/PostController";',
             null,
         );
 
-        $this->assertSame(['route::GET::/videos/{video}', 'route::POST::/videos', 'route::GET::/videos'], $symbols->directSeeds);
+        $this->assertSame(['route::GET::/posts/{post}', 'route::POST::/posts', 'route::GET::/posts'], $symbols->directSeeds);
     }
 
     #[Test]
@@ -133,12 +133,12 @@ final class FrontendChangesTest extends TestCase
     public function ziggy_and_wayfinder_route_names_map_through_the_name_index(): void
     {
         $symbols = $this->frontend()->resolve(
-            'resources/js/Pages/Videos.vue',
-            "import { show } from '@/routes/videos';\nroute('videos.store');",
+            'resources/js/Pages/Posts.vue',
+            "import { show } from '@/routes/posts';\nroute('posts.store');",
             null,
         );
 
-        $this->assertSame(['route::GET::/videos/{video}', 'route::POST::/videos'], $symbols->directSeeds);
+        $this->assertSame(['route::GET::/posts/{post}', 'route::POST::/posts'], $symbols->directSeeds);
     }
 
     #[Test]
@@ -146,22 +146,22 @@ final class FrontendChangesTest extends TestCase
     {
         $symbols = $this->frontend()->resolve(
             'resources/js/lib/api.ts',
-            "axios.post('/videos'); fetch('/videos/123?tab=stats');",
+            "axios.post('/posts'); fetch('/posts/123?tab=stats');",
             null,
         );
 
-        // '/videos' matches only its own path (never the parameterised '/videos/{video}'), and
+        // '/posts' matches only its own path (never the parameterised '/posts/{post}'), and
         // the pinned `.post` scopes it past the GET registration sharing that path.
-        $this->assertSame(['route::POST::/videos', 'route::GET::/videos/{video}'], $symbols->directSeeds);
+        $this->assertSame(['route::POST::/posts', 'route::GET::/posts/{post}'], $symbols->directSeeds);
         $this->assertFalse($symbols->unresolvedFrontendReferences);
     }
 
     #[Test]
     public function an_unpinned_literal_on_a_shared_path_seeds_every_method(): void
     {
-        $symbols = $this->frontend()->resolve('resources/js/lib/api.ts', "load('/videos');", null);
+        $symbols = $this->frontend()->resolve('resources/js/lib/api.ts', "load('/posts');", null);
 
-        $this->assertSame(['route::POST::/videos', 'route::GET::/videos'], $symbols->directSeeds);
+        $this->assertSame(['route::POST::/posts', 'route::GET::/posts'], $symbols->directSeeds);
     }
 
     #[Test]
@@ -189,7 +189,7 @@ final class FrontendChangesTest extends TestCase
     #[Test]
     public function an_optional_parameter_route_matches_a_trailing_slash_literal(): void
     {
-        // '/videos/{video?}' would register alongside the required '/videos/{video}' — instead
+        // '/posts/{post?}' would register alongside the required '/posts/{post}' — instead
         // reuse the existing optional-param route and assert the trailing-slash form of its
         // base path (without the segment) still matches.
         $symbols = $this->frontend()->resolve('resources/js/a.ts', "fetch('/users/');", null);
@@ -212,9 +212,9 @@ final class FrontendChangesTest extends TestCase
     #[Test]
     public function a_template_literal_endpoint_matches_through_its_wildcarded_interpolation(): void
     {
-        $symbols = $this->frontend()->resolve('resources/js/lib/api.ts', 'fetch(`/videos/${id}`);', null);
+        $symbols = $this->frontend()->resolve('resources/js/lib/api.ts', 'fetch(`/posts/${id}`);', null);
 
-        $this->assertSame(['route::GET::/videos/{video}'], $symbols->directSeeds);
+        $this->assertSame(['route::GET::/posts/{post}'], $symbols->directSeeds);
         $this->assertFalse($symbols->unresolvedFrontendReferences);
     }
 
@@ -224,24 +224,24 @@ final class FrontendChangesTest extends TestCase
         // The Blade lane: fetch literals inside <script> seed; markup hrefs, form actions and
         // Blade's route() helper are navigation, not endpoint calls.
         $seeds = $this->frontend()->inlineUriSeeds(
-            "<a href=\"/videos/9\">watch</a>\n<form action=\"/videos\" method=\"POST\"></form>\n<script>fetch('/videos/7', {method: 'GET'});</script>",
-            "<a href=\"{{ route('videos.store') }}\">old</a>",
+            "<a href=\"/posts/9\">watch</a>\n<form action=\"/posts\" method=\"POST\"></form>\n<script>fetch('/posts/7', {method: 'GET'});</script>",
+            "<a href=\"{{ route('posts.store') }}\">old</a>",
         );
 
-        $this->assertSame(['route::GET::/videos/{video}'], $seeds);
+        $this->assertSame(['route::GET::/posts/{post}'], $seeds);
     }
 
     #[Test]
     public function route_nodes_in_unions_all_three_reference_kinds(): void
     {
         $nodes = $this->frontend()->routeNodesIn(<<<'TS'
-            import { store } from "@/actions/App/Http/Controllers/VideoController";
+            import { store } from "@/actions/App/Http/Controllers/PostController";
             route('users.show');
-            fetch(`/videos/${id}`);
+            fetch(`/posts/${id}`);
             TS);
 
         $this->assertSame(
-            ['route::POST::/videos', 'route::GET::/users/{user?}', 'route::GET::/videos/{video}'],
+            ['route::POST::/posts', 'route::GET::/users/{user?}', 'route::GET::/posts/{post}'],
             $nodes,
         );
     }
@@ -250,7 +250,7 @@ final class FrontendChangesTest extends TestCase
     public function a_non_endpoint_literal_matches_no_template_and_is_not_a_reference(): void
     {
         $symbols = $this->frontend()->resolve(
-            'resources/js/Pages/Videos.vue',
+            'resources/js/Pages/Posts.vue',
             "const logo = '/img/logo.svg';",
             null,
         );
@@ -265,8 +265,8 @@ final class FrontendChangesTest extends TestCase
         // The false-positive flood in miniature: a constants/nav-link file whose strings happen
         // to match real route templates must not register those routes as touched.
         $symbols = $this->frontend()->resolve(
-            'resources/js/Pages/Videos.vue',
-            "const LINKS = { videos: '/videos', video: '/videos/9' };",
+            'resources/js/Pages/Posts.vue',
+            "const LINKS = { posts: '/posts', post: '/posts/9' };",
             null,
         );
 
@@ -296,7 +296,7 @@ final class FrontendChangesTest extends TestCase
     {
         // `route('x')` and `routes/…` imports collide with frontend-router idioms — an unknown
         // name drops rather than guessing or blocking determination.
-        $symbols = $this->frontend()->resolve('resources/js/Pages/Videos.vue', "route('not.a.backend.route');", null);
+        $symbols = $this->frontend()->resolve('resources/js/Pages/Posts.vue', "route('not.a.backend.route');", null);
 
         $this->assertSame([], $symbols->directSeeds);
         $this->assertFalse($symbols->unresolvedFrontendReferences);
@@ -305,7 +305,7 @@ final class FrontendChangesTest extends TestCase
     #[Test]
     public function a_dynamic_route_argument_reads_as_unresolved_with_a_finding(): void
     {
-        $symbols = $this->frontend()->resolve('resources/js/Pages/Videos.vue', 'route(`videos.${action}`);', null);
+        $symbols = $this->frontend()->resolve('resources/js/Pages/Posts.vue', 'route(`posts.${action}`);', null);
 
         $this->assertTrue($symbols->unresolvedFrontendReferences);
         $this->assertSame(['a dynamic route() argument prevents resolving every referenced endpoint'], $symbols->findings);
@@ -315,12 +315,12 @@ final class FrontendChangesTest extends TestCase
     public function a_const_resolved_route_name_maps_through_the_name_index(): void
     {
         $symbols = $this->frontend()->resolve(
-            'resources/js/Pages/Videos.vue',
-            "const SHOW = 'videos.show';\nroute(SHOW);",
+            'resources/js/Pages/Posts.vue',
+            "const SHOW = 'posts.show';\nroute(SHOW);",
             null,
         );
 
-        $this->assertSame(['route::GET::/videos/{video}'], $symbols->directSeeds);
+        $this->assertSame(['route::GET::/posts/{post}'], $symbols->directSeeds);
         $this->assertFalse($symbols->unresolvedFrontendReferences);
         $this->assertSame([], $symbols->findings);
     }
@@ -329,12 +329,12 @@ final class FrontendChangesTest extends TestCase
     public function a_residual_dynamic_argument_still_reads_unresolved_with_the_finding(): void
     {
         $symbols = $this->frontend()->resolve(
-            'resources/js/Pages/Videos.vue',
-            "const SHOW = 'videos.show';\nroute(SHOW);\nroute(other);",
+            'resources/js/Pages/Posts.vue',
+            "const SHOW = 'posts.show';\nroute(SHOW);\nroute(other);",
             null,
         );
 
-        $this->assertSame(['route::GET::/videos/{video}'], $symbols->directSeeds);
+        $this->assertSame(['route::GET::/posts/{post}'], $symbols->directSeeds);
         $this->assertTrue($symbols->unresolvedFrontendReferences);
         $this->assertSame(['a dynamic route() argument prevents resolving every referenced endpoint'], $symbols->findings);
     }
@@ -343,12 +343,12 @@ final class FrontendChangesTest extends TestCase
     public function a_reference_removed_by_the_change_still_seeds_from_the_base_side(): void
     {
         $symbols = $this->frontend()->resolve(
-            'resources/js/Pages/Videos.vue',
+            'resources/js/Pages/Posts.vue',
             'const nothing = 1;',
-            "route('videos.store');",
+            "route('posts.store');",
         );
 
-        $this->assertSame(['route::POST::/videos'], $symbols->directSeeds);
+        $this->assertSame(['route::POST::/posts'], $symbols->directSeeds);
     }
 
     #[Test]

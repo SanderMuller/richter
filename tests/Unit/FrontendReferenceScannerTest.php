@@ -17,12 +17,12 @@ final class FrontendReferenceScannerTest extends TestCase
     public function wayfinder_action_imports_yield_the_controller_fqcn_per_named_method(): void
     {
         $result = $this->scanner()->scan(<<<'TS'
-            import { show, update as updateVideo } from "@/actions/App/Http/Controllers/VideoController";
+            import { show, update as updatePost } from "@/actions/App/Http/Controllers/PostController";
             TS);
 
         $this->assertSame([
-            ['class' => 'App\Http\Controllers\VideoController', 'method' => 'show'],
-            ['class' => 'App\Http\Controllers\VideoController', 'method' => 'update'],
+            ['class' => 'App\Http\Controllers\PostController', 'method' => 'show'],
+            ['class' => 'App\Http\Controllers\PostController', 'method' => 'update'],
         ], $result['actions']);
         $this->assertFalse($result['unresolved']);
     }
@@ -31,22 +31,22 @@ final class FrontendReferenceScannerTest extends TestCase
     public function a_default_action_import_references_the_whole_controller(): void
     {
         $result = $this->scanner()->scan(<<<'TS'
-            import VideoController from "@/actions/App/Http/Controllers/VideoController";
+            import PostController from "@/actions/App/Http/Controllers/PostController";
             TS);
 
-        $this->assertSame([['class' => 'App\Http\Controllers\VideoController', 'method' => null]], $result['actions']);
+        $this->assertSame([['class' => 'App\Http\Controllers\PostController', 'method' => null]], $result['actions']);
     }
 
     #[Test]
     public function a_mixed_default_and_named_action_import_yields_both(): void
     {
         $result = $this->scanner()->scan(<<<'TS'
-            import VideoController, { show } from "../../actions/App/Http/Controllers/VideoController";
+            import PostController, { show } from "../../actions/App/Http/Controllers/PostController";
             TS);
 
         $this->assertSame([
-            ['class' => 'App\Http\Controllers\VideoController', 'method' => 'show'],
-            ['class' => 'App\Http\Controllers\VideoController', 'method' => null],
+            ['class' => 'App\Http\Controllers\PostController', 'method' => 'show'],
+            ['class' => 'App\Http\Controllers\PostController', 'method' => null],
         ], $result['actions']);
     }
 
@@ -54,13 +54,13 @@ final class FrontendReferenceScannerTest extends TestCase
     public function type_only_imports_still_count_as_references(): void
     {
         $result = $this->scanner()->scan(<<<'TS'
-            import type { show } from "@/actions/App/Http/Controllers/VideoController";
-            import { type store } from "@/actions/App/Http/Controllers/QuestionController";
+            import type { show } from "@/actions/App/Http/Controllers/PostController";
+            import { type store } from "@/actions/App/Http/Controllers/ReviewController";
             TS);
 
         $this->assertSame([
-            ['class' => 'App\Http\Controllers\VideoController', 'method' => 'show'],
-            ['class' => 'App\Http\Controllers\QuestionController', 'method' => 'store'],
+            ['class' => 'App\Http\Controllers\PostController', 'method' => 'show'],
+            ['class' => 'App\Http\Controllers\ReviewController', 'method' => 'store'],
         ], $result['actions']);
     }
 
@@ -103,31 +103,31 @@ final class FrontendReferenceScannerTest extends TestCase
     public function an_extension_suffixed_action_import_still_resolves(): void
     {
         $result = $this->scanner()->scan(<<<'TS'
-            import { show } from "@/actions/App/Http/Controllers/VideoController.ts";
+            import { show } from "@/actions/App/Http/Controllers/PostController.ts";
             TS);
 
-        $this->assertSame([['class' => 'App\Http\Controllers\VideoController', 'method' => 'show']], $result['actions']);
+        $this->assertSame([['class' => 'App\Http\Controllers\PostController', 'method' => 'show']], $result['actions']);
     }
 
     #[Test]
     public function an_extension_suffixed_route_import_still_resolves(): void
     {
         $result = $this->scanner()->scan(<<<'TS'
-            import { index } from "@/routes/videos.ts";
+            import { index } from "@/routes/posts.ts";
             TS);
 
-        $this->assertSame(['videos.index'], $result['routeNames']);
+        $this->assertSame(['posts.index'], $result['routeNames']);
     }
 
     #[Test]
     public function ziggy_route_calls_yield_literal_route_names(): void
     {
         $result = $this->scanner()->scan(<<<'TS'
-            const url = route('videos.show', props.video.id);
-            axios.post(this.route("videos.publish"));
+            const url = route('posts.show', props.post.id);
+            axios.post(this.route("posts.publish"));
             TS);
 
-        $this->assertSame(['videos.show', 'videos.publish'], $result['routeNames']);
+        $this->assertSame(['posts.show', 'posts.publish'], $result['routeNames']);
         $this->assertFalse($result['unresolved']);
     }
 
@@ -135,7 +135,7 @@ final class FrontendReferenceScannerTest extends TestCase
     public function a_dynamic_route_argument_flips_unresolved(): void
     {
         $result = $this->scanner()->scan(<<<'TS'
-            const url = route(`videos.${action}`);
+            const url = route(`posts.${action}`);
             TS);
 
         $this->assertSame([], $result['routeNames']);
@@ -145,18 +145,18 @@ final class FrontendReferenceScannerTest extends TestCase
     #[Test]
     public function a_concatenated_route_name_marks_the_scan_unresolved(): void
     {
-        // `route('videos.' + action)` starts with a quote, so the first-character check alone
-        // stays silent — the captured partial name ('videos.') matches nothing and would
+        // `route('posts.' + action)` starts with a quote, so the first-character check alone
+        // stays silent — the captured partial name ('posts.') matches nothing and would
         // silently drop, the forbidden falsely-determined result for a dynamic argument.
-        $this->assertTrue($this->scanner()->scan("route('videos.' + action);")['unresolved']);
+        $this->assertTrue($this->scanner()->scan("route('posts.' + action);")['unresolved']);
     }
 
     #[Test]
     public function a_route_call_with_a_options_object_after_the_name_stays_resolved(): void
     {
-        $result = $this->scanner()->scan("route('videos.show', { video: 1 });");
+        $result = $this->scanner()->scan("route('posts.show', { post: 1 });");
 
-        $this->assertSame(['videos.show'], $result['routeNames']);
+        $this->assertSame(['posts.show'], $result['routeNames']);
         $this->assertFalse($result['unresolved']);
     }
 
@@ -165,7 +165,7 @@ final class FrontendReferenceScannerTest extends TestCase
     {
         // `route ('x')` is valid JS/TS — a missed literal under-selects tests, and a missed
         // dynamic argument would skip the fail-safe entirely.
-        $this->assertSame(['videos.show'], $this->scanner()->scan("route ('videos.show');")['routeNames']);
+        $this->assertSame(['posts.show'], $this->scanner()->scan("route ('posts.show');")['routeNames']);
         $this->assertTrue($this->scanner()->scan('route (name);')['unresolved']);
     }
 
@@ -173,7 +173,7 @@ final class FrontendReferenceScannerTest extends TestCase
     public function ziggys_argless_fluent_form_is_not_dynamic(): void
     {
         $result = $this->scanner()->scan(<<<'TS'
-            if (route().current('videos.*')) { }
+            if (route().current('posts.*')) { }
             TS);
 
         $this->assertSame([], $result['routeNames']);
@@ -196,11 +196,11 @@ final class FrontendReferenceScannerTest extends TestCase
     public function a_route_argument_naming_a_same_module_const_string_resolves(): void
     {
         $result = $this->scanner()->scan(<<<'TS'
-            const PLAYER_ROUTE = 'videos.player';
+            const PLAYER_ROUTE = 'posts.player';
             route(PLAYER_ROUTE);
             TS);
 
-        $this->assertSame(['videos.player'], $result['routeNames']);
+        $this->assertSame(['posts.player'], $result['routeNames']);
         $this->assertFalse($result['unresolved']);
     }
 
@@ -208,11 +208,11 @@ final class FrontendReferenceScannerTest extends TestCase
     public function a_route_argument_via_a_flat_const_object_member_resolves(): void
     {
         $result = $this->scanner()->scan(<<<'TS'
-            const ROUTES = { player: 'videos.player', list: "videos.index" } as const;
+            const ROUTES = { player: 'posts.player', list: "posts.index" } as const;
             route(ROUTES.player, { id: 1 });
             TS);
 
-        $this->assertSame(['videos.player'], $result['routeNames']);
+        $this->assertSame(['posts.player'], $result['routeNames']);
         $this->assertFalse($result['unresolved']);
     }
 
@@ -220,11 +220,11 @@ final class FrontendReferenceScannerTest extends TestCase
     public function a_route_argument_via_a_string_enum_member_resolves(): void
     {
         $result = $this->scanner()->scan(<<<'TS'
-            enum RouteName { Player = 'videos.player' }
+            enum RouteName { Player = 'posts.player' }
             route(RouteName.Player);
             TS);
 
-        $this->assertSame(['videos.player'], $result['routeNames']);
+        $this->assertSame(['posts.player'], $result['routeNames']);
         $this->assertFalse($result['unresolved']);
     }
 
@@ -241,7 +241,7 @@ final class FrontendReferenceScannerTest extends TestCase
         // `let`/`var` are reassignable, so the initializer is not the runtime value with
         // certainty — only `const` resolves.
         $result = $this->scanner()->scan(<<<'TS'
-            let name = 'videos.player';
+            let name = 'posts.player';
             route(name);
             TS);
 
@@ -253,8 +253,8 @@ final class FrontendReferenceScannerTest extends TestCase
     {
         // "Exactly one declaration" is the rule — two candidates means no certain answer.
         $result = $this->scanner()->scan(<<<'TS'
-            const P = 'videos.player';
-            const P = 'videos.index';
+            const P = 'posts.player';
+            const P = 'posts.index';
             route(P);
             TS);
 
@@ -267,7 +267,7 @@ final class FrontendReferenceScannerTest extends TestCase
         // Only flat object/enum bodies are readable without a parser; matching a property inside
         // a nested body would be a guess (it may belong to a different sub-object entirely).
         $result = $this->scanner()->scan(<<<'TS'
-            const ROUTES = { videos: { player: 'videos.player' } };
+            const ROUTES = { posts: { player: 'posts.player' } };
             route(ROUTES.player);
             TS);
 
@@ -292,12 +292,12 @@ final class FrontendReferenceScannerTest extends TestCase
         // The contract test: a resolvable reference still contributes its name, but the
         // file-level fail-safe stays on as long as any dynamic argument remains unresolvable.
         $result = $this->scanner()->scan(<<<'TS'
-            const PLAYER_ROUTE = 'videos.player';
+            const PLAYER_ROUTE = 'posts.player';
             route(PLAYER_ROUTE);
             route(other);
             TS);
 
-        $this->assertSame(['videos.player'], $result['routeNames']);
+        $this->assertSame(['posts.player'], $result['routeNames']);
         $this->assertTrue($result['unresolved']);
     }
 
@@ -305,13 +305,13 @@ final class FrontendReferenceScannerTest extends TestCase
     public function duplicate_references_deduplicate(): void
     {
         $result = $this->scanner()->scan(<<<'TS'
-            import { show } from "@/actions/App/Http/Controllers/VideoController";
-            import { show as again } from "@/actions/App/Http/Controllers/VideoController";
-            route('videos.show'); route('videos.show');
+            import { show } from "@/actions/App/Http/Controllers/PostController";
+            import { show as again } from "@/actions/App/Http/Controllers/PostController";
+            route('posts.show'); route('posts.show');
             TS);
 
         $this->assertCount(1, $result['actions']);
-        $this->assertSame(['videos.show'], $result['routeNames']);
+        $this->assertSame(['posts.show'], $result['routeNames']);
     }
 
     #[Test]
@@ -329,13 +329,13 @@ final class FrontendReferenceScannerTest extends TestCase
     public function root_relative_string_literals_are_uri_candidates_with_query_and_fragment_stripped(): void
     {
         $result = $this->scanner()->scan(<<<'TS'
-            axios.get('/api/videos?page=2');
-            fetch("/videos/123#stats");
+            axios.get('/api/posts?page=2');
+            fetch("/posts/123#stats");
             TS);
 
         $this->assertSame([
-            ['uri' => '/api/videos', 'method' => 'get'],
-            ['uri' => '/videos/123', 'method' => null],
+            ['uri' => '/api/posts', 'method' => 'get'],
+            ['uri' => '/posts/123', 'method' => null],
         ], $result['uris']);
     }
 
@@ -343,15 +343,15 @@ final class FrontendReferenceScannerTest extends TestCase
     public function a_verb_named_call_pins_the_http_method_and_wrappers_stay_unpinned(): void
     {
         $result = $this->scanner()->scan(<<<'TS'
-            axios.post('/videos');
-            api.PUT("/videos/9");
-            load('/videos/7');
+            axios.post('/posts');
+            api.PUT("/posts/9");
+            load('/posts/7');
             TS);
 
         $this->assertSame([
-            ['uri' => '/videos', 'method' => 'post'],
-            ['uri' => '/videos/9', 'method' => 'put'],
-            ['uri' => '/videos/7', 'method' => null],
+            ['uri' => '/posts', 'method' => 'post'],
+            ['uri' => '/posts/9', 'method' => 'put'],
+            ['uri' => '/posts/7', 'method' => null],
         ], $result['uris']);
     }
 
@@ -359,12 +359,12 @@ final class FrontendReferenceScannerTest extends TestCase
     public function a_string_literal_outside_call_argument_position_is_not_a_uri_candidate(): void
     {
         // Assignments, object-property values and array heads are data/navigation, not endpoint
-        // calls — this is the false-positive flood a hihaho-scale consumer demonstrated: a
+        // calls — this is the false-positive flood a large real-world consumer demonstrated: a
         // constants file or nav-link config whose strings happen to match real route templates.
         $result = $this->scanner()->scan(<<<'TS'
-            const API = '/api/videos';
-            const NAV = [{ href: '/videos' }];
-            export default { uri: "/videos/9" };
+            const API = '/api/posts';
+            const NAV = [{ href: '/posts' }];
+            export default { uri: "/posts/9" };
             TS);
 
         $this->assertSame([], $result['uris']);
@@ -375,18 +375,18 @@ final class FrontendReferenceScannerTest extends TestCase
     {
         // The `request(method, url)` wrapper idiom: the URI sits in the second argument, anchored
         // by the preceding comma rather than an opening paren.
-        $result = $this->scanner()->scan("request('GET', '/videos');");
+        $result = $this->scanner()->scan("request('GET', '/posts');");
 
-        $this->assertSame([['uri' => '/videos', 'method' => null]], $result['uris']);
+        $this->assertSame([['uri' => '/posts', 'method' => null]], $result['uris']);
     }
 
     #[Test]
     public function a_template_literal_outside_call_argument_position_is_not_a_candidate(): void
     {
-        // The called form (`fetch(`/videos/${id}`)`) is already pinned above; only the uncalled
+        // The called form (`fetch(`/posts/${id}`)`) is already pinned above; only the uncalled
         // assignment is excluded here.
         $result = $this->scanner()->scan(<<<'TS'
-            const t = `/videos/${id}`;
+            const t = `/posts/${id}`;
             TS);
 
         $this->assertSame([], $result['uris']);
@@ -397,7 +397,7 @@ final class FrontendReferenceScannerTest extends TestCase
     {
         // Deliberately traded away: an options object's `url` property is indistinguishable from
         // any other property value at the regex level.
-        $result = $this->scanner()->scan("axios({ url: '/videos', method: 'post' });");
+        $result = $this->scanner()->scan("axios({ url: '/posts', method: 'post' });");
 
         $this->assertSame([], $result['uris']);
     }
@@ -406,9 +406,9 @@ final class FrontendReferenceScannerTest extends TestCase
     public function non_root_relative_strings_are_not_uri_candidates(): void
     {
         $result = $this->scanner()->scan(<<<'TS'
-            import { show } from "@/actions/App/Http/Controllers/VideoController";
+            import { show } from "@/actions/App/Http/Controllers/PostController";
             const url = "https://example.com/path";
-            const name = 'videos.show';
+            const name = 'posts.show';
             TS);
 
         $this->assertSame([], $result['uris']);
@@ -418,13 +418,13 @@ final class FrontendReferenceScannerTest extends TestCase
     public function a_template_literal_endpoint_wildcards_its_interpolations(): void
     {
         $result = $this->scanner()->scan(<<<'TS'
-            fetch(`/videos/${id}`);
-            axios.post(`/videos/${id}/questions?draft=${draft}`);
+            fetch(`/posts/${id}`);
+            axios.post(`/posts/${id}/reviews?draft=${draft}`);
             TS);
 
         $this->assertSame([
-            ['uri' => '/videos/*', 'method' => null],
-            ['uri' => '/videos/*/questions', 'method' => 'post'],
+            ['uri' => '/posts/*', 'method' => null],
+            ['uri' => '/posts/*/reviews', 'method' => 'post'],
         ], $result['uris']);
     }
 
@@ -432,8 +432,8 @@ final class FrontendReferenceScannerTest extends TestCase
     public function a_template_literal_with_whitespace_is_markup_not_an_endpoint(): void
     {
         $result = $this->scanner()->scan(<<<'TS'
-            const html = `/videos <b>${title}</b>`;
-            const rooted = `${base}/videos`;
+            const html = `/posts <b>${title}</b>`;
+            const rooted = `${base}/posts`;
             TS);
 
         $this->assertSame([], $result['uris']);
@@ -442,12 +442,12 @@ final class FrontendReferenceScannerTest extends TestCase
     #[Test]
     public function duplicate_uri_literals_deduplicate_per_method(): void
     {
-        $result = $this->scanner()->scan("fetch('/videos'); request('/videos'); post('/videos');");
+        $result = $this->scanner()->scan("fetch('/posts'); request('/posts'); post('/posts');");
 
         // The two unpinned references collapse; the verb-pinned one is a distinct reference.
         $this->assertSame([
-            ['uri' => '/videos', 'method' => null],
-            ['uri' => '/videos', 'method' => 'post'],
+            ['uri' => '/posts', 'method' => null],
+            ['uri' => '/posts', 'method' => 'post'],
         ], $result['uris']);
     }
 }

@@ -479,12 +479,12 @@ final class CommandsTest extends TestCase
     #[Test]
     public function benchmark_add_scaffolds_a_signal_case_from_a_replayed_fix(): void
     {
-        $this->fakeBenchmarkReplayReachingRoutes(['*log*' => Process::result("PROJ-42 Fix duplicated video questions\n")]);
+        $this->fakeBenchmarkReplayReachingRoutes(['*log*' => Process::result("PROJ-42 Fix duplicated post reviews\n")]);
 
         $this->runArtisan('richter:benchmark:add', ['fix-commit' => 'abc1234'])
             ->expectsOutputToContain("'key' => 'PROJ-42'")
             ->expectsOutputToContain("'fix_commit' => 'abc1234'")
-            ->expectsOutputToContain("'bug_class' => 'PROJ-42 Fix duplicated video questions'")
+            ->expectsOutputToContain("'bug_class' => 'PROJ-42 Fix duplicated post reviews'")
             ->expectsOutputToContain("'expect_signal' => true")
             ->expectsOutputToContain("'max_risk' => 'high'")
             ->expectsOutputToContain('Would currently PASS')
@@ -494,7 +494,7 @@ final class CommandsTest extends TestCase
     #[Test]
     public function benchmark_add_scaffolds_a_control_case_capped_at_the_replayed_risk(): void
     {
-        $this->fakeBenchmarkReplayReachingRoutes(['*log*' => Process::result("PROJ-42 Fix duplicated video questions\n")]);
+        $this->fakeBenchmarkReplayReachingRoutes(['*log*' => Process::result("PROJ-42 Fix duplicated post reviews\n")]);
 
         $this->runArtisan('richter:benchmark:add', ['fix-commit' => 'abc1234', '--control' => true])
             ->expectsOutputToContain("'expect_signal' => false")
@@ -506,7 +506,7 @@ final class CommandsTest extends TestCase
     public function benchmark_add_falls_back_to_the_short_sha_key_when_the_subject_has_no_ticket(): void
     {
         $this->fakeBenchmarkReplayReachingRoutes([
-            '*log*' => Process::result("Fix duplicated video questions\n"),
+            '*log*' => Process::result("Fix duplicated post reviews\n"),
             '*rev-parse*' => Process::result("abc1234\n"),
         ]);
 
@@ -519,7 +519,7 @@ final class CommandsTest extends TestCase
     public function benchmark_add_honors_an_explicit_key_option(): void
     {
         // The subject carries a derivable ticket id, so this proves --key wins over derivation.
-        $this->fakeBenchmarkReplayReachingRoutes(['*log*' => Process::result("PROJ-42 Fix duplicated video questions\n")]);
+        $this->fakeBenchmarkReplayReachingRoutes(['*log*' => Process::result("PROJ-42 Fix duplicated post reviews\n")]);
 
         $this->runArtisan('richter:benchmark:add', ['fix-commit' => 'abc1234', '--key' => 'CUSTOM-7'])
             ->expectsOutputToContain("'key' => 'CUSTOM-7'")
