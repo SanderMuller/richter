@@ -15,27 +15,35 @@ use SanderMuller\Richter\Tracers\InertiaPageChecker;
 final class ChangedSymbols
 {
     /**
-     * @param  string  $head  `HEAD` reads changed sources from the working tree (uncommitted edits
-     *   included); any other ref reads them from git, so a historical diff can be replayed.
+     * @param  string  $head  `HEAD` diffs the working tree against the merge-base with `$base`, so
+     *   uncommitted and staged edits are included and line up with {@see headSource()}'s working-tree
+     *   read (no hunk/source desync); any other ref replays its committed tree via `$base...$head`,
+     *   reading both sides from git so a historical diff (e.g. a benchmark fix commit) is unaffected.
      * @return list<ChangedFileSymbols>
      *
      * @throws RuntimeException when the git diff fails (missing base ref / not a checkout).
      */
     public static function resolve(string $base, string $head = 'HEAD'): array
     {
-        $diff = Process::path(base_path())->run(['git', '-c', 'core.quotepath=off', 'diff', '-U0', '--end-of-options', "{$base}...{$head}"]);
+        // Resolved first: HEAD mode needs it to build the diff range below, and a broken base ref
+        // fails here before a second, redundant git invocation would fail again in the diff itself.
+        $mergeBaseResult = Process::path(base_path())->run(['git', 'merge-base', '--end-of-options', $base, $head]);
+
+        if (! $mergeBaseResult->successful()) {
+            throw new RuntimeException("git diff against '{$base}' failed: " . trim($mergeBaseResult->errorOutput()));
+        }
+
+        $mergeBase = trim($mergeBaseResult->output());
+
+        // HEAD mode compares the working tree against the merge-base (a single ref diffs the working
+        // tree against it); any other ref keeps the three-dot committed-tree form untouched.
+        $diffRange = $head === 'HEAD' ? [$mergeBase] : ["{$base}...{$head}"];
+
+        $diff = Process::path(base_path())->run(['git', '-c', 'core.quotepath=off', 'diff', '-U0', '--end-of-options', ...$diffRange]);
 
         if (! $diff->successful()) {
             throw new RuntimeException("git diff against '{$base}' failed: " . trim($diff->errorOutput()));
         }
-
-        $mergeBaseResult = Process::path(base_path())->run(['git', 'merge-base', '--end-of-options', $base, $head]);
-
-        if (! $mergeBaseResult->successful()) {
-            throw new RuntimeException("git merge-base against '{$base}' failed: " . trim($mergeBaseResult->errorOutput()));
-        }
-
-        $mergeBase = trim($mergeBaseResult->output());
 
         $changed = [];
 

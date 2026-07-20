@@ -2,6 +2,9 @@
 
 namespace SanderMuller\Richter\Tests\Unit;
 
+use Illuminate\Filesystem\Filesystem;
+use Illuminate\Foundation\Application;
+use Illuminate\Process\PendingProcess;
 use Illuminate\Support\Facades\Process;
 use PHPUnit\Framework\Attributes\Test;
 use RuntimeException;
@@ -14,6 +17,18 @@ use SanderMuller\Richter\Tracers\InertiaPageChecker;
 
 final class ChangedSymbolsTest extends TestCase
 {
+    /** Set only by the working-tree-diff tests below; {@see tearDown()} cleans it up when present. */
+    private ?string $tempWorkingTree = null;
+
+    protected function tearDown(): void
+    {
+        if ($this->tempWorkingTree !== null) {
+            new Filesystem()->deleteDirectory($this->tempWorkingTree);
+        }
+
+        parent::tearDown();
+    }
+
     #[Test]
     public function a_failed_git_diff_throws_rather_than_reporting_no_changes(): void
     {
@@ -518,6 +533,145 @@ final class ChangedSymbolsTest extends TestCase
     }
 
     #[Test]
+    public function head_mode_still_surfaces_a_committed_edit_after_the_diff_form_changes(): void
+    {
+        // Regression pin: a committed edit vs base, working tree == HEAD (nothing uncommitted on
+        // top), must classify exactly as it always has — the diff form change is a strict superset,
+        // never a regression on the already-working committed case.
+        $file = 'app/Http/Controllers/PostController.php';
+        $before = "<?php\nclass PostController\n{\n    public function show(): int\n    {\n        return 1;\n    }\n}\n";
+        $after = "<?php\nclass PostController\n{\n    public function show(): int\n    {\n        return 2;\n    }\n}\n";
+        $line = $this->lineOf($before, '        return 1;');
+
+        $tempDir = $this->useTempWorkingTree();
+        file_put_contents("{$tempDir}/{$file}", $after);
+
+        Process::fake([
+            '*merge-base*' => Process::result("mergebasesha\n"),
+            '*show*' => Process::result($before),
+            '*diff*' => Process::result($this->diffHeader($file) . $this->unifiedHunk($line, ['        return 1;'], $line, ['        return 2;'])),
+        ]);
+
+        $changed = ChangedSymbols::resolve('some-base');
+
+        $this->assertCount(1, $changed);
+        $resolvable = $changed[0]->resolvableMembers();
+        $this->assertCount(1, $resolvable);
+        $this->assertSame('show', $resolvable[0]->name);
+        $this->assertSame(MemberChange::CHANGE_MODIFIED, $resolvable[0]->change);
+    }
+
+    #[Test]
+    public function a_historical_ref_still_diffs_the_three_dot_range_and_reads_head_source_via_git_show(): void
+    {
+        // Guards the untouched replay path: a non-HEAD ref (e.g. a benchmark fix commit) must keep
+        // using the committed `<base>...<ref>` diff and read its head source via `git show`, never
+        // the working tree — this is byte-for-byte unchanged by the HEAD-mode fix.
+        $file = 'app/Http/Controllers/PostController.php';
+        $mergeBaseSrc = "<?php\nclass PostController\n{\n    public function show(): int\n    {\n        return 1;\n    }\n}\n";
+        $committedHeadSrc = "<?php\nclass PostController\n{\n    public function show(): int\n    {\n        return 2;\n    }\n}\n";
+        $line = $this->lineOf($mergeBaseSrc, '        return 1;');
+        $historicalRef = 'historical-fix-sha123';
+
+        Process::fake([
+            '*merge-base*' => Process::result("mergebasesha\n"),
+            '*show*mergebasesha:*' => Process::result($mergeBaseSrc),
+            "*show*{$historicalRef}:*" => Process::result($committedHeadSrc),
+            '*diff*' => Process::result($this->diffHeader($file) . $this->unifiedHunk($line, ['        return 1;'], $line, ['        return 2;'])),
+        ]);
+
+        $changed = ChangedSymbols::resolve('some-base', $historicalRef);
+
+        Process::assertRan(static fn (PendingProcess $process): bool => is_array($process->command) && end($process->command) === "some-base...{$historicalRef}");
+
+        $this->assertCount(1, $changed);
+        $resolvable = $changed[0]->resolvableMembers();
+        $this->assertCount(1, $resolvable);
+        $this->assertSame('show', $resolvable[0]->name);
+        $this->assertSame(MemberChange::CHANGE_MODIFIED, $resolvable[0]->change);
+    }
+
+    #[Test]
+    public function head_mode_surfaces_a_purely_uncommitted_edit(): void
+    {
+        // The false negative this plan closes: nothing is committed yet (the three-dot committed
+        // diff is empty), but the working tree already carries the edit. HEAD mode must still see it.
+        $file = 'app/Http/Controllers/PostController.php';
+        $before = "<?php\nclass PostController\n{\n    public function show(): int\n    {\n        return 1;\n    }\n}\n";
+        $after = "<?php\nclass PostController\n{\n    public function show(): int\n    {\n        return 2;\n    }\n}\n";
+        $line = $this->lineOf($before, '        return 1;');
+
+        $tempDir = $this->useTempWorkingTree();
+        file_put_contents("{$tempDir}/{$file}", $after);
+
+        Process::fake([
+            '*merge-base*' => Process::result("mergebasesha\n"),
+            '*show*' => Process::result($before),
+            // The old, committed-only three-dot form sees nothing (unmatched here since nothing was
+            // ever committed); the fixed single-ref form (matched by the fallback below) sees the edit.
+            '*diff*...*' => Process::result(''),
+            '*diff*' => Process::result($this->diffHeader($file) . $this->unifiedHunk($line, ['        return 1;'], $line, ['        return 2;'])),
+        ]);
+
+        $changed = ChangedSymbols::resolve('some-base');
+
+        $this->assertCount(1, $changed);
+        $resolvable = $changed[0]->resolvableMembers();
+        $this->assertCount(1, $resolvable);
+        $this->assertSame('show', $resolvable[0]->name);
+        $this->assertSame(MemberChange::CHANGE_MODIFIED, $resolvable[0]->change);
+    }
+
+    #[Test]
+    public function head_mode_keeps_a_committed_and_an_uncommitted_edit_in_the_same_file_mapped_to_the_right_members(): void
+    {
+        // Desync guard: `store()` carries only an uncommitted edit (invisible to the old three-dot
+        // diff, which also shifts every line after it), `show()` carries an already-committed one.
+        // Both must surface, each mapped to itself — not merged, not dropped.
+        $file = 'app/Http/Controllers/PostController.php';
+        $mergeBaseSrc = "<?php\nclass PostController\n{\n    public function store(): int\n    {\n        return 0;\n    }\n\n    public function show(): int\n    {\n        return 1;\n    }\n}\n";
+        $workingTreeSrc = "<?php\nclass PostController\n{\n    public function store(): int\n    {\n        \$x = 1;\n        return 0;\n    }\n\n    public function show(): int\n    {\n        return 2;\n    }\n}\n";
+
+        $storeOldLine = $this->lineOf($mergeBaseSrc, '        return 0;');
+        $showOldLine = $this->lineOf($mergeBaseSrc, '        return 1;');
+        $storeNewLine = $this->lineOf($workingTreeSrc, '        $x = 1;');
+        $showNewLine = $this->lineOf($workingTreeSrc, '        return 2;');
+
+        $tempDir = $this->useTempWorkingTree();
+        file_put_contents("{$tempDir}/{$file}", $workingTreeSrc);
+
+        // The fixed single-ref diff (working tree vs merge-base): both hunks, working-tree line numbers.
+        $fullDiff = $this->diffHeader($file)
+            . $this->unifiedHunk($storeOldLine, ['        return 0;'], $storeNewLine, ['        $x = 1;', '        return 0;'])
+            . $this->unifiedHunk($showOldLine, ['        return 1;'], $showNewLine, ['        return 2;']);
+
+        // The old three-dot committed-only diff: `store()` was never committed-changed, so it carries
+        // no hunk at all — the silent false negative this plan closes.
+        $committedOnlyDiff = $this->diffHeader($file)
+            . $this->unifiedHunk($showOldLine, ['        return 1;'], $showOldLine, ['        return 2;']);
+
+        Process::fake([
+            '*merge-base*' => Process::result("mergebasesha\n"),
+            '*show*' => Process::result($mergeBaseSrc),
+            '*diff*...*' => Process::result($committedOnlyDiff),
+            '*diff*' => Process::result($fullDiff),
+        ]);
+
+        $changed = ChangedSymbols::resolve('some-base');
+
+        $this->assertCount(1, $changed);
+        $resolvable = $changed[0]->resolvableMembers();
+        $names = array_map(static fn (MemberChange $member): string => $member->name, $resolvable);
+        sort($names);
+
+        $this->assertSame(['show', 'store'], $names);
+
+        foreach ($resolvable as $member) {
+            $this->assertSame(MemberChange::CHANGE_MODIFIED, $member->change);
+        }
+    }
+
+    #[Test]
     public function a_changed_file_with_a_broken_eager_load_string_carries_a_finding(): void
     {
         $head = "<?php\nnamespace App\Exports;\nuse App\Models\Post;\nclass Foo\n{\n    public function bar(): void\n    {\n        \$this->post->load([Post::COMMENTS . Post::REVIEWS]);\n    }\n}\n";
@@ -565,5 +719,53 @@ final class ChangedSymbolsTest extends TestCase
     private function hunkLines(array $pairs): array
     {
         return array_map(static fn (array $pair): array => ['line' => $pair[0], 'text' => $pair[1]], $pairs);
+    }
+
+    /**
+     * Creates a disposable directory and points `base_path()` at it, so `headSource()`'s HEAD-mode
+     * disk read (`file_get_contents(base_path($file))`) exercises a real file the test controls,
+     * independent of this package's own working tree. {@see tearDown()} deletes it afterward.
+     */
+    private function useTempWorkingTree(): string
+    {
+        $this->tempWorkingTree = sys_get_temp_dir() . '/richter-working-tree-diff-' . bin2hex(random_bytes(8));
+        mkdir("{$this->tempWorkingTree}/app/Http/Controllers", recursive: true);
+
+        $app = $this->app;
+        $this->assertInstanceOf(Application::class, $app);
+        $app->setBasePath($this->tempWorkingTree);
+
+        return $this->tempWorkingTree;
+    }
+
+    private function diffHeader(string $file): string
+    {
+        return "diff --git a/{$file} b/{$file}\n--- a/{$file}\n+++ b/{$file}\n";
+    }
+
+    /**
+     * One `-U0` hunk: a header plus its removed lines then added lines, matching real git's ordering
+     * for a single contiguous replacement (also the convention the benchmark-replay fixture uses).
+     *
+     * @param  list<string>  $removed
+     * @param  list<string>  $added
+     */
+    private function unifiedHunk(int $oldStart, array $removed, int $newStart, array $added): string
+    {
+        $body = [
+            ...array_map(static fn (string $line): string => "-{$line}", $removed),
+            ...array_map(static fn (string $line): string => "+{$line}", $added),
+        ];
+
+        return "@@ -{$oldStart}," . count($removed) . " +{$newStart}," . count($added) . " @@\n" . implode("\n", $body) . "\n";
+    }
+
+    /** The 1-indexed line number of the (unique) line matching `$needle`, via array_search like the benchmark-replay fixture — avoids hand-counted lines drifting from the source string. */
+    private function lineOf(string $source, string $needle): int
+    {
+        $index = array_search($needle, explode("\n", $source), true);
+        $this->assertIsInt($index);
+
+        return $index + 1;
     }
 }
