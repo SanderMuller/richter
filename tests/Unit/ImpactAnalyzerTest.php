@@ -2,7 +2,7 @@
 
 namespace SanderMuller\Richter\Tests\Unit;
 
-use App\Enums\FeatureFlag;
+use App\Enums\ExperimentFlag;
 use App\Http\Middleware\CategoryAuthenticate;
 use App\Models\Comment;
 use App\Models\Concerns\WithAudits;
@@ -450,10 +450,10 @@ final class ImpactAnalyzerTest extends TestCase
     public function an_additive_enum_case_seeds_nothing(): void
     {
         $result = $this->analyzer()->detectChanges([
-            $this->changedAdditive('app/Enums/FeatureFlag.php', FeatureFlag::class),
+            $this->changedAdditive('app/Enums/ExperimentFlag.php', ExperimentFlag::class),
         ]);
 
-        $this->assertSame(0, $result['changed']['app/Enums/FeatureFlag.php']);
+        $this->assertSame(0, $result['changed']['app/Enums/ExperimentFlag.php']);
         $this->assertSame(RiskLevel::Low, $result['risk']);
     }
 

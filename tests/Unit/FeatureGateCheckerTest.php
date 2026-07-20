@@ -40,18 +40,18 @@ final class FeatureGateCheckerTest extends TestCase
         // resolves to its backing string instead of rendering verbatim.
         $findings = $this->checker()->findingsFor(<<<'PHP'
             <?php
-            use App\Enums\FeatureFlag;
+            use App\Enums\ExperimentFlag;
             use Laravel\Pennant\Feature;
 
             class X {
                 public function run(): void
                 {
-                    Feature::when(FeatureFlag::InteractiveVideo, fn () => null, fn () => null);
+                    Feature::when(ExperimentFlag::NewCheckout, fn () => null, fn () => null);
                 }
             }
             PHP);
 
-        $this->assertStringContainsString("'interactive-video'", $findings[0]);
+        $this->assertStringContainsString("'new-checkout'", $findings[0]);
     }
 
     #[Test]
