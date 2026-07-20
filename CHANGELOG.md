@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## v0.9.0 - 2026-07-20
 
 <!-- verified-sha: 8c35afcd6c22fc82367428d61b43030cbba18399 -->
+Two advisory additions from real-world adoption feedback: the test-reference tag now grades whether a referencing test asserts anything, and a `--profile` flag exposes where graph-build time goes.
+
 ### Added
 
 - **Assertion-graded test references.** A reached entry point that a test references but whose referencing tests contain no behavioural assertion the scan recognises is now tagged `[test-referenced — no behavioural assertion found]` (text), `🟡 test-referenced, no behavioural assertion found` (markdown), and carries `"referenced-no-behavioural-assertion"` in the new `entryPointTestReferences` JSON/MCP map. The grade is per file and certainty-gated: a file counts as assertion-weak only when every assert-ish call in it is a provable smoke form (`assertOk`, `assertSuccessful`, `assertStatus(200)`, `assertTrue(true)`) or it has none — any behavioural or unrecognised assertion, or a status check that carries meaning (`assertStatus(403)`, `assertForbidden`, an authorization test's own claim), leaves it plain `[test-referenced]`. Uncertainty always collapses to the weaker claim, never to the sub-tag: a false "proves nothing" would wrongly discredit a real test. It is advisory annotation only — never an input to `risk`, a `--fail-on` gate, or `richter:affected-tests` selection.
