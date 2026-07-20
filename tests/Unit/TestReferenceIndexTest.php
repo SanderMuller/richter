@@ -46,9 +46,9 @@ final class TestReferenceIndexTest extends TestCase
     #[Test]
     public function a_parameterised_route_matches_a_substituted_test_uri(): void
     {
-        $index = $this->index("<?php \$this->get('/videos/123/questions/456');");
+        $index = $this->index("<?php \$this->get('/posts/123/reviews/456');");
 
-        $this->assertTrue($index->hasReference('route::GET::/videos/{video}/questions/{question}'));
+        $this->assertTrue($index->hasReference('route::GET::/posts/{post}/reviews/{review}'));
     }
 
     #[Test]
@@ -68,9 +68,9 @@ final class TestReferenceIndexTest extends TestCase
     #[Test]
     public function a_command_referenced_by_artisan_name_is_referenced(): void
     {
-        $index = $this->index("<?php \$this->artisan('video:seed-views');");
+        $index = $this->index("<?php \$this->artisan('post:seed-views');");
 
-        $this->assertTrue($index->hasReference('command::video:seed-views {--without-relations : Seed views without relations}'));
+        $this->assertTrue($index->hasReference('command::post:seed-views {--without-relations : Seed views without relations}'));
     }
 
     #[Test]
@@ -82,9 +82,9 @@ final class TestReferenceIndexTest extends TestCase
     #[Test]
     public function a_command_referenced_via_artisan_facade_call_is_referenced(): void
     {
-        $index = $this->index("<?php Artisan::call('video:seed-views');");
+        $index = $this->index("<?php Artisan::call('post:seed-views');");
 
-        $this->assertTrue($index->hasReference('command::video:seed-views {--without-relations : x}'));
+        $this->assertTrue($index->hasReference('command::post:seed-views {--without-relations : x}'));
     }
 
     #[Test]
@@ -123,9 +123,9 @@ final class TestReferenceIndexTest extends TestCase
     #[Test]
     public function a_command_referenced_via_artisan_queue_is_referenced(): void
     {
-        $index = $this->index("<?php Artisan::queue('video:seed-views');");
+        $index = $this->index("<?php Artisan::queue('post:seed-views');");
 
-        $this->assertTrue($index->hasReference('command::video:seed-views {--without-relations : x}'));
+        $this->assertTrue($index->hasReference('command::post:seed-views {--without-relations : x}'));
     }
 
     #[Test]
@@ -191,11 +191,11 @@ final class TestReferenceIndexTest extends TestCase
     public function tests_importing_lists_the_files_importing_a_class(): void
     {
         $index = new TestReferenceIndex();
-        $index->addSource("<?php\nuse App\Models\Video;\n", 'tests/Unit/VideoTest.php');
-        $index->addSource("<?php\nuse App\Models\Video;\nuse App\Models\Question;\n", 'tests/Feature/VideoFlowTest.php');
+        $index->addSource("<?php\nuse App\Models\Post;\n", 'tests/Unit/PostTest.php');
+        $index->addSource("<?php\nuse App\Models\Post;\nuse App\Models\Review;\n", 'tests/Feature/PostFlowTest.php');
 
-        $this->assertSame(['tests/Unit/VideoTest.php', 'tests/Feature/VideoFlowTest.php'], $index->testsImporting('App\Models\Video'));
-        $this->assertSame(['tests/Feature/VideoFlowTest.php'], $index->testsImporting('\App\Models\Question'));
+        $this->assertSame(['tests/Unit/PostTest.php', 'tests/Feature/PostFlowTest.php'], $index->testsImporting('App\Models\Post'));
+        $this->assertSame(['tests/Feature/PostFlowTest.php'], $index->testsImporting('\App\Models\Review'));
         $this->assertSame([], $index->testsImporting('App\Models\Unknown'));
     }
 
@@ -225,27 +225,27 @@ final class TestReferenceIndexTest extends TestCase
     public function a_filament_helper_test_references_the_resource_entry_point(): void
     {
         $index = new TestReferenceIndex();
-        $index->addSource("<?php livewire(\App\Filament\Resources\VideoResource::class)->callTableAction('delete');", 'tests/Feature/VideoResourceTest.php');
+        $index->addSource("<?php livewire(\App\Filament\Resources\PostResource::class)->callTableAction('delete');", 'tests/Feature/PostResourceTest.php');
 
-        $this->assertTrue($index->hasReference('App\Filament\Resources\VideoResource'));
-        $this->assertSame(['tests/Feature/VideoResourceTest.php'], $index->testsReferencing('App\Filament\Resources\VideoResource'));
+        $this->assertTrue($index->hasReference('App\Filament\Resources\PostResource'));
+        $this->assertSame(['tests/Feature/PostResourceTest.php'], $index->testsReferencing('App\Filament\Resources\PostResource'));
     }
 
     #[Test]
     public function a_relatively_qualified_page_class_pins_its_current_recording(): void
     {
         // Filament pages are often referenced relative to an imported resource class:
-        // `VideoResource\Pages\ListVideos::class` resolves through the import at runtime, but the
+        // `PostResource\Pages\ListPosts::class` resolves through the import at runtime, but the
         // in-body class-reference regex anchors on a literal `App\` prefix, so this relative form
         // is NOT recorded — only the imported resource class itself is.
         $index = new TestReferenceIndex();
         $index->addSource(
-            "<?php\nuse App\Filament\Resources\VideoResource;\nlivewire(VideoResource\Pages\ListVideos::class)->assertSuccessful();",
-            'tests/Feature/ListVideosTest.php',
+            "<?php\nuse App\Filament\Resources\PostResource;\nlivewire(PostResource\Pages\ListPosts::class)->assertSuccessful();",
+            'tests/Feature/ListPostsTest.php',
         );
 
-        $this->assertSame(['tests/Feature/ListVideosTest.php'], $index->testsImporting('App\Filament\Resources\VideoResource'));
-        $this->assertSame([], $index->testsImporting('App\Filament\Resources\VideoResource\Pages\ListVideos'));
+        $this->assertSame(['tests/Feature/ListPostsTest.php'], $index->testsImporting('App\Filament\Resources\PostResource'));
+        $this->assertSame([], $index->testsImporting('App\Filament\Resources\PostResource\Pages\ListPosts'));
     }
 
     #[Test]
@@ -318,32 +318,32 @@ final class TestReferenceIndexTest extends TestCase
     public function a_custom_assert_ish_helper_is_unknown_and_not_assertion_weak(): void
     {
         $index = new TestReferenceIndex();
-        $index->addSource('<?php $this->get("/videos/1"); $this->assertVideoPublished($video);', 'tests/Feature/VideoTest.php');
+        $index->addSource('<?php $this->get("/posts/1"); $this->assertPostPublished($post);', 'tests/Feature/PostTest.php');
 
-        $this->assertFalse($index->referencedWithoutBehaviouralAssertion('route::GET::/videos/{video}'));
+        $this->assertFalse($index->referencedWithoutBehaviouralAssertion('route::GET::/posts/{post}'));
     }
 
     #[Test]
     public function assert_true_is_weak_only_with_a_literal_argument(): void
     {
         $nonLiteral = new TestReferenceIndex();
-        $nonLiteral->addSource('<?php $this->get("/videos/1"); $this->assertTrue($video->published);', 'tests/Feature/VideoTest.php');
+        $nonLiteral->addSource('<?php $this->get("/posts/1"); $this->assertTrue($post->published);', 'tests/Feature/PostTest.php');
 
-        $this->assertFalse($nonLiteral->referencedWithoutBehaviouralAssertion('route::GET::/videos/{video}'));
+        $this->assertFalse($nonLiteral->referencedWithoutBehaviouralAssertion('route::GET::/posts/{post}'));
 
         $literal = new TestReferenceIndex();
-        $literal->addSource('<?php $this->get("/videos/1"); $this->assertTrue(true);', 'tests/Feature/VideoTest.php');
+        $literal->addSource('<?php $this->get("/posts/1"); $this->assertTrue(true);', 'tests/Feature/PostTest.php');
 
-        $this->assertTrue($literal->referencedWithoutBehaviouralAssertion('route::GET::/videos/{video}'));
+        $this->assertTrue($literal->referencedWithoutBehaviouralAssertion('route::GET::/posts/{post}'));
     }
 
     #[Test]
     public function a_pest_style_bare_expect_call_is_not_assertion_weak(): void
     {
         $index = new TestReferenceIndex();
-        $index->addSource('<?php $this->get("/videos/1"); expect($video->status)->toBe("published");', 'tests/Feature/VideoTest.php');
+        $index->addSource('<?php $this->get("/posts/1"); expect($post->status)->toBe("published");', 'tests/Feature/PostTest.php');
 
-        $this->assertFalse($index->referencedWithoutBehaviouralAssertion('route::GET::/videos/{video}'));
+        $this->assertFalse($index->referencedWithoutBehaviouralAssertion('route::GET::/posts/{post}'));
     }
 
     #[Test]
@@ -351,9 +351,9 @@ final class TestReferenceIndexTest extends TestCase
     {
         // No space between `=>` and `expect(` — the method-call exclusion must not swallow it.
         $index = new TestReferenceIndex();
-        $index->addSource('<?php $this->get("/videos/1"); $check = fn () =>expect($video->status)->toBe("published");', 'tests/Feature/VideoTest.php');
+        $index->addSource('<?php $this->get("/posts/1"); $check = fn () =>expect($post->status)->toBe("published");', 'tests/Feature/PostTest.php');
 
-        $this->assertFalse($index->referencedWithoutBehaviouralAssertion('route::GET::/videos/{video}'));
+        $this->assertFalse($index->referencedWithoutBehaviouralAssertion('route::GET::/posts/{post}'));
     }
 
     #[Test]
@@ -362,33 +362,33 @@ final class TestReferenceIndexTest extends TestCase
         // For an access-control test the status check IS the behavioural claim — tagging it
         // "proves nothing" would be the false reassurance the certainty rule forbids.
         $index = new TestReferenceIndex();
-        $index->addSource('<?php $this->get("/videos/1"); $response->assertForbidden();', 'tests/Feature/VideoTest.php');
+        $index->addSource('<?php $this->get("/posts/1"); $response->assertForbidden();', 'tests/Feature/PostTest.php');
 
-        $this->assertFalse($index->referencedWithoutBehaviouralAssertion('route::GET::/videos/{video}'));
+        $this->assertFalse($index->referencedWithoutBehaviouralAssertion('route::GET::/posts/{post}'));
     }
 
     #[Test]
     public function assert_status_is_weak_only_in_its_literal_smoke_form(): void
     {
         $smoke = new TestReferenceIndex();
-        $smoke->addSource('<?php $this->get("/videos/1"); $response->assertStatus(200);', 'tests/Feature/VideoTest.php');
+        $smoke->addSource('<?php $this->get("/posts/1"); $response->assertStatus(200);', 'tests/Feature/PostTest.php');
 
-        $this->assertTrue($smoke->referencedWithoutBehaviouralAssertion('route::GET::/videos/{video}'));
+        $this->assertTrue($smoke->referencedWithoutBehaviouralAssertion('route::GET::/posts/{post}'));
 
         $authz = new TestReferenceIndex();
-        $authz->addSource('<?php $this->get("/videos/1"); $response->assertStatus(403);', 'tests/Feature/VideoTest.php');
+        $authz->addSource('<?php $this->get("/posts/1"); $response->assertStatus(403);', 'tests/Feature/PostTest.php');
 
-        $this->assertFalse($authz->referencedWithoutBehaviouralAssertion('route::GET::/videos/{video}'));
+        $this->assertFalse($authz->referencedWithoutBehaviouralAssertion('route::GET::/posts/{post}'));
     }
 
     #[Test]
     public function all_referencing_files_must_grade_weak_for_the_sub_tag_to_apply(): void
     {
         $index = new TestReferenceIndex();
-        $index->addSource('<?php $this->get("/videos/1"); $response->assertOk();', 'tests/Feature/ShallowTest.php');
-        $index->addSource('<?php $this->get("/videos/1"); $this->assertDatabaseHas("videos", ["id" => 1]);', 'tests/Feature/RichTest.php');
+        $index->addSource('<?php $this->get("/posts/1"); $response->assertOk();', 'tests/Feature/ShallowTest.php');
+        $index->addSource('<?php $this->get("/posts/1"); $this->assertDatabaseHas("posts", ["id" => 1]);', 'tests/Feature/RichTest.php');
 
-        $this->assertFalse($index->referencedWithoutBehaviouralAssertion('route::GET::/videos/{video}'));
+        $this->assertFalse($index->referencedWithoutBehaviouralAssertion('route::GET::/posts/{post}'));
     }
 
     #[Test]

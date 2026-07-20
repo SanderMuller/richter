@@ -3,16 +3,16 @@
 namespace SanderMuller\Richter\Tests\Unit;
 
 use App\Enums\FeatureFlag;
-use App\Http\Middleware\PlaylistAuthenticate;
+use App\Http\Middleware\CategoryAuthenticate;
+use App\Models\Comment;
 use App\Models\Concerns\WithAudits;
-use App\Models\Interaction;
-use App\Models\Question;
-use App\Models\Theme;
+use App\Models\Post;
+use App\Models\PostContainer;
+use App\Models\Review;
+use App\Models\Tag;
 use App\Models\User;
-use App\Models\Video;
-use App\Models\VideoContainer;
+use App\Policies\PostPolicy;
 use App\Policies\UserPolicy;
-use App\Policies\VideoPolicy;
 use PHPUnit\Framework\Attributes\Test;
 use ReflectionMethod;
 use SanderMuller\Richter\Analysis\ImpactAnalyzer;
@@ -28,18 +28,18 @@ use SanderMuller\Richter\Tracers\EntryPointTracer;
 
 final class ImpactAnalyzerTest extends TestCase
 {
-    private const string ROUTE = 'route::POST::/videos/{video}/publish';
+    private const string ROUTE = 'route::POST::/posts/{post}/publish';
 
     private function analyzer(): ImpactAnalyzer
     {
         // Models a request path: route → controller → action → service → event,
         // plus an Eloquent relationship edge between two models.
         return new ImpactAnalyzer(new CodeGraph([
-            ['source' => self::ROUTE, 'target' => 'App\Http\Controllers\VideoController', 'type' => 'route-to-controller'],
-            ['source' => 'App\Http\Controllers\VideoController', 'target' => 'App\Http\Controllers\VideoController::publish', 'type' => 'controller-to-action'],
-            ['source' => 'App\Http\Controllers\VideoController::publish', 'target' => 'App\Services\VideoPublisher::publish', 'type' => 'action-to-service'],
-            ['source' => 'App\Services\VideoPublisher::publish', 'target' => 'App\Events\VideoPublished', 'type' => 'action-to-event'],
-            ['source' => Video::class, 'target' => Interaction::class, 'type' => 'model-relationship'],
+            ['source' => self::ROUTE, 'target' => 'App\Http\Controllers\PostController', 'type' => 'route-to-controller'],
+            ['source' => 'App\Http\Controllers\PostController', 'target' => 'App\Http\Controllers\PostController::publish', 'type' => 'controller-to-action'],
+            ['source' => 'App\Http\Controllers\PostController::publish', 'target' => 'App\Services\PostPublisher::publish', 'type' => 'action-to-service'],
+            ['source' => 'App\Services\PostPublisher::publish', 'target' => 'App\Events\PostPublished', 'type' => 'action-to-event'],
+            ['source' => Post::class, 'target' => Comment::class, 'type' => 'model-relationship'],
         ]));
     }
 
@@ -79,18 +79,18 @@ final class ImpactAnalyzerTest extends TestCase
     #[Test]
     public function impact_reports_callers_up_to_the_entry_point_and_dependencies(): void
     {
-        $result = $this->analyzer()->impact('VideoPublisher::publish');
+        $result = $this->analyzer()->impact('PostPublisher::publish');
 
         $this->assertContains(self::ROUTE, $this->nodes($result['callers']));
-        $this->assertContains('App\Http\Controllers\VideoController::publish', $this->nodes($result['callers']));
-        $this->assertContains('App\Events\VideoPublished', $this->nodes($result['dependencies']));
+        $this->assertContains('App\Http\Controllers\PostController::publish', $this->nodes($result['callers']));
+        $this->assertContains('App\Events\PostPublished', $this->nodes($result['dependencies']));
     }
 
     #[Test]
     public function detect_changes_resolves_the_http_entry_point_for_a_service_change(): void
     {
         $result = $this->analyzer()->detectChanges([
-            $this->changedMethod('app/Services/VideoPublisher.php', 'App\Services\VideoPublisher', 'publish'),
+            $this->changedMethod('app/Services/PostPublisher.php', 'App\Services\PostPublisher', 'publish'),
         ]);
 
         $this->assertSame([self::ROUTE], $result['entryPoints']);
@@ -101,14 +101,14 @@ final class ImpactAnalyzerTest extends TestCase
     public function detect_changes_explains_the_chain_from_the_entry_point_to_the_changed_member(): void
     {
         $result = $this->analyzer()->detectChanges([
-            $this->changedMethod('app/Services/VideoPublisher.php', 'App\Services\VideoPublisher', 'publish'),
+            $this->changedMethod('app/Services/PostPublisher.php', 'App\Services\PostPublisher', 'publish'),
         ]);
 
         $this->assertSame([
             ['node' => self::ROUTE, 'via' => 'route-to-controller'],
-            ['node' => 'App\Http\Controllers\VideoController', 'via' => 'controller-to-action'],
-            ['node' => 'App\Http\Controllers\VideoController::publish', 'via' => 'action-to-service'],
-            ['node' => 'App\Services\VideoPublisher::publish', 'via' => ''],
+            ['node' => 'App\Http\Controllers\PostController', 'via' => 'controller-to-action'],
+            ['node' => 'App\Http\Controllers\PostController::publish', 'via' => 'action-to-service'],
+            ['node' => 'App\Services\PostPublisher::publish', 'via' => ''],
         ], $result['entryPointPaths'][self::ROUTE]);
     }
 
@@ -116,7 +116,7 @@ final class ImpactAnalyzerTest extends TestCase
     public function detect_changes_annotates_reached_entry_points_with_location_and_security(): void
     {
         $analyzer = new ImpactAnalyzer(new CodeGraph([
-            ['source' => self::ROUTE, 'target' => 'App\Services\VideoPublisher::publish', 'type' => 'route-to-controller'],
+            ['source' => self::ROUTE, 'target' => 'App\Services\PostPublisher::publish', 'type' => 'route-to-controller'],
         ], nodeMetadata: [
             self::ROUTE => [
                 'file' => 'routes/web.php',
@@ -125,11 +125,11 @@ final class ImpactAnalyzerTest extends TestCase
                     ['type' => 'PUBLIC_WRITE', 'severity' => 'high', 'message' => 'POST route with no auth middleware'],
                 ]],
             ],
-            'App\Services\VideoPublisher::publish' => ['file' => 'app/Services/VideoPublisher.php', 'line' => 30],
+            'App\Services\PostPublisher::publish' => ['file' => 'app/Services/PostPublisher.php', 'line' => 30],
         ]));
 
         $result = $analyzer->detectChanges([
-            $this->changedMethod('app/Services/VideoPublisher.php', 'App\Services\VideoPublisher', 'publish'),
+            $this->changedMethod('app/Services/PostPublisher.php', 'App\Services\PostPublisher', 'publish'),
         ]);
 
         $this->assertSame(['file' => 'routes/web.php', 'line' => 8], $result['entryPointLocations'][self::ROUTE]);
@@ -137,7 +137,7 @@ final class ImpactAnalyzerTest extends TestCase
         // The explain chain carries each hop's location too.
         $this->assertSame([
             ['node' => self::ROUTE, 'via' => 'route-to-controller', 'file' => 'routes/web.php', 'line' => 8],
-            ['node' => 'App\Services\VideoPublisher::publish', 'via' => '', 'file' => 'app/Services/VideoPublisher.php', 'line' => 30],
+            ['node' => 'App\Services\PostPublisher::publish', 'via' => '', 'file' => 'app/Services/PostPublisher.php', 'line' => 30],
         ], $result['entryPointPaths'][self::ROUTE]);
     }
 
@@ -172,13 +172,13 @@ final class ImpactAnalyzerTest extends TestCase
     public function detect_changes_annotates_a_gated_route_with_its_feature_flags(): void
     {
         $analyzer = new ImpactAnalyzer(new CodeGraph([
-            ['source' => self::ROUTE, 'target' => 'App\Services\VideoPublisher::publish', 'type' => 'route-to-controller'],
+            ['source' => self::ROUTE, 'target' => 'App\Services\PostPublisher::publish', 'type' => 'route-to-controller'],
         ], nodeMetadata: [
             self::ROUTE => ['gates' => ['ai-coach']],
         ]));
 
         $result = $analyzer->detectChanges([
-            $this->changedMethod('app/Services/VideoPublisher.php', 'App\Services\VideoPublisher', 'publish'),
+            $this->changedMethod('app/Services/PostPublisher.php', 'App\Services\PostPublisher', 'publish'),
         ]);
 
         $this->assertSame(['ai-coach'], $result['entryPointGates'][self::ROUTE]);
@@ -232,12 +232,12 @@ final class ImpactAnalyzerTest extends TestCase
         // Blade-mounted components have no route:: node — reached upstream, the component IS the
         // user-facing entry surface, and two of its members must collapse onto one class entry.
         $analyzer = new ImpactAnalyzer(new CodeGraph([
-            ['source' => 'App\Livewire\Settings::save', 'target' => 'App\Services\VideoPublisher::publish', 'type' => 'call'],
-            ['source' => 'App\Livewire\Settings::render', 'target' => 'App\Services\VideoPublisher::publish', 'type' => 'call'],
+            ['source' => 'App\Livewire\Settings::save', 'target' => 'App\Services\PostPublisher::publish', 'type' => 'call'],
+            ['source' => 'App\Livewire\Settings::render', 'target' => 'App\Services\PostPublisher::publish', 'type' => 'call'],
         ]));
 
         $result = $analyzer->detectChanges([
-            $this->changedMethod('app/Services/VideoPublisher.php', 'App\Services\VideoPublisher', 'publish'),
+            $this->changedMethod('app/Services/PostPublisher.php', 'App\Services\PostPublisher', 'publish'),
         ]);
 
         $this->assertSame(['App\Livewire\Settings'], $result['entryPoints']);
@@ -246,7 +246,7 @@ final class ImpactAnalyzerTest extends TestCase
         // chain stands in, so --explain still shows how the surface reaches the change.
         $this->assertSame([
             ['node' => 'App\Livewire\Settings::render', 'via' => 'call'],
-            ['node' => 'App\Services\VideoPublisher::publish', 'via' => ''],
+            ['node' => 'App\Services\PostPublisher::publish', 'via' => ''],
         ], $result['entryPointPaths']['App\Livewire\Settings']);
     }
 
@@ -254,14 +254,14 @@ final class ImpactAnalyzerTest extends TestCase
     public function an_upstream_filament_resource_counts_as_an_entry_surface(): void
     {
         $analyzer = new ImpactAnalyzer(new CodeGraph([
-            ['source' => 'App\Filament\Resources\VideoResource::table', 'target' => 'App\Services\VideoPublisher::publish', 'type' => 'call'],
+            ['source' => 'App\Filament\Resources\PostResource::table', 'target' => 'App\Services\PostPublisher::publish', 'type' => 'call'],
         ]));
 
         $result = $analyzer->detectChanges([
-            $this->changedMethod('app/Services/VideoPublisher.php', 'App\Services\VideoPublisher', 'publish'),
+            $this->changedMethod('app/Services/PostPublisher.php', 'App\Services\PostPublisher', 'publish'),
         ]);
 
-        $this->assertSame(['App\Filament\Resources\VideoResource'], $result['entryPoints']);
+        $this->assertSame(['App\Filament\Resources\PostResource'], $result['entryPoints']);
     }
 
     #[Test]
@@ -286,14 +286,14 @@ final class ImpactAnalyzerTest extends TestCase
     public function a_changed_filament_class_gets_the_entry_class_floor_and_self_lists(): void
     {
         $analyzer = new ImpactAnalyzer(new CodeGraph([
-            ['source' => 'App\Filament\Resources\VideoResource::table', 'target' => 'App\Services\X::run', 'type' => 'call'],
+            ['source' => 'App\Filament\Resources\PostResource::table', 'target' => 'App\Services\X::run', 'type' => 'call'],
         ]));
 
         $result = $analyzer->detectChanges([
-            $this->changedMethod('app/Filament/Resources/VideoResource.php', 'App\Filament\Resources\VideoResource', 'table'),
+            $this->changedMethod('app/Filament/Resources/PostResource.php', 'App\Filament\Resources\PostResource', 'table'),
         ]);
 
-        $this->assertSame(['App\Filament\Resources\VideoResource'], $result['entryPoints']);
+        $this->assertSame(['App\Filament\Resources\PostResource'], $result['entryPoints']);
         $this->assertSame(RiskLevel::Medium, $result['risk']);
     }
 
@@ -335,18 +335,18 @@ final class ImpactAnalyzerTest extends TestCase
     #[Test]
     public function detect_changes_seeds_a_changed_blade_view_and_reaches_its_entry_point_and_policy(): void
     {
-        // route → controller → video-item view → action-buttons component → VideoPolicy. A change to
+        // route → controller → post-item view → action-buttons component → PostPolicy. A change to
         // the component Blade must walk up to the route and surface the policy it gates on.
-        $component = 'view::blade__components.video_dashboard.video_action_buttons';
+        $component = 'view::blade__components.post_dashboard.post_action_buttons';
         $analyzer = new ImpactAnalyzer(new CodeGraph([
-            ['source' => self::ROUTE, 'target' => 'App\Http\Controllers\VideoController', 'type' => 'route-to-controller'],
-            ['source' => 'App\Http\Controllers\VideoController', 'target' => 'App\Http\Controllers\VideoController::index', 'type' => 'controller-to-action'],
-            ['source' => 'App\Http\Controllers\VideoController::index', 'target' => 'view::blade__dashboard.home.video_item', 'type' => 'action-to-view'],
-            ['source' => 'view::blade__dashboard.home.video_item', 'target' => $component, 'type' => 'view-to-view'],
-            ['source' => $component, 'target' => VideoPolicy::class, 'type' => 'authorizes'],
+            ['source' => self::ROUTE, 'target' => 'App\Http\Controllers\PostController', 'type' => 'route-to-controller'],
+            ['source' => 'App\Http\Controllers\PostController', 'target' => 'App\Http\Controllers\PostController::index', 'type' => 'controller-to-action'],
+            ['source' => 'App\Http\Controllers\PostController::index', 'target' => 'view::blade__dashboard.home.post_item', 'type' => 'action-to-view'],
+            ['source' => 'view::blade__dashboard.home.post_item', 'target' => $component, 'type' => 'view-to-view'],
+            ['source' => $component, 'target' => PostPolicy::class, 'type' => 'authorizes'],
         ]));
 
-        $file = 'resources/views/components/video-dashboard/video-action-buttons.blade.php';
+        $file = 'resources/views/components/post-dashboard/post-action-buttons.blade.php';
         $result = $analyzer->detectChanges([
             new ChangedFileSymbols($file, '', [], cosmeticOnly: false, directSeeds: [$component]),
         ]);
@@ -354,7 +354,7 @@ final class ImpactAnalyzerTest extends TestCase
         $this->assertSame([self::ROUTE], $result['entryPoints']);
         $this->assertSame('analyzed', $result['coverage'][$file]);
         $this->assertFalse($result['lowConfidence']);
-        $this->assertContains(VideoPolicy::class, $this->nodes($result['dependencies']));
+        $this->assertContains(PostPolicy::class, $this->nodes($result['dependencies']));
     }
 
     #[Test]
@@ -415,10 +415,10 @@ final class ImpactAnalyzerTest extends TestCase
     public function detect_changes_follows_eloquent_relationship_edges(): void
     {
         $result = $this->analyzer()->detectChanges([
-            $this->changedCoarse('app/Models/Video.php', Video::class),
+            $this->changedCoarse('app/Models/Post.php', Post::class),
         ]);
 
-        $this->assertContains(Interaction::class, $this->nodes($result['dependencies']));
+        $this->assertContains(Comment::class, $this->nodes($result['dependencies']));
         $this->assertSame([], $result['entryPoints']);
         $this->assertSame(RiskLevel::Low, $result['risk']);
     }
@@ -427,10 +427,10 @@ final class ImpactAnalyzerTest extends TestCase
     public function a_real_change_to_an_uncharted_entry_point_class_is_at_least_medium(): void
     {
         $result = $this->analyzer()->detectChanges([
-            $this->changedMethod('app/Jobs/Video/SomeImportJob.php', 'App\Jobs\Video\SomeImportJob', 'handle'),
+            $this->changedMethod('app/Jobs/Post/SomeImportJob.php', 'App\Jobs\Post\SomeImportJob', 'handle'),
         ]);
 
-        $this->assertSame(0, $result['changed']['app/Jobs/Video/SomeImportJob.php']);
+        $this->assertSame(0, $result['changed']['app/Jobs/Post/SomeImportJob.php']);
         $this->assertSame(RiskLevel::Medium, $result['risk']);
     }
 
@@ -439,10 +439,10 @@ final class ImpactAnalyzerTest extends TestCase
     {
         // A new method on a job has no callers; the entry-class floor must not fire.
         $result = $this->analyzer()->detectChanges([
-            $this->changedAdditive('app/Jobs/Video/SomeImportJob.php', 'App\Jobs\Video\SomeImportJob'),
+            $this->changedAdditive('app/Jobs/Post/SomeImportJob.php', 'App\Jobs\Post\SomeImportJob'),
         ]);
 
-        $this->assertSame(0, $result['changed']['app/Jobs/Video/SomeImportJob.php']);
+        $this->assertSame(0, $result['changed']['app/Jobs/Post/SomeImportJob.php']);
         $this->assertSame(RiskLevel::Low, $result['risk']);
     }
 
@@ -460,14 +460,14 @@ final class ImpactAnalyzerTest extends TestCase
     #[Test]
     public function a_coarse_hub_change_is_capped_at_medium_not_high(): void
     {
-        // 25 controllers load Video — without the cap a coarse $fillable seed would saturate to HIGH.
+        // 25 controllers load Post — without the cap a coarse $fillable seed would saturate to HIGH.
         $edges = [];
         for ($i = 0; $i < 25; ++$i) {
-            $edges[] = ['source' => "App\\Http\\Controllers\\C{$i}::index", 'target' => Video::class, 'type' => 'action-to-model'];
+            $edges[] = ['source' => "App\\Http\\Controllers\\C{$i}::index", 'target' => Post::class, 'type' => 'action-to-model'];
         }
 
         $result = new ImpactAnalyzer(new CodeGraph($edges))->detectChanges([
-            $this->changedCoarse('app/Models/Video.php', Video::class),
+            $this->changedCoarse('app/Models/Post.php', Post::class),
         ]);
 
         $this->assertTrue($result['lowConfidence']);
@@ -485,21 +485,21 @@ final class ImpactAnalyzerTest extends TestCase
         // instead of the coarse MEDIUM low-confidence estimate.
         $edges = [];
         for ($i = 0; $i < 25; ++$i) {
-            $edges[] = ['source' => "App\\Http\\Controllers\\C{$i}::index", 'target' => Video::class, 'type' => 'action-to-model'];
+            $edges[] = ['source' => "App\\Http\\Controllers\\C{$i}::index", 'target' => Post::class, 'type' => 'action-to-model'];
         }
 
-        $head = "<?php\nclass Video\n{\n    protected array \$fillable = ['a', 'b'];\n}\n";
-        $base = "<?php\nclass Video\n{\n    protected array \$fillable = ['a'];\n}\n";
+        $head = "<?php\nclass Post\n{\n    protected array \$fillable = ['a', 'b'];\n}\n";
+        $base = "<?php\nclass Post\n{\n    protected array \$fillable = ['a'];\n}\n";
         $hunk = [
             'added' => [['line' => 4, 'text' => "    protected array \$fillable = ['a', 'b'];"]],
             'removed' => [['line' => 4, 'text' => "    protected array \$fillable = ['a'];"]],
         ];
 
         $result = new ImpactAnalyzer(new CodeGraph($edges))->detectChanges([
-            ChangedSymbols::classifyFile('app/Models/Video.php', $head, $base, $hunk),
+            ChangedSymbols::classifyFile('app/Models/Post.php', $head, $base, $hunk),
         ]);
 
-        $this->assertSame(0, $result['changed']['app/Models/Video.php']);
+        $this->assertSame(0, $result['changed']['app/Models/Post.php']);
         $this->assertFalse($result['lowConfidence']);
         $this->assertSame(RiskLevel::Low, $result['risk']);
     }
@@ -509,14 +509,14 @@ final class ImpactAnalyzerTest extends TestCase
     {
         // A genuine HIGH (25 routes reach the changed service) must survive even when the diff also
         // touches a $fillable elsewhere — the coarse cap only applies to coarse-driven HIGH.
-        $edges = [['source' => Video::class, 'target' => Interaction::class, 'type' => 'model-relationship']];
+        $edges = [['source' => Post::class, 'target' => Comment::class, 'type' => 'model-relationship']];
         for ($i = 0; $i < 25; ++$i) {
             $edges[] = ['source' => "route::GET::/r{$i}", 'target' => 'App\Services\Big::run', 'type' => 'route-to-controller'];
         }
 
         $result = new ImpactAnalyzer(new CodeGraph($edges))->detectChanges([
             $this->changedMethod('app/Services/Big.php', 'App\Services\Big', 'run'),
-            $this->changedCoarse('app/Models/Video.php', Video::class),
+            $this->changedCoarse('app/Models/Post.php', Post::class),
         ]);
 
         $this->assertTrue($result['lowConfidence']);
@@ -561,18 +561,18 @@ final class ImpactAnalyzerTest extends TestCase
     public function a_relationship_only_fan_out_is_context_not_risk(): void
     {
         $analyzer = new ImpactAnalyzer(new CodeGraph([
-            ['source' => Video::class, 'target' => Interaction::class, 'type' => 'model-relationship'],
-            ['source' => Video::class, 'target' => Question::class, 'type' => 'model-relationship'],
+            ['source' => Post::class, 'target' => Comment::class, 'type' => 'model-relationship'],
+            ['source' => Post::class, 'target' => Review::class, 'type' => 'model-relationship'],
         ]));
 
         $result = $analyzer->detectChanges([
-            $this->changedCoarse('app/Models/Video.php', Video::class),
+            $this->changedCoarse('app/Models/Post.php', Post::class),
         ]);
 
         $this->assertSame(0, $result['impacted']);
         // Related models render as readable FQCNs.
-        $this->assertContains(Interaction::class, $result['relatedModels']);
-        $this->assertContains(Question::class, $result['relatedModels']);
+        $this->assertContains(Comment::class, $result['relatedModels']);
+        $this->assertContains(Review::class, $result['relatedModels']);
     }
 
     #[Test]
@@ -580,27 +580,27 @@ final class ImpactAnalyzerTest extends TestCase
     {
         // Two relationship edges to the same model must not list it twice (which would inflate the count).
         $analyzer = new ImpactAnalyzer(new CodeGraph([
-            ['source' => Video::class, 'target' => Interaction::class, 'type' => 'model-relationship'],
-            ['source' => Video::class, 'target' => Interaction::class, 'type' => 'model-relationship'],
+            ['source' => Post::class, 'target' => Comment::class, 'type' => 'model-relationship'],
+            ['source' => Post::class, 'target' => Comment::class, 'type' => 'model-relationship'],
         ]));
 
         $result = $analyzer->detectChanges([
-            $this->changedCoarse('app/Models/Video.php', Video::class),
+            $this->changedCoarse('app/Models/Post.php', Post::class),
         ]);
 
-        $this->assertSame([Interaction::class], $result['relatedModels']);
+        $this->assertSame([Comment::class], $result['relatedModels']);
     }
 
     #[Test]
     public function a_node_reachable_by_both_a_relation_and_a_call_edge_counts_toward_risk(): void
     {
         $analyzer = new ImpactAnalyzer(new CodeGraph([
-            ['source' => Video::class, 'target' => 'App\Services\X::run', 'type' => 'model-relationship'],
-            ['source' => Video::class, 'target' => 'App\Services\X::run', 'type' => 'action-to-service'],
+            ['source' => Post::class, 'target' => 'App\Services\X::run', 'type' => 'model-relationship'],
+            ['source' => Post::class, 'target' => 'App\Services\X::run', 'type' => 'action-to-service'],
         ]));
 
         $result = $analyzer->detectChanges([
-            $this->changedCoarse('app/Models/Video.php', Video::class),
+            $this->changedCoarse('app/Models/Post.php', Post::class),
         ]);
 
         $this->assertSame(1, $result['impacted']);
@@ -723,19 +723,19 @@ final class ImpactAnalyzerTest extends TestCase
         // maxDepth) must yield the exact same tuple both times — the safety net the full suite
         // above already exercises through detectChanges().
         $analyzer = new ImpactAnalyzer(new CodeGraph([
-            ['source' => self::ROUTE, 'target' => 'App\Http\Controllers\VideoController::publish', 'type' => 'route-to-controller'],
+            ['source' => self::ROUTE, 'target' => 'App\Http\Controllers\PostController::publish', 'type' => 'route-to-controller'],
         ]));
 
         $riskInputs = new ReflectionMethod($analyzer, 'riskInputs');
         $memo = [];
         $freshMemo = [];
 
-        $first = $riskInputs->invokeArgs($analyzer, [['App\Http\Controllers\VideoController::publish'], 6, &$memo]);
+        $first = $riskInputs->invokeArgs($analyzer, [['App\Http\Controllers\PostController::publish'], 6, &$memo]);
         // Cache hit on the shared memo…
-        $memoized = $riskInputs->invokeArgs($analyzer, [['App\Http\Controllers\VideoController::publish'], 6, &$memo]);
+        $memoized = $riskInputs->invokeArgs($analyzer, [['App\Http\Controllers\PostController::publish'], 6, &$memo]);
         // …compared against a genuinely fresh walk (separate empty memo), so a stale or corrupted
         // cached tuple cannot hide behind comparing the memo with itself.
-        $fresh = $riskInputs->invokeArgs($analyzer, [['App\Http\Controllers\VideoController::publish'], 6, &$freshMemo]);
+        $fresh = $riskInputs->invokeArgs($analyzer, [['App\Http\Controllers\PostController::publish'], 6, &$freshMemo]);
 
         // Reflection erases riskInputs()'s real return type, so narrow it back explicitly rather
         // than indexing into `mixed`.
@@ -751,26 +751,26 @@ final class ImpactAnalyzerTest extends TestCase
     public function symbol_lookup_does_not_over_match_sibling_classes(): void
     {
         $analyzer = new ImpactAnalyzer(new CodeGraph([
-            ['source' => Video::class, 'target' => VideoContainer::class, 'type' => 'model-relationship'],
+            ['source' => Post::class, 'target' => PostContainer::class, 'type' => 'model-relationship'],
         ]));
 
-        // "App\Models\Video" must seed only Video, not the sibling "App\Models\VideoContainer".
+        // "App\Models\Post" must seed only Post, not the sibling "App\Models\PostContainer".
         $result = $analyzer->detectChanges([
-            $this->changedCoarse('app/Models/Video.php', Video::class),
+            $this->changedCoarse('app/Models/Post.php', Post::class),
         ]);
 
-        $this->assertSame(1, $result['changed']['app/Models/Video.php']);
+        $this->assertSame(1, $result['changed']['app/Models/Post.php']);
     }
 
     #[Test]
     public function symbol_lookup_respects_identifier_boundaries_on_both_sides(): void
     {
         $analyzer = new ImpactAnalyzer(new CodeGraph([
-            ['source' => 'App\Models\SuperVideo', 'target' => VideoContainer::class, 'type' => 'model-relationship'],
+            ['source' => 'App\Models\SuperPost', 'target' => PostContainer::class, 'type' => 'model-relationship'],
         ]));
 
-        // "Video" must match neither "SuperVideo" (left) nor "VideoContainer" (right).
-        $result = $analyzer->impact('Video');
+        // "Post" must match neither "SuperPost" (left) nor "PostContainer" (right).
+        $result = $analyzer->impact('Post');
 
         $this->assertSame([], $result['callers']);
         $this->assertSame([], $result['dependencies']);
@@ -804,14 +804,14 @@ final class ImpactAnalyzerTest extends TestCase
     public function a_leading_backslash_symbol_still_matches_fqcn_cased_nodes(): void
     {
         $analyzer = new ImpactAnalyzer(new CodeGraph([
-            ['source' => Video::class, 'target' => Interaction::class, 'type' => 'model-relationship'],
+            ['source' => Post::class, 'target' => Comment::class, 'type' => 'model-relationship'],
         ]));
 
         // A leading-backslash FQCN must resolve the same as one without it.
-        $leadingBackslash = $this->nodes($analyzer->impact('\\' . Video::class)['dependencies']);
+        $leadingBackslash = $this->nodes($analyzer->impact('\\' . Post::class)['dependencies']);
 
-        $this->assertSame($this->nodes($analyzer->impact(Video::class)['dependencies']), $leadingBackslash);
-        $this->assertContains(Interaction::class, $leadingBackslash);
+        $this->assertSame($this->nodes($analyzer->impact(Post::class)['dependencies']), $leadingBackslash);
+        $this->assertContains(Comment::class, $leadingBackslash);
     }
 
     #[Test]
@@ -826,9 +826,9 @@ final class ImpactAnalyzerTest extends TestCase
     #[Test]
     public function fqcn_is_derived_from_an_app_path(): void
     {
-        $this->assertSame(Video::class, Fqcn::fromPath('app/Models/Video.php'));
-        $this->assertSame('App\Jobs\Video\SomeImportJob', Fqcn::fromPath('app/Jobs/Video/SomeImportJob.php'));
-        $this->assertSame(Video::class, Fqcn::fromPath('./app/Models/Video.php'));
+        $this->assertSame(Post::class, Fqcn::fromPath('app/Models/Post.php'));
+        $this->assertSame('App\Jobs\Post\SomeImportJob', Fqcn::fromPath('app/Jobs/Post/SomeImportJob.php'));
+        $this->assertSame(Post::class, Fqcn::fromPath('./app/Models/Post.php'));
     }
 
     #[Test]
@@ -851,14 +851,14 @@ final class ImpactAnalyzerTest extends TestCase
     {
         // A job appears as an FQCN-keyed deep-call node; a change to its file must resolve to it.
         $analyzer = new ImpactAnalyzer(new CodeGraph([
-            ['source' => 'App\Jobs\Video\SomeImportJob::handle', 'target' => 'App\Services\Importer::run', 'type' => 'job'],
+            ['source' => 'App\Jobs\Post\SomeImportJob::handle', 'target' => 'App\Services\Importer::run', 'type' => 'job'],
         ]));
 
         $result = $analyzer->detectChanges([
-            $this->changedMethod('app/Jobs/Video/SomeImportJob.php', 'App\Jobs\Video\SomeImportJob', 'handle'),
+            $this->changedMethod('app/Jobs/Post/SomeImportJob.php', 'App\Jobs\Post\SomeImportJob', 'handle'),
         ]);
 
-        $this->assertSame(1, $result['changed']['app/Jobs/Video/SomeImportJob.php']);
+        $this->assertSame(1, $result['changed']['app/Jobs/Post/SomeImportJob.php']);
         $this->assertContains('App\Services\Importer::run', $this->nodes($result['dependencies']));
     }
 
@@ -887,13 +887,13 @@ final class ImpactAnalyzerTest extends TestCase
         // A class declaring many members must not read as impact by declaration alone —
         // mirrors the model-relationship exclusion.
         $analyzer = new ImpactAnalyzer(new CodeGraph([
-            ['source' => Video::class, 'target' => Video::class . '::interactions', 'type' => 'declares'],
-            ['source' => Video::class, 'target' => Video::class . '::questions', 'type' => 'declares'],
-            ['source' => Video::class, 'target' => Video::class . '::publish', 'type' => 'declares'],
+            ['source' => Post::class, 'target' => Post::class . '::comments', 'type' => 'declares'],
+            ['source' => Post::class, 'target' => Post::class . '::reviews', 'type' => 'declares'],
+            ['source' => Post::class, 'target' => Post::class . '::publish', 'type' => 'declares'],
         ]));
 
         $result = $analyzer->detectChanges([
-            $this->changedCoarse('app/Models/Video.php', Video::class),
+            $this->changedCoarse('app/Models/Post.php', Post::class),
         ]);
 
         $this->assertSame(0, $result['impacted']);
@@ -958,12 +958,12 @@ final class ImpactAnalyzerTest extends TestCase
     public function a_route_mapped_middleware_lists_its_route_instead_of_self_listing(): void
     {
         $analyzer = new ImpactAnalyzer(new CodeGraph([
-            ['source' => self::ROUTE, 'target' => PlaylistAuthenticate::class, 'type' => 'route-to-middleware'],
-            ['source' => PlaylistAuthenticate::class, 'target' => 'App\Http\Middleware\PlaylistAuthenticate::handle', 'type' => 'declares'],
+            ['source' => self::ROUTE, 'target' => CategoryAuthenticate::class, 'type' => 'route-to-middleware'],
+            ['source' => CategoryAuthenticate::class, 'target' => 'App\Http\Middleware\CategoryAuthenticate::handle', 'type' => 'declares'],
         ]));
 
         $result = $analyzer->detectChanges([
-            $this->changedMethod('app/Http/Middleware/PlaylistAuthenticate.php', PlaylistAuthenticate::class, 'handle'),
+            $this->changedMethod('app/Http/Middleware/CategoryAuthenticate.php', CategoryAuthenticate::class, 'handle'),
         ]);
 
         $this->assertSame([self::ROUTE], $result['entryPoints']);
@@ -985,35 +985,35 @@ final class ImpactAnalyzerTest extends TestCase
     public function an_unnormalised_model_node_renders_short_and_dedupes_against_its_fqcn(): void
     {
         $analyzer = new ImpactAnalyzer(new CodeGraph([
-            ['source' => VideoContainer::class, 'target' => Video::class, 'type' => 'model-relationship'],
-            ['source' => VideoContainer::class, 'target' => 'model::Video', 'type' => 'model-relationship'],
-            ['source' => VideoContainer::class, 'target' => 'model::Playlist', 'type' => 'model-relationship'],
+            ['source' => PostContainer::class, 'target' => Post::class, 'type' => 'model-relationship'],
+            ['source' => PostContainer::class, 'target' => 'model::Post', 'type' => 'model-relationship'],
+            ['source' => PostContainer::class, 'target' => 'model::Category', 'type' => 'model-relationship'],
         ]));
 
         $result = $analyzer->detectChanges([
-            $this->changedCoarse('app/Models/VideoContainer.php', VideoContainer::class),
+            $this->changedCoarse('app/Models/PostContainer.php', PostContainer::class),
         ]);
 
-        // `model::Video` collapses into the FQCN label; `model::Playlist` (no FQCN sibling) renders short.
-        $this->assertSame([Video::class, 'Playlist'], $result['relatedModels']);
+        // `model::Post` collapses into the FQCN label; `model::Category` (no FQCN sibling) renders short.
+        $this->assertSame([Post::class, 'Category'], $result['relatedModels']);
     }
 
     #[Test]
     public function an_ambiguous_short_model_label_is_kept_when_two_fqcns_share_its_basename(): void
     {
-        // App\Models\Theme and App\Models\Playlist\Theme both exist — collapsing `model::Theme`
+        // App\Models\Tag and App\Models\Category\Tag both exist — collapsing `model::Tag`
         // into either would silently claim the wrong model; keep the short label instead.
         $analyzer = new ImpactAnalyzer(new CodeGraph([
-            ['source' => VideoContainer::class, 'target' => Theme::class, 'type' => 'model-relationship'],
-            ['source' => VideoContainer::class, 'target' => \App\Models\Playlist\Theme::class, 'type' => 'model-relationship'],
-            ['source' => VideoContainer::class, 'target' => 'model::Theme', 'type' => 'model-relationship'],
+            ['source' => PostContainer::class, 'target' => Tag::class, 'type' => 'model-relationship'],
+            ['source' => PostContainer::class, 'target' => \App\Models\Category\Tag::class, 'type' => 'model-relationship'],
+            ['source' => PostContainer::class, 'target' => 'model::Tag', 'type' => 'model-relationship'],
         ]));
 
         $result = $analyzer->detectChanges([
-            $this->changedCoarse('app/Models/VideoContainer.php', VideoContainer::class),
+            $this->changedCoarse('app/Models/PostContainer.php', PostContainer::class),
         ]);
 
-        $this->assertSame([\App\Models\Playlist\Theme::class, Theme::class, 'Theme'], $result['relatedModels']);
+        $this->assertSame([\App\Models\Category\Tag::class, Tag::class, 'Tag'], $result['relatedModels']);
     }
 
     #[Test]
@@ -1025,18 +1025,18 @@ final class ImpactAnalyzerTest extends TestCase
                 'App\Exports\X',
                 [new MemberChange('__construct', MemberChange::KIND_METHOD, MemberChange::CHANGE_MODIFIED, resolvable: true)],
                 cosmeticOnly: false,
-                findings: ["eager-load string 'interactionsquestions' matches no relation"],
+                findings: ["eager-load string 'commentsreviews' matches no relation"],
             ),
         ]);
 
-        $this->assertSame(["app/Exports/X.php: eager-load string 'interactionsquestions' matches no relation"], $result['findings']);
+        $this->assertSame(["app/Exports/X.php: eager-load string 'commentsreviews' matches no relation"], $result['findings']);
     }
 
     #[Test]
     public function a_change_without_findings_yields_an_empty_findings_list(): void
     {
         $result = $this->analyzer()->detectChanges([
-            $this->changedMethod('app/Http/Controllers/VideoController.php', 'App\Http\Controllers\VideoController', 'publish'),
+            $this->changedMethod('app/Http/Controllers/PostController.php', 'App\Http\Controllers\PostController', 'publish'),
         ]);
 
         $this->assertSame([], $result['findings']);
@@ -1056,13 +1056,13 @@ final class ImpactAnalyzerTest extends TestCase
     public function a_frontend_referenced_route_is_an_entry_point_but_never_a_risk_input(): void
     {
         $result = $this->analyzer()->detectChanges([
-            $this->changedFrontend('resources/js/Pages/Videos.vue', [self::ROUTE]),
+            $this->changedFrontend('resources/js/Pages/Posts.vue', [self::ROUTE]),
         ]);
 
         // The touched route is listed (with its annotations available to formatters)…
         $this->assertSame([self::ROUTE], $result['entryPoints']);
-        $this->assertSame(['resources/js/Pages/Videos.vue' => 'analyzed'], $result['coverage']);
-        $this->assertSame(['resources/js/Pages/Videos.vue' => 1], $result['changed']);
+        $this->assertSame(['resources/js/Pages/Posts.vue' => 'analyzed'], $result['coverage']);
+        $this->assertSame(['resources/js/Pages/Posts.vue' => 1], $result['changed']);
         // …but the backend behaviour behind it did not change: no walk, no risk.
         $this->assertSame(RiskLevel::Low, $result['risk']);
         $this->assertSame(0, $result['impacted']);
@@ -1073,8 +1073,8 @@ final class ImpactAnalyzerTest extends TestCase
     public function a_frontend_route_already_reached_from_a_php_change_is_not_double_listed(): void
     {
         $result = $this->analyzer()->detectChanges([
-            $this->changedMethod('app/Services/VideoPublisher.php', 'App\Services\VideoPublisher', 'publish'),
-            $this->changedFrontend('resources/js/Pages/Videos.vue', [self::ROUTE]),
+            $this->changedMethod('app/Services/PostPublisher.php', 'App\Services\PostPublisher', 'publish'),
+            $this->changedFrontend('resources/js/Pages/Posts.vue', [self::ROUTE]),
         ]);
 
         $this->assertSame([self::ROUTE], $result['entryPoints']);
@@ -1086,56 +1086,56 @@ final class ImpactAnalyzerTest extends TestCase
     public function an_unresolved_frontend_reference_reads_as_unresolved_coverage(): void
     {
         $result = $this->analyzer()->detectChanges([
-            $this->changedFrontend('resources/js/Pages/Videos.vue', [self::ROUTE], unresolved: true),
+            $this->changedFrontend('resources/js/Pages/Posts.vue', [self::ROUTE], unresolved: true),
         ]);
 
         // The mapped route still lists — partial context — but the file's coverage is honest.
         $this->assertSame([self::ROUTE], $result['entryPoints']);
-        $this->assertSame(['resources/js/Pages/Videos.vue' => 'unresolved'], $result['coverage']);
+        $this->assertSame(['resources/js/Pages/Posts.vue' => 'unresolved'], $result['coverage']);
     }
 
     #[Test]
     public function a_frontend_route_the_graph_does_not_know_reads_as_unresolved(): void
     {
         $result = $this->analyzer()->detectChanges([
-            $this->changedFrontend('resources/js/Pages/Videos.vue', ['route::GET::/not-in-graph']),
+            $this->changedFrontend('resources/js/Pages/Posts.vue', ['route::GET::/not-in-graph']),
         ]);
 
         $this->assertSame([], $result['entryPoints']);
-        $this->assertSame(['resources/js/Pages/Videos.vue' => 'unresolved'], $result['coverage']);
+        $this->assertSame(['resources/js/Pages/Posts.vue' => 'unresolved'], $result['coverage']);
     }
 
     #[Test]
     public function a_frontend_seed_matches_route_nodes_exactly_never_by_prefix(): void
     {
         $analyzer = new ImpactAnalyzer(new CodeGraph([
-            ['source' => 'route::GET::/videos', 'target' => 'App\Http\Controllers\VideoController::index', 'type' => 'route-to-action'],
-            ['source' => 'route::GET::/videos/{video}', 'target' => 'App\Http\Controllers\VideoController::show', 'type' => 'route-to-action'],
+            ['source' => 'route::GET::/posts', 'target' => 'App\Http\Controllers\PostController::index', 'type' => 'route-to-action'],
+            ['source' => 'route::GET::/posts/{post}', 'target' => 'App\Http\Controllers\PostController::show', 'type' => 'route-to-action'],
         ]));
 
         $result = $analyzer->detectChanges([
-            $this->changedFrontend('resources/js/Pages/Index.vue', ['route::GET::/videos']),
+            $this->changedFrontend('resources/js/Pages/Index.vue', ['route::GET::/posts']),
         ]);
 
-        $this->assertSame(['route::GET::/videos'], $result['entryPoints']);
+        $this->assertSame(['route::GET::/posts'], $result['entryPoints']);
     }
 
     #[Test]
     public function a_blade_views_inline_fetch_route_is_a_touched_entry_point_not_a_walk_seed(): void
     {
         $analyzer = new ImpactAnalyzer(new CodeGraph([
-            ['source' => self::ROUTE, 'target' => 'App\Http\Controllers\VideoController', 'type' => 'route-to-controller'],
+            ['source' => self::ROUTE, 'target' => 'App\Http\Controllers\PostController', 'type' => 'route-to-controller'],
             ['source' => 'route::GET::/errors/log', 'target' => 'App\Http\Controllers\ErrorController', 'type' => 'route-to-controller'],
-            ['source' => 'App\Http\Controllers\VideoController::publish', 'target' => 'view::blade__videos.show', 'type' => 'action-to-view'],
+            ['source' => 'App\Http\Controllers\PostController::publish', 'target' => 'view::blade__posts.show', 'type' => 'action-to-view'],
         ]));
 
         $result = $analyzer->detectChanges([
-            new ChangedFileSymbols('resources/views/videos/show.blade.php', '', [], cosmeticOnly: false, directSeeds: ['view::blade__videos.show', 'route::GET::/errors/log']),
+            new ChangedFileSymbols('resources/views/posts/show.blade.php', '', [], cosmeticOnly: false, directSeeds: ['view::blade__posts.show', 'route::GET::/errors/log']),
         ]);
 
         // The inline-fetch route lists as touched surface; the view node still walks normally.
         $this->assertContains('route::GET::/errors/log', $result['entryPoints']);
-        $this->assertContains('App\Http\Controllers\VideoController::publish', $this->nodes($result['callers']));
+        $this->assertContains('App\Http\Controllers\PostController::publish', $this->nodes($result['callers']));
         // The fetched route contributed no callers walk of its own — it is annotation, not reach.
         $this->assertNotContains('App\Http\Controllers\ErrorController', $this->nodes($result['dependencies']));
     }
@@ -1144,16 +1144,16 @@ final class ImpactAnalyzerTest extends TestCase
     public function frontend_entry_points_carry_their_gate_and_location_annotations(): void
     {
         $analyzer = new ImpactAnalyzer(new CodeGraph(
-            [['source' => self::ROUTE, 'target' => 'App\Http\Controllers\VideoController', 'type' => 'route-to-controller']],
+            [['source' => self::ROUTE, 'target' => 'App\Http\Controllers\PostController', 'type' => 'route-to-controller']],
             hasUnresolvedDispatches: false,
-            nodeMetadata: [self::ROUTE => ['file' => 'routes/web.php', 'line' => 12, 'gates' => ['interactive-video']]],
+            nodeMetadata: [self::ROUTE => ['file' => 'routes/web.php', 'line' => 12, 'gates' => ['interactive-post']]],
         ));
 
         $result = $analyzer->detectChanges([
-            $this->changedFrontend('resources/js/Pages/Videos.vue', [self::ROUTE]),
+            $this->changedFrontend('resources/js/Pages/Posts.vue', [self::ROUTE]),
         ]);
 
-        $this->assertSame(['interactive-video'], $result['entryPointGates'][self::ROUTE] ?? null);
+        $this->assertSame(['interactive-post'], $result['entryPointGates'][self::ROUTE] ?? null);
         $this->assertSame(['file' => 'routes/web.php', 'line' => 12], $result['entryPointLocations'][self::ROUTE] ?? null);
     }
 }
