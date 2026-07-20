@@ -22,14 +22,11 @@ final class TestReferenceIndex
 {
     /**
      * Assert-ish calls provably incapable of proving behaviour: a bare HTTP-status check. Kept
-     * deliberately tiny — see the plan's maintenance notes before growing it.
+     * deliberately tiny — growing it means arguing a new entry can NEVER assert behaviour.
      *
      * @var list<string>
      */
-    private const array SHALLOW_ASSERTIONS = [
-        'assertOk', 'assertSuccessful', 'assertNoContent', 'assertNotFound',
-        'assertForbidden', 'assertUnauthorized', 'assertStatus',
-    ];
+    private const array SHALLOW_ASSERTIONS = ['assertOk', 'assertSuccessful'];
 
     /** @var array<string, list<string>> uri => test files containing it */
     private array $uris = [];
@@ -359,15 +356,21 @@ final class TestReferenceIndex
     /**
      * Whether a whole test file's source is certain to contain no behavioural assertion: every
      * assert-ish call in it (`->assertX(...)`, `::assertX(...)`, or a bare Pest `expect(...)`) is
-     * in {@see SHALLOW_ASSERTIONS}, or there are none at all. `assertTrue`/`assertFalse` are weak
-     * only with a literal `true`/`false` argument — a non-literal argument could be asserting
-     * anything, so it counts as behavioural-or-unknown. Anything not provably shallow (a bare
-     * `expect(`, `assertJson*`, `assertDatabaseHas`, a custom helper, ...) disqualifies the whole
-     * file; no allowlist of "behavioural" names is needed.
+     * in {@see SHALLOW_ASSERTIONS}, or there are none at all. Three names are conditionally
+     * shallow, only in their literal smoke form — `assertTrue(true)`/`assertFalse(false)` and
+     * `assertStatus(200)`: any other argument could be asserting real behaviour
+     * (`assertStatus(403)` IS the authorization claim, which is also why
+     * `assertForbidden`/`assertUnauthorized`/`assertNotFound` are not in the shallow set at all).
+     * Anything not provably shallow (a bare `expect(`, `assertJson*`, `assertDatabaseHas`, a
+     * custom `assert*`/`expect*`-named helper, ...) disqualifies the whole file; a helper the
+     * scan cannot recognise as assert-ish (`seeVideoPublished(...)`) is invisible — the README
+     * hedges the tag as "no behavioural assertion the scan recognises" for exactly that reason.
      */
     private function sourceLacksBehaviouralAssertions(string $source): bool
     {
-        if (preg_match('/(?<![\w$>])expect\s*\(/', $source) === 1) {
+        // The lookbehinds exclude `->expect(` (a method, not Pest's function) without also
+        // swallowing an arrow-fn body's `=>expect(`.
+        if (preg_match('/(?<![\w$])(?<!->)expect\s*\(/', $source) === 1) {
             return false;
         }
 
@@ -378,10 +381,17 @@ final class TestReferenceIndex
         }
 
         $boolCalls = 0;
+        $statusCalls = 0;
 
         foreach ($matches[1] as $name) {
             if ($name === 'assertTrue' || $name === 'assertFalse') {
                 ++$boolCalls;
+
+                continue;
+            }
+
+            if ($name === 'assertStatus') {
+                ++$statusCalls;
 
                 continue;
             }
@@ -391,9 +401,13 @@ final class TestReferenceIndex
             }
         }
 
+        // Count trick per conditional name: both patterns anchor on the same `->`/`::` call site,
+        // so literal-form matches can never exceed the name count — equality means every such
+        // call is provably in its smoke form.
         $literalBoolCalls = preg_match_all('/(?:->|::)\s*(?:assertTrue|assertFalse)\s*\(\s*(?:true|false)\s*\)/', $source);
+        $literalOkStatuses = preg_match_all('/(?:->|::)\s*assertStatus\s*\(\s*200\s*\)/', $source);
 
-        return $literalBoolCalls === $boolCalls;
+        return $literalBoolCalls === $boolCalls && $literalOkStatuses === $statusCalls;
     }
 
     /**

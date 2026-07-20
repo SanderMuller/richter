@@ -166,7 +166,7 @@ With `--json`, stdout is a single JSON document (the full, uncapped report) with
 | `entryPointLocations` | object | per entry point, its defining `{file, line?}` (project-relative), when known |
 | `entryPointSecurity` | object | per reached route, Brain's security surface `{exposure, riskLevel, issues[]}` — advisory annotation, routes only, never an input to `risk` or the gate |
 | `entryPointGates` | object | per reached route, the Pennant feature flags gating it — advisory annotation, never an input to `risk` or the gate |
-| `entryPointTestReferences` | object | per reached entry point, `"referenced"` / `"referenced-no-behavioural-assertion"` / `"unreferenced"` — advisory annotation, never an input to `risk`, the gate, or `affected-tests` selection |
+| `entryPointTestReferences` | object | per reached entry point, `"referenced"` / `"referenced-no-behavioural-assertion"` / `"unreferenced"`; an entry point whose reference state cannot be determined is omitted from the map — advisory annotation, never an input to `risk`, the gate, or `affected-tests` selection |
 | `impacted` | int | count of risk-bearing nodes reached |
 | `relatedModels` | string[] | models reached only via association edges (context, not risk) |
 | `risk` | string | `"low"` / `"medium"` / `"high"` |

@@ -180,8 +180,7 @@ final class CodeGraphBuilder
     /**
      * Emits one `richter:phase` timing event and returns the next phase's start timestamp — or,
      * when nobody is listening, does nothing and hands the same (unused) timestamp straight back.
-     * Centralised so build()'s six call sites share one branch instead of each carrying their own,
-     * which is what had pushed the method over PHPStan's cognitive-complexity limit.
+     * Centralised so build()'s six call sites share one branch instead of each carrying their own.
      *
      * @param  (callable(string, array<string, mixed>): void)|null  $onProgress
      */

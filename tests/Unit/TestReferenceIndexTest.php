@@ -347,6 +347,41 @@ final class TestReferenceIndexTest extends TestCase
     }
 
     #[Test]
+    public function an_arrow_function_pest_expect_is_not_assertion_weak(): void
+    {
+        // No space between `=>` and `expect(` — the method-call exclusion must not swallow it.
+        $index = new TestReferenceIndex();
+        $index->addSource('<?php $this->get("/videos/1"); $check = fn () =>expect($video->status)->toBe("published");', 'tests/Feature/VideoTest.php');
+
+        $this->assertFalse($index->referencedWithoutBehaviouralAssertion('route::GET::/videos/{video}'));
+    }
+
+    #[Test]
+    public function an_authorization_status_assertion_is_not_assertion_weak(): void
+    {
+        // For an access-control test the status check IS the behavioural claim — tagging it
+        // "proves nothing" would be the false reassurance the certainty rule forbids.
+        $index = new TestReferenceIndex();
+        $index->addSource('<?php $this->get("/videos/1"); $response->assertForbidden();', 'tests/Feature/VideoTest.php');
+
+        $this->assertFalse($index->referencedWithoutBehaviouralAssertion('route::GET::/videos/{video}'));
+    }
+
+    #[Test]
+    public function assert_status_is_weak_only_in_its_literal_smoke_form(): void
+    {
+        $smoke = new TestReferenceIndex();
+        $smoke->addSource('<?php $this->get("/videos/1"); $response->assertStatus(200);', 'tests/Feature/VideoTest.php');
+
+        $this->assertTrue($smoke->referencedWithoutBehaviouralAssertion('route::GET::/videos/{video}'));
+
+        $authz = new TestReferenceIndex();
+        $authz->addSource('<?php $this->get("/videos/1"); $response->assertStatus(403);', 'tests/Feature/VideoTest.php');
+
+        $this->assertFalse($authz->referencedWithoutBehaviouralAssertion('route::GET::/videos/{video}'));
+    }
+
+    #[Test]
     public function all_referencing_files_must_grade_weak_for_the_sub_tag_to_apply(): void
     {
         $index = new TestReferenceIndex();
