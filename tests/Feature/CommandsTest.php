@@ -357,10 +357,11 @@ final class CommandsTest extends TestCase
     }
 
     #[Test]
-    public function affected_tests_plain_stays_clean_with_an_untracked_file_present(): void
+    public function affected_tests_plain_exits_undetermined_with_an_untracked_file_present(): void
     {
-        // An untracked file gets an honest stderr note; --plain stdout must still carry nothing but
-        // the selection itself (here, none — a determinable empty diff prints no test paths at all).
+        // An untracked file is invisible to every diff form, so the selection can never vouch for
+        // completeness — this is the blocker finding: exit 2 (undetermined), not a silently narrowed
+        // determinable selection. --plain stdout must still carry nothing (no test paths at all).
         Process::fake([
             '*merge-base*' => Process::result("abc123\n"),
             '*diff*' => Process::result(''),
@@ -371,15 +372,119 @@ final class CommandsTest extends TestCase
         $exitCode = Artisan::call('richter:affected-tests', ['--base' => 'some-base', '--plain' => true]);
         $output = Artisan::output();
 
-        $this->assertSame(0, $exitCode);
+        $this->assertSame(2, $exitCode);
         $this->assertStringContainsString('untracked file(s)', $output);
         $this->assertStringContainsString('app/Models/Report.php', $output);
-        // Nothing but the stderr warning landed in the combined buffer — an empty, determinable
-        // selection prints no test path, so --plain's own stdout contract stays exactly empty.
+        // Nothing but the stderr warning landed in the combined buffer — an undetermined selection
+        // prints no test path, so --plain's own stdout contract stays exactly empty.
         $this->assertSame(
             'Note: 1 untracked file(s) under app/, resources/views/, or a configured frontend root are invisible to `git diff` and were not analysed: app/Models/Report.php',
             trim($output),
         );
+    }
+
+    #[Test]
+    public function affected_tests_plain_exits_undetermined_when_a_tracked_change_has_an_untracked_sibling(): void
+    {
+        // The exact regression this fixes: a tracked change under app/ ALONGSIDE a brand-new,
+        // un-`git add`-ed file must not silently narrow the selection to just the tracked change —
+        // the untracked file's own surface is invisible to `git diff`, so the whole selection is
+        // undetermined, not "determinable but partial".
+        $diff = "diff --git a/app/Models/User.php b/app/Models/User.php\n--- a/app/Models/User.php\n+++ b/app/Models/User.php\n@@ -0,0 +1,1 @@\n+    public function added(): void {}\n";
+
+        Process::fake([
+            '*merge-base*' => Process::result("abc123\n"),
+            '*show*' => Process::result(errorOutput: 'bad object', exitCode: 128),
+            '*diff*' => Process::result($diff),
+            '*status*' => Process::result("?? app/Jobs/Foo.php\n"),
+        ]);
+
+        $this->withoutMockingConsoleOutput();
+        $exitCode = Artisan::call('richter:affected-tests', ['--base' => 'some-base', '--plain' => true]);
+        $output = Artisan::output();
+
+        $this->assertSame(2, $exitCode);
+        $this->assertSame(
+            'Note: 1 untracked file(s) under app/, resources/views/, or a configured frontend root are invisible to `git diff` and were not analysed: app/Jobs/Foo.php',
+            trim($output),
+        );
+    }
+
+    #[Test]
+    public function affected_tests_json_reports_determinable_false_when_an_untracked_relevant_file_is_present(): void
+    {
+        $diff = "diff --git a/app/Models/User.php b/app/Models/User.php\n--- a/app/Models/User.php\n+++ b/app/Models/User.php\n@@ -0,0 +1,1 @@\n+    public function added(): void {}\n";
+
+        Process::fake([
+            '*merge-base*' => Process::result("abc123\n"),
+            '*show*' => Process::result(errorOutput: 'bad object', exitCode: 128),
+            '*diff*' => Process::result($diff),
+            '*status*' => Process::result("?? app/Jobs/Foo.php\n"),
+        ]);
+
+        $this->withoutMockingConsoleOutput();
+        $exitCode = Artisan::call('richter:affected-tests', ['--base' => 'some-base', '--json' => true]);
+        $output = Artisan::output();
+
+        // The stderr warning writes first, --json to stdout; decode the report from the first '{'
+        // onward, same pattern as the detect-changes untracked-file JSON test above.
+        $decoded = json_decode(substr($output, (int) strpos($output, '{')), associative: true);
+
+        $this->assertSame(2, $exitCode);
+        $this->assertIsArray($decoded);
+        $this->assertFalse($decoded['determinable']);
+        $this->assertSame([], $decoded['tests']);
+        $this->assertIsArray($decoded['reasons']);
+        $reason = $decoded['reasons'][0];
+        $this->assertIsString($reason);
+        $this->assertStringContainsString('app/Jobs/Foo.php', $reason);
+        $this->assertStringContainsString('git add', $reason);
+    }
+
+    #[Test]
+    public function affected_tests_with_no_untracked_files_still_returns_its_normal_determinable_selection(): void
+    {
+        // Regression guard: a diff with no untracked relevant files must be unaffected by the new
+        // undetermined path — the pre-existing determinable-empty-diff contract still holds.
+        Process::fake([
+            '*merge-base*' => Process::result("abc123\n"),
+            '*diff*' => Process::result(''),
+            '*status*' => Process::result("?? README.notes\n"),
+        ]);
+
+        $this->withoutMockingConsoleOutput();
+        $exitCode = Artisan::call('richter:affected-tests', ['--base' => 'some-base', '--json' => true]);
+        $decoded = json_decode(Artisan::output(), associative: true);
+
+        $this->assertSame(0, $exitCode);
+        $this->assertIsArray($decoded);
+        $this->assertTrue($decoded['determinable']);
+        $this->assertSame([], $decoded['tests']);
+    }
+
+    #[Test]
+    public function detect_changes_json_still_warns_and_continues_with_an_untracked_file_present(): void
+    {
+        // Regression guard: detect-changes is advisory and must keep its warn-and-continue
+        // behaviour unchanged — only affected-tests forces undetermined on an untracked file.
+        $diff = "diff --git a/app/Models/User.php b/app/Models/User.php\n--- a/app/Models/User.php\n+++ b/app/Models/User.php\n@@ -0,0 +1,1 @@\n+    public function added(): void {}\n";
+
+        Process::fake([
+            '*merge-base*' => Process::result("abc123\n"),
+            '*show*' => Process::result(errorOutput: 'bad object', exitCode: 128),
+            '*diff*' => Process::result($diff),
+            '*status*' => Process::result("?? app/Models/Report.php\n"),
+        ]);
+
+        $this->withoutMockingConsoleOutput();
+        $exitCode = Artisan::call('richter:detect-changes', ['--base' => 'some-base']);
+        $output = Artisan::output();
+
+        $this->assertSame(0, $exitCode);
+        $this->assertStringContainsString('untracked file(s)', $output);
+        $this->assertStringContainsString('app/Models/Report.php', $output);
+        $this->assertStringContainsString('Changed files:', $output);
+        $this->assertStringContainsString('Risk:', $output);
     }
 
     #[Test]

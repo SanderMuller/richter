@@ -52,13 +52,29 @@ final class AffectedTestsCommand extends Command
             return self::FAILURE;
         }
 
-        $this->warnAboutUntrackedFiles();
+        $untracked = ChangedSymbols::untrackedRelevantFiles();
+        $this->warnAboutUntrackedFiles($untracked);
 
         $requestedBase = $this->option('base');
 
         try {
             try {
                 $base = RichterConfig::baseRef($requestedBase);
+
+                if ($untracked !== []) {
+                    // An untracked (never `git add`-ed) file under app/, resources/views/, or a
+                    // frontend root is invisible to every diff form — the one gap this command's
+                    // analysis can never close. The cardinal rule is never under-selecting, so a
+                    // tracked change existing alongside it does not save the selection: narrowing
+                    // to what the diff alone can see would silently drop the untracked surface.
+                    // Fail toward the full suite instead, on whichever surface the mode allows.
+                    return $this->emitUndetermined($json, $plain, $base, [sprintf(
+                        '%d untracked file(s) under app/, resources/views/, or a configured frontend root can\'t be analysed — `git add` them or run the full suite: %s',
+                        count($untracked),
+                        implode(', ', $untracked),
+                    )]);
+                }
+
                 $changed = ChangedSymbols::resolve($base);
             } catch (InvalidArgumentException|RuntimeException $exception) {
                 // A diff that can't be taken means the selection can't be determined — fail toward
@@ -109,11 +125,14 @@ final class AffectedTestsCommand extends Command
      * `git diff` never shows an untracked (never `git add`-ed) file, HEAD-mode or otherwise — the one
      * gap the diff-form fix can't close. Stderr only, so `--json`/`--plain` stdout stays a single
      * parseable document or contract-clean output (a bare `--plain` selection, or nothing at all).
+     * Below this, `handle()` additionally forces the selection itself undetermined — this command's
+     * one-line note is not enough on its own, since a silently narrowed selection is exactly the
+     * under-selection this tool exists to prevent.
+     *
+     * @param  list<string>  $untracked
      */
-    private function warnAboutUntrackedFiles(): void
+    private function warnAboutUntrackedFiles(array $untracked): void
     {
-        $untracked = ChangedSymbols::untrackedRelevantFiles();
-
         if ($untracked === []) {
             return;
         }
