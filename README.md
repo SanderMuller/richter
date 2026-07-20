@@ -297,14 +297,21 @@ Detected references:
   declaration files are never scanned — see `frontend.generated_paths` above.
 - **Endpoint strings**, matched against the app's route templates: plain literals
   (`axios.post('/posts')`) and backtick templates whose interpolations wildcard one segment
-  (`` fetch(`/posts/${id}`) `` matches `/posts/{post}`). A verb-named call pins the HTTP
-  method; anything unrecognisable stays method-agnostic and never narrows the match. Inline
-  `<script>` blocks in changed Blade views get the same literal scan. A `/`-leading literal or
-  template only counts in **call-argument position** — a call's first argument or a later one
-  after a comma — so a constants file, nav-link config, or fixture whose strings happen to match
-  real routes is never mistaken for an endpoint call. Two idioms are a documented, deliberate
-  recall loss: a URL assigned to a variable and used later (`const URL = '/x'; fetch(URL)`), and
-  an options object's `url` property (`axios({ url: '/x' })`).
+  (`` fetch(`/posts/${id}`) `` matches `/posts/{post}`). A `/`-leading literal or template only
+  counts as the **first argument of an allowlisted HTTP/route callee** — `route`, `fetch`,
+  `axios`, `useFetch`, `$http`, `$` (jQuery), `window`, `page`/`cy` (Playwright/Cypress
+  navigation) by default, plus `frontend.http_callees` — matched on the callee's leading
+  identifier before a `.method` (`axios.get(...)`, `$http.post(...)`, `window.fetch(...)`,
+  `page.goto(...)`). A verb-named call pins the HTTP method, whether the verb is the callee
+  itself (`post('/x')`) or its `.method` segment (`axios.post('/x')`); anything unrecognisable
+  stays method-agnostic and never narrows the match. Inline `<script>` blocks in changed Blade
+  views get the same literal scan. Gating on the callee means a constants file, nav-link config,
+  i18n helper (`translate('/preferences')`), or any other non-HTTP call is never mistaken for an
+  endpoint call — and a project-custom HTTP wrapper needs registering via `frontend.http_callees`
+  before its literals seed. A few idioms are a documented, deliberate recall loss: a URL assigned
+  to a variable and used later (`const URL = '/x'; fetch(URL)`), an options object's `url`
+  property (`axios({ url: '/x' })`), and the `request(method, url)` second-argument idiom (the
+  URI's callee can no longer be identified once it isn't the call's first argument).
 
 Frontend spec files (`*.test.*`, `*.spec.*`, `*.cy.*` under the roots, or `frontend.test_paths`)
 referencing a touched route surface in `richter:affected-tests` as an advisory `frontendTests`
@@ -393,6 +400,7 @@ Point Claude Code, Cursor, or any MCP client at the Artisan entry point, e.g. in
 | `frontend.generated_paths` | `actions`, `routes`, `wayfinder`, `ziggy.js` | Wayfinder's generated trees and Ziggy's generated route map under each frontend root — excluded from scanning as regeneration churn. Each entry matches a directory, an exact file, or a `*`-glob (crosses `/`). `.d.ts` files are always excluded, regardless of this list. |
 | `frontend.pages_path` | `resources/js/Pages` | Where Inertia page components live — a changed member rendering a page is noted under Findings with the resolved file. |
 | `frontend.test_paths` | `[]` (the frontend roots) | Directories scanned for frontend spec files whose endpoint references feed `richter:affected-tests`' advisory `frontendTests` list. |
+| `frontend.http_callees` | `[]` | Extra JS/TS callees, beyond the built-in `route`/`fetch`/`axios`/`useFetch`/`$http`/`$`/`window`/`page`/`cy`, whose call-argument string literals count as backend endpoints. Matched on the callee's leading identifier, e.g. `myHttpClient` for `myHttpClient.post(...)`. |
 | `cache.enabled` | `true` | On-disk graph cache, keyed by a content fingerprint of the build inputs (see [Graph cache](#graph-cache)). |
 | `cache.directory` | `null` | Cache location; `null` means `storage/framework/cache/richter`. |
 | `benchmark_cases` | `[]` | Replayable accuracy fixtures for `richter:benchmark`. |
