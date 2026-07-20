@@ -30,6 +30,12 @@ final class RichterConfig
         return self::stringList('richter.dispatch_helpers') ?? [];
     }
 
+    /** @return list<string> `FQCN::method` wrapper allowlist for {@see \SanderMuller\Richter\Tracers\FeatureGateChecker} */
+    public static function featureGateMethods(): array
+    {
+        return self::stringList('richter.feature_gate_methods') ?? [];
+    }
+
     /** @return list<string>|null null when not configured — callers fall back to their own default */
     public static function entryPointRoots(): ?array
     {

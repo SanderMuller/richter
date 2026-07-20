@@ -13,6 +13,13 @@ return [
     'dispatch_helpers' => [],
 
     /*
+     * Project wrappers around Pennant, as `Enum\Class::method`, e.g.
+     * `App\Enums\FeatureToggle::isActive`. A `EnumCase->method()` call then annotates the
+     * change as flag-gated, alongside the built-in `Feature` facade / `@feature` support.
+     */
+    'feature_gate_methods' => [],
+
+    /*
      * Directories under app/ whose classes are entry points Laravel Brain's route-anchored
      * graph misses. Missing directories are skipped, so unused defaults are harmless.
      * Affects graph tracing only — the risk-floor namespace heuristics (Jobs, Listeners, …)

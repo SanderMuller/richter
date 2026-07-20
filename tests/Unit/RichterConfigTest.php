@@ -55,6 +55,33 @@ final class RichterConfigTest extends TestCase
     }
 
     #[Test]
+    public function feature_gate_methods_default_to_an_empty_list(): void
+    {
+        config()->offsetUnset('richter.feature_gate_methods');
+
+        $this->assertSame([], RichterConfig::featureGateMethods());
+    }
+
+    #[Test]
+    public function configured_feature_gate_methods_are_returned_as_a_list(): void
+    {
+        config()->set('richter.feature_gate_methods', ['App\\Enums\\FeatureToggle::isActive']);
+
+        $this->assertSame(['App\\Enums\\FeatureToggle::isActive'], RichterConfig::featureGateMethods());
+    }
+
+    #[Test]
+    public function a_non_string_feature_gate_method_entry_throws(): void
+    {
+        config()->set('richter.feature_gate_methods', ['App\\Enums\\FeatureToggle::isActive', 42]);
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('richter.feature_gate_methods');
+
+        RichterConfig::featureGateMethods();
+    }
+
+    #[Test]
     public function a_non_array_entry_point_roots_value_throws(): void
     {
         config()->set('richter.entry_point_roots', 'Jobs');
