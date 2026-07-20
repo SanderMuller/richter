@@ -59,15 +59,15 @@ Full/uncapped. No-match: `{ "target": "...", "callers": [], "dependencies": [] }
 ```json
 {
   "base": "origin/main",
-  "changed": { "app/Jobs/ProcessVideoJob.php": 3 },
-  "coverage": { "app/Jobs/ProcessVideoJob.php": "analyzed" },
-  "entryPoints": ["command::video:process", "App\\Listeners\\SendVideoNotification"],
+  "changed": { "app/Jobs/ProcessPostJob.php": 3 },
+  "coverage": { "app/Jobs/ProcessPostJob.php": "analyzed" },
+  "entryPoints": ["command::post:process", "App\\Listeners\\SendPostNotification"],
   "impacted": 12,
-  "relatedModels": ["App\\Models\\Video"],
+  "relatedModels": ["App\\Models\\Post"],
   "risk": "medium",
   "lowConfidence": false,
   "coarseCapApplied": false,
-  "findings": ["app/Jobs/ProcessVideoJob.php: ..."],
+  "findings": ["app/Jobs/ProcessPostJob.php: ..."],
   "unresolved": false,
   "gate": { "failOn": "high", "failOnUnresolved": true, "tripped": false, "reasons": [] }
 }

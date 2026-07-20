@@ -67,22 +67,22 @@ php artisan vendor:publish --tag=richter-config
 ### Blast radius of a symbol
 
 ```bash
-php artisan richter:impact "App\Services\VideoPublisher"
-php artisan richter:impact VideoPublisher                     # substrings work too
-php artisan richter:impact "App\Services\VideoPublisher" --json       # machine-readable, for scripting
-php artisan richter:impact "App\Services\VideoPublisher" --markdown   # PR-ready markdown
+php artisan richter:impact "App\Services\PostPublisher"
+php artisan richter:impact PostPublisher                     # substrings work too
+php artisan richter:impact "App\Services\PostPublisher" --json       # machine-readable, for scripting
+php artisan richter:impact "App\Services\PostPublisher" --markdown   # PR-ready markdown
 ```
 
 Prints the symbol's callers (what breaks if you change it) and its dependencies (what it reaches), breadth-first. Each hop shows its depth (`d1`, `d2`, …) and the edge it was reached through, so a caller chain reads back to the entry point one hop at a time:
 
 ```text
-Callers (what breaks if you change "App\Services\VideoPublisher"):
-  d1  App\Http\Controllers\VideoController::publish  (via action-to-service)  — app/Http/Controllers/VideoController.php
-  d2  App\Http\Controllers\VideoController  (via controller-to-action)  — app/Http/Controllers/VideoController.php
-  d3  route::POST::/videos/{video}/publish  (via route-to-controller)  — routes/web.php:24
+Callers (what breaks if you change "App\Services\PostPublisher"):
+  d1  App\Http\Controllers\PostController::publish  (via action-to-service)  — app/Http/Controllers/PostController.php
+  d2  App\Http\Controllers\PostController  (via controller-to-action)  — app/Http/Controllers/PostController.php
+  d3  route::POST::/posts/{post}/publish  (via route-to-controller)  — routes/web.php:24
 
-Dependencies (what "App\Services\VideoPublisher" reaches):
-  d1  App\Events\VideoPublished  (via action-to-event)  — app/Events/VideoPublished.php
+Dependencies (what "App\Services\PostPublisher" reaches):
+  d1  App\Events\PostPublished  (via action-to-event)  — app/Events/PostPublished.php
 ```
 
 Every hop carries its defining file (and line, when known), project-relative — no grepping to find what a report names.
@@ -102,35 +102,35 @@ php artisan richter:detect-changes --markdown             # PR-ready markdown, f
 Resolves which class members the branch changed (member-level, not file-level: a one-method change seeds that method, not the whole class), walks the graph, and reports:
 
 - the entry points the change can reach — routes, commands, jobs, listeners, middleware, and Livewire/Filament component classes (a Blade-mounted component or Filament resource/page/widget is a user-facing surface even without a `route::` node) — each tagged `[test-referenced]` or `[⚠ no test references this]`;
-- findings in the changed source itself, such as an eager-load or relation string that names no relation on any model. A missing comma between two relation constants is the classic case: `Video::OWNER . User::PROFILE` concatenates to `ownerprofile`, a name Eloquent silently never resolves;
+- findings in the changed source itself, such as an eager-load or relation string that names no relation on any model. A missing comma between two relation constants is the classic case: `Post::OWNER . User::PROFILE` concatenates to `ownerprofile`, a name Eloquent silently never resolves;
 - a coarse risk level (`low` / `medium` / `high`);
 - honest degradation: a change that cannot be placed in the graph reads **UNRESOLVED**, never as a falsely reassuring "no impact", and an unfollowable dispatch makes a queue job read "unknown", not "none".
 
 ```text
 Changed files:
-  app/Models/Video.php (4 graph nodes)
-  app/Services/PlaylistImporter.php (0 graph nodes)  (coverage incomplete for this area — UNRESOLVED, not "no impact")
+  app/Models/Post.php (4 graph nodes)
+  app/Services/CategoryImporter.php (0 graph nodes)  (coverage incomplete for this area — UNRESOLVED, not "no impact")
 
 Entry points reached: 2 (some changed files are in an area not yet graphed — see UNRESOLVED above)
-  - command::playlists:sync  (app/Console/Commands/SyncPlaylists.php)  [test-referenced]
-  - route::PATCH::/api/videos/{video}  (routes/api.php:41)  [⚠ no test references this]  [authed]
+  - command::categories:sync  (app/Console/Commands/SyncCategories.php)  [test-referenced]
+  - route::PATCH::/api/posts/{post}  (routes/api.php:41)  [⚠ no test references this]  [authed]
 
 Related models (association reach — context, not risk): 1
-  - App\Models\Playlist
+  - App\Models\Category
 
 Findings (in the changed source itself):
-  ! app/Models/Video.php: eager-load string 'ownerprofile': segment 'ownerprofile' is not a method on any model — check the relation name (a broken constant concatenation reads exactly like this)
+  ! app/Models/Post.php: eager-load string 'ownerprofile': segment 'ownerprofile' is not a method on any model — check the relation name (a broken constant concatenation reads exactly like this)
 
 Impacted nodes: 7
 Risk: MEDIUM (advisory — not a gate)
 ```
 
-With `--explain`, each reached entry point carries the shortest call chain down to the changed code. That is the difference between knowing a change reaches `PATCH /api/videos/{video}` and seeing exactly which controller and service carry it there:
+With `--explain`, each reached entry point carries the shortest call chain down to the changed code. That is the difference between knowing a change reaches `PATCH /api/posts/{post}` and seeing exactly which controller and service carry it there:
 
 ```text
 Entry points reached: 1
-  - route::PATCH::/api/videos/{video}  [⚠ no test references this]
-      ↳ route::PATCH::/api/videos/{video} →(route-to-controller) App\Http\Controllers\VideoController::update →(action-to-service) App\Services\VideoPublisher::publish
+  - route::PATCH::/api/posts/{post}  [⚠ no test references this]
+      ↳ route::PATCH::/api/posts/{post} →(route-to-controller) App\Http\Controllers\PostController::update →(action-to-service) App\Services\PostPublisher::publish
 ```
 
 A self-listed entry class (a changed job or listener that *is* the entry surface rather than being reached from the change) deliberately carries no chain.
@@ -289,15 +289,15 @@ untouched: a frontend edit does not change backend behaviour, and the report say
 Detected references:
 
 - **[Wayfinder](https://github.com/laravel/wayfinder) imports** —
-  `@/actions/App/Http/Controllers/VideoController` resolves through the router's action index
+  `@/actions/App/Http/Controllers/PostController` resolves through the router's action index
   (method-precise; aliased, default, invokable and `import type` forms included), and
-  `@/routes/videos` route imports plus Ziggy `route('name')` calls resolve through the route
+  `@/routes/posts` route imports plus Ziggy `route('name')` calls resolve through the route
   names. Wayfinder's generated trees (`actions/`, `routes/`, `wayfinder/` under each root) and
   Ziggy's generated route map (`ziggy.js`) are excluded as regeneration churn, and `.d.ts`
   declaration files are never scanned — see `frontend.generated_paths` above.
 - **Endpoint strings**, matched against the app's route templates: plain literals
-  (`axios.post('/videos')`) and backtick templates whose interpolations wildcard one segment
-  (`` fetch(`/videos/${id}`) `` matches `/videos/{video}`). A verb-named call pins the HTTP
+  (`axios.post('/posts')`) and backtick templates whose interpolations wildcard one segment
+  (`` fetch(`/posts/${id}`) `` matches `/posts/{post}`). A verb-named call pins the HTTP
   method; anything unrecognisable stays method-agnostic and never narrows the match. Inline
   `<script>` blocks in changed Blade views get the same literal scan. A `/`-leading literal or
   template only counts in **call-argument position** — a call's first argument or a later one
@@ -321,7 +321,7 @@ with exactly one `player` member); anything less certain — `let`, multiple dec
 constants, nested bodies — keeps the fail-safe.
 
 The bridge also runs in reverse, without any configuration: a changed backend member that
-renders an Inertia page (`Inertia::render('Videos/Show')`, the `inertia()` helper) is noted
+renders an Inertia page (`Inertia::render('Posts/Show')`, the `inertia()` helper) is noted
 under Findings with the resolved page file under `frontend.pages_path` — or with an explicit
 "no page file found" when the component doesn't resolve, which usually means a renamed or
 deleted page.
