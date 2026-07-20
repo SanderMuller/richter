@@ -99,6 +99,8 @@ php artisan richter:detect-changes --json                 # machine-readable, fo
 php artisan richter:detect-changes --markdown             # PR-ready markdown, for descriptions and comments
 ```
 
+Against the default `HEAD`, the diff is the working tree compared to the merge-base with `--base` — staged and unstaged edits are included, not just what's committed, so running this before you commit still sees your changes. (Passing an explicit non-`HEAD` ref instead replays that ref's committed tree.) The one gap `git diff` can't close is a brand-new file that was never `git add`-ed: it shows in no diff form, so a stderr-only note flags any such untracked file under `app/`, `resources/views/`, or a configured frontend root — never on stdout, so `--json`/`--markdown` output stays exactly the report.
+
 Resolves which class members the branch changed (member-level, not file-level: a one-method change seeds that method, not the whole class), walks the graph, and reports:
 
 - the entry points the change can reach — routes, commands, jobs, listeners, middleware, and Livewire/Filament component classes (a Blade-mounted component or Filament resource/page/widget is a user-facing surface even without a `route::` node) — each tagged `[test-referenced]` or `[⚠ no test references this]`;
@@ -237,6 +239,10 @@ php artisan richter:affected-tests --base=origin/develop
 php artisan richter:affected-tests --json                 # {base, determinable, reasons, tests, frontendTests, unreferencedEntryPoints}
 php artisan test $(php artisan richter:affected-tests --plain)   # simple form — coarse but safe
 ```
+
+Diffs the same way `detect-changes` does — against `HEAD`, staged and unstaged edits are included,
+so the selection reflects what's actually on disk before a commit exists to diff against; the same
+untracked-file stderr note applies (see above), never on stdout, so `--plain`/`--json` stay clean.
 
 The simple form only ever errs toward running more: both an undetermined selection and a
 determined-but-empty one leave `$(…)` empty, and an argument-less runner executes the full suite.
