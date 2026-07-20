@@ -131,6 +131,42 @@ final class ChangedSymbols
         return $changed;
     }
 
+    /**
+     * Untracked (never `git add`-ed) files under `app/`, the Blade views root, or a configured
+     * frontend root — the one gap `git diff` can never close: a brand-new uncommitted file shows in
+     * no diff form, HEAD-mode or otherwise, so it stays invisible however faithfully `resolve()`
+     * reads the rest of the working tree. Callers surface this as an honest stderr-only warning
+     * (never stdout, so `--json`/`--plain` output contracts stay intact) rather than pretend the
+     * analysis saw everything.
+     *
+     * @return list<string> project-relative paths; empty when `git status` fails or nothing matches
+     */
+    public static function untrackedRelevantFiles(): array
+    {
+        $status = Process::path(base_path())->run(['git', '-c', 'core.quotepath=off', 'status', '--porcelain', '--end-of-options']);
+
+        if (! $status->successful()) {
+            return [];
+        }
+
+        $roots = ['app/', 'resources/views/', ...array_map(
+            static fn (string $root): string => rtrim($root, '/') . '/',
+            RichterConfig::frontendRoots(),
+        )];
+
+        $untrackedLines = array_filter(
+            explode("\n", $status->output()),
+            static fn (string $line): bool => str_starts_with($line, '?? '),
+        );
+
+        $untrackedPaths = array_map(static fn (string $line): string => substr($line, 3), $untrackedLines);
+
+        return array_values(array_filter(
+            $untrackedPaths,
+            static fn (string $file): bool => array_any($roots, static fn (string $root): bool => str_starts_with($file, $root)),
+        ));
+    }
+
     /** @param  array{added: list<array{line: int, text: string}>, removed: list<array{line: int, text: string}>}  $hunk */
     public static function classifyFile(string $file, string $headSrc, ?string $baseSrc, array $hunk, ?EagerLoadStringChecker $eagerLoadChecker = null, ?FeatureGateChecker $featureGateChecker = null, ?InertiaPageChecker $inertiaPageChecker = null): ChangedFileSymbols
     {

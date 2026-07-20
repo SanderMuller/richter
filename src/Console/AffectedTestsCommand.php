@@ -52,6 +52,8 @@ final class AffectedTestsCommand extends Command
             return self::FAILURE;
         }
 
+        $this->warnAboutUntrackedFiles();
+
         $requestedBase = $this->option('base');
 
         try {
@@ -101,6 +103,26 @@ final class AffectedTestsCommand extends Command
 
             throw $throwable;
         }
+    }
+
+    /**
+     * `git diff` never shows an untracked (never `git add`-ed) file, HEAD-mode or otherwise — the one
+     * gap the diff-form fix can't close. Stderr only, so `--json`/`--plain` stdout stays a single
+     * parseable document or contract-clean output (a bare `--plain` selection, or nothing at all).
+     */
+    private function warnAboutUntrackedFiles(): void
+    {
+        $untracked = ChangedSymbols::untrackedRelevantFiles();
+
+        if ($untracked === []) {
+            return;
+        }
+
+        $this->getOutput()->getErrorStyle()->writeln(sprintf(
+            'Note: %d untracked file(s) under app/, resources/views/, or a configured frontend root are invisible to `git diff` and were not analysed: %s',
+            count($untracked),
+            implode(', ', $untracked),
+        ));
     }
 
     /**

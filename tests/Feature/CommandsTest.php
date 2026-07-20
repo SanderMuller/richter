@@ -170,6 +170,36 @@ final class CommandsTest extends TestCase
     }
 
     #[Test]
+    public function detect_changes_json_warns_about_untracked_files_on_stderr_only(): void
+    {
+        // `git diff` never shows an untracked file — HEAD mode or not — so an untracked file under
+        // app/ gets an honest stderr note. --json must still be a single parseable document on stdout.
+        $diff = "diff --git a/app/Models/User.php b/app/Models/User.php\n--- a/app/Models/User.php\n+++ b/app/Models/User.php\n@@ -0,0 +1,1 @@\n+    public function added(): void {}\n";
+
+        Process::fake([
+            '*merge-base*' => Process::result("abc123\n"),
+            '*show*' => Process::result(errorOutput: 'bad object', exitCode: 128),
+            '*status*' => Process::result("?? app/Models/Report.php\n"),
+            '*diff*' => Process::result($diff),
+        ]);
+
+        $this->withoutMockingConsoleOutput();
+        $exitCode = Artisan::call('richter:detect-changes', ['--base' => 'some-base', '--json' => true]);
+        $output = Artisan::output();
+
+        $this->assertSame(0, $exitCode);
+        $this->assertStringContainsString('untracked file(s)', $output);
+        $this->assertStringContainsString('app/Models/Report.php', $output);
+
+        // The warning writes to stderr, --json to stdout; the harness captures both into one buffer
+        // (warning first), so decode the report from the first '{' onward, same as --profile above.
+        $decoded = json_decode(substr($output, (int) strpos($output, '{')), associative: true);
+
+        $this->assertIsArray($decoded);
+        $this->assertArrayHasKey('entryPointPaths', $decoded);
+    }
+
+    #[Test]
     public function detect_changes_accepts_the_explain_flag(): void
     {
         $this->runArtisan('richter:detect-changes', ['--base' => 'HEAD', '--explain' => true])
@@ -324,6 +354,32 @@ final class CommandsTest extends TestCase
         $this->assertSame('HEAD', $decoded['base']);
         $this->assertTrue($decoded['determinable']);
         $this->assertSame([], $decoded['tests']);
+    }
+
+    #[Test]
+    public function affected_tests_plain_stays_clean_with_an_untracked_file_present(): void
+    {
+        // An untracked file gets an honest stderr note; --plain stdout must still carry nothing but
+        // the selection itself (here, none — a determinable empty diff prints no test paths at all).
+        Process::fake([
+            '*merge-base*' => Process::result("abc123\n"),
+            '*diff*' => Process::result(''),
+            '*status*' => Process::result("?? app/Models/Report.php\n"),
+        ]);
+
+        $this->withoutMockingConsoleOutput();
+        $exitCode = Artisan::call('richter:affected-tests', ['--base' => 'some-base', '--plain' => true]);
+        $output = Artisan::output();
+
+        $this->assertSame(0, $exitCode);
+        $this->assertStringContainsString('untracked file(s)', $output);
+        $this->assertStringContainsString('app/Models/Report.php', $output);
+        // Nothing but the stderr warning landed in the combined buffer — an empty, determinable
+        // selection prints no test path, so --plain's own stdout contract stays exactly empty.
+        $this->assertSame(
+            'Note: 1 untracked file(s) under app/, resources/views/, or a configured frontend root are invisible to `git diff` and were not analysed: app/Models/Report.php',
+            trim($output),
+        );
     }
 
     #[Test]

@@ -70,9 +70,31 @@ final class DetectChangesCommand extends Command
         $failOnUnresolved = (bool) $this->option('fail-on-unresolved');
         $gateActive = $failOn instanceof RiskLevel || $failOnUnresolved;
 
+        $this->warnAboutUntrackedFiles();
+
         return $json
             ? $this->handleJson($graphs, $failOn, $failOnUnresolved, $gateActive)
             : $this->handleText($graphs, $failOn, $failOnUnresolved, $gateActive);
+    }
+
+    /**
+     * `git diff` never shows an untracked (never `git add`-ed) file, HEAD-mode or otherwise — the one
+     * gap the diff-form fix can't close. Stderr only, so `--json`/`--plain` stdout stays a single
+     * parseable document or contract-clean output.
+     */
+    private function warnAboutUntrackedFiles(): void
+    {
+        $untracked = ChangedSymbols::untrackedRelevantFiles();
+
+        if ($untracked === []) {
+            return;
+        }
+
+        $this->getOutput()->getErrorStyle()->writeln(sprintf(
+            'Note: %d untracked file(s) under app/, resources/views/, or a configured frontend root are invisible to `git diff` and were not analysed: %s',
+            count($untracked),
+            implode(', ', $untracked),
+        ));
     }
 
     private function handleText(GraphCache $graphs, ?RiskLevel $failOn, bool $failOnUnresolved, bool $gateActive): int
