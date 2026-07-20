@@ -340,19 +340,33 @@ final class FrontendReferenceScannerTest extends TestCase
     }
 
     #[Test]
-    public function a_verb_named_call_pins_the_http_method_and_wrappers_stay_unpinned(): void
+    public function a_verb_named_call_pins_the_http_method_regardless_of_the_verbs_case(): void
     {
+        // The verb may sit on the callee's `.method` segment (`axios.post`) or on the callee
+        // itself (a bare, allowlisted verb name) — either way, case never blocks the pin.
         $result = $this->scanner()->scan(<<<'TS'
             axios.post('/posts');
-            api.PUT("/posts/9");
-            load('/posts/7');
+            $http.PUT("/posts/9");
             TS);
 
         $this->assertSame([
             ['uri' => '/posts', 'method' => 'post'],
             ['uri' => '/posts/9', 'method' => 'put'],
-            ['uri' => '/posts/7', 'method' => null],
         ], $result['uris']);
+    }
+
+    #[Test]
+    public function a_non_allowlisted_wrapper_callee_is_not_a_candidate_until_registered(): void
+    {
+        // plan 038: candidacy now gates on the callee, not just call-argument position — a
+        // generic HTTP wrapper (`api.PUT`, bare `load`) that used to seed unpinned no longer
+        // does, until the project registers it via `richter.frontend.http_callees`.
+        $result = $this->scanner()->scan(<<<'TS'
+            api.PUT('/posts/9');
+            load('/posts/7');
+            TS);
+
+        $this->assertSame([], $result['uris']);
     }
 
     #[Test]
@@ -371,13 +385,13 @@ final class FrontendReferenceScannerTest extends TestCase
     }
 
     #[Test]
-    public function a_literal_in_second_argument_position_is_still_a_candidate(): void
+    public function the_request_method_url_second_argument_idiom_is_a_documented_recall_loss(): void
     {
-        // The `request(method, url)` wrapper idiom: the URI sits in the second argument, anchored
-        // by the preceding comma rather than an opening paren.
-        $result = $this->scanner()->scan("request('GET', '/posts');");
-
-        $this->assertSame([['uri' => '/posts', 'method' => null]], $result['uris']);
+        // Callee gating means candidacy can only be checked at the callee immediately before
+        // `(` — a literal in a later argument position (the `request(method, url)` idiom) can no
+        // longer be tied to that callee via a bare `,` anchor, so it is dropped rather than
+        // risking the same anchor matching an unrelated, non-allowlisted call's argument.
+        $this->assertSame([], $this->scanner()->scan("request('GET', '/posts');")['uris']);
     }
 
     #[Test]
@@ -442,12 +456,94 @@ final class FrontendReferenceScannerTest extends TestCase
     #[Test]
     public function duplicate_uri_literals_deduplicate_per_method(): void
     {
-        $result = $this->scanner()->scan("fetch('/posts'); request('/posts'); post('/posts');");
+        $result = $this->scanner()->scan("fetch('/posts'); window.fetch('/posts'); axios.post('/posts');");
 
-        // The two unpinned references collapse; the verb-pinned one is a distinct reference.
+        // The two unpinned references (bare and via `window`) collapse; the verb-pinned one is a
+        // distinct reference.
         $this->assertSame([
             ['uri' => '/posts', 'method' => null],
             ['uri' => '/posts', 'method' => 'post'],
         ], $result['uris']);
+    }
+
+    #[Test]
+    public function non_http_callees_yield_no_uri_candidates(): void
+    {
+        // The three false-positive shapes a consumer reported: an i18n helper, a project-custom
+        // helper wrapping an unrelated concern, and a logging call — none of these are HTTP/route
+        // callees, so none should seed a route.
+        $result = $this->scanner()->scan(<<<'TS'
+            translate('/preferences');
+            someHelper('/api/v2/reports', 'other');
+            console.log('/{post} opened');
+            TS);
+
+        $this->assertSame([], $result['uris']);
+    }
+
+    #[Test]
+    public function real_http_and_route_callees_still_seed_with_the_method_pinned_where_derivable(): void
+    {
+        $result = $this->scanner()->scan(<<<'TS'
+            fetch('/posts');
+            axios.get('/api/reports');
+            route('posts.show', { post });
+            useFetch(`/posts/${id}`);
+            TS);
+
+        $this->assertSame([
+            ['uri' => '/posts', 'method' => null],
+            ['uri' => '/api/reports', 'method' => 'get'],
+            ['uri' => '/posts/*', 'method' => null],
+        ], $result['uris']);
+        // `route('posts.show', ...)` is the pre-existing, callee-specific Ziggy branch (out of
+        // scope for this gate) — its argument is a route name, not root-relative, so it never
+        // reaches uriCandidates() at all.
+        $this->assertSame(['posts.show'], $result['routeNames']);
+    }
+
+    #[Test]
+    public function playwright_and_cypress_navigation_callees_seed_by_default(): void
+    {
+        // FrontendTestIndex advertises Playwright/Cypress spec support, and `page.goto(...)` /
+        // `cy.visit(...)` are how those specs reference routes — both are built-in, not
+        // project-custom, so they seed without any `http_callees` configuration.
+        $result = $this->scanner()->scan(<<<'TS'
+            await page.goto('/posts/7');
+            cy.visit('/posts');
+            TS);
+
+        $this->assertSame([
+            ['uri' => '/posts/7', 'method' => null],
+            ['uri' => '/posts', 'method' => null],
+        ], $result['uris']);
+    }
+
+    #[Test]
+    public function a_configured_http_callee_extends_the_allowlist(): void
+    {
+        $scanner = new FrontendReferenceScanner(['myHttpClient']);
+
+        $this->assertSame(
+            [['uri' => '/posts', 'method' => 'post']],
+            $scanner->scan("myHttpClient.post('/posts');")['uris'],
+        );
+
+        // The same call is not a candidate without the configured extension.
+        $this->assertSame([], $this->scanner()->scan("myHttpClient.post('/posts');")['uris']);
+    }
+
+    #[Test]
+    public function object_literal_and_non_call_position_strings_stay_excluded_under_gating(): void
+    {
+        // plan 019/031 behaviour holds: assignments, object-property values and array heads are
+        // data/navigation, not endpoint calls, regardless of callee gating.
+        $result = $this->scanner()->scan(<<<'TS'
+            const API = '/posts';
+            const NAV = [{ href: '/posts' }];
+            export default { uri: "/posts/9" };
+            TS);
+
+        $this->assertSame([], $result['uris']);
     }
 }

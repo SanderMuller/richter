@@ -33,7 +33,7 @@ final class FrontendChanges
 
     public function __construct()
     {
-        $this->scanner = new FrontendReferenceScanner();
+        $this->scanner = new FrontendReferenceScanner(RichterConfig::frontendHttpCallees());
     }
 
     /** Whether the file is a scannable frontend source: bridge on, under a configured root, a frontend extension, not a `.d.ts` declaration file, and not generated regeneration churn (a directory, exact file, or `*`-glob). */

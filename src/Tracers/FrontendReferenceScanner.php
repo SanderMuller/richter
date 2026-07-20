@@ -15,7 +15,7 @@ namespace SanderMuller\Richter\Tracers;
  * attempt flips the flag. Resolution never guesses: exactly-one-declaration discipline, flat
  * bodies only, `const` only — never `let`/`var`.
  */
-final class FrontendReferenceScanner
+final readonly class FrontendReferenceScanner
 {
     /**
      * What a template-literal interpolation collapses to before route-template matching: a
@@ -23,6 +23,30 @@ final class FrontendReferenceScanner
      * templates themselves make.
      */
     public const string INTERPOLATION = '*';
+
+    /**
+     * Built-in HTTP/route callees a call-argument literal is trusted under: bare `route`,
+     * `fetch`, `useFetch`; `axios`, `$http`, `window` via their leading identifier before a
+     * `.method` (so `axios.get(...)`, `$http.post(...)`, `window.fetch(...)` all match); `$` for
+     * jQuery (`$.ajax`/`$.get`/`$.post`/`$.getJSON`); `page` and `cy` for Playwright/Cypress e2e
+     * navigation (`page.goto(...)`, `cy.visit(...)`) — {@see FrontendTestIndex} advertises spec
+     * support for both, and their URI argument is exactly the reference that class indexes. Kept
+     * to genuine HTTP/route/navigation entry idioms — a project-specific wrapper belongs in
+     * {@see RichterConfig::frontendHttpCallees()}, not here.
+     */
+    private const array DEFAULT_HTTP_CALLEES = ['route', 'fetch', 'axios', 'useFetch', '$http', '$', 'window', 'page', 'cy'];
+
+    /** HTTP verbs that pin a URI candidate's method, whether they appear as the callee itself (`post(...)`) or as its `.method` segment (`axios.post(...)`). */
+    private const array HTTP_VERBS = ['get', 'post', 'put', 'patch', 'delete'];
+
+    /** @var list<string> */
+    private array $httpCallees;
+
+    /** @param  list<string>  $httpCallees  project-custom callees, beyond the built-in defaults, whose call-argument string literals count as backend endpoints ({@see RichterConfig::frontendHttpCallees()}) */
+    public function __construct(array $httpCallees = [])
+    {
+        $this->httpCallees = [...self::DEFAULT_HTTP_CALLEES, ...$httpCallees];
+    }
 
     /**
      * @return array{actions: list<array{class: string, method: string|null}>, routeNames: list<string>, uris: list<array{uri: string, method: string|null}>, unresolved: bool}
@@ -167,50 +191,72 @@ final class FrontendReferenceScanner
      * literals (`axios.get('/api/posts')`) and backtick templates (`fetch(`/posts/${id}`)` —
      * THE parameterised idiom in apps without Ziggy or Wayfinder, each `${…}` collapsing to a
      * one-segment wildcard token); the query/fragment is not part of the route template, and a
-     * template left containing whitespace is an HTML string, not a URL. A literal only becomes a
-     * candidate in call-argument position — directly inside a call's `(` or after a `,` — so a
-     * verb-named call directly around the literal (`.post('/x'`, `put('/x'`) pins the HTTP
-     * method; any other shape — `fetch()` options, wrappers — stays null so uncertainty never
+     * template left containing whitespace is an HTML string, not a URL.
+     *
+     * A literal only becomes a candidate as the **first argument of an allowlisted HTTP/route
+     * callee** ({@see self::DEFAULT_HTTP_CALLEES} ∪ {@see RichterConfig::frontendHttpCallees()}),
+     * matched on the callee's leading identifier before the first `.` — `axios` covers
+     * `axios.get(...)`, `$http` covers `$http.post(...)`, `$` covers `$.get(...)`, `window` covers
+     * `window.fetch(...)`; `route`, `fetch`, `useFetch`, `page`, `cy` match bare. The HTTP method
+     * is pinned when the verb appears either as the callee itself (`post('/x')`) or its `.method`
+     * segment (`axios.post('/x')` → POST); any other shape stays `null` so uncertainty never
      * narrows.
      *
-     * Unanchored matching had a real cost — a data/constants/nav-link file or generated route
-     * map whose strings happen to match real route templates flooded seeds and, through
-     * `richter:affected-tests`, false-selected unrelated backend tests. The call-argument anchor
-     * trades two documented recall losses for eliminating that surface: a `/`-leading literal
-     * assigned to a variable and fetched later (`const URL = '/x'; fetch(URL)`), and a
-     * `{url: '/x'}` options-object property (indistinguishable from any other property value at
-     * the regex level). One residual false-positive surface remains, accepted: an array tail —
-     * `['/a', '/b']` — still matches its comma-anchored elements, because dropping `,` from the
-     * anchor would also lose the real `request(method, url)` second-argument idiom.
+     * This is a precision/recall trade, the same one `richter.dispatch_helpers` makes for custom
+     * dispatchers: a URI passed to a non-allowlisted wrapper (`myHttpClient.post('/x')`) is no
+     * longer seeded until the project registers it via `richter.frontend.http_callees`. Two
+     * further idioms are lost with the pre-callee-gating "any call-argument position" anchor,
+     * both undetectable without knowing which call a literal belongs to: the `request(method,
+     * url)` second-argument idiom, and an array tail (`['/a', '/b']`) — both relied on a bare `,`
+     * anchor that could not distinguish an allowlisted call from any other. An options object's
+     * `url` property (`axios({ url: '/x' })`) and a URL assigned to a variable and fetched later
+     * (`const URL = '/x'; fetch(URL)`) remain the pre-existing, still-documented recall losses.
      *
      * @return array<string, array{uri: string, method: string|null}>
      */
     private function uriCandidates(string $source): array
     {
         $uris = [];
+        $calleePattern = '[A-Za-z_$][\w$]*';
 
-        preg_match_all('/(?:\b(get|post|put|patch|delete)\s*\(|[(,])\s*[\'"](\/[^\'"\s?#]*)[?#]?[^\'"]*[\'"]/i', $source, $literals, PREG_SET_ORDER);
+        preg_match_all("/({$calleePattern})(?:\.({$calleePattern}))?\s*\(\s*['\"](\/[^'\"\s?#]*)[?#]?[^'\"]*['\"]/", $source, $literals, PREG_SET_ORDER);
 
         foreach ($literals as $literal) {
-            $method = $literal[1] === '' ? null : strtolower($literal[1]);
-            $uris[$literal[2] . '|' . ($method ?? '')] = ['uri' => $literal[2], 'method' => $method];
+            if (! in_array($literal[1], $this->httpCallees, true)) {
+                continue;
+            }
+
+            $method = $this->pinnedMethod($literal[2] !== '' ? $literal[2] : $literal[1]);
+            $uris[$literal[3] . '|' . ($method ?? '')] = ['uri' => $literal[3], 'method' => $method];
         }
 
-        preg_match_all('/(?:\b(get|post|put|patch|delete)\s*\(|[(,])\s*`(\/[^`]*)`/i', $source, $templates, PREG_SET_ORDER);
+        preg_match_all("/({$calleePattern})(?:\.({$calleePattern}))?\s*\(\s*`(\/[^`]*)`/", $source, $templates, PREG_SET_ORDER);
 
         foreach ($templates as $template) {
-            $uri = (string) preg_replace('/\$\{[^}]*\}/', self::INTERPOLATION, $template[2]);
+            if (! in_array($template[1], $this->httpCallees, true)) {
+                continue;
+            }
+
+            $uri = (string) preg_replace('/\$\{[^}]*\}/', self::INTERPOLATION, $template[3]);
             $uri = (string) preg_replace('/[?#].*/s', '', $uri);
 
             if (preg_match('/\s/', $uri) === 1) {
                 continue;
             }
 
-            $method = $template[1] === '' ? null : strtolower($template[1]);
+            $method = $this->pinnedMethod($template[2] !== '' ? $template[2] : $template[1]);
             $uris[$uri . '|' . ($method ?? '')] = ['uri' => $uri, 'method' => $method];
         }
 
         return $uris;
+    }
+
+    /** The verb a callee or its `.method` segment names, case-insensitively — null when it names none. */
+    private function pinnedMethod(string $verbCandidate): ?string
+    {
+        $lower = strtolower($verbCandidate);
+
+        return in_array($lower, self::HTTP_VERBS, true) ? $lower : null;
     }
 
     /**

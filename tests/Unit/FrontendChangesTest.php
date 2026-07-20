@@ -159,7 +159,10 @@ final class FrontendChangesTest extends TestCase
     #[Test]
     public function an_unpinned_literal_on_a_shared_path_seeds_every_method(): void
     {
-        $symbols = $this->frontend()->resolve('resources/js/lib/api.ts', "load('/posts');", null);
+        // `fetch(...)` itself names no HTTP verb, so the method stays unpinned (plan 038: the
+        // callee must be allowlisted — a bare, non-verb wrapper like the former `load(...)`
+        // fixture no longer qualifies without being registered via `http_callees`).
+        $symbols = $this->frontend()->resolve('resources/js/lib/api.ts', "fetch('/posts');", null);
 
         $this->assertSame(['route::POST::/posts', 'route::GET::/posts'], $symbols->directSeeds);
     }
