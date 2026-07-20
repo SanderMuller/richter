@@ -214,7 +214,7 @@ final class FeatureGateCheckerTest extends TestCase
     #[Test]
     public function a_blade_view_without_directives_yields_nothing(): void
     {
-        $this->assertSame([], $this->checker()->bladeFindingsFor('<div>{{ $video->title }}</div>'));
+        $this->assertSame([], $this->checker()->bladeFindingsFor('<div>{{ $post->title }}</div>'));
     }
 
     #[Test]

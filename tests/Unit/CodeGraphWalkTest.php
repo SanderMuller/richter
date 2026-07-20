@@ -194,45 +194,45 @@ final class CodeGraphWalkTest extends TestCase
     public function nodes_containing_matches_only_at_identifier_boundaries(): void
     {
         $graph = new CodeGraph([
-            ['source' => 'model::App\Models\Video', 'target' => 'App\Models\VideoContainer', 'type' => 'model-relationship'],
-            ['source' => 'App\Models\SuperVideo', 'target' => 'App\Models\VideoContainer', 'type' => 'model-relationship'],
+            ['source' => 'model::App\Models\Post', 'target' => 'App\Models\PostContainer', 'type' => 'model-relationship'],
+            ['source' => 'App\Models\SuperPost', 'target' => 'App\Models\PostContainer', 'type' => 'model-relationship'],
         ]);
 
-        // "Video" must match only the exact identifier, not as a prefix or suffix of a sibling name.
-        $this->assertSame(['model::App\Models\Video'], $graph->nodesContaining('Video'));
+        // "Post" must match only the exact identifier, not as a prefix or suffix of a sibling name.
+        $this->assertSame(['model::App\Models\Post'], $graph->nodesContaining('Post'));
 
         // A fully-qualified needle behaves the same way.
-        $this->assertSame(['model::App\Models\Video'], $graph->nodesContaining('App\Models\Video'));
+        $this->assertSame(['model::App\Models\Post'], $graph->nodesContaining('App\Models\Post'));
     }
 
     #[Test]
     public function nodes_containing_is_case_insensitive(): void
     {
         $graph = new CodeGraph([
-            ['source' => 'model::App\Models\Video', 'target' => 'App\Models\VideoContainer', 'type' => 'model-relationship'],
+            ['source' => 'model::App\Models\Post', 'target' => 'App\Models\PostContainer', 'type' => 'model-relationship'],
         ]);
 
-        $this->assertSame(['model::App\Models\Video'], $graph->nodesContaining('video'));
+        $this->assertSame(['model::App\Models\Post'], $graph->nodesContaining('post'));
     }
 
     #[Test]
     public function nodes_containing_matches_member_needles_on_either_side_of_the_double_colon(): void
     {
         $graph = new CodeGraph([
-            ['source' => 'App\Models\Video::query', 'target' => 'App\Services\S::run', 'type' => 'action-to-service'],
+            ['source' => 'App\Models\Post::query', 'target' => 'App\Services\S::run', 'type' => 'action-to-service'],
         ]);
 
         // The full member needle matches, and so does the bare method name — the "::" left of it
         // is itself a boundary character.
-        $this->assertSame(['App\Models\Video::query'], $graph->nodesContaining('Video::query'));
-        $this->assertSame(['App\Models\Video::query'], $graph->nodesContaining('query'));
+        $this->assertSame(['App\Models\Post::query'], $graph->nodesContaining('Post::query'));
+        $this->assertSame(['App\Models\Post::query'], $graph->nodesContaining('query'));
     }
 
     #[Test]
     public function nodes_containing_returns_nothing_for_an_empty_needle(): void
     {
         $graph = new CodeGraph([
-            ['source' => 'App\Models\Video::query', 'target' => 'App\Services\S::run', 'type' => 'action-to-service'],
+            ['source' => 'App\Models\Post::query', 'target' => 'App\Services\S::run', 'type' => 'action-to-service'],
         ]);
 
         $this->assertSame([], $graph->nodesContaining(''));
@@ -247,7 +247,7 @@ final class CodeGraphWalkTest extends TestCase
         // current, tokenizer-free behavior; a needle that yields no tokens must keep falling back
         // to the full regex scan.
         $graph = new CodeGraph([
-            ['source' => 'App\Models\Video::query', 'target' => 'App\Services\S::run', 'type' => 'action-to-service'],
+            ['source' => 'App\Models\Post::query', 'target' => 'App\Services\S::run', 'type' => 'action-to-service'],
             ['source' => 'route::GET::/r', 'target' => 'App\Http\Controllers\C::index', 'type' => 'route-to-controller'],
         ]);
 

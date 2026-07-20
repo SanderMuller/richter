@@ -2,8 +2,8 @@
 
 namespace SanderMuller\Richter\Tests\Unit;
 
-use App\Http\Controllers\Video\DashboardSearchController;
-use App\Policies\VideoPolicy;
+use App\Http\Controllers\Post\DashboardSearchController;
+use App\Policies\PostPolicy;
 use PHPUnit\Framework\Attributes\Test;
 use SanderMuller\Richter\Graph\BladeViews;
 use SanderMuller\Richter\Tests\TestCase;
@@ -29,7 +29,7 @@ final class PolicyEdgeTracerTest extends TestCase
      */
     private function edges(string $body, string $uses): array
     {
-        $source = "<?php\nnamespace App\Http\Controllers\Video;\n{$uses}\nclass DashboardSearchController\n{\n    public function __invoke(): void\n    {\n        {$body}\n    }\n}\n";
+        $source = "<?php\nnamespace App\Http\Controllers\Post;\n{$uses}\nclass DashboardSearchController\n{\n    public function __invoke(): void\n    {\n        {$body}\n    }\n}\n";
 
         return new PolicyEdgeTracer()->edgesForSource($source, self::CONTROLLER);
     }
@@ -37,50 +37,50 @@ final class PolicyEdgeTracerTest extends TestCase
     #[Test]
     public function it_links_a_user_can_policy_check_to_the_policy(): void
     {
-        $edges = $this->edges('$user->can(VideoPolicy::UPDATE, $video);', 'use App\Policies\VideoPolicy;');
+        $edges = $this->edges('$user->can(PostPolicy::UPDATE, $post);', 'use App\Policies\PostPolicy;');
 
-        $this->assertContains(['source' => self::CONTROLLER . '::__invoke', 'target' => VideoPolicy::class, 'type' => 'authorizes'], $edges);
+        $this->assertContains(['source' => self::CONTROLLER . '::__invoke', 'target' => PostPolicy::class, 'type' => 'authorizes'], $edges);
     }
 
     #[Test]
     public function it_links_a_fully_qualified_policy_reference_without_an_import(): void
     {
-        $edges = $this->edges('\App\Policies\VideoPolicy::UPDATE;', '');
+        $edges = $this->edges('\App\Policies\PostPolicy::UPDATE;', '');
 
-        $this->assertContains(['source' => self::CONTROLLER . '::__invoke', 'target' => VideoPolicy::class, 'type' => 'authorizes'], $edges);
+        $this->assertContains(['source' => self::CONTROLLER . '::__invoke', 'target' => PostPolicy::class, 'type' => 'authorizes'], $edges);
     }
 
     #[Test]
     public function it_emits_no_edge_when_no_policy_is_referenced(): void
     {
-        $this->assertSame([], $this->edges('$user->cannot("update", $video);', ''));
+        $this->assertSame([], $this->edges('$user->cannot("update", $post);', ''));
     }
 
     #[Test]
     public function it_finds_fully_qualified_policy_references_in_blade(): void
     {
-        $content = "@can(App\Policies\VideoPolicy::VIEW_STATS, \$video) x @endcan \$c = \\App\Policies\OtherPolicy::FOO;";
+        $content = "@can(App\Policies\PostPolicy::VIEW_STATS, \$post) x @endcan \$c = \\App\Policies\OtherPolicy::FOO;";
 
         $policies = new PolicyEdgeTracer()->policiesReferencedInBlade($content);
 
-        $this->assertContains(VideoPolicy::class, $policies);
+        $this->assertContains(PostPolicy::class, $policies);
         $this->assertContains('App\Policies\OtherPolicy', $policies);
     }
 
     #[Test]
     public function it_finds_no_policy_in_blade_using_only_string_abilities(): void
     {
-        $this->assertSame([], new PolicyEdgeTracer()->policiesReferencedInBlade('@can(\'update\', $video) x @endcan'));
+        $this->assertSame([], new PolicyEdgeTracer()->policiesReferencedInBlade('@can(\'update\', $post) x @endcan'));
     }
 
     #[Test]
     public function it_does_not_emit_a_self_edge_from_a_policy_to_itself_but_keeps_edges_to_other_policies(): void
     {
-        $source = "<?php\nnamespace App\Policies;\nclass VideoPolicy\n{\n    public function update(): void\n    {\n        \\App\Policies\VideoPolicy::UPDATE;\n        \\App\Policies\OtherPolicy::VIEW;\n    }\n}\n";
+        $source = "<?php\nnamespace App\Policies;\nclass PostPolicy\n{\n    public function update(): void\n    {\n        \\App\Policies\PostPolicy::UPDATE;\n        \\App\Policies\OtherPolicy::VIEW;\n    }\n}\n";
 
-        $edges = new PolicyEdgeTracer()->edgesForSource($source, VideoPolicy::class);
+        $edges = new PolicyEdgeTracer()->edgesForSource($source, PostPolicy::class);
 
-        $this->assertSame([['source' => VideoPolicy::class . '::update', 'target' => 'App\Policies\OtherPolicy', 'type' => 'authorizes']], $edges);
+        $this->assertSame([['source' => PostPolicy::class . '::update', 'target' => 'App\Policies\OtherPolicy', 'type' => 'authorizes']], $edges);
     }
 
     #[Test]
@@ -90,11 +90,11 @@ final class PolicyEdgeTracerTest extends TestCase
         // (covered by edgesForSource tests above); the Blade side keeps its own file walk.
         $this->root = sys_get_temp_dir() . '/policy-edge-tracer-' . bin2hex(random_bytes(6));
 
-        $this->write('resources/views/card.blade.php', '@can(App\Policies\VideoPolicy::VIEW_STATS, $video) x @endcan');
+        $this->write('resources/views/card.blade.php', '@can(App\Policies\PostPolicy::VIEW_STATS, $post) x @endcan');
 
         $edges = new PolicyEdgeTracer()->bladeEdges($this->root);
 
-        $this->assertContains(['source' => BladeViews::nodeId('card'), 'target' => VideoPolicy::class, 'type' => 'authorizes'], $edges);
+        $this->assertContains(['source' => BladeViews::nodeId('card'), 'target' => PostPolicy::class, 'type' => 'authorizes'], $edges);
     }
 
     private function write(string $relativePath, string $content): void

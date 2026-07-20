@@ -4,10 +4,10 @@ namespace SanderMuller\Richter\Tests\Unit;
 
 use App\Http\Controllers\Auth\SocialAuthController;
 use App\Http\Middleware\Authenticate;
-use App\Models\Question;
-use App\Models\Video;
+use App\Models\Post;
+use App\Models\Review;
+use App\Policies\PostPolicy;
 use App\Policies\UserPolicy;
-use App\Policies\VideoPolicy;
 use Illuminate\Auth\Middleware\RequirePassword;
 use Illuminate\Routing\Middleware\ValidateSignature;
 use PHPUnit\Framework\Attributes\Test;
@@ -22,7 +22,7 @@ final class CodeGraphBuilderTest extends TestCase
     {
         $edges = [
             ['source' => 'App\Http\Controllers\FooController::store', 'target' => 'App\Jobs\BarJob', 'type' => 'new'],
-            ['source' => 'App\Jobs\BarJob::handle', 'target' => Video::class, 'type' => 'call'],
+            ['source' => 'App\Jobs\BarJob::handle', 'target' => Post::class, 'type' => 'call'],
         ];
 
         $declares = CodeGraphBuilder::declaresEdges($edges);
@@ -35,9 +35,9 @@ final class CodeGraphBuilderTest extends TestCase
     public function it_ignores_non_app_and_non_member_nodes(): void
     {
         $edges = [
-            ['source' => 'route::GET /videos', 'target' => 'App\Http\Controllers\VideoController', 'type' => 'route-to-controller'],
-            ['source' => 'command::video:cleanup', 'target' => Video::class, 'type' => 'call'],
-            ['source' => 'view::player.index', 'target' => VideoPolicy::class, 'type' => 'authorizes'],
+            ['source' => 'route::GET /posts', 'target' => 'App\Http\Controllers\PostController', 'type' => 'route-to-controller'],
+            ['source' => 'command::post:cleanup', 'target' => Post::class, 'type' => 'call'],
+            ['source' => 'view::player.index', 'target' => PostPolicy::class, 'type' => 'authorizes'],
         ];
 
         $this->assertSame([], CodeGraphBuilder::declaresEdges($edges));
@@ -76,14 +76,14 @@ final class CodeGraphBuilderTest extends TestCase
     public function an_ambiguous_short_controller_id_stays_verbatim(): void
     {
         $edges = [
-            ['source' => 'route::GET::/x', 'target' => 'controller::VideoController', 'type' => 'route-to-controller'],
+            ['source' => 'route::GET::/x', 'target' => 'controller::PostController', 'type' => 'route-to-controller'],
         ];
 
         $resolved = CodeGraphBuilder::resolveShortControllerIds($edges, [
-            'VideoController' => ['App\Http\Controllers\Video\VideoController', 'App\Http\Controllers\Api\VideoController'],
+            'PostController' => ['App\Http\Controllers\Post\PostController', 'App\Http\Controllers\Api\PostController'],
         ]);
 
-        $this->assertSame('controller::VideoController', $resolved[0]['target']);
+        $this->assertSame('controller::PostController', $resolved[0]['target']);
     }
 
     #[Test]
@@ -172,8 +172,8 @@ final class CodeGraphBuilderTest extends TestCase
     public function it_emits_one_declares_edge_per_member(): void
     {
         $edges = [
-            ['source' => 'App\Jobs\BarJob::handle', 'target' => Video::class, 'type' => 'call'],
-            ['source' => 'App\Jobs\BarJob::handle', 'target' => Question::class, 'type' => 'call'],
+            ['source' => 'App\Jobs\BarJob::handle', 'target' => Post::class, 'type' => 'call'],
+            ['source' => 'App\Jobs\BarJob::handle', 'target' => Review::class, 'type' => 'call'],
         ];
 
         $this->assertCount(1, CodeGraphBuilder::declaresEdges($edges));

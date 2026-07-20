@@ -15,23 +15,23 @@ final class BladeViewsTest extends TestCase
     #[Test]
     public function it_mirrors_brains_view_node_id_format(): void
     {
-        $this->assertSame('view::blade__dashboard.home.video_item', BladeViews::nodeId('dashboard.home.video-item'));
+        $this->assertSame('view::blade__dashboard.home.post_item', BladeViews::nodeId('dashboard.home.post-item'));
 
-        $this->assertSame('view::blade__components.video_dashboard.video_action_buttons', BladeViews::nodeId('components.video-dashboard.video-action-buttons'));
+        $this->assertSame('view::blade__components.post_dashboard.post_action_buttons', BladeViews::nodeId('components.post-dashboard.post-action-buttons'));
     }
 
     #[Test]
     public function it_derives_the_dotted_view_name_only_for_resources_views_blade_files(): void
     {
-        $this->assertSame('dashboard.home.video-item', BladeViews::viewNameFromPath('resources/views/dashboard/home/video-item.blade.php'));
-        $this->assertNull(BladeViews::viewNameFromPath('app/Http/Controllers/Video/DashboardSearchController.php'));
+        $this->assertSame('dashboard.home.post-item', BladeViews::viewNameFromPath('resources/views/dashboard/home/post-item.blade.php'));
+        $this->assertNull(BladeViews::viewNameFromPath('app/Http/Controllers/Post/DashboardSearchController.php'));
         $this->assertNull(BladeViews::viewNameFromPath('resources/js/app.ts'));
     }
 
     #[Test]
     public function it_seeds_a_changed_blade_file_with_its_view_node_id(): void
     {
-        $this->assertSame('view::blade__components.video_dashboard.video_action_buttons', BladeViews::seedForChangedFile('resources/views/components/video-dashboard/video-action-buttons.blade.php'));
+        $this->assertSame('view::blade__components.post_dashboard.post_action_buttons', BladeViews::seedForChangedFile('resources/views/components/post-dashboard/post-action-buttons.blade.php'));
         $this->assertNull(BladeViews::seedForChangedFile('routes/web.php'));
     }
 }

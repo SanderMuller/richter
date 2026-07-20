@@ -24,8 +24,8 @@ final class BladeViewTracerTest extends TestCase
     public function it_extracts_component_and_include_candidates_but_skips_unpinnable_references(): void
     {
         $content = <<<'BLADE'
-        <x-video-dashboard.video-action-buttons :video="$video"/>
-        @include('dashboard.home.video-item')
+        <x-post-dashboard.post-action-buttons :post="$post"/>
+        @include('dashboard.home.post-item')
         @extends('layouts.app')
         <x-slot name="header"></x-slot>
         <x-dynamic-component :component="$c"/>
@@ -35,9 +35,9 @@ final class BladeViewTracerTest extends TestCase
 
         $candidates = new BladeViewTracer()->referencedViewCandidates($content);
 
-        $this->assertContains('components.video-dashboard.video-action-buttons', $candidates);
-        $this->assertContains('components.video-dashboard.video-action-buttons.index', $candidates);
-        $this->assertContains('dashboard.home.video-item', $candidates);
+        $this->assertContains('components.post-dashboard.post-action-buttons', $candidates);
+        $this->assertContains('components.post-dashboard.post-action-buttons.index', $candidates);
+        $this->assertContains('dashboard.home.post-item', $candidates);
         $this->assertContains('layouts.app', $candidates);
 
         // <x-slot>, <x-dynamic-component>, a dynamic name and a namespaced view can't be pinned to a file.
@@ -51,14 +51,14 @@ final class BladeViewTracerTest extends TestCase
     {
         $this->root = sys_get_temp_dir() . '/blade-view-tracer-' . bin2hex(random_bytes(6));
 
-        $this->writeView('dashboard/home/video-item', "<x-video-dashboard.video-action-buttons/> @include('partials.footer') <x-ghost/>");
-        $this->writeView('components/video-dashboard/video-action-buttons', 'buttons');
+        $this->writeView('dashboard/home/post-item', "<x-post-dashboard.post-action-buttons/> @include('partials.footer') <x-ghost/>");
+        $this->writeView('components/post-dashboard/post-action-buttons', 'buttons');
         $this->writeView('partials/footer', 'footer');
 
         $edges = new BladeViewTracer()->trace($this->root);
 
-        $parent = BladeViews::nodeId('dashboard.home.video-item');
-        $this->assertContains(['source' => $parent, 'target' => BladeViews::nodeId('components.video-dashboard.video-action-buttons'), 'type' => 'view-to-view'], $edges);
+        $parent = BladeViews::nodeId('dashboard.home.post-item');
+        $this->assertContains(['source' => $parent, 'target' => BladeViews::nodeId('components.post-dashboard.post-action-buttons'), 'type' => 'view-to-view'], $edges);
         $this->assertContains(['source' => $parent, 'target' => BladeViews::nodeId('partials.footer'), 'type' => 'view-to-view'], $edges);
 
         // <x-ghost/> has no Blade file, so no dangling edge is minted for it.

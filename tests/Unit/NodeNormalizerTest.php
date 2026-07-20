@@ -2,7 +2,7 @@
 
 namespace SanderMuller\Richter\Tests\Unit;
 
-use App\Models\Video;
+use App\Models\Post;
 use PHPUnit\Framework\Attributes\Test;
 use SanderMuller\Richter\Graph\NodeNormalizer;
 use SanderMuller\Richter\Tests\TestCase;
@@ -12,17 +12,17 @@ final class NodeNormalizerTest extends TestCase
     #[Test]
     public function it_keys_a_class_node_by_its_fqcn(): void
     {
-        $this->assertSame(Video::class, NodeNormalizer::canonicalId('model::App\Models\Video', ['fqcn' => Video::class]));
+        $this->assertSame(Post::class, NodeNormalizer::canonicalId('model::App\Models\Post', ['fqcn' => Post::class]));
     }
 
     #[Test]
     public function it_appends_the_method_for_a_member_node(): void
     {
         // A mangled deep-call node and an FQCN-cased action node for the same member collapse to one id.
-        $data = ['fqcn' => Video::class, 'method' => 'query'];
+        $data = ['fqcn' => Post::class, 'method' => 'query'];
 
-        $this->assertSame('App\Models\Video::query', NodeNormalizer::canonicalId('app_models_video::query', $data));
-        $this->assertSame('App\Models\Video::query', NodeNormalizer::canonicalId('action::App\Models\Video::query', $data));
+        $this->assertSame('App\Models\Post::query', NodeNormalizer::canonicalId('app_models_post::query', $data));
+        $this->assertSame('App\Models\Post::query', NodeNormalizer::canonicalId('action::App\Models\Post::query', $data));
     }
 
     #[Test]
@@ -53,9 +53,9 @@ final class NodeNormalizerTest extends TestCase
     public function it_keys_a_class_node_with_no_usable_method_by_the_bare_fqcn(): void
     {
         // A class-level node carries an fqcn but no method; a non-string method (a malformed data bag)
-        // must fall back to the class id, never `App\Models\Video::1`.
-        $this->assertSame(Video::class, NodeNormalizer::canonicalId('model::App\Models\Video', ['fqcn' => Video::class]));
-        $this->assertSame(Video::class, NodeNormalizer::canonicalId('model::App\Models\Video', ['fqcn' => Video::class, 'method' => null]));
-        $this->assertSame(Video::class, NodeNormalizer::canonicalId('model::App\Models\Video', ['fqcn' => Video::class, 'method' => 123]));
+        // must fall back to the class id, never `App\Models\Post::1`.
+        $this->assertSame(Post::class, NodeNormalizer::canonicalId('model::App\Models\Post', ['fqcn' => Post::class]));
+        $this->assertSame(Post::class, NodeNormalizer::canonicalId('model::App\Models\Post', ['fqcn' => Post::class, 'method' => null]));
+        $this->assertSame(Post::class, NodeNormalizer::canonicalId('model::App\Models\Post', ['fqcn' => Post::class, 'method' => 123]));
     }
 }

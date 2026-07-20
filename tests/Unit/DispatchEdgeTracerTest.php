@@ -10,21 +10,21 @@ use SanderMuller\Richter\Tracers\DispatchEdgeTracer;
 
 final class DispatchEdgeTracerTest extends TestCase
 {
-    private const string DISPATCHER = 'App\Http\Controllers\VideoController';
+    private const string DISPATCHER = 'App\Http\Controllers\PostController';
 
     /**
      * @return list<array{source: string, target: string, type: string}>
      */
     private function edges(string $body, string $uses): array
     {
-        $source = "<?php\nnamespace App\Http\Controllers;\n{$uses}\nclass VideoController\n{\n    public function store(): void\n    {\n        {$body}\n    }\n}\n";
+        $source = "<?php\nnamespace App\Http\Controllers;\n{$uses}\nclass PostController\n{\n    public function store(): void\n    {\n        {$body}\n    }\n}\n";
 
         return new DispatchEdgeTracer()->edgesForSource($source, self::DISPATCHER)['edges'];
     }
 
     private function unresolved(string $body, string $uses): int
     {
-        $source = "<?php\nnamespace App\Http\Controllers;\n{$uses}\nclass VideoController\n{\n    public function store(): void\n    {\n        {$body}\n    }\n}\n";
+        $source = "<?php\nnamespace App\Http\Controllers;\n{$uses}\nclass PostController\n{\n    public function store(): void\n    {\n        {$body}\n    }\n}\n";
 
         return new DispatchEdgeTracer()->edgesForSource($source, self::DISPATCHER)['unresolved'];
     }
@@ -117,7 +117,7 @@ final class DispatchEdgeTracerTest extends TestCase
     #[Test]
     public function a_chain_with_one_opaque_item_emits_its_edge_and_one_unresolved(): void
     {
-        $source = "<?php\nnamespace App\Http\Controllers;\nuse App\Jobs\ImportJob;\nuse Illuminate\Support\Facades\Bus;\nclass VideoController\n{\n    public function store(): void\n    {\n        Bus::chain([new ImportJob(), \$dynamic]);\n    }\n}\n";
+        $source = "<?php\nnamespace App\Http\Controllers;\nuse App\Jobs\ImportJob;\nuse Illuminate\Support\Facades\Bus;\nclass PostController\n{\n    public function store(): void\n    {\n        Bus::chain([new ImportJob(), \$dynamic]);\n    }\n}\n";
 
         $result = new DispatchEdgeTracer()->edgesForSource($source, self::DISPATCHER);
 
