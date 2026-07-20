@@ -241,8 +241,11 @@ php artisan test $(php artisan richter:affected-tests --plain)   # simple form �
 ```
 
 Diffs the same way `detect-changes` does — against `HEAD`, staged and unstaged edits are included,
-so the selection reflects what's actually on disk before a commit exists to diff against; the same
-untracked-file stderr note applies (see above), never on stdout, so `--plain`/`--json` stay clean.
+so the selection reflects what's actually on disk before a commit exists to diff against. An
+untracked (never `git add`-ed) file under `app/`, `resources/views/`, or a frontend root is one
+`git diff` cannot see (see above), so here it makes the selection **undeterminable** (exit 2) rather
+than emit a narrowed set that silently omits it — the stderr note still fires, and `git add`-ing the
+file includes it. The note is stderr-only, never on stdout, so `--plain`/`--json` stay clean.
 
 The simple form only ever errs toward running more: both an undetermined selection and a
 determined-but-empty one leave `$(…)` empty, and an argument-less runner executes the full suite.
@@ -271,7 +274,7 @@ It fails safe, and the exit code is the contract:
 | Exit | Meaning |
 |---|---|
 | `0` | Selection determined (possibly empty). |
-| `2` | **Not determinable — run the full suite.** Any UNRESOLVED file, low-confidence seed, unfollowable dispatch, or uncheckable entry point trips this; the reasons are printed (text) or carried in `reasons` (JSON). |
+| `2` | **Not determinable — run the full suite.** Any UNRESOLVED file, low-confidence seed, unfollowable dispatch, uncheckable entry point, or an untracked relevant file `git diff` can't see trips this; the reasons are printed (text) or carried in `reasons` (JSON). |
 | `1` | Usage or unexpected error. |
 
 In `--plain` mode an undeterminable run prints nothing, so the command-substitution form degrades
