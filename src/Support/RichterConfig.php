@@ -61,6 +61,12 @@ final class RichterConfig
         return self::stringList('richter.frontend.test_paths') ?? [];
     }
 
+    /** @return list<string> project-custom callees merged with the scanner's built-in HTTP/route defaults */
+    public static function frontendHttpCallees(): array
+    {
+        return self::stringList('richter.frontend.http_callees') ?? [];
+    }
+
     public static function frontendPagesPath(): string
     {
         $value = config('richter.frontend.pages_path');

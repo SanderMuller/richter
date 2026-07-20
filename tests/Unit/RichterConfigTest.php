@@ -284,4 +284,20 @@ final class RichterConfigTest extends TestCase
         config()->set('richter.frontend.pages_path', 'resources/js/pages');
         $this->assertSame('resources/js/pages', RichterConfig::frontendPagesPath());
     }
+
+    #[Test]
+    public function frontend_http_callees_default_to_empty(): void
+    {
+        config()->offsetUnset('richter.frontend');
+
+        $this->assertSame([], RichterConfig::frontendHttpCallees());
+    }
+
+    #[Test]
+    public function configured_frontend_http_callees_pass_through(): void
+    {
+        config()->set('richter.frontend.http_callees', ['myHttpClient']);
+
+        $this->assertSame(['myHttpClient'], RichterConfig::frontendHttpCallees());
+    }
 }

@@ -49,6 +49,10 @@ return [
         // references feed richter:affected-tests' advisory frontendTests list. Empty means
         // "the frontend roots".
         'test_paths' => [],
+        // Extra JS/TS callees, beyond the built-in HTTP/route helpers, whose string arguments
+        // are treated as backend endpoints. Match the callee's leading identifier, e.g.
+        // 'myHttpClient'.
+        'http_callees' => [],
     ],
 
     /*
