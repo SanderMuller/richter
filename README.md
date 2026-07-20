@@ -142,7 +142,7 @@ Reached routes also inherit [Laravel Brain](https://github.com/laramint/laravel-
       ⚠ PUBLIC_WRITE (high): POST route with no auth middleware
 ```
 
-This is annotation only — it never feeds the risk level or a `--fail-on` gate, it exists for routes only (Brain classifies nothing else), and false positives are suppressed where Brain's own config says so (`laravel-brain.security.trusted_route_names` / `trusted_route_uris`).
+This is annotation only — it never feeds the risk level or a `--fail-on` gate, it exists for routes only (Brain classifies nothing else), and false positives are suppressed where Brain's own config says so (`laravel-brain.security.trusted_route_names` / `trusted_route_uris`). A Livewire, Filament, or queue entry point never carries one of these tags at all — that absence means *not classified*, never "public" or "unauthenticated"; its real exposure comes from mount-time `authorize()` calls, middleware, or route placement the graph doesn't model.
 
 Pennant feature gating is annotated the same way. A route guarded by `EnsureFeaturesAreActive`
 renders its flags inline (`[gated: ai-coach]`, a 🚩 badge in markdown, `entryPointGates` in JSON),
@@ -167,7 +167,7 @@ With `--json`, stdout is a single JSON document (the full, uncapped report) with
 | `entryPoints` | string[] | entry-point nodes the change reaches |
 | `entryPointPaths` | object | per reached entry point, the shortest call chain down to the changed code as `{node, via, file?, line?}` hops; a self-listed entry class carries no chain |
 | `entryPointLocations` | object | per entry point, its defining `{file, line?}` (project-relative), when known |
-| `entryPointSecurity` | object | per reached route, Brain's security surface `{exposure, riskLevel, issues[]}` — advisory annotation, routes only, never an input to `risk` or the gate |
+| `entryPointSecurity` | object | per reached route, Brain's security surface `{exposure, riskLevel, issues[]}` — advisory annotation, routes only, never an input to `risk` or the gate; a Livewire/Filament/queue entry point has no key here at all, meaning "not classified," never "public" |
 | `entryPointGates` | object | per reached route, the Pennant feature flags gating it — advisory annotation, never an input to `risk` or the gate |
 | `entryPointTestReferences` | object | per reached entry point, `"referenced"` / `"referenced-no-behavioural-assertion"` / `"unreferenced"`; an entry point whose reference state cannot be determined is omitted from the map — advisory annotation, never an input to `risk`, the gate, or `affected-tests` selection |
 | `impacted` | int | count of risk-bearing nodes reached |
