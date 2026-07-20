@@ -164,7 +164,7 @@ final class FrontendReferenceScanner
 
     /**
      * Every root-relative endpoint candidate, deduplicated per (uri, method). Plain string
-     * literals (`axios.get('/api/videos')`) and backtick templates (`fetch(`/videos/${id}`)` —
+     * literals (`axios.get('/api/posts')`) and backtick templates (`fetch(`/posts/${id}`)` —
      * THE parameterised idiom in apps without Ziggy or Wayfinder, each `${…}` collapsing to a
      * one-segment wildcard token); the query/fragment is not part of the route template, and a
      * template left containing whitespace is an HTML string, not a URL. A literal only becomes a

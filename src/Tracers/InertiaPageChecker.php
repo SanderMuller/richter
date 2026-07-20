@@ -15,8 +15,8 @@ use SanderMuller\Richter\Tracers\Concerns\ChecksChangedLineRanges;
 
 /**
  * Notes the Inertia pages a changed source renders — the reverse direction of the frontend
- * bridge: a backend change to a member doing `Inertia::render('Videos/Show')` lands in
- * `resources/js/Pages/Videos/Show.vue`, a file no graph edge reaches. Same locality rule as
+ * bridge: a backend change to a member doing `Inertia::render('Posts/Show')` lands in
+ * `resources/js/Pages/Posts/Show.vue`, a file no graph edge reaches. Same locality rule as
  * {@see FeatureGateChecker}: only renders IN the changed members are noted, string-literal
  * component names only. The page file resolves under `richter.frontend.pages_path` and is
  * existence-checked — a missing file is itself a signal (a deleted or renamed page).

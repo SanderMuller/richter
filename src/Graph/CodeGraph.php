@@ -61,8 +61,8 @@ final class CodeGraph
     }
 
     /**
-     * Exact node-id membership — unlike {@see nodesContaining()}, `route::GET::/videos` never
-     * matches its own prefix inside `route::GET::/videos/{video}`.
+     * Exact node-id membership — unlike {@see nodesContaining()}, `route::GET::/posts` never
+     * matches its own prefix inside `route::GET::/posts/{post}`.
      */
     public function hasNode(string $node): bool
     {
@@ -141,7 +141,7 @@ final class CodeGraph
 
     /**
      * Nodes whose identifier contains the needle at identifier boundaries on both sides — so
-     * "Video" matches `model::App\Models\Video` but neither `…\VideoContainer` nor `SuperVideo`.
+     * "Post" matches `model::App\Models\Post` but neither `…\PostContainer` nor `SuperPost`.
      * A token index narrows the regex scan down to nodes sharing an identifier token with the
      * needle; the index is an over-approximation, and the regex above remains the source of truth.
      *

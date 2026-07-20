@@ -399,7 +399,7 @@ final readonly class ImpactAnalyzer
         foreach (array_unique($modelNodes) as $node) {
             // A Brain node whose fqcn didn't normalise keeps its `model::ShortName` id — render the
             // short name, and collapse it into the FQCN label when exactly one FQCN carries that
-            // basename. Two-plus candidates (App\Models\Theme vs App\Models\Playlist\Theme) are
+            // basename. Two-plus candidates (App\Models\Tag vs App\Models\Category\Tag) are
             // ambiguous: keep the short label, failing toward showing more.
             $labels[] = str_starts_with($node, 'model::') ? substr($node, strlen('model::')) : $node;
         }
@@ -641,7 +641,7 @@ final readonly class ImpactAnalyzer
     }
 
     /**
-     * Seed nodes matching the FQCN — both class-level (`App\Models\Video`) and member-level (`App\Models\Video::query`) nodes.
+     * Seed nodes matching the FQCN — both class-level (`App\Models\Post`) and member-level (`App\Models\Post::query`) nodes.
      *
      * @return list<string>
      */

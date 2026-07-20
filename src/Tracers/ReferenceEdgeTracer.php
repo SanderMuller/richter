@@ -125,7 +125,7 @@ final class ReferenceEdgeTracer
 
     /**
      * Relation member nodes loaded via a model constant inside a `load`/`with`/`whereHas`-family
-     * call: `->with([Question::ANSWERS])` links to `App\Models\Question::answers` — the relation
+     * call: `->with([Review::ANSWERS])` links to `App\Models\Review::answers` — the relation
      * *method* node — so renaming a relation lights up its eager-load call sites. The constant's
      * declaring model stands in for the receiver, which is not statically knowable; the
      * convention that relation constants live on the model declaring the relation makes that sound.
@@ -212,7 +212,7 @@ final class ReferenceEdgeTracer
             }
 
             // Custom validator classes live in per-domain `Validators` sub-namespaces under
-            // Http\Requests (`App\Http\Requests\Video\Validators\…`) — a segment match, not a prefix.
+            // Http\Requests (`App\Http\Requests\Post\Validators\…`) — a segment match, not a prefix.
             if (str_starts_with($fqcn, 'App\\') && str_contains($fqcn, '\\Validators\\')) {
                 $references[$fqcn] = 'validates-with';
             }

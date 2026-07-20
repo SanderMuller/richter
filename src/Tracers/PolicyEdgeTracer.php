@@ -107,7 +107,7 @@ final class PolicyEdgeTracer
 
     /**
      * Distinct `App\Policies\*` FQCNs referenced anywhere inside a PHP node — a policy constant
-     * (`VideoPolicy::UPDATE`), `::class`, `new`, or type hint all read as a dependency on the policy.
+     * (`PostPolicy::UPDATE`), `::class`, `new`, or type hint all read as a dependency on the policy.
      *
      * @return list<string>
      */

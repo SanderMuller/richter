@@ -38,7 +38,7 @@ final readonly class EntryPointRow
     /**
      * One row per entry point, sorted by plain label — deliberately, so text and markdown agree.
      * The formatters previously each sorted their own decorated label; for a label that is a
-     * prefix of another (`…/videos` vs `…/videos/{video}`), markdown's closing backtick used to
+     * prefix of another (`…/posts` vs `…/posts/{post}`), markdown's closing backtick used to
      * invert that pair, so plain-label order is a small intended change there, not an oversight.
      *
      * @param  list<string>  $entryPoints

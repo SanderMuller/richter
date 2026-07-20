@@ -178,7 +178,7 @@ final readonly class FeatureGateChecker
 
     /**
      * The flag a check names: a string literal, or an enum/constant reference — resolved to its
-     * backing string when the class loads, kept verbatim (`FeatureFlag::X`) when it doesn't, so an
+     * backing string when the class loads, kept verbatim (`FeatureToggle::X`) when it doesn't, so an
      * unresolvable flag still reads as gated rather than disappearing.
      */
     private static function flagName(mixed $argument): ?string

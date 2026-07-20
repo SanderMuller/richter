@@ -254,7 +254,7 @@ final class TestReferenceIndex
     /** @return array{referenced: bool, tests: list<string>}|null */
     private function resolveRoute(string $node): ?array
     {
-        // `route::GET::/videos/{video}` → method + URI template.
+        // `route::GET::/posts/{post}` → method + URI template.
         $parts = explode('::', $node, 3);
 
         if (count($parts) !== 3) {
@@ -280,7 +280,7 @@ final class TestReferenceIndex
             }
         }
 
-        // A test may hit the URI directly (`$this->get('/videos/123')`) — match the node's template
+        // A test may hit the URI directly (`$this->get('/posts/123')`) — match the node's template
         // against every literal URI the tests contain.
         $template = '#^' . preg_replace('/\\\{[^}]+\\\}/', '[^/]+', preg_quote($uri, '#')) . '$#';
 
@@ -363,7 +363,7 @@ final class TestReferenceIndex
      * `assertForbidden`/`assertUnauthorized`/`assertNotFound` are not in the shallow set at all).
      * Anything not provably shallow (a bare `expect(`, `assertJson*`, `assertDatabaseHas`, a
      * custom `assert*`/`expect*`-named helper, ...) disqualifies the whole file; a helper the
-     * scan cannot recognise as assert-ish (`seeVideoPublished(...)`) is invisible — the README
+     * scan cannot recognise as assert-ish (`seePostPublished(...)`) is invisible — the README
      * hedges the tag as "no behavioural assertion the scan recognises" for exactly that reason.
      */
     private function sourceLacksBehaviouralAssertions(string $source): bool
@@ -412,7 +412,7 @@ final class TestReferenceIndex
 
     /**
      * The app's route templates, each as a regex over the node's URI form — the node renders `{param}`
-     * placeholders literally, so `/videos/{video}` matches itself, and both sides normalise to a
+     * placeholders literally, so `/posts/{post}` matches itself, and both sides normalise to a
      * leading slash.
      *
      * @return list<array{regex: string, name: string|null, methods: list<string>}>

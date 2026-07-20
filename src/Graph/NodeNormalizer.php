@@ -3,8 +3,8 @@
 namespace SanderMuller\Richter\Graph;
 
 /**
- * Collapses Laravel Brain's three id schemes — FQCN-cased entity nodes (`model::App\Models\Video`),
- * mangled deep-call nodes (`app_models_video::query`), and prefixed-mangled nodes (`enum::app_enums_x`)
+ * Collapses Laravel Brain's three id schemes — FQCN-cased entity nodes (`model::App\Models\Post`),
+ * mangled deep-call nodes (`app_models_post::query`), and prefixed-mangled nodes (`enum::app_enums_x`)
  * — onto one FQCN-keyed id, read from each node's own `data['fqcn']` / `data['method']`. Post-hoc
  * tracer edges then address symbols by plain FQCN and join without reproducing Brain's private id
  * mangling (which differs from a naive backslash swap, so mirroring it drifts silently).
