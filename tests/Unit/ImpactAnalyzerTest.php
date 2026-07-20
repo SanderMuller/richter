@@ -142,6 +142,33 @@ final class ImpactAnalyzerTest extends TestCase
     }
 
     #[Test]
+    public function a_reached_route_carries_security_while_a_co_reached_livewire_component_carries_none(): void
+    {
+        // Intentional route-only contract, not a gap to "fix" by fabricating exposure: security
+        // is a route classification (Brain classifies nothing else — ImpactAnalyzer::entryPointAnnotations()).
+        // A Livewire component's real exposure comes from its mount-time authorize()/middleware/route
+        // placement, which the graph doesn't model — so it gets no entryPointSecurity key at all,
+        // never a fabricated one. Absence here means "not classified," never "public".
+        $analyzer = new ImpactAnalyzer(new CodeGraph([
+            ['source' => 'route::GET::/posts/{post}', 'target' => 'App\Services\PostPublisher::publish', 'type' => 'route-to-controller'],
+            ['source' => 'App\Livewire\StatusPanel::render', 'target' => 'App\Services\PostPublisher::publish', 'type' => 'call'],
+        ], nodeMetadata: [
+            'route::GET::/posts/{post}' => [
+                'security' => ['exposure' => 'public', 'riskLevel' => 'high', 'issues' => []],
+            ],
+        ]));
+
+        $result = $analyzer->detectChanges([
+            $this->changedMethod('app/Services/PostPublisher.php', 'App\Services\PostPublisher', 'publish'),
+        ]);
+
+        $this->assertContains('route::GET::/posts/{post}', $result['entryPoints']);
+        $this->assertContains('App\Livewire\StatusPanel', $result['entryPoints']);
+        $this->assertSame('public', $result['entryPointSecurity']['route::GET::/posts/{post}']['exposure']);
+        $this->assertArrayNotHasKey('App\Livewire\StatusPanel', $result['entryPointSecurity']);
+    }
+
+    #[Test]
     public function detect_changes_annotates_a_gated_route_with_its_feature_flags(): void
     {
         $analyzer = new ImpactAnalyzer(new CodeGraph([
