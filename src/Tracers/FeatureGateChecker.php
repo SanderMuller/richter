@@ -13,6 +13,7 @@ use PhpParser\Node\Name;
 use PhpParser\Node\Scalar\String_;
 use PhpParser\NodeFinder;
 use SanderMuller\Richter\Support\AppFiles;
+use SanderMuller\Richter\Support\RichterConfig;
 use SanderMuller\Richter\Tracers\Concerns\ChecksChangedLineRanges;
 use Throwable;
 
@@ -21,13 +22,24 @@ use Throwable;
  * sits behind flag X" — a smaller live blast radius than the raw graph suggests when the flag is
  * off. Deliberately local: only checks IN the changed source itself are noted, never "somewhere on
  * the path" gating — path-sensitive claims are exactly the over-claiming this tool avoids.
+ *
+ * Recognises the `Feature` facade and `@feature` Blade directive out of the box, plus any
+ * project-configured `EnumCase->method()` wrapper ({@see $featureGateMethods}, `richter.feature_gate_methods`)
+ * — the common "wrap Pennant in an enum" convention the facade-only check otherwise misses entirely.
  */
-final class FeatureGateChecker
+final readonly class FeatureGateChecker
 {
     use ChecksChangedLineRanges;
 
     /** The Pennant Feature-facade methods whose first argument names the flag being checked. */
     private const array FEATURE_METHODS = ['active', 'inactive', 'when', 'unless', 'allAreActive', 'someAreActive', 'activeForEveryone'];
+
+    /**
+     * @param  list<string>  $featureGateMethods  project-configured `FQCN::method` wrapper allowlist
+     *   ({@see RichterConfig::featureGateMethods()}), e.g.
+     *   `App\Enums\FeatureToggle::isActive`
+     */
+    public function __construct(private array $featureGateMethods = []) {}
 
     /**
      * @param  list<array{int, int}>|null  $lineRanges  restrict to checks whose call starts inside
@@ -54,24 +66,54 @@ final class FeatureGateChecker
                 continue;
             }
 
-            if (! in_array($call->name->toString(), self::FEATURE_METHODS, strict: true)) {
-                continue;
-            }
+            $method = $call->name->toString();
 
             if ($lineRanges !== null && ! $this->withinRanges($call->getStartLine(), $lineRanges)) {
                 continue;
             }
 
-            if (! $this->onFeatureFacade($call)) {
+            if (in_array($method, self::FEATURE_METHODS, strict: true) && $this->onFeatureFacade($call)) {
+                foreach (self::flagNames($call->args[0]->value ?? null) as $flag) {
+                    $flags[$flag] = true;
+                }
+
                 continue;
             }
 
-            foreach (self::flagNames($call->args[0]->value ?? null) as $flag) {
-                $flags[$flag] = true;
+            $wrapperFlag = $this->wrapperFlagName($call, $method);
+
+            if ($wrapperFlag !== null) {
+                $flags[$wrapperFlag] = true;
             }
         }
 
         return $this->findings(array_keys($flags));
+    }
+
+    /**
+     * The `EnumCase->method()` wrapper shape: an allowlisted method (`richter.feature_gate_methods`,
+     * `FQCN::method`) called on a class-constant/enum-case receiver (`ClassConstFetch`) that resolves
+     * to the allowlisted class. A bare `$var->method()` receiver — the type isn't known statically —
+     * is deliberately never matched; that needs type inference, out of scope for this
+     * annotation-only checker, where a miss is safe but a guess is not.
+     */
+    private function wrapperFlagName(StaticCall|MethodCall $call, string $method): ?string
+    {
+        if ($this->featureGateMethods === [] || ! $call instanceof MethodCall) {
+            return null;
+        }
+
+        if (! $call->var instanceof ClassConstFetch || ! $call->var->class instanceof Name || ! $call->var->name instanceof Identifier) {
+            return null;
+        }
+
+        $class = AppFiles::resolveName($call->var->class);
+
+        if (! in_array("{$class}::{$method}", $this->featureGateMethods, strict: true)) {
+            return null;
+        }
+
+        return self::flagName($call->var);
     }
 
     /**

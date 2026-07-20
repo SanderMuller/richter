@@ -9,9 +9,10 @@ use SanderMuller\Richter\Tracers\FeatureGateChecker;
 
 final class FeatureGateCheckerTest extends TestCase
 {
-    private function checker(): FeatureGateChecker
+    /** @param  list<string>  $featureGateMethods */
+    private function checker(array $featureGateMethods = []): FeatureGateChecker
     {
-        return new FeatureGateChecker();
+        return new FeatureGateChecker($featureGateMethods);
     }
 
     #[Test]
@@ -232,6 +233,130 @@ final class FeatureGateCheckerTest extends TestCase
             "checks feature flag 'ai-coach' — behaviour behind this flag only runs where it is active",
             $symbols->findings,
         );
+    }
+
+    #[Test]
+    public function a_configured_enum_wrapper_call_resolves_to_its_backing_flag(): void
+    {
+        $findings = $this->checker(['App\\Enums\\FeatureToggle::isActive'])->findingsFor(<<<'PHP'
+            <?php
+            use App\Enums\FeatureToggle;
+
+            class X {
+                public function run(): bool
+                {
+                    return FeatureToggle::BETA_DASHBOARD->isActive();
+                }
+            }
+            PHP);
+
+        $this->assertSame(["checks feature flag 'beta-dashboard' — behaviour behind this flag only runs where it is active"], $findings);
+    }
+
+    #[Test]
+    public function an_unresolvable_configured_wrapper_class_renders_verbatim_instead_of_disappearing(): void
+    {
+        $findings = $this->checker(['App\\Enums\\DoesNotExist::isActive'])->findingsFor(<<<'PHP'
+            <?php
+            use App\Enums\DoesNotExist;
+
+            class X {
+                public function run(): bool
+                {
+                    return DoesNotExist::SOME_CASE->isActive();
+                }
+            }
+            PHP);
+
+        $this->assertStringContainsString("'DoesNotExist::SOME_CASE'", $findings[0]);
+    }
+
+    #[Test]
+    public function an_enum_wrapper_call_without_a_matching_config_entry_is_not_annotated(): void
+    {
+        $findings = $this->checker()->findingsFor(<<<'PHP'
+            <?php
+            use App\Enums\FeatureToggle;
+
+            class X {
+                public function run(): bool
+                {
+                    return FeatureToggle::BETA_DASHBOARD->isActive();
+                }
+            }
+            PHP);
+
+        $this->assertSame([], $findings);
+    }
+
+    #[Test]
+    public function a_non_enum_receiver_is_never_guessed_as_a_wrapper_call(): void
+    {
+        $findings = $this->checker(['App\\Enums\\FeatureToggle::isActive'])->findingsFor(<<<'PHP'
+            <?php
+            class X {
+                public function run(object $service): bool
+                {
+                    return $service->isActive();
+                }
+            }
+            PHP);
+
+        $this->assertSame([], $findings);
+    }
+
+    #[Test]
+    public function a_wrapper_call_outside_the_changed_line_ranges_is_not_annotated(): void
+    {
+        $source = <<<'PHP'
+            <?php
+            use App\Enums\FeatureToggle;
+
+            class X {
+                public function untouched(): bool
+                {
+                    return FeatureToggle::BETA_DASHBOARD->isActive();
+                }
+
+                public function changed(): string
+                {
+                    return 'no flag here';
+                }
+            }
+            PHP;
+
+        // Only the changed() span (lines 10-13): the untouched sibling's wrapper call must not leak in.
+        $this->assertSame([], $this->checker(['App\\Enums\\FeatureToggle::isActive'])->findingsFor($source, [[10, 13]]));
+        // The untouched() span (lines 5-8) does contain the wrapper call.
+        $this->assertCount(1, $this->checker(['App\\Enums\\FeatureToggle::isActive'])->findingsFor($source, [[5, 8]]));
+    }
+
+    #[Test]
+    public function the_facade_and_blade_paths_still_annotate_alongside_a_configured_wrapper(): void
+    {
+        // Regression: configuring a wrapper allowlist must not disturb the built-in Feature-facade
+        // detection or the @feature Blade directive.
+        $findings = $this->checker(['App\\Enums\\FeatureToggle::isActive'])->findingsFor(<<<'PHP'
+            <?php
+            use Laravel\Pennant\Feature;
+
+            class X {
+                public function run(): bool
+                {
+                    return Feature::active('ai-coach');
+                }
+            }
+            PHP);
+
+        $this->assertSame(["checks feature flag 'ai-coach' — behaviour behind this flag only runs where it is active"], $findings);
+
+        $bladeFindings = $this->checker(['App\\Enums\\FeatureToggle::isActive'])->bladeFindingsFor(<<<'BLADE'
+            @feature('ai-coach')
+                <x-coach-panel />
+            @endfeature
+            BLADE);
+
+        $this->assertSame(["checks feature flag 'ai-coach' — behaviour behind this flag only runs where it is active"], $bladeFindings);
     }
 
     #[Test]

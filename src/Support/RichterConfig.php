@@ -4,6 +4,7 @@ namespace SanderMuller\Richter\Support;
 
 use InvalidArgumentException;
 use SanderMuller\Richter\Analysis\BenchmarkCase;
+use SanderMuller\Richter\Tracers\FeatureGateChecker;
 
 /**
  * Typed access to the `richter.php` config values. Config reads return `mixed`; funnelling them
@@ -30,7 +31,7 @@ final class RichterConfig
         return self::stringList('richter.dispatch_helpers') ?? [];
     }
 
-    /** @return list<string> `FQCN::method` wrapper allowlist for {@see \SanderMuller\Richter\Tracers\FeatureGateChecker} */
+    /** @return list<string> `FQCN::method` wrapper allowlist for {@see FeatureGateChecker} */
     public static function featureGateMethods(): array
     {
         return self::stringList('richter.feature_gate_methods') ?? [];

@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\Process;
 use RuntimeException;
 use SanderMuller\Richter\Graph\BladeViews;
 use SanderMuller\Richter\Support\Fqcn;
+use SanderMuller\Richter\Support\RichterConfig;
 use SanderMuller\Richter\Tracers\EagerLoadStringChecker;
 use SanderMuller\Richter\Tracers\FeatureGateChecker;
 use SanderMuller\Richter\Tracers\InertiaPageChecker;
@@ -42,7 +43,7 @@ final class ChangedSymbols
         // scan to once per invocation, while a fresh run always rebuilds the set — a relation
         // added since the previous run (same long-lived process) is seen, never a false alarm.
         $eagerLoadChecker = new EagerLoadStringChecker();
-        $featureGateChecker = new FeatureGateChecker();
+        $featureGateChecker = new FeatureGateChecker(RichterConfig::featureGateMethods());
         $inertiaPageChecker = new InertiaPageChecker();
         $frontendChanges = new FrontendChanges();
 
