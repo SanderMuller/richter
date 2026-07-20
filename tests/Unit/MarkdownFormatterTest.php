@@ -18,7 +18,7 @@ final class MarkdownFormatterTest extends TestCase
      */
     private function summary(
         array $entryPoints,
-        array $coverage = ['app/Models/Video.php' => 'analyzed'],
+        array $coverage = ['app/Models/Post.php' => 'analyzed'],
         array $relatedModels = [],
         bool $lowConfidence = false,
         RiskLevel $risk = RiskLevel::Low,
@@ -40,8 +40,8 @@ final class MarkdownFormatterTest extends TestCase
     public function a_frontend_change_notes_that_risk_covers_backend_impact_only(): void
     {
         $output = MarkdownFormatter::detectChanges($this->summary(
-            ['route::GET::/videos'],
-            coverage: ['resources/js/Pages/Videos.vue' => 'analyzed'],
+            ['route::GET::/posts'],
+            coverage: ['resources/js/Pages/Posts.vue' => 'analyzed'],
         ));
 
         $this->assertStringContainsString('> ℹ️ Frontend change: risk reflects backend impact only', $output);
@@ -50,7 +50,7 @@ final class MarkdownFormatterTest extends TestCase
     #[Test]
     public function detect_changes_leads_with_a_risk_badge_and_the_advisory_note(): void
     {
-        $output = MarkdownFormatter::detectChanges($this->summary(['route::GET::/videos'], risk: RiskLevel::High));
+        $output = MarkdownFormatter::detectChanges($this->summary(['route::GET::/posts'], risk: RiskLevel::High));
 
         $this->assertStringContainsString('## Richter change impact', $output);
         $this->assertStringContainsString('**Risk:** 🔴 HIGH _(advisory — not a gate)_', $output);
@@ -69,12 +69,12 @@ final class MarkdownFormatterTest extends TestCase
     public function detect_changes_renders_the_changed_files_as_a_table_with_coverage(): void
     {
         $output = MarkdownFormatter::detectChanges($this->summary([], coverage: [
-            'app/Models/Video.php' => 'analyzed',
+            'app/Models/Post.php' => 'analyzed',
             'app/Services/Lost.php' => 'unresolved',
         ]));
 
         $this->assertStringContainsString('| File | Graph nodes | Coverage |', $output);
-        $this->assertStringContainsString('| `app/Models/Video.php` | 1 | analyzed |', $output);
+        $this->assertStringContainsString('| `app/Models/Post.php` | 1 | analyzed |', $output);
         $this->assertStringContainsString('| `app/Services/Lost.php` | 1 | ⚠️ **UNRESOLVED**', $output);
         $this->assertStringContainsString('could not be placed in the graph', $output);
     }
@@ -199,25 +199,25 @@ final class MarkdownFormatterTest extends TestCase
     #[Test]
     public function explain_nests_the_call_chain_in_code_spans_under_its_entry_point(): void
     {
-        $result = $this->summary(['route::GET::/videos']) + ['entryPointPaths' => [
-            'route::GET::/videos' => [
-                ['node' => 'route::GET::/videos', 'via' => 'route-to-controller'],
-                ['node' => 'App\Services\VideoPublisher::publish', 'via' => ''],
+        $result = $this->summary(['route::GET::/posts']) + ['entryPointPaths' => [
+            'route::GET::/posts' => [
+                ['node' => 'route::GET::/posts', 'via' => 'route-to-controller'],
+                ['node' => 'App\Services\PostPublisher::publish', 'via' => ''],
             ],
         ]];
 
         $output = MarkdownFormatter::detectChanges($result, explain: true);
 
-        $this->assertStringContainsString('  - ↳ `route::GET::/videos` →(route-to-controller) `App\Services\VideoPublisher::publish`', $output);
+        $this->assertStringContainsString('  - ↳ `route::GET::/posts` →(route-to-controller) `App\Services\PostPublisher::publish`', $output);
     }
 
     #[Test]
     public function no_call_chain_renders_without_explain(): void
     {
-        $result = $this->summary(['route::GET::/videos']) + ['entryPointPaths' => [
-            'route::GET::/videos' => [
-                ['node' => 'route::GET::/videos', 'via' => 'route-to-controller'],
-                ['node' => 'App\Services\VideoPublisher::publish', 'via' => ''],
+        $result = $this->summary(['route::GET::/posts']) + ['entryPointPaths' => [
+            'route::GET::/posts' => [
+                ['node' => 'route::GET::/posts', 'via' => 'route-to-controller'],
+                ['node' => 'App\Services\PostPublisher::publish', 'via' => ''],
             ],
         ]];
 
@@ -227,22 +227,22 @@ final class MarkdownFormatterTest extends TestCase
     #[Test]
     public function related_models_collapse_into_a_details_block(): void
     {
-        $output = MarkdownFormatter::detectChanges($this->summary([], relatedModels: ['App\Models\Video', 'App\Models\Question']));
+        $output = MarkdownFormatter::detectChanges($this->summary([], relatedModels: ['App\Models\Post', 'App\Models\Review']));
 
         $this->assertStringContainsString('<summary>Related models (association reach — context, not risk): 2</summary>', $output);
-        $this->assertStringContainsString('- `App\Models\Question`', $output);
-        $this->assertStringContainsString('- `App\Models\Video`', $output);
+        $this->assertStringContainsString('- `App\Models\Review`', $output);
+        $this->assertStringContainsString('- `App\Models\Post`', $output);
     }
 
     #[Test]
     public function findings_render_as_a_warning_list(): void
     {
-        $result = $this->summary([]) + ['findings' => ["app/Exports/X.php: eager-load string 'interactionsquestions' matches no relation"]];
+        $result = $this->summary([]) + ['findings' => ["app/Exports/X.php: eager-load string 'commentsreviews' matches no relation"]];
 
         $output = MarkdownFormatter::detectChanges($result);
 
         $this->assertStringContainsString('### Findings (in the changed source itself)', $output);
-        $this->assertStringContainsString("- ⚠️ app/Exports/X.php: eager-load string 'interactionsquestions' matches no relation", $output);
+        $this->assertStringContainsString("- ⚠️ app/Exports/X.php: eager-load string 'commentsreviews' matches no relation", $output);
     }
 
     #[Test]

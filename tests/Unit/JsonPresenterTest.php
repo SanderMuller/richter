@@ -46,8 +46,8 @@ final class JsonPresenterTest extends TestCase
         $this->assertArrayNotHasKey('callers', $json);
         $this->assertArrayNotHasKey('dependencies', $json);
         $this->assertSame(3, $json['impacted']);
-        $this->assertSame(['App\\Models\\Video'], $json['relatedModels']);
-        $this->assertSame(['app/Jobs/ProcessVideoJob.php: touches a queue job'], $json['findings']);
+        $this->assertSame(['App\\Models\\Post'], $json['relatedModels']);
+        $this->assertSame(['app/Jobs/ProcessPostJob.php: touches a queue job'], $json['findings']);
     }
 
     #[Test]
@@ -58,7 +58,7 @@ final class JsonPresenterTest extends TestCase
         $this->assertSame([
             'route::GET /a' => [
                 ['node' => 'route::GET /a', 'via' => 'route-to-controller', 'file' => 'routes/web.php', 'line' => 12],
-                ['node' => 'App\\Jobs\\ProcessVideoJob::handle', 'via' => '', 'file' => 'app/Jobs/ProcessVideoJob.php'],
+                ['node' => 'App\\Jobs\\ProcessPostJob::handle', 'via' => '', 'file' => 'app/Jobs/ProcessPostJob.php'],
             ],
         ], $json['entryPointPaths']);
     }
@@ -69,7 +69,7 @@ final class JsonPresenterTest extends TestCase
         $json = JsonPresenter::detectChanges($this->detectChangesResult(), 'origin/main');
 
         $this->assertSame(['route::GET /a' => ['file' => 'routes/web.php', 'line' => 12]], $json['entryPointLocations']);
-        $this->assertSame(['route::GET /a' => ['interactive-video']], $json['entryPointGates']);
+        $this->assertSame(['route::GET /a' => ['interactive-post']], $json['entryPointGates']);
         $this->assertSame([
             'route::GET /a' => ['exposure' => 'public', 'riskLevel' => 'high', 'issues' => [
                 ['type' => 'PUBLIC_WRITE', 'severity' => 'high', 'message' => 'POST route with no auth middleware'],
@@ -129,7 +129,7 @@ final class JsonPresenterTest extends TestCase
     public function detect_changes_carries_the_test_reference_map_referenced_weak_unreferenced_and_omitted(): void
     {
         $tests = new TestReferenceIndex();
-        $tests->addSource('<?php $this->get("/a"); $this->assertDatabaseHas("videos", ["id" => 1]);', 'tests/Feature/RichTest.php');
+        $tests->addSource('<?php $this->get("/a"); $this->assertDatabaseHas("posts", ["id" => 1]);', 'tests/Feature/RichTest.php');
         $tests->addSource('<?php $this->get("/b"); $response->assertOk();', 'tests/Feature/ShallowTest.php');
 
         $entryPoints = ['route::GET::/a', 'route::GET::/b', 'route::GET::/c', 'schedule::nightly-report'];
@@ -159,13 +159,13 @@ final class JsonPresenterTest extends TestCase
     private function detectChangesResult(RiskLevel $risk = RiskLevel::Low, bool $coverageUnresolved = false, array $entryPoints = ['route::GET /a', 'route::GET /b', 'route::GET /c']): array
     {
         return [
-            'changed' => ['app/Jobs/ProcessVideoJob.php' => 3],
-            'coverage' => ['app/Jobs/ProcessVideoJob.php' => $coverageUnresolved ? 'unresolved' : 'analyzed'],
+            'changed' => ['app/Jobs/ProcessPostJob.php' => 3],
+            'coverage' => ['app/Jobs/ProcessPostJob.php' => $coverageUnresolved ? 'unresolved' : 'analyzed'],
             'entryPoints' => $entryPoints,
             'entryPointPaths' => [
                 'route::GET /a' => [
                     ['node' => 'route::GET /a', 'via' => 'route-to-controller', 'file' => 'routes/web.php', 'line' => 12],
-                    ['node' => 'App\\Jobs\\ProcessVideoJob::handle', 'via' => '', 'file' => 'app/Jobs/ProcessVideoJob.php'],
+                    ['node' => 'App\\Jobs\\ProcessPostJob::handle', 'via' => '', 'file' => 'app/Jobs/ProcessPostJob.php'],
                 ],
             ],
             'entryPointLocations' => [
@@ -176,13 +176,13 @@ final class JsonPresenterTest extends TestCase
                     ['type' => 'PUBLIC_WRITE', 'severity' => 'high', 'message' => 'POST route with no auth middleware'],
                 ]],
             ],
-            'entryPointGates' => ['route::GET /a' => ['interactive-video']],
+            'entryPointGates' => ['route::GET /a' => ['interactive-post']],
             'impacted' => count($entryPoints),
-            'relatedModels' => ['App\\Models\\Video'],
+            'relatedModels' => ['App\\Models\\Post'],
             'risk' => $risk,
             'lowConfidence' => false,
             'coarseCapApplied' => false,
-            'findings' => ['app/Jobs/ProcessVideoJob.php: touches a queue job'],
+            'findings' => ['app/Jobs/ProcessPostJob.php: touches a queue job'],
         ];
     }
 }

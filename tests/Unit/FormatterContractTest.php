@@ -42,8 +42,8 @@ final class FormatterContractTest extends TestCase
         }
 
         return [
-            'changed' => ['app/Models/Video.php' => 3, 'app/Services/Lost.php' => 1],
-            'coverage' => ['app/Models/Video.php' => 'analyzed', 'app/Services/Lost.php' => 'unresolved'],
+            'changed' => ['app/Models/Post.php' => 3, 'app/Services/Lost.php' => 1],
+            'coverage' => ['app/Models/Post.php' => 'analyzed', 'app/Services/Lost.php' => 'unresolved'],
             'entryPoints' => $entryPoints,
             'entryPointPaths' => [
                 self::ANNOTATED_ENTRY => [
@@ -62,11 +62,11 @@ final class FormatterContractTest extends TestCase
             ],
             'entryPointGates' => [self::ANNOTATED_ENTRY => ['beta-feature']],
             'impacted' => 42,
-            'relatedModels' => ['App\Models\Interaction'],
+            'relatedModels' => ['App\Models\Comment'],
             'risk' => RiskLevel::Medium,
             'lowConfidence' => true,
             'coarseCapApplied' => true,
-            'findings' => ["app/Exports/X.php: eager-load string 'interactionsquestions' matches no relation"],
+            'findings' => ["app/Exports/X.php: eager-load string 'commentsreviews' matches no relation"],
         ];
     }
 
@@ -98,8 +98,8 @@ final class FormatterContractTest extends TestCase
         $this->assertStringContainsString('app/Http/Controllers/AnnotatedController.php:31', $output);
         $this->assertStringContainsString('App\Http\Controllers\AnnotatedController::show', $output);
         $this->assertStringContainsString('App\Services\AnnotatedService::run', $output);
-        $this->assertStringContainsString('App\Models\Interaction', $output);
-        $this->assertStringContainsString("eager-load string 'interactionsquestions' matches no relation", $output);
+        $this->assertStringContainsString('App\Models\Comment', $output);
+        $this->assertStringContainsString("eager-load string 'commentsreviews' matches no relation", $output);
         $this->assertStringContainsString('UNRESOLVED', $output);
         $this->assertStringContainsString('… and 5 more', $output);
         $this->assertStringContainsStringIgnoringCase('low confidence', $output);
@@ -121,8 +121,8 @@ final class FormatterContractTest extends TestCase
         $this->assertStringContainsString('app/Http/Controllers/AnnotatedController.php:31', $output);
         $this->assertStringContainsString('App\Http\Controllers\AnnotatedController::show', $output);
         $this->assertStringContainsString('App\Services\AnnotatedService::run', $output);
-        $this->assertStringContainsString('App\Models\Interaction', $output);
-        $this->assertStringContainsString("eager-load string 'interactionsquestions' matches no relation", $output);
+        $this->assertStringContainsString('App\Models\Comment', $output);
+        $this->assertStringContainsString("eager-load string 'commentsreviews' matches no relation", $output);
         $this->assertStringContainsString('UNRESOLVED', $output);
         $this->assertStringContainsString('… and 5 more', $output);
         $this->assertStringContainsStringIgnoringCase('low confidence', $output);
@@ -157,10 +157,10 @@ final class FormatterContractTest extends TestCase
         $this->assertSame('public', $json['entryPointSecurity'][self::ANNOTATED_ENTRY]['exposure']);
         $this->assertSame('PUBLIC_WRITE', $json['entryPointSecurity'][self::ANNOTATED_ENTRY]['issues'][0]['type']);
         $this->assertSame(['beta-feature'], $json['entryPointGates'][self::ANNOTATED_ENTRY]);
-        $this->assertSame(['App\Models\Interaction'], $json['relatedModels']);
-        $this->assertSame(['app/Models/Video.php' => 3, 'app/Services/Lost.php' => 1], $json['changed']);
+        $this->assertSame(['App\Models\Comment'], $json['relatedModels']);
+        $this->assertSame(['app/Models/Post.php' => 3, 'app/Services/Lost.php' => 1], $json['changed']);
         $this->assertSame('unresolved', $json['coverage']['app/Services/Lost.php']);
-        $this->assertSame(["app/Exports/X.php: eager-load string 'interactionsquestions' matches no relation"], $json['findings']);
+        $this->assertSame(["app/Exports/X.php: eager-load string 'commentsreviews' matches no relation"], $json['findings']);
         $this->assertSame(42, $json['impacted']);
         $this->assertSame('origin/main', $json['base']);
         $this->assertTrue($json['unresolved']);

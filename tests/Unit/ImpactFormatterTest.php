@@ -2,9 +2,9 @@
 
 namespace SanderMuller\Richter\Tests\Unit;
 
-use App\Http\Resources\Api\v2\Video\QuestionPlayerResource;
-use App\Models\Interaction;
-use App\Models\Video;
+use App\Http\Resources\Api\v2\Post\ReviewPlayerResource;
+use App\Models\Comment;
+use App\Models\Post;
 use Iterator;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
@@ -34,8 +34,8 @@ final class ImpactFormatterTest extends TestCase
     private function summary(array $entryPoints, array $relatedModels = [], bool $lowConfidence = false, RiskLevel $risk = RiskLevel::Low, bool $coarseCapApplied = false): array
     {
         return [
-            'changed' => ['app/Models/Video.php' => 1],
-            'coverage' => ['app/Models/Video.php' => 'analyzed'],
+            'changed' => ['app/Models/Post.php' => 1],
+            'coverage' => ['app/Models/Post.php' => 'analyzed'],
             'entryPoints' => $entryPoints,
             'impacted' => count($entryPoints),
             'relatedModels' => $relatedModels,
@@ -53,16 +53,16 @@ final class ImpactFormatterTest extends TestCase
      */
     public static function unmappedChanges(): Iterator
     {
-        yield 'API resource' => ['app/Http/Resources/Api/v2/Video/QuestionPlayerResource.php', QuestionPlayerResource::class];
+        yield 'API resource' => ['app/Http/Resources/Api/v2/Post/ReviewPlayerResource.php', ReviewPlayerResource::class];
         yield 'plain service' => ['app/Services/Lonely.php', 'App\Services\Lonely'];
     }
 
     #[Test]
     public function a_frontend_change_notes_that_risk_covers_backend_impact_only(): void
     {
-        $result = $this->summary(['route::GET::/videos']);
-        $result['changed'] = ['resources/js/Pages/Videos.vue' => 1];
-        $result['coverage'] = ['resources/js/Pages/Videos.vue' => 'analyzed'];
+        $result = $this->summary(['route::GET::/posts']);
+        $result['changed'] = ['resources/js/Pages/Posts.vue' => 1];
+        $result['coverage'] = ['resources/js/Pages/Posts.vue' => 'analyzed'];
 
         $this->assertStringContainsString(
             'frontend change — risk reflects backend impact only',
@@ -79,12 +79,12 @@ final class ImpactFormatterTest extends TestCase
     #[Test]
     public function it_renders_source_findings_between_the_reach_and_the_risk(): void
     {
-        $result = $this->summary(['route::GET /videos']) + ['findings' => ["app/Exports/X.php: eager-load string 'interactionsquestions' matches no relation"]];
+        $result = $this->summary(['route::GET /posts']) + ['findings' => ["app/Exports/X.php: eager-load string 'commentsreviews' matches no relation"]];
 
         $output = ImpactFormatter::detectChanges($result);
 
         $this->assertStringContainsString('Findings (in the changed source itself):', $output);
-        $this->assertStringContainsString("! app/Exports/X.php: eager-load string 'interactionsquestions' matches no relation", $output);
+        $this->assertStringContainsString("! app/Exports/X.php: eager-load string 'commentsreviews' matches no relation", $output);
     }
 
     #[Test]
@@ -146,7 +146,7 @@ final class ImpactFormatterTest extends TestCase
         // In the graph but nothing calls it — a genuine leaf the tool can vouch for, so it reads
         // "analyzed" (no impact), not "couldn't determine".
         $result = new ImpactAnalyzer(new CodeGraph([
-            ['source' => 'App\Services\Lonely::run', 'target' => Video::class, 'type' => 'action-to-model'],
+            ['source' => 'App\Services\Lonely::run', 'target' => Post::class, 'type' => 'action-to-model'],
         ]))->detectChanges([
             $this->method('app/Services/Lonely.php', 'App\Services\Lonely', 'run'),
         ]);
@@ -158,9 +158,9 @@ final class ImpactFormatterTest extends TestCase
     public function a_coarse_change_renders_a_low_confidence_note_and_related_models_context(): void
     {
         $result = new ImpactAnalyzer(new CodeGraph([
-            ['source' => Video::class, 'target' => Interaction::class, 'type' => 'model-relationship'],
+            ['source' => Post::class, 'target' => Comment::class, 'type' => 'model-relationship'],
         ]))->detectChanges([
-            new ChangedFileSymbols('app/Models/Video.php', Video::class, [
+            new ChangedFileSymbols('app/Models/Post.php', Post::class, [
                 new MemberChange('fillable', MemberChange::KIND_PROPERTY, MemberChange::CHANGE_MODIFIED, resolvable: false),
             ], cosmeticOnly: false),
         ]);
@@ -169,7 +169,7 @@ final class ImpactFormatterTest extends TestCase
 
         $this->assertStringContainsString('low confidence', $text);
         $this->assertStringContainsString('Related models', $text);
-        $this->assertStringContainsString(Interaction::class, $text);
+        $this->assertStringContainsString(Comment::class, $text);
     }
 
     #[Test]
@@ -192,11 +192,11 @@ final class ImpactFormatterTest extends TestCase
     #[Test]
     public function entry_points_render_their_defining_location(): void
     {
-        $result = $this->summary(['route::GET::/videos']) + [
-            'entryPointLocations' => ['route::GET::/videos' => ['file' => 'routes/web.php', 'line' => 14]],
+        $result = $this->summary(['route::GET::/posts']) + [
+            'entryPointLocations' => ['route::GET::/posts' => ['file' => 'routes/web.php', 'line' => 14]],
         ];
 
-        $this->assertStringContainsString('- route::GET::/videos  (routes/web.php:14)', ImpactFormatter::detectChanges($result));
+        $this->assertStringContainsString('- route::GET::/posts  (routes/web.php:14)', ImpactFormatter::detectChanges($result));
     }
 
     #[Test]
@@ -220,12 +220,12 @@ final class ImpactFormatterTest extends TestCase
     #[Test]
     public function a_gated_route_renders_its_flags_after_the_other_tags(): void
     {
-        $result = $this->summary(['route::POST::/videos/ai-coach']) + [
-            'entryPointGates' => ['route::POST::/videos/ai-coach' => ['ai-coach', 'beta']],
+        $result = $this->summary(['route::POST::/posts/ai-coach']) + [
+            'entryPointGates' => ['route::POST::/posts/ai-coach' => ['ai-coach', 'beta']],
         ];
 
         $this->assertStringContainsString(
-            '- route::POST::/videos/ai-coach  [gated: ai-coach, beta]',
+            '- route::POST::/posts/ai-coach  [gated: ai-coach, beta]',
             ImpactFormatter::detectChanges($result),
         );
     }
@@ -233,9 +233,9 @@ final class ImpactFormatterTest extends TestCase
     #[Test]
     public function an_entry_point_without_annotation_renders_bare(): void
     {
-        $output = ImpactFormatter::detectChanges($this->summary(['route::GET::/videos']));
+        $output = ImpactFormatter::detectChanges($this->summary(['route::GET::/posts']));
 
-        $this->assertStringContainsString("- route::GET::/videos\n", $output);
+        $this->assertStringContainsString("- route::GET::/posts\n", $output);
         $this->assertStringNotContainsString('(routes/', $output);
         $this->assertStringNotContainsString('⚠ ', $output);
     }
@@ -257,18 +257,18 @@ final class ImpactFormatterTest extends TestCase
     #[Test]
     public function explain_renders_the_call_chain_under_each_reached_entry_point(): void
     {
-        $result = $this->summary(['route::GET::/videos']) + ['entryPointPaths' => [
-            'route::GET::/videos' => [
-                ['node' => 'route::GET::/videos', 'via' => 'route-to-controller'],
-                ['node' => 'App\Http\Controllers\VideoController::index', 'via' => 'action-to-service'],
-                ['node' => 'App\Services\VideoPublisher::publish', 'via' => ''],
+        $result = $this->summary(['route::GET::/posts']) + ['entryPointPaths' => [
+            'route::GET::/posts' => [
+                ['node' => 'route::GET::/posts', 'via' => 'route-to-controller'],
+                ['node' => 'App\Http\Controllers\PostController::index', 'via' => 'action-to-service'],
+                ['node' => 'App\Services\PostPublisher::publish', 'via' => ''],
             ],
         ]];
 
         $output = ImpactFormatter::detectChanges($result, explain: true);
 
         $this->assertStringContainsString(
-            '↳ route::GET::/videos →(route-to-controller) App\Http\Controllers\VideoController::index →(action-to-service) App\Services\VideoPublisher::publish',
+            '↳ route::GET::/posts →(route-to-controller) App\Http\Controllers\PostController::index →(action-to-service) App\Services\PostPublisher::publish',
             $output,
         );
     }
@@ -276,10 +276,10 @@ final class ImpactFormatterTest extends TestCase
     #[Test]
     public function no_call_chain_renders_without_explain(): void
     {
-        $result = $this->summary(['route::GET::/videos']) + ['entryPointPaths' => [
-            'route::GET::/videos' => [
-                ['node' => 'route::GET::/videos', 'via' => 'route-to-controller'],
-                ['node' => 'App\Services\VideoPublisher::publish', 'via' => ''],
+        $result = $this->summary(['route::GET::/posts']) + ['entryPointPaths' => [
+            'route::GET::/posts' => [
+                ['node' => 'route::GET::/posts', 'via' => 'route-to-controller'],
+                ['node' => 'App\Services\PostPublisher::publish', 'via' => ''],
             ],
         ]];
 
