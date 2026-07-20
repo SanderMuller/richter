@@ -150,7 +150,10 @@ and a changed member or Blade view that itself checks a flag (`Feature::active(.
 notes it under Findings — a flag-gated change has a smaller live blast radius than the raw graph
 suggests, and the reviewer should know. Route detection reads statically visible middleware
 (a string alias like `'features:ai-coach'` or an FQCN-string form); the runtime-built
-`EnsureFeaturesAreActive::using(...)` expression is invisible to static route parsing.
+`EnsureFeaturesAreActive::using(...)` expression is invisible to static route parsing. Only the
+`Feature` facade, `@feature`, and any `feature_gate_methods`-configured wrapper method are
+recognised — a project convention like `FeatureToggle::BETA_DASHBOARD->isActive()` needs an
+allowlist entry (see [Configuration](#configuration)) before it is noted.
 
 With `--markdown`, the report renders as GitHub-flavoured markdown: a risk badge up front, changed files as a table, entry points as a review checklist with their file:line, test tags and exposure badges, and long lists collapsed into `<details>` instead of truncated. The result is ready to paste into (or post onto) a pull request. `--markdown --explain` composes.
 
@@ -384,6 +387,7 @@ Point Claude Code, Cursor, or any MCP client at the Artisan entry point, e.g. in
 |---|---|---|
 | `default_base` | `origin/main` | Git ref `richter:detect-changes` diffs against when `--base` is omitted. |
 | `dispatch_helpers` | `[]` | Project-custom global job-dispatch helper functions (e.g. `dispatch_with_retries`) the dispatch tracer should follow. |
+| `feature_gate_methods` | `[]` | `FQCN::method` allowlist of project wrappers around Pennant (e.g. `App\Enums\FeatureToggle::isActive`) — an `EnumCase->method()` call then annotates the change as flag-gated, alongside the built-in `Feature` facade / `@feature` support. |
 | `entry_point_roots` | `Jobs`, `Listeners`, `Console/Commands`, `Filament`, `Helpers`, `Http/Middleware`, `Livewire`, `Observers` | Directories under `app/` traced as entry points beyond Brain's route-anchored graph (graph tracing only; the analyzer's risk-floor namespace heuristics are fixed). |
 | `frontend.roots` | `[]` (off) | Frontend roots whose changed TS/JS/Vue files are scanned for Wayfinder/Ziggy endpoint references (see [Frontend changes](#frontend-changes-wayfinder--ziggy)). |
 | `frontend.generated_paths` | `actions`, `routes`, `wayfinder`, `ziggy.js` | Wayfinder's generated trees and Ziggy's generated route map under each frontend root — excluded from scanning as regeneration churn. Each entry matches a directory, an exact file, or a `*`-glob (crosses `/`). `.d.ts` files are always excluded, regardless of this list. |
