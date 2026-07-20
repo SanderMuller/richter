@@ -49,14 +49,14 @@ final class ChangedSymbolsTest extends TestCase
     #[Test]
     public function an_inertia_render_in_a_changed_member_is_noted_with_its_page_file(): void
     {
-        $head = "<?php\nuse Inertia\\Inertia;\n\nclass VideoController\n{\n    public function show(): mixed\n    {\n        return Inertia::render('Videos/Show');\n    }\n}\n";
-        $base = "<?php\nuse Inertia\\Inertia;\n\nclass VideoController\n{\n    public function show(): mixed\n    {\n        return null;\n    }\n}\n";
-        $hunk = $this->hunk([[8, "        return Inertia::render('Videos/Show');"]], [[8, '        return null;']]);
+        $head = "<?php\nuse Inertia\\Inertia;\n\nclass PostController\n{\n    public function show(): mixed\n    {\n        return Inertia::render('Posts/Show');\n    }\n}\n";
+        $base = "<?php\nuse Inertia\\Inertia;\n\nclass PostController\n{\n    public function show(): mixed\n    {\n        return null;\n    }\n}\n";
+        $hunk = $this->hunk([[8, "        return Inertia::render('Posts/Show');"]], [[8, '        return null;']]);
 
-        $result = ChangedSymbols::classifyFile('app/Http/Controllers/VideoController.php', $head, $base, $hunk, inertiaPageChecker: new InertiaPageChecker(self::fixtureProjectPath()));
+        $result = ChangedSymbols::classifyFile('app/Http/Controllers/PostController.php', $head, $base, $hunk, inertiaPageChecker: new InertiaPageChecker(self::fixtureProjectPath()));
 
         $this->assertSame(
-            ["renders Inertia page 'Videos/Show' (resources/js/Pages/Videos/Show.vue) — that page is part of this change's surface"],
+            ["renders Inertia page 'Posts/Show' (resources/js/Pages/Posts/Show.vue) — that page is part of this change's surface"],
             $result->findings,
         );
     }
@@ -64,11 +64,11 @@ final class ChangedSymbolsTest extends TestCase
     #[Test]
     public function an_inertia_render_in_an_untouched_sibling_member_is_not_noted(): void
     {
-        $head = "<?php\nuse Inertia\\Inertia;\n\nclass VideoController\n{\n    public function show(): mixed\n    {\n        return Inertia::render('Videos/Show');\n    }\n\n    public function touch(): int\n    {\n        return 1;\n    }\n}\n";
-        $base = "<?php\nuse Inertia\\Inertia;\n\nclass VideoController\n{\n    public function show(): mixed\n    {\n        return Inertia::render('Videos/Show');\n    }\n\n    public function touch(): int\n    {\n        return 0;\n    }\n}\n";
+        $head = "<?php\nuse Inertia\\Inertia;\n\nclass PostController\n{\n    public function show(): mixed\n    {\n        return Inertia::render('Posts/Show');\n    }\n\n    public function touch(): int\n    {\n        return 1;\n    }\n}\n";
+        $base = "<?php\nuse Inertia\\Inertia;\n\nclass PostController\n{\n    public function show(): mixed\n    {\n        return Inertia::render('Posts/Show');\n    }\n\n    public function touch(): int\n    {\n        return 0;\n    }\n}\n";
         $hunk = $this->hunk([[13, '        return 1;']], [[13, '        return 0;']]);
 
-        $result = ChangedSymbols::classifyFile('app/Http/Controllers/VideoController.php', $head, $base, $hunk, inertiaPageChecker: new InertiaPageChecker(self::fixtureProjectPath()));
+        $result = ChangedSymbols::classifyFile('app/Http/Controllers/PostController.php', $head, $base, $hunk, inertiaPageChecker: new InertiaPageChecker(self::fixtureProjectPath()));
 
         $this->assertSame([], $result->findings);
     }
@@ -475,7 +475,7 @@ final class ChangedSymbolsTest extends TestCase
         // would read as a determined "no references", the forbidden falsely-empty result.
         config()->set('richter.frontend.roots', ['resources/js']);
 
-        $diff = "diff --git a/resources/js/Pages/Videos.vue b/resources/js/Pages/Videos.vue\n--- a/resources/js/Pages/Videos.vue\n+++ b/resources/js/Pages/Videos.vue\n@@ -0,0 +1,1 @@\n+<template>x</template>\n";
+        $diff = "diff --git a/resources/js/Pages/Posts.vue b/resources/js/Pages/Posts.vue\n--- a/resources/js/Pages/Posts.vue\n+++ b/resources/js/Pages/Posts.vue\n@@ -0,0 +1,1 @@\n+<template>x</template>\n";
 
         Process::fake([
             '*merge-base*' => Process::result("abc123\n"),
@@ -520,15 +520,15 @@ final class ChangedSymbolsTest extends TestCase
     #[Test]
     public function a_changed_file_with_a_broken_eager_load_string_carries_a_finding(): void
     {
-        $head = "<?php\nnamespace App\Exports;\nuse App\Models\Video;\nclass Foo\n{\n    public function bar(): void\n    {\n        \$this->video->load([Video::INTERACTIONS . Video::QUESTIONS]);\n    }\n}\n";
-        $base = "<?php\nnamespace App\Exports;\nuse App\Models\Video;\nclass Foo\n{\n    public function bar(): void\n    {\n    }\n}\n";
-        $hunk = $this->hunk([[8, '        $this->video->load([Video::INTERACTIONS . Video::QUESTIONS]);']], []);
+        $head = "<?php\nnamespace App\Exports;\nuse App\Models\Post;\nclass Foo\n{\n    public function bar(): void\n    {\n        \$this->post->load([Post::COMMENTS . Post::REVIEWS]);\n    }\n}\n";
+        $base = "<?php\nnamespace App\Exports;\nuse App\Models\Post;\nclass Foo\n{\n    public function bar(): void\n    {\n    }\n}\n";
+        $hunk = $this->hunk([[8, '        $this->post->load([Post::COMMENTS . Post::REVIEWS]);']], []);
 
         $checker = new EagerLoadStringChecker(self::fixtureProjectPath() . '/app/Models');
         $result = ChangedSymbols::classifyFile('app/Exports/Foo.php', $head, $base, $hunk, $checker);
 
         $this->assertCount(1, $result->findings);
-        $this->assertStringContainsString('interactionsquestions', $result->findings[0]);
+        $this->assertStringContainsString('commentsreviews', $result->findings[0]);
     }
 
     #[Test]
@@ -536,8 +536,8 @@ final class ChangedSymbolsTest extends TestCase
     {
         // Same broken eager-load string on both sides — the change itself is whitespace-only, so the
         // checker must not fire on pre-existing code the diff didn't touch behaviourally.
-        $head = "<?php\nnamespace App\Exports;\nuse App\Models\Video;\nclass Foo\n{\n    public function bar(): void\n    {\n        \$this->video->load([Video::INTERACTIONS . Video::QUESTIONS]);\n    }\n}\n";
-        $hunk = $this->hunk([[8, '        $this->video->load([Video::INTERACTIONS . Video::QUESTIONS]);']], [[8, '  $this->video->load([Video::INTERACTIONS . Video::QUESTIONS]);']]);
+        $head = "<?php\nnamespace App\Exports;\nuse App\Models\Post;\nclass Foo\n{\n    public function bar(): void\n    {\n        \$this->post->load([Post::COMMENTS . Post::REVIEWS]);\n    }\n}\n";
+        $hunk = $this->hunk([[8, '        $this->post->load([Post::COMMENTS . Post::REVIEWS]);']], [[8, '  $this->post->load([Post::COMMENTS . Post::REVIEWS]);']]);
 
         $result = ChangedSymbols::classifyFile('app/Exports/Foo.php', $head, $head, $hunk);
 

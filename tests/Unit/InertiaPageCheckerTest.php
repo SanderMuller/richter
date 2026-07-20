@@ -20,17 +20,17 @@ final class InertiaPageCheckerTest extends TestCase
             <?php
             use Inertia\Inertia;
 
-            class VideoController
+            class PostController
             {
                 public function show(): mixed
                 {
-                    return Inertia::render('Videos/Show', ['video' => 1]);
+                    return Inertia::render('Posts/Show', ['post' => 1]);
                 }
             }
             PHP);
 
         $this->assertSame(
-            ["renders Inertia page 'Videos/Show' (resources/js/Pages/Videos/Show.vue) — that page is part of this change's surface"],
+            ["renders Inertia page 'Posts/Show' (resources/js/Pages/Posts/Show.vue) — that page is part of this change's surface"],
             $findings,
         );
     }
@@ -42,22 +42,22 @@ final class InertiaPageCheckerTest extends TestCase
             <?php
             use Inertia\Inertia as I;
 
-            class VideoController
+            class PostController
             {
                 public function show(): mixed
                 {
-                    return I::render('Videos/Show');
+                    return I::render('Posts/Show');
                 }
 
                 public function edit(): mixed
                 {
-                    return inertia('Videos/Show');
+                    return inertia('Posts/Show');
                 }
             }
             PHP);
 
         $this->assertCount(1, $findings);
-        $this->assertStringContainsString("'Videos/Show' (resources/js/Pages/Videos/Show.vue)", $findings[0]);
+        $this->assertStringContainsString("'Posts/Show' (resources/js/Pages/Posts/Show.vue)", $findings[0]);
     }
 
     #[Test]
@@ -89,11 +89,11 @@ final class InertiaPageCheckerTest extends TestCase
             <?php
             use Inertia\Inertia;
 
-            class VideoController
+            class PostController
             {
                 public function show(): mixed
                 {
-                    return Inertia::render('Videos/Show');
+                    return Inertia::render('Posts/Show');
                 }
             }
             PHP;
@@ -109,7 +109,7 @@ final class InertiaPageCheckerTest extends TestCase
             <?php
             use Inertia\Inertia;
 
-            class VideoController
+            class PostController
             {
                 public function show(string $page): mixed
                 {
@@ -132,7 +132,7 @@ final class InertiaPageCheckerTest extends TestCase
             {
                 public function show(): mixed
                 {
-                    return View::render('Videos/Show');
+                    return View::render('Posts/Show');
                 }
             }
             PHP);

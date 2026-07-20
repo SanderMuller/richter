@@ -3,14 +3,14 @@
 namespace App\Http;
 
 use App\Http\Middleware\Authenticate;
-use App\Http\Middleware\PlaylistAuthenticate;
+use App\Http\Middleware\CategoryAuthenticate;
 
 final class Kernel
 {
     /** @var array<string, class-string> */
     protected $middlewareAliases = [
         'auth' => Authenticate::class,
-        'playlist.auth' => PlaylistAuthenticate::class,
+        'category.auth' => CategoryAuthenticate::class,
         'features' => 'Laravel\Pennant\Middleware\EnsureFeaturesAreActive',
     ];
 }

@@ -2,9 +2,9 @@
 
 namespace App\Services;
 
-use App\Contracts\VideoTranscoder;
+use App\Contracts\PostTranscoder;
 
-final class FfmpegTranscoder implements VideoTranscoder
+final class FfmpegTranscoder implements PostTranscoder
 {
     public function transcode(): void {}
 }

@@ -2,8 +2,8 @@
 
 namespace SanderMuller\Richter\Tests\Feature;
 
-use App\Http\Controllers\Video\DashboardSearchController;
-use App\Http\Controllers\Video\QuestionController;
+use App\Http\Controllers\Post\DashboardSearchController;
+use App\Http\Controllers\Post\ReviewController;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Process;
@@ -42,8 +42,8 @@ final class FrontendSeamTest extends TestCase
 
         config()->set('richter.frontend.roots', ['resources/js']);
 
-        Route::get('/videos/{video}/questions', [QuestionController::class, 'show'])->name('videos.questions.show');
-        Route::get('/videos/{video}/edit', [QuestionController::class, 'edit'])->name('videos.edit');
+        Route::get('/posts/{post}/reviews', [ReviewController::class, 'show'])->name('posts.reviews.show');
+        Route::get('/posts/{post}/edit', [ReviewController::class, 'edit'])->name('posts.edit');
         Route::get('/dashboard/search', [DashboardSearchController::class, 'index'])->name('dashboard.search');
     }
 
@@ -72,31 +72,31 @@ final class FrontendSeamTest extends TestCase
     #[Test]
     public function the_fixture_project_is_the_working_tree(): void
     {
-        $this->assertFileExists(base_path('resources/js/components/VideoApi.ts'));
+        $this->assertFileExists(base_path('resources/js/components/PostApi.ts'));
     }
 
     #[Test]
     public function a_changed_frontend_file_seeds_the_backend_routes_it_references(): void
     {
-        $decoded = $this->detectChangesFor($this->additionDiff('resources/js/components/VideoApi.ts', 'export function searchDashboard() {}'));
+        $decoded = $this->detectChangesFor($this->additionDiff('resources/js/components/PostApi.ts', 'export function searchDashboard() {}'));
 
         $this->assertIsArray($decoded);
 
         $changed = $decoded['changed'];
         $this->assertIsArray($changed);
-        $this->assertArrayHasKey('resources/js/components/VideoApi.ts', $changed);
+        $this->assertArrayHasKey('resources/js/components/PostApi.ts', $changed);
 
         $coverage = $decoded['coverage'];
         $this->assertIsArray($coverage);
-        $this->assertSame('analyzed', $coverage['resources/js/components/VideoApi.ts']);
+        $this->assertSame('analyzed', $coverage['resources/js/components/PostApi.ts']);
 
-        // All three reference kinds — a Wayfinder action import (QuestionController::show), a Ziggy
-        // route() call (videos.edit) and a bare URI literal (/dashboard/search) — resolve onto the
+        // All three reference kinds — a Wayfinder action import (ReviewController::show), a Ziggy
+        // route() call (posts.edit) and a bare URI literal (/dashboard/search) — resolve onto the
         // fixture's real routes and surface as touched entry points.
         $entryPoints = $decoded['entryPoints'];
         $this->assertIsArray($entryPoints);
-        $this->assertContains('route::GET::/videos/{video}/questions', $entryPoints);
-        $this->assertContains('route::GET::/videos/{video}/edit', $entryPoints);
+        $this->assertContains('route::GET::/posts/{post}/reviews', $entryPoints);
+        $this->assertContains('route::GET::/posts/{post}/edit', $entryPoints);
         $this->assertContains('route::GET::/dashboard/search', $entryPoints);
 
         // A frontend change never alters backend behaviour — it must never move the risk level.
@@ -109,7 +109,7 @@ final class FrontendSeamTest extends TestCase
         // Inside resources/js/actions/ — the default richter.frontend.generated_paths tree. handles()
         // must gate it out before any source is even read, so the file never enters $changed at all;
         // the report reads as if the diff were empty.
-        $decoded = $this->detectChangesFor($this->additionDiff('resources/js/actions/App/Http/Controllers/Video/QuestionController.ts', 'export function show() {}'));
+        $decoded = $this->detectChangesFor($this->additionDiff('resources/js/actions/App/Http/Controllers/Post/ReviewController.ts', 'export function show() {}'));
 
         $this->assertSame(JsonPresenter::emptyDetectChanges('some-base'), $decoded);
     }
@@ -117,26 +117,26 @@ final class FrontendSeamTest extends TestCase
     #[Test]
     public function the_fixture_spec_file_registers_as_a_frontend_test_reference(): void
     {
-        // The committed spec fixture references QuestionController::show via a Wayfinder action
+        // The committed spec fixture references ReviewController::show via a Wayfinder action
         // import — the index built from the configured roots must map it onto that route node.
         $index = FrontendTestIndex::fromConfiguredPaths(base_path());
 
         $this->assertSame(
-            ['resources/js/specs/video.spec.ts'],
-            $index->testsReferencing('route::GET::/videos/{video}/questions'),
+            ['resources/js/specs/post.spec.ts'],
+            $index->testsReferencing('route::GET::/posts/{post}/reviews'),
         );
     }
 
     #[Test]
     public function a_changed_blade_view_seeds_the_endpoint_its_inline_script_calls(): void
     {
-        $decoded = $this->detectChangesFor($this->additionDiff('resources/views/videos/inline.blade.php', "<script>fetch('/dashboard/search');</script>"));
+        $decoded = $this->detectChangesFor($this->additionDiff('resources/views/posts/inline.blade.php', "<script>fetch('/dashboard/search');</script>"));
 
         $this->assertIsArray($decoded);
 
         $changed = $decoded['changed'];
         $this->assertIsArray($changed);
-        $this->assertArrayHasKey('resources/views/videos/inline.blade.php', $changed);
+        $this->assertArrayHasKey('resources/views/posts/inline.blade.php', $changed);
 
         // The fixture view is a standalone page: no controller renders it and no other view
         // @includes/@extends it, so Brain's graph never gains a node for it (BladeViewTracer only
@@ -144,7 +144,7 @@ final class FrontendSeamTest extends TestCase
         // coverage honestly reads UNRESOLVED rather than a falsely-reassuring "analyzed".
         $coverage = $decoded['coverage'];
         $this->assertIsArray($coverage);
-        $this->assertSame('unresolved', $coverage['resources/views/videos/inline.blade.php']);
+        $this->assertSame('unresolved', $coverage['resources/views/posts/inline.blade.php']);
 
         // The inline <script>'s endpoint reference is a separate lane from the view seed
         // (ImpactAnalyzer::detectChanges's directSeeds loop reports route:: seeds as touched entry

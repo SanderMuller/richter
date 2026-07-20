@@ -2,9 +2,9 @@
 
 namespace App\Services;
 
-use App\Contracts\VideoPublisher;
+use App\Contracts\PostPublisher;
 
-final class YoutubePublisher implements VideoPublisher
+final class YoutubePublisher implements PostPublisher
 {
     public function publish(): void {}
 }

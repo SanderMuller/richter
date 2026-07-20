@@ -763,7 +763,7 @@ final class CommandsTest extends TestCase
 
     /**
      * Points the graph at the fixture project and fakes the four git calls a benchmark replay makes,
-     * so the configured case replays a modification inside QuestionController::show() — a member the
+     * so the configured case replays a modification inside ReviewController::show() — a member the
      * fixture graph resolves and walks up to its two routes (see CodeGraphBuilderTest). The testbench
      * skeleton's app/ is empty, so its graph could never resolve a seed, let alone reach an entry
      * point. Both `git show` sides return the real fixture source; the diff's line number is derived
@@ -779,9 +779,9 @@ final class CommandsTest extends TestCase
         $this->assertInstanceOf(Application::class, $app);
         $app->setBasePath(self::fixtureProjectPath());
 
-        $file = 'app/Http/Controllers/Video/QuestionController.php';
+        $file = 'app/Http/Controllers/Post/ReviewController.php';
         $source = (string) file_get_contents(self::fixtureProjectPath() . '/' . $file);
-        $changedLine = array_search('        return QuestionResource::make($video);', explode("\n", $source), true);
+        $changedLine = array_search('        return ReviewResource::make($post);', explode("\n", $source), true);
         $this->assertIsInt($changedLine);
         ++$changedLine; // explode() indexes from 0, diff hunk headers from 1.
 
@@ -789,8 +789,8 @@ final class CommandsTest extends TestCase
             . "--- a/{$file}\n"
             . "+++ b/{$file}\n"
             . "@@ -{$changedLine},1 +{$changedLine},1 @@\n"
-            . "-        return QuestionResource::make(\$video->withoutRelations());\n"
-            . "+        return QuestionResource::make(\$video);\n";
+            . "-        return ReviewResource::make(\$post->withoutRelations());\n"
+            . "+        return ReviewResource::make(\$post);\n";
 
         Process::fake(array_merge($extraFakes, [
             '*cat-file*' => Process::result(),

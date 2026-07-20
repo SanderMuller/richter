@@ -2,31 +2,31 @@
 
 namespace SanderMuller\Richter\Tests\Unit;
 
-use App\Actions\Video\ValidateJsonImport;
+use App\Actions\Post\ValidateJsonImport;
 use App\Handlers\Translation\DatabaseTranslationManager;
-use App\Http\Controllers\Video\QuestionController;
-use App\Http\Requests\Video\Validators\JsonInteractionImportValidator;
-use App\Http\Resources\Api\v2\Video\QuestionPlayerResource;
-use App\Http\Resources\Api\v2\Video\QuestionResource;
+use App\Http\Controllers\Post\ReviewController;
+use App\Http\Requests\Post\Validators\JsonCommentImportValidator;
+use App\Http\Resources\Api\v2\Post\ReviewPlayerResource;
+use App\Http\Resources\Api\v2\Post\ReviewResource;
 use App\Models\Concerns\WithAudits;
-use App\Models\Question;
+use App\Models\Review;
 use App\Rules\CustomCss;
 use App\Rules\Document;
-use App\Transformers\Api\v2\Question\ExternalQuestion;
+use App\Transformers\Api\v2\Review\ExternalReview;
 use PHPUnit\Framework\Attributes\Test;
 use SanderMuller\Richter\Tests\TestCase;
 use SanderMuller\Richter\Tracers\ReferenceEdgeTracer;
 
 final class ReferenceEdgeTracerTest extends TestCase
 {
-    private const string CONTROLLER = QuestionController::class;
+    private const string CONTROLLER = ReviewController::class;
 
     /**
      * @return list<array{source: string, target: string, type: string}>
      */
     private function edges(string $body, string $uses, string $fqcn = self::CONTROLLER): array
     {
-        $source = "<?php\nnamespace App\Http\Controllers\Video;\n{$uses}\nclass QuestionController\n{\n    public function show(): mixed\n    {\n        return {$body}\n    }\n}\n";
+        $source = "<?php\nnamespace App\Http\Controllers\Post;\n{$uses}\nclass ReviewController\n{\n    public function show(): mixed\n    {\n        return {$body}\n    }\n}\n";
 
         return new ReferenceEdgeTracer()->edgesForSource($source, $fqcn);
     }
@@ -34,40 +34,40 @@ final class ReferenceEdgeTracerTest extends TestCase
     #[Test]
     public function it_links_a_resource_make_call_to_the_resource_class(): void
     {
-        $edges = $this->edges('QuestionResource::make($question);', 'use App\Http\Resources\Api\v2\Video\QuestionResource;');
+        $edges = $this->edges('ReviewResource::make($review);', 'use App\Http\Resources\Api\v2\Post\ReviewResource;');
 
-        $this->assertContains(['source' => self::CONTROLLER . '::show', 'target' => QuestionResource::class, 'type' => 'resource'], $edges);
+        $this->assertContains(['source' => self::CONTROLLER . '::show', 'target' => ReviewResource::class, 'type' => 'resource'], $edges);
     }
 
     #[Test]
     public function it_links_a_resource_collection_call_and_a_new_expression(): void
     {
         $edges = $this->edges(
-            '[QuestionResource::collection($questions), new VideoResource($video)];',
-            "use App\Http\Resources\Api\\v2\Video\QuestionResource;\nuse App\Http\Resources\VideoResource;",
+            '[ReviewResource::collection($reviews), new PostResource($post)];',
+            "use App\Http\Resources\Api\\v2\Post\ReviewResource;\nuse App\Http\Resources\PostResource;",
         );
 
         $this->assertCount(2, $edges);
-        $this->assertContains('App\Http\Resources\VideoResource', array_column($edges, 'target'));
+        $this->assertContains('App\Http\Resources\PostResource', array_column($edges, 'target'));
     }
 
     #[Test]
     public function it_links_a_transformer_reference(): void
     {
-        $edges = $this->edges('new ExternalQuestion($question);', 'use App\Transformers\Api\v2\Question\ExternalQuestion;');
+        $edges = $this->edges('new ExternalReview($review);', 'use App\Transformers\Api\v2\Review\ExternalReview;');
 
-        $this->assertContains(['source' => self::CONTROLLER . '::show', 'target' => ExternalQuestion::class, 'type' => 'resource'], $edges);
+        $this->assertContains(['source' => self::CONTROLLER . '::show', 'target' => ExternalReview::class, 'type' => 'resource'], $edges);
     }
 
     #[Test]
     public function a_nested_resource_links_to_the_inner_resource_but_not_itself(): void
     {
-        $source = "<?php\nnamespace App\Http\Resources;\nuse App\Http\Resources\Api\\v2\Video\QuestionPlayerResource;\nclass QuestionResource\n{\n    public function toArray(): array\n    {\n        return [QuestionPlayerResource::make(\$this->resource), QuestionResource::collection(\$this->children)];\n    }\n}\n";
+        $source = "<?php\nnamespace App\Http\Resources;\nuse App\Http\Resources\Api\\v2\Post\ReviewPlayerResource;\nclass ReviewResource\n{\n    public function toArray(): array\n    {\n        return [ReviewPlayerResource::make(\$this->resource), ReviewResource::collection(\$this->children)];\n    }\n}\n";
 
-        $edges = new ReferenceEdgeTracer()->edgesForSource($source, 'App\Http\Resources\QuestionResource');
+        $edges = new ReferenceEdgeTracer()->edgesForSource($source, 'App\Http\Resources\ReviewResource');
 
         $this->assertSame([
-            ['source' => 'App\Http\Resources\QuestionResource::toArray', 'target' => QuestionPlayerResource::class, 'type' => 'resource'],
+            ['source' => 'App\Http\Resources\ReviewResource::toArray', 'target' => ReviewPlayerResource::class, 'type' => 'resource'],
         ], $edges);
     }
 
@@ -84,19 +84,19 @@ final class ReferenceEdgeTracerTest extends TestCase
     public function it_links_an_eager_load_by_model_constant_to_the_relation_method_node(): void
     {
         $edges = $this->edges(
-            '$video->load([Video::INTERACTIONS, Video::QUESTIONS . \'.\' . Question::ANSWERS]);',
-            "use App\Models\Question;\nuse App\Models\Video;",
+            '$post->load([Post::COMMENTS, Post::REVIEWS . \'.\' . Review::ANSWERS]);',
+            "use App\Models\Post;\nuse App\Models\Review;",
         );
 
-        $this->assertContains(['source' => self::CONTROLLER . '::show', 'target' => 'App\Models\Video::interactions', 'type' => 'loads-relation'], $edges);
-        $this->assertContains(['source' => self::CONTROLLER . '::show', 'target' => 'App\Models\Video::questions', 'type' => 'loads-relation'], $edges);
-        $this->assertContains(['source' => self::CONTROLLER . '::show', 'target' => 'App\Models\Question::answers', 'type' => 'loads-relation'], $edges);
+        $this->assertContains(['source' => self::CONTROLLER . '::show', 'target' => 'App\Models\Post::comments', 'type' => 'loads-relation'], $edges);
+        $this->assertContains(['source' => self::CONTROLLER . '::show', 'target' => 'App\Models\Post::reviews', 'type' => 'loads-relation'], $edges);
+        $this->assertContains(['source' => self::CONTROLLER . '::show', 'target' => 'App\Models\Review::answers', 'type' => 'loads-relation'], $edges);
     }
 
     #[Test]
     public function a_model_constant_outside_a_load_call_emits_no_relation_edge(): void
     {
-        $this->assertSame([], $this->edges('$video->update([Video::INTERACTIONS => 1]);', 'use App\Models\Video;'));
+        $this->assertSame([], $this->edges('$post->update([Post::COMMENTS => 1]);', 'use App\Models\Post;'));
     }
 
     #[Test]
@@ -105,12 +105,12 @@ final class ReferenceEdgeTracerTest extends TestCase
         // The closure body selects columns — those constants are not relation names; only the
         // array key is.
         $edges = $this->edges(
-            '$video->load([Video::QUESTIONS => fn ($q) => $q->select([Question::ANSWERS, Video::INTERACTIONS])]);',
-            "use App\Models\Question;\nuse App\Models\Video;",
+            '$post->load([Post::REVIEWS => fn ($q) => $q->select([Review::ANSWERS, Post::COMMENTS])]);',
+            "use App\Models\Post;\nuse App\Models\Review;",
         );
 
         $this->assertSame([
-            ['source' => self::CONTROLLER . '::show', 'target' => 'App\Models\Video::questions', 'type' => 'loads-relation'],
+            ['source' => self::CONTROLLER . '::show', 'target' => 'App\Models\Post::reviews', 'type' => 'loads-relation'],
         ], $edges);
     }
 
@@ -119,55 +119,55 @@ final class ReferenceEdgeTracerTest extends TestCase
     {
         // The checker excludes bare has() (overloaded receivers), but the tracer must keep it —
         // ->has(Model::RELATION) sites are real reach that must not go dark on a relation rename.
-        $edges = $this->edges('$query->has(Video::INTERACTIONS);', 'use App\Models\Video;');
+        $edges = $this->edges('$query->has(Post::COMMENTS);', 'use App\Models\Post;');
 
-        $this->assertContains(['source' => self::CONTROLLER . '::show', 'target' => 'App\Models\Video::interactions', 'type' => 'loads-relation'], $edges);
+        $this->assertContains(['source' => self::CONTROLLER . '::show', 'target' => 'App\Models\Post::comments', 'type' => 'loads-relation'], $edges);
     }
 
     #[Test]
     public function a_doesnt_have_call_with_a_model_constant_emits_a_relation_edge(): void
     {
-        $edges = $this->edges('$query->doesntHave(Video::QUESTIONS);', 'use App\Models\Video;');
+        $edges = $this->edges('$query->doesntHave(Post::REVIEWS);', 'use App\Models\Post;');
 
-        $this->assertContains(['source' => self::CONTROLLER . '::show', 'target' => 'App\Models\Video::questions', 'type' => 'loads-relation'], $edges);
+        $this->assertContains(['source' => self::CONTROLLER . '::show', 'target' => 'App\Models\Post::reviews', 'type' => 'loads-relation'], $edges);
     }
 
     #[Test]
     public function it_links_handler_action_and_validator_references(): void
     {
         $edges = $this->edges(
-            '[new DatabaseTranslationManager(), ValidateJsonImport::class, JsonInteractionImportValidator::class];',
-            "use App\Handlers\Translation\DatabaseTranslationManager;\nuse App\Actions\Video\ValidateJsonImport;\nuse App\Http\Requests\Video\Validators\JsonInteractionImportValidator;",
+            '[new DatabaseTranslationManager(), ValidateJsonImport::class, JsonCommentImportValidator::class];',
+            "use App\Handlers\Translation\DatabaseTranslationManager;\nuse App\Actions\Post\ValidateJsonImport;\nuse App\Http\Requests\Post\Validators\JsonCommentImportValidator;",
         );
 
         $this->assertContains(['source' => self::CONTROLLER . '::show', 'target' => DatabaseTranslationManager::class, 'type' => 'references'], $edges);
         $this->assertContains(['source' => self::CONTROLLER . '::show', 'target' => ValidateJsonImport::class, 'type' => 'references'], $edges);
-        $this->assertContains(['source' => self::CONTROLLER . '::show', 'target' => JsonInteractionImportValidator::class, 'type' => 'validates-with'], $edges);
+        $this->assertContains(['source' => self::CONTROLLER . '::show', 'target' => JsonCommentImportValidator::class, 'type' => 'validates-with'], $edges);
     }
 
     #[Test]
     public function a_used_app_trait_links_to_its_using_class(): void
     {
-        $source = "<?php\nnamespace App\Models;\nuse App\Models\Concerns\WithAudits;\nclass Question\n{\n    use WithAudits;\n}\n";
+        $source = "<?php\nnamespace App\Models;\nuse App\Models\Concerns\WithAudits;\nclass Review\n{\n    use WithAudits;\n}\n";
 
-        $edges = new ReferenceEdgeTracer()->edgesForSource($source, Question::class);
+        $edges = new ReferenceEdgeTracer()->edgesForSource($source, Review::class);
 
         $this->assertSame([
-            ['source' => Question::class, 'target' => WithAudits::class, 'type' => 'uses-trait'],
+            ['source' => Review::class, 'target' => WithAudits::class, 'type' => 'uses-trait'],
         ], $edges);
     }
 
     #[Test]
     public function a_vendor_trait_emits_no_edge(): void
     {
-        $source = "<?php\nnamespace App\Models;\nuse Illuminate\Database\Eloquent\SoftDeletes;\nclass Question\n{\n    use SoftDeletes;\n}\n";
+        $source = "<?php\nnamespace App\Models;\nuse Illuminate\Database\Eloquent\SoftDeletes;\nclass Review\n{\n    use SoftDeletes;\n}\n";
 
-        $this->assertSame([], new ReferenceEdgeTracer()->edgesForSource($source, Question::class));
+        $this->assertSame([], new ReferenceEdgeTracer()->edgesForSource($source, Review::class));
     }
 
     #[Test]
     public function it_emits_no_edge_for_unrelated_references(): void
     {
-        $this->assertSame([], $this->edges('response()->json($question);', 'use App\Models\Question;'));
+        $this->assertSame([], $this->edges('response()->json($review);', 'use App\Models\Review;'));
     }
 }

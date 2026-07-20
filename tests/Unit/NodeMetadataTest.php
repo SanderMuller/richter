@@ -14,17 +14,17 @@ final class NodeMetadataTest extends TestCase
         $metadata = NodeMetadata::fromBrainNodeData([
             'file' => '/srv/app/routes/web.php',
             'line' => 12,
-            'uri' => '/videos/{video}/publish',
+            'uri' => '/posts/{post}/publish',
             'method' => 'POST',
         ], '/srv/app');
 
-        $this->assertSame(['file' => 'routes/web.php', 'line' => 12, 'uri' => '/videos/{video}/publish'], $metadata);
+        $this->assertSame(['file' => 'routes/web.php', 'line' => 12, 'uri' => '/posts/{post}/publish'], $metadata);
     }
 
     #[Test]
     public function a_bag_with_nothing_worth_keeping_yields_null(): void
     {
-        $this->assertNull(NodeMetadata::fromBrainNodeData(['fqcn' => 'App\Models\Video', 'method' => 'query'], '/srv/app'));
+        $this->assertNull(NodeMetadata::fromBrainNodeData(['fqcn' => 'App\Models\Post', 'method' => 'query'], '/srv/app'));
         $this->assertNull(NodeMetadata::fromBrainNodeData(['file' => '', 'line' => 0, 'uri' => ''], '/srv/app'));
     }
 
@@ -105,11 +105,11 @@ final class NodeMetadataTest extends TestCase
     public function merge_keeps_the_first_value_per_field_and_fills_absent_ones(): void
     {
         $merged = NodeMetadata::merge(
-            ['file' => 'app/Models/Video.php'],
-            ['file' => 'other.php', 'line' => 7, 'uri' => '/videos'],
+            ['file' => 'app/Models/Post.php'],
+            ['file' => 'other.php', 'line' => 7, 'uri' => '/posts'],
         );
 
-        $this->assertSame(['file' => 'app/Models/Video.php', 'line' => 7, 'uri' => '/videos'], $merged);
+        $this->assertSame(['file' => 'app/Models/Post.php', 'line' => 7, 'uri' => '/posts'], $merged);
     }
 
     #[Test]
@@ -117,16 +117,16 @@ final class NodeMetadataTest extends TestCase
     {
         $remapped = NodeMetadata::remapKeys(
             [
-                'action::QuestionController::edit' => ['line' => 3],
-                'App\Http\Controllers\QuestionController::edit' => ['file' => 'app/Http/Controllers/QuestionController.php'],
+                'action::ReviewController::edit' => ['line' => 3],
+                'App\Http\Controllers\ReviewController::edit' => ['file' => 'app/Http/Controllers/ReviewController.php'],
             ],
-            static fn (string $node): string => $node === 'action::QuestionController::edit'
-                ? 'App\Http\Controllers\QuestionController::edit'
+            static fn (string $node): string => $node === 'action::ReviewController::edit'
+                ? 'App\Http\Controllers\ReviewController::edit'
                 : $node,
         );
 
         $this->assertSame(
-            ['App\Http\Controllers\QuestionController::edit' => ['line' => 3, 'file' => 'app/Http/Controllers/QuestionController.php']],
+            ['App\Http\Controllers\ReviewController::edit' => ['line' => 3, 'file' => 'app/Http/Controllers/ReviewController.php']],
             $remapped,
         );
     }
@@ -136,19 +136,19 @@ final class NodeMetadataTest extends TestCase
     {
         $metadata = NodeMetadata::withFallbackFiles(
             [
-                ['source' => 'App\Models\Video', 'target' => 'App\Models\Nonexistent', 'type' => 'model-relationship'],
-                ['source' => 'App\Models\Video::publish', 'target' => 'view::blade__videos.show', 'type' => 'action-to-view'],
+                ['source' => 'App\Models\Post', 'target' => 'App\Models\Nonexistent', 'type' => 'model-relationship'],
+                ['source' => 'App\Models\Post::publish', 'target' => 'view::blade__posts.show', 'type' => 'action-to-view'],
             ],
             [],
             self::fixtureProjectPath(),
         );
 
         // The class and its member node both resolve to the existing fixture file…
-        $this->assertSame('app/Models/Video.php', $metadata['App\Models\Video']['file'] ?? null);
-        $this->assertSame('app/Models/Video.php', $metadata['App\Models\Video::publish']['file'] ?? null);
+        $this->assertSame('app/Models/Post.php', $metadata['App\Models\Post']['file'] ?? null);
+        $this->assertSame('app/Models/Post.php', $metadata['App\Models\Post::publish']['file'] ?? null);
         // …while a missing file and a non-App node stay unannotated rather than guessed.
         $this->assertArrayNotHasKey('App\Models\Nonexistent', $metadata);
-        $this->assertArrayNotHasKey('view::blade__videos.show', $metadata);
+        $this->assertArrayNotHasKey('view::blade__posts.show', $metadata);
     }
 
     #[Test]
@@ -156,19 +156,19 @@ final class NodeMetadataTest extends TestCase
     {
         $metadata = NodeMetadata::withRouteGates(
             [
-                ['source' => 'route::POST::/videos/{video}/ai-coach', 'target' => 'middleware::features:ai-coach,beta', 'type' => 'route-to-middleware'],
+                ['source' => 'route::POST::/posts/{post}/ai-coach', 'target' => 'middleware::features:ai-coach,beta', 'type' => 'route-to-middleware'],
                 ['source' => 'route::GET::/labs', 'target' => 'middleware::Laravel\Pennant\Middleware\EnsureFeaturesAreActive:labs', 'type' => 'route-to-middleware'],
-                ['source' => 'route::GET::/videos', 'target' => 'middleware::throttle:60,1', 'type' => 'route-to-middleware'],
+                ['source' => 'route::GET::/posts', 'target' => 'middleware::throttle:60,1', 'type' => 'route-to-middleware'],
                 ['source' => 'App\Services\X', 'target' => 'middleware::features:not-a-route', 'type' => 'call'],
             ],
             [],
             ['features' => 'Laravel\Pennant\Middleware\EnsureFeaturesAreActive'],
         );
 
-        $this->assertSame(['ai-coach', 'beta'], $metadata['route::POST::/videos/{video}/ai-coach']['gates'] ?? null);
+        $this->assertSame(['ai-coach', 'beta'], $metadata['route::POST::/posts/{post}/ai-coach']['gates'] ?? null);
         $this->assertSame(['labs'], $metadata['route::GET::/labs']['gates'] ?? null);
         // Parameterised non-Pennant middleware and non-route sources never gate.
-        $this->assertArrayNotHasKey('route::GET::/videos', $metadata);
+        $this->assertArrayNotHasKey('route::GET::/posts', $metadata);
         $this->assertArrayNotHasKey('App\Services\X', $metadata);
     }
 
@@ -211,11 +211,11 @@ final class NodeMetadataTest extends TestCase
     public function fallback_never_overwrites_an_existing_file(): void
     {
         $metadata = NodeMetadata::withFallbackFiles(
-            [['source' => 'App\Models\Video', 'target' => 'App\Models\Question', 'type' => 'model-relationship']],
-            ['App\Models\Video' => ['file' => 'routes/web.php', 'line' => 5]],
+            [['source' => 'App\Models\Post', 'target' => 'App\Models\Review', 'type' => 'model-relationship']],
+            ['App\Models\Post' => ['file' => 'routes/web.php', 'line' => 5]],
             self::fixtureProjectPath(),
         );
 
-        $this->assertSame(['file' => 'routes/web.php', 'line' => 5], $metadata['App\Models\Video']);
+        $this->assertSame(['file' => 'routes/web.php', 'line' => 5], $metadata['App\Models\Post']);
     }
 }
