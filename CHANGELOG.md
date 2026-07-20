@@ -5,6 +5,36 @@ All notable changes to `sandermuller/richter` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.10.0 - 2026-07-20
+
+<!-- verified-sha: aadac5f8bbe2a116a3cfdc71c5f512b7e40c7023 -->
+A precision-and-completeness release sourced from a full-feature dogfood of 0.9.0 against a large production Laravel application. `richter:affected-tests` now reflects your working tree and never silently narrows past a change it cannot see; the frontend bridge only treats genuine HTTP/route calls as route references; and Pennant feature flags are recognised behind the common enum-wrapper convention. All changes are additive or behaviour-refining — there are no breaking changes.
+
+### Added
+
+- **`richter.feature_gate_methods`.** Recognise feature-flag checks written as an enum wrapper (`FeatureToggle::SomeFlag->isActive()`), not only the `Laravel\Pennant\Feature` facade or the `@feature` Blade directive. Register your project's `Enum\Class::method` wrappers and a change behind one is annotated as flag-gated. Annotation only — it never feeds `risk`, the `--fail-on` gate, or `affected-tests` selection.
+- **`richter.frontend.http_callees`.** A frontend string literal counts as a backend route reference only when it is the first argument of an HTTP/route callee. The built-in allowlist covers `route`, `fetch`, `axios`, `useFetch`, `$http`, `$` (jQuery), `window`, and `page` / `cy` (Playwright / Cypress spec navigation); register custom HTTP wrappers through config. This removes false route seeds from unrelated calls such as `translate('/settings')` or `console.log('/…')` that previously inflated the touched-route surface.
+
+### Changed
+
+- **`HEAD`-mode diffs now analyse the working tree.** `detect-changes` and `affected-tests` compare the working tree against the merge-base with `--base`, so uncommitted and staged edits are included — running either *before* you commit now sees your actual changes rather than only what is committed. Passing an explicit non-`HEAD` ref still replays that ref's committed tree, so historical and benchmark replays are unchanged, and CI (which checks out clean) is unaffected.
+
+### Fixed
+
+- **`affected-tests` no longer silently under-selects around a file it cannot diff.** An untracked (never `git add`-ed) file under `app/`, `resources/views/`, or a configured frontend root is invisible to `git diff`; the selection now fails closed (exit 2 — "run the full suite") instead of emitting a narrowed set that omits it. `git add` the file to include it. `detect-changes` keeps its advisory stderr note.
+- **Hunk/source desync in `HEAD` mode.** With uncommitted edits stacked on committed ones, added/removed line numbers and member spans now come from a single tree, so a hunk can no longer map to the wrong member.
+
+### Documentation
+
+- Exposure classification (`[public]` / `[authed]` / `[admin]`) is route-only. A Livewire, Filament, or queue entry point carrying no exposure tag means "not classified," never "public" or "unauthenticated" — its real exposure comes from mount-time authorization, middleware, or route placement the graph does not model.
+
+### Internal
+
+- Test fixtures were migrated to a neutral, synthetic domain, and a guideline was added to keep fixtures, documentation examples, and specs free of any consumer's product vocabulary. Development scaffolding (`plans/`, `specs/`) is now excluded from the Composer dist archive.
+- Suite grows to 608 tests / 1,351 assertions.
+
+**Full Changelog**: https://github.com/SanderMuller/richter/compare/v0.9.0...v0.10.0
+
 ## v0.9.0 - 2026-07-20
 
 <!-- verified-sha: 8c35afcd6c22fc82367428d61b43030cbba18399 -->
