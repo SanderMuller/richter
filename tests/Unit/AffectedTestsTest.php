@@ -100,14 +100,14 @@ final class AffectedTestsTest extends TestCase
     {
         // A schedule:: node has no reference detection — silently skipping it would shrink the set.
         $selection = AffectedTests::select(
-            $this->detectResult(['schedule::videos:cleanup']),
+            $this->detectResult(['schedule::posts:cleanup']),
             [],
             $this->index(),
             hasUnresolvedDispatches: false,
         );
 
         $this->assertFalse($selection['determinable']);
-        $this->assertStringContainsString('schedule::videos:cleanup', $selection['reasons'][0]);
+        $this->assertStringContainsString('schedule::posts:cleanup', $selection['reasons'][0]);
     }
 
     #[Test]
@@ -243,10 +243,10 @@ final class AffectedTestsTest extends TestCase
     public function a_schedule_entry_resolves_through_its_scheduled_command_when_the_graph_is_given(): void
     {
         $graph = new CodeGraph([
-            ['source' => 'schedule::abc123', 'target' => 'command::video:seed-views {--without-relations : x}', 'type' => 'schedule-to-command'],
+            ['source' => 'schedule::abc123', 'target' => 'command::post:seed-views {--without-relations : x}', 'type' => 'schedule-to-command'],
         ]);
         $index = new TestReferenceIndex();
-        $index->addSource("<?php \$this->artisan('video:seed-views');", 'tests/Feature/SeedViewsTest.php');
+        $index->addSource("<?php \$this->artisan('post:seed-views');", 'tests/Feature/SeedViewsTest.php');
 
         $selection = AffectedTests::select(
             $this->detectResult(['schedule::abc123']),
