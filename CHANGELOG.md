@@ -5,6 +5,22 @@ All notable changes to `sandermuller/richter` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.9.0 - 2026-07-20
+
+<!-- verified-sha: 8c35afcd6c22fc82367428d61b43030cbba18399 -->
+### Added
+
+- **Assertion-graded test references.** A reached entry point that a test references but whose referencing tests contain no behavioural assertion the scan recognises is now tagged `[test-referenced — no behavioural assertion found]` (text), `🟡 test-referenced, no behavioural assertion found` (markdown), and carries `"referenced-no-behavioural-assertion"` in the new `entryPointTestReferences` JSON/MCP map. The grade is per file and certainty-gated: a file counts as assertion-weak only when every assert-ish call in it is a provable smoke form (`assertOk`, `assertSuccessful`, `assertStatus(200)`, `assertTrue(true)`) or it has none — any behavioural or unrecognised assertion, or a status check that carries meaning (`assertStatus(403)`, `assertForbidden`, an authorization test's own claim), leaves it plain `[test-referenced]`. Uncertainty always collapses to the weaker claim, never to the sub-tag: a false "proves nothing" would wrongly discredit a real test. It is advisory annotation only — never an input to `risk`, a `--fail-on` gate, or `richter:affected-tests` selection.
+- **`entryPointTestReferences` in `--json` and MCP structured content.** Per reached entry point, `"referenced"` / `"referenced-no-behavioural-assertion"` / `"unreferenced"`; an entry point whose reference state cannot be determined is omitted from the map.
+- **`richter:detect-changes --profile`.** Forces a fresh build and prints a phase-by-phase timing split (Brain analysis, canonicalisation, the consolidated tracer pass, entry-point tracing, Blade tracers, rewrites) to stderr, so `--json` and `--markdown` stdout stay a single clean document. It answers where a build's wall-clock actually goes on a given codebase.
+
+### Internal
+
+- Suite grows from 562 to 580 tests: per-file assertion grading (smoke-form vs behavioural, authorization-status and Pest `expect` edge cases), the profile phase-event sequence, and the `--profile` output-contract coexistence with `--json`.
+- Build phase timings ride the existing `onProgress` callback (`richter:phase` events), zero-cost when no listener is attached.
+
+**Full Changelog**: https://github.com/SanderMuller/richter/compare/v0.8.0...v0.9.0
+
 ## v0.8.0 - 2026-07-19
 
 <!-- verified-sha: 64e0c766dbe6c7249f9e7b3ce15fb0eade1e3f01 -->
