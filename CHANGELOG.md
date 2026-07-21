@@ -5,6 +5,21 @@ All notable changes to `sandermuller/richter` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.11.0 - 2026-07-21
+
+<!-- verified-sha: cc1cabb9eb2ed126dd508f58351f5219cf8c2688 -->
+### Added
+
+- **`richter:detect-changes --html=<path>`.** Writes the report as one self-contained HTML file — every style and script inline, nothing fetched — so it opens offline from `file://` and travels as a CI artifact you can link from a pull request. Five tabs: **Overview** (a Files / Impacted / Depth / Risk stat row, the reached entry points, and what to focus on), **Graph** (the blast radius drawn as concentric rings, one per BFS depth from the change, with hover/focus tooltips and connected-edge highlighting), **Paths** (how each entry point reaches the change), **Changes** (the member-level diff, naming the member that drove a low-confidence verdict), and **Advisory** (findings, route security issues, test references, and the gate). `--open` launches it in the default browser afterwards; a failing opener is a warning, never a failed run. The diagram caps at 300 nodes and says so when it does — the counts above it are never capped. It composes with `--fail-on`: `--html` replaces the text report on stdout but never touches the gate or the exit code. The HTML is a rendering surface, not a contract — its markup may change in any release; `--json` remains the semver-governed machine output.
+- **Clickable editor links in the report.** Every `file:line` opens your editor at that line. `richter.editor` reuses debugbar's / Ignition's env chain (`CODE_EDITOR`, then `DEBUGBAR_EDITOR`, then `IGNITION_EDITOR`) and, like debugbar, defaults to `phpstorm`, so an existing setup needs no new variable. PhpStorm, the VS Code family (`vscode`, `vscode-insiders`, `vscode-remote`, `vscodium`), Sublime, TextMate, Emacs, MacVim, Atom, Nova, NetBeans, and Xdebug are supported. Set `richter.editor` to `null` to keep the file references plain text — worth doing for a shared CI artifact, where a link would point every reader at an absolute path only present on the machine that generated the report.
+
+### Internal
+
+- The blast-radius diagram is laid out in PHP — depth is the radius — so it is deterministic and snapshot-testable, and the package still ships no JavaScript build step. The graph the report draws is carried alongside the report only: `--json` and the MCP output schema are byte-unchanged.
+- Suite grows to 700 tests / 1,613 assertions.
+
+**Full Changelog**: https://github.com/SanderMuller/richter/compare/v0.10.0...v0.11.0
+
 ## v0.10.0 - 2026-07-20
 
 <!-- verified-sha: aadac5f8bbe2a116a3cfdc71c5f512b7e40c7023 -->
