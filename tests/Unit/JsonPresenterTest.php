@@ -152,6 +152,29 @@ final class JsonPresenterTest extends TestCase
         $this->assertSame(['risk' => 'high'], $decoded);
     }
 
+    #[Test]
+    public function detect_changes_json_ignores_the_new_internal_graph_keys(): void
+    {
+        // `seeds`/`reach`/`edges` join `callers`/`dependencies` as analyzer-internal keys feeding
+        // the HTML report. The machine contract must not notice them: adding a field to --json is a
+        // semver event, and the graph payload was deliberately kept out of it.
+        $result = $this->detectChangesResult();
+        $withGraph = $result + [
+            'seeds' => ['App\\Jobs\\ProcessPostJob::handle'],
+            'reach' => ['route::GET /a' => ['route-to-controller' => true]],
+            'edges' => [['source' => 'route::GET /a', 'target' => 'App\\Jobs\\ProcessPostJob::handle', 'via' => 'route-to-controller', 'depth' => 1]],
+        ];
+
+        $json = JsonPresenter::detectChanges($result, 'origin/main');
+        $jsonWithGraph = JsonPresenter::detectChanges($withGraph, 'origin/main');
+
+        $this->assertSame($json, $jsonWithGraph);
+        $this->assertSame(JsonPresenter::encode($json), JsonPresenter::encode($jsonWithGraph));
+        $this->assertArrayNotHasKey('seeds', $jsonWithGraph);
+        $this->assertArrayNotHasKey('reach', $jsonWithGraph);
+        $this->assertArrayNotHasKey('edges', $jsonWithGraph);
+    }
+
     /**
      * @param  list<string>  $entryPoints
      * @return array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, array{exposure: string, riskLevel: string, issues: list<array{type: string, severity: string, message: string, file?: string, line?: int}>}>, entryPointGates: array<string, list<string>>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied: bool, findings: list<string>}

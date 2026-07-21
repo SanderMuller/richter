@@ -87,7 +87,18 @@ Dogfood round (2026-07-20, pinned at `2d8a437`):
 | 042  | Codex follow-up from `/final-verification-review` (no standalone plan file — fixes specified inline) | P1 | S | 037/038 | DONE (main `d76328c`, 2026-07-20). Finding 2 (blocker) FIXED: `affected-tests` now fails closed (UNDETERMINED, exit 2) when `ChangedSymbols::untrackedRelevantFiles()` is non-empty — the 037 stderr warning alone silently under-selected an untracked new `app/` file; `detect-changes` unchanged. Finding 1 = docs-only (037's "strict superset" claim corrected to the working-tree-contract). **Finding 3 DISMISSED with evidence — do NOT reintroduce**: adding a `(?<![\w$.])` left boundary to the frontend callee-gate regex was empirically shown to REGRESS common instance-HTTP idioms (`this.axios.get`/`this.$http.get`/`svc.axios.get` all stop seeding → under-selection); the mid-chain allowlisted-callee match is INTENTIONAL (catches instance HTTP clients), rare `foo.window.fetch` FPs accepted as safe over-selection. Codex re-review round 2 CLEAN. |
 | 041  | Migrate the test/fixture domain off the consumer's product vocabulary (maintainer instruction) | P2 | L | none; merge-adjacent to 038/039/040 | DONE (reviewed + independently re-verified; main `f5ea51b`..`27fa236`, 2026-07-20; 84 files, 900/900 pure renames; `src/` dist-shipped half verified comment/docblock-only; `FeatureFlag`→`ExperimentFlag` to avoid colliding with 039's `FeatureToggle`; leak-gate clean except 3 benign grep-pattern artifacts — `--no-interaction`, `AskUserQuestion`/`Open`+`Resolved Questions`; 590 tests green) |
 
+GUI round (2026-07-21, pinned at `2d8a437`; renumbered 043/044 to clear the dogfood round's 036–042):
+
+| 043  | HTML report data layer: depth-tagged edge lists on CodeGraph + surface the reach map | P2 | S–M | — | DONE (2 commits `3612072`+`9df09c7`, 2026-07-20; pure insertions, `--json` byte-identical, BFS-tree invariant corrected mid-execution — see the plan's two "Correction" notes) |
+
+| 044  | The self-contained HTML report: --html/--open, five tabs, PHP-computed radial SVG + editor links | P2 | M | 043 | DONE (2026-07-21; 672 tests green. Deviations: CHANGELOG left alone — it is CI-managed here and has no Unreleased section; `RadialLayout` returns an array shape rather than a `LayoutResult` object, matching the codebase's array-shape convention; association-only nodes keep their true depth ring. Added beyond the plan: an empty-diff `--html` report, custom-styled graph tooltips, a full visual redesign, and clickable editor links reusing debugbar's/Ignition's env chain) |
+
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED (with one-line rationale — finding fixed independently or approach abandoned)
+
+**GUI round added 2026-07-21** (plans 043–044, pinned at commit `2d8a437`)
+from [research-gui-2026-07-20.md](research-gui-2026-07-20.md) — the delivery
+decision (self-contained HTML file, HTML-only graph payload, reach-classified
+diagram) is settled there; the plans implement it.
 
 ## Dependency notes
 

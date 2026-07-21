@@ -7,6 +7,16 @@ return [
     'default_base' => 'origin/main',
 
     /*
+     * Editor for the clickable file:line links in the `--html` report. Reuses debugbar's/Ignition's
+     * env chain and defaults to phpstorm exactly as debugbar does, so an existing setup needs no new
+     * variable. Supported: phpstorm, idea, vscode, vscode-insiders, vscode-remote, vscodium, sublime,
+     * textmate, emacs, macvim, atom, nova, netbeans, xdebug. Set to null to keep the file references
+     * plain text — worth doing for a shared CI artifact, since a link embeds an absolute local path
+     * that only opens on the machine that generated the report.
+     */
+    'editor' => env('CODE_EDITOR') ?: env('DEBUGBAR_EDITOR') ?: env('IGNITION_EDITOR', 'phpstorm'),
+
+    /*
      * Project-specific global helper functions that dispatch a job, beyond Laravel's own
      * dispatch()/dispatch_sync(). Each is expected to take the job instance as its first argument.
      */

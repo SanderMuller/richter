@@ -37,7 +37,7 @@ final readonly class ImpactAnalyzer
      * saturate the impacted count for any one-method change — the classic over-reporting shape.
      * Reach, coverage, and entry-point discovery still flow through these edges.
      */
-    private const array RISK_EXCLUDED_EDGE_TYPES = ['model-relationship', 'declares', 'uses-trait'];
+    public const array RISK_EXCLUDED_EDGE_TYPES = ['model-relationship', 'declares', 'uses-trait'];
 
     public function __construct(private CodeGraph $graph) {}
 
@@ -60,12 +60,33 @@ final readonly class ImpactAnalyzer
     }
 
     /**
+     * The zero result for an empty diff, in {@see detectChanges()}'s own shape — so a renderer can
+     * draw "nothing changed" without a graph build. {@see JsonPresenter::emptyDetectChanges()} is
+     * the separate JSON-shaped equivalent; the two differ in `risk` (enum here, string there).
+     *
+     * @return array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, callers: list<array{depth: int, node: string, via: string}>, dependencies: list<array{depth: int, node: string, via: string}>, seeds: list<string>, reach: array<string, array<string, true>>, edges: list<array{source: string, target: string, via: string, depth: int}>, entryPoints: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, SecurityShape>, entryPointGates: array<string, list<string>>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied: bool, findings: list<string>}
+     */
+    public static function emptyDetectChanges(): array
+    {
+        return [
+            'changed' => [], 'coverage' => [], 'callers' => [], 'dependencies' => [],
+            'seeds' => [], 'reach' => [], 'edges' => [], 'entryPoints' => [], 'entryPointPaths' => [],
+            'entryPointLocations' => [], 'entryPointSecurity' => [], 'entryPointGates' => [],
+            'impacted' => 0, 'relatedModels' => [], 'risk' => RiskLevel::Low,
+            'lowConfidence' => false, 'coarseCapApplied' => false, 'findings' => [],
+        ];
+    }
+
+    /**
      * @param  list<ChangedFileSymbols>  $changed  the member-level change set per file (see ChangedSymbols)
      * @return array{
      *     changed: array<string, int>,
      *     coverage: array<string, 'analyzed'|'unresolved'>,
      *     callers: list<array{depth: int, node: string, via: string}>,
      *     dependencies: list<array{depth: int, node: string, via: string}>,
+     *     seeds: list<string>,
+     *     reach: array<string, array<string, true>>,
+     *     edges: list<array{source: string, target: string, via: string, depth: int}>,
      *     entryPoints: list<string>,
      *     entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>,
      *     entryPointLocations: array<string, array{file: string, line?: int}>,
@@ -152,6 +173,11 @@ final readonly class ImpactAnalyzer
 
         $callers = $this->graph->callersOf($seeds, $maxDepth);
         $dependencies = $this->graph->dependenciesOf($seeds, $maxDepth);
+        // The same two walks kept as edges rather than a flat hop list, for consumers that draw the
+        // reached region. Merged, not deduplicated: the two walks keep independent seen-sets, so a
+        // node reached both ways appears twice at possibly different depths. Collapsing it to the
+        // minimum is a presentation decision, left to the renderer.
+        $edges = [...$this->graph->callerEdgesOf($seeds, $maxDepth), ...$this->graph->dependencyEdgesOf($seeds, $maxDepth)];
 
         $entryPoints = $this->entryPointsAmong($callers);
         $riskEntryPointCount = count($entryPoints);
@@ -191,6 +217,11 @@ final readonly class ImpactAnalyzer
             'coverage' => $coverage,
             'callers' => $callers,
             'dependencies' => $dependencies,
+            // Internal, like callers/dependencies above: consumed by renderers, never by
+            // JsonPresenter — the machine contract deliberately carries no walk internals.
+            'seeds' => $seeds,
+            'reach' => $reach,
+            'edges' => $edges,
             'entryPoints' => $entryPoints,
             'entryPointPaths' => $entryPointPaths,
             'entryPointLocations' => $entryPointLocations,

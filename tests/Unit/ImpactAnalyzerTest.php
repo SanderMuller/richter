@@ -608,6 +608,72 @@ final class ImpactAnalyzerTest extends TestCase
     }
 
     #[Test]
+    public function detect_changes_returns_the_seed_set_and_the_reach_map(): void
+    {
+        $result = $this->analyzer()->detectChanges([
+            $this->changedMethod('app/Services/PostPublisher.php', 'App\Services\PostPublisher', 'publish'),
+        ]);
+
+        $this->assertSame(['App\Services\PostPublisher::publish'], $result['seeds']);
+        // The reach map keys every node the change touches in either direction, carrying the SET of
+        // edge types that reached it — this is what the report classifies nodes by.
+        $this->assertSame(['action-to-event' => true], $result['reach']['App\Events\PostPublished']);
+        $this->assertSame(['action-to-service' => true], $result['reach']['App\Http\Controllers\PostController::publish']);
+        // A seed is not its own reach.
+        $this->assertArrayNotHasKey('App\Services\PostPublisher::publish', $result['reach']);
+    }
+
+    #[Test]
+    public function detect_changes_returns_the_merged_caller_and_dependency_edges(): void
+    {
+        $result = $this->analyzer()->detectChanges([
+            $this->changedMethod('app/Services/PostPublisher.php', 'App\Services\PostPublisher', 'publish'),
+        ]);
+
+        // One edge from each direction, both in graph orientation (caller is always the source).
+        $this->assertContains([
+            'source' => 'App\Http\Controllers\PostController::publish',
+            'target' => 'App\Services\PostPublisher::publish',
+            'via' => 'action-to-service',
+            'depth' => 1,
+        ], $result['edges']);
+        $this->assertContains([
+            'source' => 'App\Services\PostPublisher::publish',
+            'target' => 'App\Events\PostPublished',
+            'via' => 'action-to-event',
+            'depth' => 1,
+        ], $result['edges']);
+    }
+
+    #[Test]
+    public function the_reach_map_classifies_a_relationship_only_node_outside_impact(): void
+    {
+        // The agreement invariant the HTML report rests on: classifying reach entries with the
+        // analyzer's own risk predicate must reproduce `impacted` exactly. If it ever stops doing
+        // so, the diagram's node count and the Impacted tile would silently disagree.
+        $analyzer = new ImpactAnalyzer(new CodeGraph([
+            ['source' => Post::class, 'target' => Comment::class, 'type' => 'model-relationship'],
+            ['source' => Post::class, 'target' => 'App\Services\X::run', 'type' => 'action-to-service'],
+        ]));
+
+        $result = $analyzer->detectChanges([
+            $this->changedCoarse('app/Models/Post.php', Post::class),
+        ]);
+
+        $isRiskBearing = new ReflectionMethod(ImpactAnalyzer::class, 'isRiskBearing');
+        $riskBearing = array_filter(
+            $result['reach'],
+            // Reflection hands back mixed; the predicate is documented to return bool, so compare
+            // strictly rather than coercing — a non-bool return should fail this test, not pass it.
+            static fn (array $types): bool => $isRiskBearing->invoke($analyzer, $types) === true,
+        );
+
+        $this->assertArrayHasKey(Comment::class, $result['reach']);
+        $this->assertArrayNotHasKey(Comment::class, $riskBearing);
+        $this->assertCount($result['impacted'], $riskBearing);
+    }
+
+    #[Test]
     public function a_dispatched_job_reaches_the_route_without_double_counting(): void
     {
         // The dispatch edge is FQCN-keyed, so it points straight at the controller's action node —

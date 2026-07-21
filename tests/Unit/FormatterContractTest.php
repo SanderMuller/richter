@@ -3,11 +3,14 @@
 namespace SanderMuller\Richter\Tests\Unit;
 
 use PHPUnit\Framework\Attributes\Test;
+use SanderMuller\Richter\Analysis\HtmlFormatter;
 use SanderMuller\Richter\Analysis\ImpactFormatter;
 use SanderMuller\Richter\Analysis\JsonPresenter;
 use SanderMuller\Richter\Analysis\MarkdownFormatter;
 use SanderMuller\Richter\Analysis\RiskLevel;
 use SanderMuller\Richter\Analysis\TestReferenceIndex;
+use SanderMuller\Richter\Changes\ChangedFileSymbols;
+use SanderMuller\Richter\Changes\MemberChange;
 use SanderMuller\Richter\Tests\TestCase;
 
 /**
@@ -29,7 +32,7 @@ final class FormatterContractTest extends TestCase
      * unresolved changed file, related models, source findings, and a coarse-capped low-confidence
      * risk — every field either formatter can render, on at once.
      *
-     * @return array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, array{exposure: string, riskLevel: string, issues: list<array{type: string, severity: string, message: string, file?: string, line?: int}>}>, entryPointGates: array<string, list<string>>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied: bool, findings: list<string>}
+     * @return array{seeds: list<string>, reach: array<string, array<string, true>>, edges: list<array{source: string, target: string, via: string, depth: int}>, changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, array{exposure: string, riskLevel: string, issues: list<array{type: string, severity: string, message: string, file?: string, line?: int}>}>, entryPointGates: array<string, list<string>>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied: bool, findings: list<string>}
      */
     private function richFixture(): array
     {
@@ -61,6 +64,16 @@ final class FormatterContractTest extends TestCase
                 ]],
             ],
             'entryPointGates' => [self::ANNOTATED_ENTRY => ['beta-feature']],
+            // The graph payload plan 036 added: HTML-only, ignored by the other three surfaces.
+            'seeds' => ['App\Services\AnnotatedService::run'],
+            'reach' => [
+                self::ANNOTATED_ENTRY => ['route-to-controller' => true],
+                'App\Models\Comment' => ['model-relationship' => true],
+            ],
+            'edges' => [
+                ['source' => self::ANNOTATED_ENTRY, 'target' => 'App\Services\AnnotatedService::run', 'via' => 'route-to-controller', 'depth' => 1],
+                ['source' => 'App\Services\AnnotatedService::run', 'target' => 'App\Models\Comment', 'via' => 'model-relationship', 'depth' => 1],
+            ],
             'impacted' => 42,
             'relatedModels' => ['App\Models\Comment'],
             'risk' => RiskLevel::Medium,
@@ -168,5 +181,47 @@ final class FormatterContractTest extends TestCase
         $this->assertTrue($json['coarseCapApplied']);
         $this->assertSame('medium', $json['risk']);
         $this->assertCount(20, $json['entryPoints']);
+    }
+
+    #[Test]
+    public function the_html_formatter_renders_every_populated_field(): void
+    {
+        $html = HtmlFormatter::detectChanges(
+            $this->richFixture(),
+            // Both files from the fixture's `changed` map: the Changes tab is driven by the
+            // member-level list, so a file missing from it would simply not render.
+            [
+                new ChangedFileSymbols('app/Models/Post.php', 'App\Models\Post', [
+                    new MemberChange('publish', MemberChange::KIND_METHOD, MemberChange::CHANGE_MODIFIED, resolvable: true),
+                ], cosmeticOnly: false),
+                new ChangedFileSymbols('app/Services/Lost.php', 'App\Services\Lost', [
+                    new MemberChange('run', MemberChange::KIND_METHOD, MemberChange::CHANGE_MODIFIED, resolvable: true),
+                ], cosmeticOnly: false),
+            ],
+            'origin/main',
+            $this->richTestIndex(),
+        );
+
+        foreach ([
+            'app/Models/Post.php',
+            'app/Services/Lost.php',
+            'UNRESOLVED',
+            'GET /annotated',
+            'routes/web.php:9',
+            'public',
+            'PUBLIC_WRITE',
+            'POST route with no auth middleware',
+            'beta-feature',
+            'test-referenced',
+            'coarse class-level estimate',
+            'risk capped at MEDIUM',
+            'eager-load string &#039;commentsreviews&#039; matches no relation',
+            'MEDIUM',
+            '<strong>42</strong>',
+            'publish',
+            'n-association',
+        ] as $needle) {
+            $this->assertStringContainsString($needle, $html);
+        }
     }
 }

@@ -3,9 +3,12 @@
 namespace SanderMuller\Richter\Console;
 
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Process;
 use InvalidArgumentException;
 use RuntimeException;
+use SanderMuller\Richter\Analysis\EditorLink;
 use SanderMuller\Richter\Analysis\Gate;
+use SanderMuller\Richter\Analysis\HtmlFormatter;
 use SanderMuller\Richter\Analysis\ImpactAnalyzer;
 use SanderMuller\Richter\Analysis\ImpactFormatter;
 use SanderMuller\Richter\Analysis\JsonPresenter;
@@ -23,6 +26,8 @@ use Throwable;
  * Advisory change-impact report for the current diff. Prints which entry points and flows the
  * changed files can reach plus a coarse risk level. Advisory by default (exit 0, never a gate);
  * `--fail-on` / `--fail-on-unresolved` opt into a non-zero exit for CI.
+ *
+ * @phpstan-import-type DetectChangesResult from HtmlFormatter
  */
 final class DetectChangesCommand extends Command
 {
@@ -35,7 +40,9 @@ final class DetectChangesCommand extends Command
         {--fail-on= : Exit non-zero when risk is at least this level (low|medium|high); advisory by default}
         {--fail-on-unresolved : Exit non-zero when any changed PHP file is UNRESOLVED}
         {--no-cache : Build the code graph fresh, bypassing the graph cache}
-        {--profile : Time each graph-build phase and print the split to stderr (forces a fresh build)}';
+        {--profile : Time each graph-build phase and print the split to stderr (forces a fresh build)}
+        {--html= : Write a self-contained HTML report to this path (all CSS/JS inline; opens offline)}
+        {--open : Open the --html report in the default browser after writing it}';
 
     /** @var string */
     protected $description = 'Report the advisory blast radius of the current branch diff (entry points reached + risk)';
@@ -47,6 +54,21 @@ final class DetectChangesCommand extends Command
         if ($json && (bool) $this->option('markdown')) {
             // With --json present the usage error honours the JSON contract: stdout stays one parseable document.
             return $this->emitFailure($json, 'The --json and --markdown options are mutually exclusive.');
+        }
+
+        $html = $this->option('html');
+
+        if ($html !== null && ($json || (bool) $this->option('markdown'))) {
+            return $this->emitFailure($json, 'The --html option cannot be combined with --json or --markdown.');
+        }
+
+        if ($html === '') {
+            return $this->emitFailure($json, 'The --html option requires a path: --html=<path>.');
+        }
+
+        // --open without --html would silently do nothing; fail instead.
+        if ($html === null && (bool) $this->option('open')) {
+            return $this->emitFailure($json, 'The --open option requires --html=<path>.');
         }
 
         $failOnRaw = $this->option('fail-on');
@@ -119,9 +141,7 @@ final class DetectChangesCommand extends Command
         }
 
         if ($changed === []) {
-            $this->info("No changed PHP files under app/ against {$base}.");
-
-            return self::SUCCESS;
+            return $this->reportEmptyDiff($base, $failOn, $failOnUnresolved, $gateActive);
         }
 
         $result = new ImpactAnalyzer($this->graph($graphs))->detectChanges($changed);
@@ -129,16 +149,25 @@ final class DetectChangesCommand extends Command
         $markdown = (bool) $this->option('markdown');
         $tests = TestReferenceIndex::fromTests(base_path('tests'));
         $explain = (bool) $this->option('explain');
+        $htmlPath = $this->option('html');
 
-        $this->line($markdown
-            ? MarkdownFormatter::detectChanges($result, $tests, $gateActive, $explain)
-            : ImpactFormatter::detectChanges($result, $tests, $gateActive, $explain));
+        $gate = $gateActive
+            ? Gate::evaluate($result['risk'], $this->unresolvedCount($result['coverage']), $failOn, $failOnUnresolved)
+            : null;
 
-        if (! $gateActive) {
-            return self::SUCCESS;
+        if ($htmlPath !== null) {
+            if (! $this->writeHtml($htmlPath, $result, $changed, $base, $tests, $gateActive, $gate, $failOn, $failOnUnresolved)) {
+                return self::FAILURE;
+            }
+        } else {
+            $this->line($markdown
+                ? MarkdownFormatter::detectChanges($result, $tests, $gateActive, $explain)
+                : ImpactFormatter::detectChanges($result, $tests, $gateActive, $explain));
         }
 
-        $gate = Gate::evaluate($result['risk'], $this->unresolvedCount($result['coverage']), $failOn, $failOnUnresolved);
+        if (! $gateActive || $gate === null) {
+            return self::SUCCESS;
+        }
 
         $verdict = $gate['tripped'] ? 'FAIL — ' . implode('; ', $gate['reasons']) : 'PASS';
         $this->line($markdown ? "\n**Gate:** {$verdict}" : "Gate: {$verdict}");
@@ -205,6 +234,70 @@ final class DetectChangesCommand extends Command
         $this->line(JsonPresenter::encode($payload));
 
         return $gate['tripped'] ? self::FAILURE : self::SUCCESS;
+    }
+
+    /**
+     * Write even on an empty diff, so CI never links a report that was never produced. The gate is
+     * carried through and rendered as an untripped verdict, matching the JSON path: an empty diff
+     * always passes, but a report from a gated run must not claim it was advisory.
+     */
+    private function reportEmptyDiff(string $base, ?RiskLevel $failOn, bool $failOnUnresolved, bool $gateActive): int
+    {
+        $this->info("No changed PHP files under app/ against {$base}.");
+
+        $path = $this->option('html');
+        $gate = $gateActive ? ['tripped' => false, 'reasons' => []] : null;
+
+        if ($path !== null && ! $this->writeHtml($path, ImpactAnalyzer::emptyDetectChanges(), [], $base, null, $gateActive, $gate, $failOn, $failOnUnresolved)) {
+            return self::FAILURE;
+        }
+
+        return self::SUCCESS;
+    }
+
+    /**
+     * A failed write is reported as a failure, never announced as a success — a report CI links but
+     * cannot open is the artifact-shaped version of a falsely reassuring "no impact".
+     *
+     * @param  DetectChangesResult  $result
+     * @param  list<ChangedFileSymbols>  $changed
+     * @param  array{tripped: bool, reasons: list<string>}|null  $gate
+     */
+    private function writeHtml(string $path, array $result, array $changed, string $base, ?TestReferenceIndex $tests, bool $gateActive, ?array $gate, ?RiskLevel $failOn, bool $failOnUnresolved): bool
+    {
+        $verdict = $gate === null ? null : $this->gatePayload($gate['tripped'], $gate['reasons'], $failOn, $failOnUnresolved);
+        $editor = EditorLink::fromConfig(RichterConfig::editor(), base_path());
+        $html = HtmlFormatter::detectChanges($result, $changed, $base, $tests, $gateActive, $verdict, $editor);
+
+        if (@file_put_contents($path, $html) === false) {
+            $this->error("Could not write the report to {$path}.");
+
+            return false;
+        }
+
+        $this->info("Report written to {$path}");
+
+        if ((bool) $this->option('open')) {
+            $this->openInBrowser($path);
+        }
+
+        return true;
+    }
+
+    /** Best-effort: the report is on disk already, so an opener failure must not fail the run. */
+    private function openInBrowser(string $path): void
+    {
+        // `start` is a cmd builtin, not an executable, and its first quoted argument is the window
+        // title — without the empty title it opens a blank console instead of the report.
+        $opener = match (PHP_OS_FAMILY) {
+            'Darwin' => ['open', $path],
+            'Windows' => ['cmd', '/c', 'start', '', $path],
+            default => ['xdg-open', $path],
+        };
+
+        if (! Process::run($opener)->successful()) {
+            $this->warn("Could not open {$path} — open it manually.");
+        }
     }
 
     /**

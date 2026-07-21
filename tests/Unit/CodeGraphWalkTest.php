@@ -253,4 +253,127 @@ final class CodeGraphWalkTest extends TestCase
 
         $this->assertSame([], $graph->nodesContaining('::'));
     }
+
+    #[Test]
+    public function caller_edges_carry_the_source_node_the_walk_traversed_from(): void
+    {
+        // `source`/`target` follow GRAPH direction, not walk direction: the caller is always the
+        // source, whichever way the walk stepped. Asserted whole so the orientation is pinned —
+        // plan 037 draws arrow heads from it.
+        $graph = new CodeGraph([
+            ['source' => 'route::GET::/r', 'target' => 'App\Http\Controllers\C::index', 'type' => 'route-to-controller'],
+            ['source' => 'App\Http\Controllers\C::index', 'target' => 'App\Services\S::run', 'type' => 'action-to-service'],
+        ]);
+
+        $this->assertSame([
+            ['source' => 'App\Http\Controllers\C::index', 'target' => 'App\Services\S::run', 'via' => 'action-to-service', 'depth' => 1],
+            ['source' => 'route::GET::/r', 'target' => 'App\Http\Controllers\C::index', 'via' => 'route-to-controller', 'depth' => 2],
+        ], $graph->callerEdgesOf(['App\Services\S::run']));
+    }
+
+    #[Test]
+    public function dependency_edges_walk_the_downstream_direction(): void
+    {
+        $graph = new CodeGraph([
+            ['source' => 'route::GET::/r', 'target' => 'App\Http\Controllers\C::index', 'type' => 'route-to-controller'],
+            ['source' => 'App\Http\Controllers\C::index', 'target' => 'App\Services\S::run', 'type' => 'action-to-service'],
+        ]);
+
+        $this->assertSame([
+            ['source' => 'route::GET::/r', 'target' => 'App\Http\Controllers\C::index', 'via' => 'route-to-controller', 'depth' => 1],
+            ['source' => 'App\Http\Controllers\C::index', 'target' => 'App\Services\S::run', 'via' => 'action-to-service', 'depth' => 2],
+        ], $graph->dependencyEdgesOf(['route::GET::/r']));
+    }
+
+    #[Test]
+    public function edge_walks_emit_each_reached_node_exactly_once(): void
+    {
+        // A diamond: both A and B call C, and Root calls both. The first-visit guard keeps exactly
+        // one edge per REACHED node, so the result is a spanning tree — the clean radial shape the
+        // HTML report draws, not the induced subgraph.
+        //
+        // The reached node is whichever end the walk stepped TO, which differs by direction because
+        // source/target follow graph direction: walking callers it is `source` (Root, A, B are the
+        // callers reached), walking dependencies it is `target`. Root is reached once even though
+        // two edges lead to it, which is exactly what makes this a tree — the second B→Root edge is
+        // dropped, so the induced subgraph's cross-link is deliberately not drawn.
+        $graph = new CodeGraph([
+            ['source' => 'A', 'target' => 'C', 'type' => 'call'],
+            ['source' => 'B', 'target' => 'C', 'type' => 'call'],
+            ['source' => 'Root', 'target' => 'A', 'type' => 'call'],
+            ['source' => 'Root', 'target' => 'B', 'type' => 'call'],
+        ]);
+
+        // Each list below is asserted whole: no repeated entry IS the tree property.
+        $this->assertSame(['A', 'B', 'Root'], array_column($graph->callerEdgesOf(['C']), 'source'));
+        $this->assertSame(['A', 'B', 'C'], array_column($graph->dependencyEdgesOf(['Root']), 'target'));
+    }
+
+    #[Test]
+    public function caller_edges_terminate_on_a_cycle(): void
+    {
+        $graph = new CodeGraph([
+            ['source' => 'A', 'target' => 'B', 'type' => 'call'],
+            ['source' => 'B', 'target' => 'C', 'type' => 'call'],
+            ['source' => 'C', 'target' => 'A', 'type' => 'call'],
+        ]);
+
+        $edges = $graph->callerEdgesOf(['B']);
+
+        // The walk closes the loop back onto the seed and stops there: B is already seen at depth 0,
+        // so the C→B edge is never emitted. B still appears as a TARGET (its caller A points at it)
+        // — a seed is never a reached node, but in caller direction it is very much an edge target.
+        $this->assertSame(['A', 'C'], array_column($edges, 'source'));
+    }
+
+    #[Test]
+    public function edge_walks_respect_max_depth(): void
+    {
+        $graph = new CodeGraph([
+            ['source' => 'N1', 'target' => 'N2', 'type' => 'call'],
+            ['source' => 'N2', 'target' => 'N3', 'type' => 'call'],
+            ['source' => 'N3', 'target' => 'N4', 'type' => 'call'],
+            ['source' => 'N4', 'target' => 'N5', 'type' => 'call'],
+        ]);
+
+        $edges = $graph->dependencyEdgesOf(['N1'], maxDepth: 2);
+
+        $this->assertSame([
+            ['source' => 'N1', 'target' => 'N2', 'via' => 'call', 'depth' => 1],
+            ['source' => 'N2', 'target' => 'N3', 'via' => 'call', 'depth' => 2],
+        ], $edges);
+    }
+
+    #[Test]
+    public function edge_walks_return_nothing_for_no_seeds(): void
+    {
+        $graph = new CodeGraph([
+            ['source' => 'A', 'target' => 'B', 'type' => 'call'],
+        ]);
+
+        $this->assertSame([], $graph->callerEdgesOf([]));
+        $this->assertSame([], $graph->dependencyEdgesOf([]));
+    }
+
+    #[Test]
+    public function a_node_reachable_both_ways_appears_in_both_edge_lists(): void
+    {
+        // X calls S (upstream depth 1) and S reaches X again through M (downstream depth 2). The
+        // two walks keep independent seen-sets, so X is legitimately present in both lists at
+        // different depths — the consumer collapses it by taking the MINIMUM depth.
+        $graph = new CodeGraph([
+            ['source' => 'X', 'target' => 'S', 'type' => 'call'],
+            ['source' => 'S', 'target' => 'M', 'type' => 'call'],
+            ['source' => 'M', 'target' => 'X', 'type' => 'call'],
+        ]);
+
+        $this->assertContains(
+            ['source' => 'X', 'target' => 'S', 'via' => 'call', 'depth' => 1],
+            $graph->callerEdgesOf(['S']),
+        );
+        $this->assertContains(
+            ['source' => 'M', 'target' => 'X', 'via' => 'call', 'depth' => 2],
+            $graph->dependencyEdgesOf(['S']),
+        );
+    }
 }

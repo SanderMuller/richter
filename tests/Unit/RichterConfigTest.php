@@ -82,6 +82,27 @@ final class RichterConfigTest extends TestCase
     }
 
     #[Test]
+    public function the_editor_is_null_when_unset_and_the_configured_name_otherwise(): void
+    {
+        config()->set('richter.editor');
+        $this->assertNull(RichterConfig::editor());
+
+        config()->set('richter.editor', 'phpstorm');
+        $this->assertSame('phpstorm', RichterConfig::editor());
+    }
+
+    #[Test]
+    public function a_non_string_editor_throws(): void
+    {
+        config()->set('richter.editor', ['phpstorm']);
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('richter.editor');
+
+        RichterConfig::editor();
+    }
+
+    #[Test]
     public function a_non_array_entry_point_roots_value_throws(): void
     {
         config()->set('richter.entry_point_roots', 'Jobs');

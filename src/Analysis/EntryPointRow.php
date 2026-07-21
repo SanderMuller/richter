@@ -52,7 +52,7 @@ final readonly class EntryPointRow
     {
         $rows = array_map(static fn (string $node): self => new self(
             node: $node,
-            label: self::entryLabel($node),
+            label: self::label($node),
             path: $paths[$node] ?? [],
             location: $locations[$node] ?? null,
             testReferenced: $tests?->hasReference($node),
@@ -70,7 +70,7 @@ final readonly class EntryPointRow
      * A console-command entry-point node carries its whole `$signature`
      * (`command::foo {--opt : desc}`); show just the command name. Routes/schedules are unaffected.
      */
-    private static function entryLabel(string $node): string
+    private static function label(string $node): string
     {
         return str_starts_with($node, 'command::') ? explode(' ', $node, 2)[0] : $node;
     }

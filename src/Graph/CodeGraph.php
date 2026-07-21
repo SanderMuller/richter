@@ -251,6 +251,35 @@ final class CodeGraph
     }
 
     /**
+     * {@see callersOf()} with the traversed-from node kept, so the reached region can be drawn as a
+     * node-link graph instead of a flat list. Each reached caller appears exactly once (BFS tree,
+     * one parent per node) — the clean radial shape the HTML report draws, not the induced subgraph.
+     *
+     * Pairs with {@see dependencyEdgesOf()}: the two walks keep independent seen-sets, so a node
+     * reachable both upstream and downstream appears in BOTH lists, possibly at different depths.
+     * That is correct; a consumer merging them collapses each node to its MINIMUM depth.
+     *
+     * @param  list<string>  $from
+     * @return list<array{source: string, target: string, via: string, depth: int}>
+     */
+    public function callerEdgesOf(array $from, int $maxDepth = 6): array
+    {
+        return $this->walkEdges($this->upstream, $from, $maxDepth, hopIsSource: true);
+    }
+
+    /**
+     * {@see dependenciesOf()} with the traversed-from node kept. Same BFS-tree and duplicate-node
+     * semantics as {@see callerEdgesOf()}.
+     *
+     * @param  list<string>  $from
+     * @return list<array{source: string, target: string, via: string, depth: int}>
+     */
+    public function dependencyEdgesOf(array $from, int $maxDepth = 6): array
+    {
+        return $this->walkEdges($this->downstream, $from, $maxDepth, hopIsSource: false);
+    }
+
+    /**
      * BFS over both directions, mapping each reached node (seeds excluded) to the SET of edge types
      * any traversed edge used to reach it — recorded on every encounter, not just first visit, so a
      * node reachable by both a relationship and a behavioural edge carries both regardless of BFS order.
@@ -342,6 +371,42 @@ final class CodeGraph
         });
 
         // BFS already appends in non-decreasing depth order, so no sort is needed.
+        return $result;
+    }
+
+    /**
+     * {@see walk()}, but keeping the node each edge was traversed FROM — the one thing `walk()`
+     * drops. `source`/`target` follow GRAPH direction, never walk direction: on the upstream
+     * adjacency the reached hop IS the caller and becomes `source`; on the downstream adjacency it
+     * is the callee and becomes `target`. `$hopIsSource` picks which, so both directions share one
+     * body and one orientation rule.
+     *
+     * The first-visit guard is kept deliberately: each REACHED node — the end the walk stepped to,
+     * which is `source` upstream and `target` downstream — is emitted exactly once, so the result is
+     * a BFS tree rather than the induced subgraph. Seeds sit at depth 0 and are never a reached
+     * node; walking callers they still appear as a `target`, since their caller points at them.
+     *
+     * @param  array<string, list<array{node: string, via: string}>>  $adjacency
+     * @param  list<string>  $from
+     * @return list<array{source: string, target: string, via: string, depth: int}>
+     */
+    private function walkEdges(array $adjacency, array $from, int $maxDepth, bool $hopIsSource): array
+    {
+        $result = [];
+
+        $this->bfs($adjacency, $from, $maxDepth, static function (array $hop, int $depth, bool $firstVisit, string $fromNode) use (&$result, $hopIsSource): void {
+            if (! $firstVisit) {
+                return;
+            }
+
+            $result[] = [
+                'source' => $hopIsSource ? $hop['node'] : $fromNode,
+                'target' => $hopIsSource ? $fromNode : $hop['node'],
+                'via' => $hop['via'],
+                'depth' => $depth,
+            ];
+        });
+
         return $result;
     }
 

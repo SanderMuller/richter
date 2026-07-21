@@ -4,6 +4,7 @@ namespace SanderMuller\Richter\Tests\Feature;
 
 use App\Models\User;
 use Illuminate\Foundation\Application;
+use Illuminate\Process\PendingProcess;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Process;
 use Illuminate\Testing\PendingCommand;
@@ -280,6 +281,230 @@ final class CommandsTest extends TestCase
         $this->assertIsArray($decoded);
         $this->assertIsString($decoded['error']);
         $this->assertStringContainsString('mutually exclusive', $decoded['error']);
+    }
+
+    /**
+     * The faked diff every --html case below runs against: one changed, ungraphed model file.
+     *
+     * The trailing '*' catch-all matters: a command matching no pattern is NOT faked, it is really
+     * executed — which for --open would launch a browser during the suite.
+     */
+    private function fakeDiff(): void
+    {
+        $diff = "diff --git a/app/Models/User.php b/app/Models/User.php\n--- a/app/Models/User.php\n+++ b/app/Models/User.php\n@@ -0,0 +1,1 @@\n+    public function added(): void {}\n";
+
+        Process::fake([
+            '*merge-base*' => Process::result("abc123\n"),
+            '*show*' => Process::result(errorOutput: 'bad object', exitCode: 128),
+            '*diff*' => Process::result($diff),
+            '*' => Process::result(),
+        ]);
+    }
+
+    private function reportPath(): string
+    {
+        return sys_get_temp_dir() . '/richter-report-' . getmypid() . '.html';
+    }
+
+    #[Test]
+    public function detect_changes_rejects_html_combined_with_json_as_a_json_error(): void
+    {
+        $this->withoutMockingConsoleOutput();
+        $exitCode = Artisan::call('richter:detect-changes', ['--html' => 'x.html', '--json' => true]);
+        $decoded = json_decode(Artisan::output(), associative: true);
+
+        $this->assertSame(1, $exitCode);
+        $this->assertIsArray($decoded);
+        $this->assertIsString($decoded['error']);
+        $this->assertStringContainsString('cannot be combined', $decoded['error']);
+    }
+
+    #[Test]
+    public function detect_changes_rejects_html_combined_with_markdown(): void
+    {
+        $this->withoutMockingConsoleOutput();
+        $exitCode = Artisan::call('richter:detect-changes', ['--html' => 'x.html', '--markdown' => true]);
+
+        $this->assertSame(1, $exitCode);
+        $this->assertStringContainsString('cannot be combined', Artisan::output());
+    }
+
+    #[Test]
+    public function detect_changes_open_without_html_is_a_usage_error(): void
+    {
+        $this->withoutMockingConsoleOutput();
+        $exitCode = Artisan::call('richter:detect-changes', ['--open' => true]);
+
+        $this->assertSame(1, $exitCode);
+        $this->assertStringContainsString('requires --html', Artisan::output());
+    }
+
+    #[Test]
+    public function detect_changes_html_writes_a_self_contained_file(): void
+    {
+        $this->fakeDiff();
+        $path = $this->reportPath();
+
+        $this->withoutMockingConsoleOutput();
+        $exitCode = Artisan::call('richter:detect-changes', ['--base' => 'some-base', '--html' => $path]);
+        $output = Artisan::output();
+
+        $this->assertSame(0, $exitCode);
+        $this->assertFileExists($path);
+
+        $html = (string) file_get_contents($path);
+        unlink($path);
+
+        $this->assertStringContainsString('<!DOCTYPE html>', $html);
+        $this->assertStringNotContainsString('https://', $html);
+
+        foreach (['Overview', 'Graph', 'Paths', 'Changes', 'Advisory'] as $tab) {
+            $this->assertStringContainsString(">{$tab}</button>", $html);
+        }
+
+        // stdout carries the confirmation, not a second copy of the report.
+        $this->assertStringContainsString('Report written to', $output);
+        $this->assertStringNotContainsString('Richter change impact', $output);
+    }
+
+    #[Test]
+    public function detect_changes_html_writes_a_report_even_for_an_empty_diff(): void
+    {
+        // Asking for a file and getting none reads as a failure, and CI would link a missing artifact.
+        $path = $this->reportPath();
+
+        $this->withoutMockingConsoleOutput();
+        $exitCode = Artisan::call('richter:detect-changes', ['--base' => 'HEAD', '--html' => $path]);
+
+        $this->assertSame(0, $exitCode);
+        $this->assertFileExists($path);
+
+        $html = (string) file_get_contents($path);
+        unlink($path);
+
+        $this->assertStringContainsString('>LOW</strong>', $html);
+        $this->assertStringContainsString('Nothing reached — no graph to draw.', $html);
+    }
+
+    #[Test]
+    public function detect_changes_html_on_an_empty_diff_still_reflects_a_gated_run(): void
+    {
+        // An empty diff always passes, but a report from a gated run must not claim it was advisory.
+        $path = $this->reportPath();
+
+        $this->withoutMockingConsoleOutput();
+        $exitCode = Artisan::call('richter:detect-changes', ['--base' => 'HEAD', '--html' => $path, '--fail-on' => 'low']);
+
+        $this->assertSame(0, $exitCode);
+
+        $html = (string) file_get_contents($path);
+        unlink($path);
+
+        $this->assertStringNotContainsString('advisory — not a gate', $html);
+        $this->assertStringContainsString('not tripped', $html);
+    }
+
+    #[Test]
+    public function detect_changes_html_fails_loudly_when_the_report_cannot_be_written(): void
+    {
+        // Announcing a report that was never written is the artifact-shaped version of a false
+        // "no impact" — CI would publish a link to a file that does not exist.
+        $this->fakeDiff();
+
+        $this->withoutMockingConsoleOutput();
+        $exitCode = Artisan::call('richter:detect-changes', [
+            '--base' => 'some-base',
+            '--html' => sys_get_temp_dir() . '/richter-no-such-dir-' . getmypid() . '/report.html',
+        ]);
+        $output = Artisan::output();
+
+        $this->assertSame(1, $exitCode);
+        $this->assertStringContainsString('Could not write the report', $output);
+        $this->assertStringNotContainsString('Report written to', $output);
+    }
+
+    #[Test]
+    public function detect_changes_rejects_an_empty_html_path(): void
+    {
+        // `--html=` parses to "" rather than null, which would otherwise reach file_put_contents('').
+        $this->withoutMockingConsoleOutput();
+        $exitCode = Artisan::call('richter:detect-changes', ['--html' => '']);
+
+        $this->assertSame(1, $exitCode);
+        $this->assertStringContainsString('requires a path', Artisan::output());
+    }
+
+    #[Test]
+    public function detect_changes_html_renders_editor_links_when_configured(): void
+    {
+        // The editor config drives clickable file references end to end.
+        config()->set('richter.editor', 'phpstorm');
+        $this->fakeDiff();
+        $path = $this->reportPath();
+
+        $this->withoutMockingConsoleOutput();
+        Artisan::call('richter:detect-changes', ['--base' => 'some-base', '--html' => $path]);
+
+        $html = (string) file_get_contents($path);
+        unlink($path);
+
+        $this->assertStringContainsString('<a class="ref" href="phpstorm://open?file=', $html);
+    }
+
+    #[Test]
+    public function detect_changes_html_still_evaluates_the_gate(): void
+    {
+        // --html is a rendering choice; it must never turn a failing gate green.
+        $this->fakeDiff();
+        $path = $this->reportPath();
+
+        $this->withoutMockingConsoleOutput();
+        $exitCode = Artisan::call('richter:detect-changes', ['--base' => 'some-base', '--html' => $path, '--fail-on-unresolved' => true]);
+        $output = Artisan::output();
+
+        @unlink($path);
+
+        $this->assertSame(1, $exitCode);
+        $this->assertStringContainsString('Gate: FAIL', $output);
+    }
+
+    #[Test]
+    public function detect_changes_open_invokes_the_platform_opener(): void
+    {
+        $this->fakeDiff();
+        $path = $this->reportPath();
+
+        $this->withoutMockingConsoleOutput();
+        Artisan::call('richter:detect-changes', ['--base' => 'some-base', '--html' => $path, '--open' => true]);
+
+        @unlink($path);
+
+        Process::assertRan(fn (PendingProcess $process): bool => is_array($process->command)
+            && in_array($path, $process->command, strict: true));
+    }
+
+    #[Test]
+    public function detect_changes_warns_but_still_succeeds_when_the_opener_fails(): void
+    {
+        $diff = "diff --git a/app/Models/User.php b/app/Models/User.php\n--- a/app/Models/User.php\n+++ b/app/Models/User.php\n@@ -0,0 +1,1 @@\n+    public function added(): void {}\n";
+        $path = $this->reportPath();
+
+        Process::fake([
+            '*merge-base*' => Process::result("abc123\n"),
+            '*show*' => Process::result(errorOutput: 'bad object', exitCode: 128),
+            '*diff*' => Process::result($diff),
+            // The report is already on disk, so a dead opener is a warning, never a failed run.
+            '*' => Process::result(errorOutput: 'no opener', exitCode: 1),
+        ]);
+
+        $this->withoutMockingConsoleOutput();
+        $exitCode = Artisan::call('richter:detect-changes', ['--base' => 'some-base', '--html' => $path, '--open' => true]);
+        $output = Artisan::output();
+
+        @unlink($path);
+
+        $this->assertSame(0, $exitCode);
+        $this->assertStringContainsString('Could not open', $output);
     }
 
     #[Test]

@@ -97,6 +97,7 @@ php artisan richter:detect-changes --base=origin/develop
 php artisan richter:detect-changes --explain              # show how each entry point reaches the change
 php artisan richter:detect-changes --json                 # machine-readable, for scripting or CI
 php artisan richter:detect-changes --markdown             # PR-ready markdown, for descriptions and comments
+php artisan richter:detect-changes --html=impact.html     # self-contained visual report
 ```
 
 Against the default `HEAD`, the diff is the working tree compared to the merge-base with `--base` — staged and unstaged edits are included, not just what's committed, so running this before you commit still sees your changes. (Passing an explicit non-`HEAD` ref instead replays that ref's committed tree.) The one gap `git diff` can't close is a brand-new file that was never `git add`-ed: it shows in no diff form, so a stderr-only note flags any such untracked file under `app/`, `resources/views/`, or a configured frontend root — never on stdout, so `--json`/`--markdown` output stays exactly the report.
@@ -158,6 +159,12 @@ recognised — a project convention like `FeatureToggle::BETA_DASHBOARD->isActiv
 allowlist entry (see [Configuration](#configuration)) before it is noted.
 
 With `--markdown`, the report renders as GitHub-flavoured markdown: a risk badge up front, changed files as a table, entry points as a review checklist with their file:line, test tags and exposure badges, and long lists collapsed into `<details>` instead of truncated. The result is ready to paste into (or post onto) a pull request. `--markdown --explain` composes.
+
+With `--html=<path>`, the report is written as ONE self-contained HTML file — every style and script inline, nothing fetched — so it opens offline straight from `file://` and travels as a CI artifact you can link from a pull request. It has five tabs: Overview (a Files / Impacted / Depth / Risk stat row, the reached entry points, and what to focus on), Graph (the blast radius as concentric rings, one per BFS depth), Paths (how each entry point reaches the change), Changes (the member-level diff, naming the member that drove a low-confidence verdict), and Advisory (findings, test references, and the gate). `--open` launches it in the default browser afterwards; a failing opener is a warning, never a failed run.
+
+Every `file:line` in the report is a clickable editor link. `richter.editor` reads the same env chain debugbar and Ignition do (`CODE_EDITOR`, then `DEBUGBAR_EDITOR`, then `IGNITION_EDITOR`) and, like debugbar, defaults to `phpstorm`, so an existing setup needs no new variable. Supported: `phpstorm`, `idea`, `vscode`, `vscode-insiders`, `vscode-remote`, `vscodium`, `sublime`, `textmate`, `emacs`, `macvim`, `atom`, `nova`, `netbeans`, `xdebug`. Set it to `null` to keep the file references plain text — worth doing for a shared CI artifact, since a link embeds an absolute local path that only opens on the machine that generated the report.
+
+`--html` cannot be combined with `--json` or `--markdown`. It replaces the text report on stdout but never touches the gate: `--html --fail-on=medium` still exits non-zero exactly when the gate trips. The diagram is capped at 300 nodes and says so in the report when it caps — the counts above it are never capped. Note that the HTML is a **rendering surface, not a contract**: its markup is free to change in any release. `--json` remains the semver-governed machine output.
 
 With `--json`, stdout is a single JSON document (the full, uncapped report) with these top-level keys, or `{"error": "…"}` if the diff can't be resolved:
 

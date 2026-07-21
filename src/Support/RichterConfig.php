@@ -37,6 +37,22 @@ final class RichterConfig
         return self::stringList('richter.feature_gate_methods') ?? [];
     }
 
+    /** @return string|null the configured editor name, or null when file links are off (the default) */
+    public static function editor(): ?string
+    {
+        $value = config('richter.editor');
+
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        if (! is_string($value)) {
+            throw new InvalidArgumentException('The richter.editor config value must be a string editor name or null.');
+        }
+
+        return $value;
+    }
+
     /** @return list<string>|null null when not configured — callers fall back to their own default */
     public static function entryPointRoots(): ?array
     {
