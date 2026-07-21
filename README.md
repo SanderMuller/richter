@@ -97,7 +97,7 @@ php artisan richter:detect-changes --base=origin/develop
 php artisan richter:detect-changes --explain              # show how each entry point reaches the change
 php artisan richter:detect-changes --json                 # machine-readable, for scripting or CI
 php artisan richter:detect-changes --markdown             # PR-ready markdown, for descriptions and comments
-php artisan richter:detect-changes --html=impact.html     # self-contained visual report
+php artisan richter:detect-changes --html=impact.html     # self-contained visual report (add --open to launch it)
 ```
 
 Against the default `HEAD`, the diff is the working tree compared to the merge-base with `--base` — staged and unstaged edits are included, not just what's committed, so running this before you commit still sees your changes. (Passing an explicit non-`HEAD` ref instead replays that ref's committed tree.) The one gap `git diff` can't close is a brand-new file that was never `git add`-ed: it shows in no diff form, so a stderr-only note flags any such untracked file under `app/`, `resources/views/`, or a configured frontend root — never on stdout, so `--json`/`--markdown` output stays exactly the report.
@@ -409,6 +409,7 @@ Point Claude Code, Cursor, or any MCP client at the Artisan entry point, e.g. in
 | Key | Default | Purpose |
 |---|---|---|
 | `default_base` | `origin/main` | Git ref `richter:detect-changes` diffs against when `--base` is omitted. |
+| `editor` | `phpstorm` (via `CODE_EDITOR` / `DEBUGBAR_EDITOR` / `IGNITION_EDITOR`) | Editor for the clickable `file:line` links in the `--html` report — reuses debugbar's/Ignition's env chain. One of `phpstorm`, `idea`, `vscode`(+`-insiders`/`-remote`/`ium`), `sublime`, `textmate`, `emacs`, `macvim`, `atom`, `nova`, `netbeans`, `xdebug`, or `null` to keep the references plain text. |
 | `dispatch_helpers` | `[]` | Project-custom global job-dispatch helper functions (e.g. `dispatch_with_retries`) the dispatch tracer should follow. |
 | `feature_gate_methods` | `[]` | `FQCN::method` allowlist of project wrappers around Pennant (e.g. `App\Enums\FeatureToggle::isActive`) — an `EnumCase->method()` call then annotates the change as flag-gated, alongside the built-in `Feature` facade / `@feature` support. |
 | `entry_point_roots` | `Jobs`, `Listeners`, `Console/Commands`, `Filament`, `Helpers`, `Http/Middleware`, `Livewire`, `Observers` | Directories under `app/` traced as entry points beyond Brain's route-anchored graph (graph tracing only; the analyzer's risk-floor namespace heuristics are fixed). |
