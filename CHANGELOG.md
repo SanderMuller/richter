@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## v0.12.0 - 2026-07-22
 
 <!-- verified-sha: b9b369df2b53f9c29fe3642d132cfc08da213083 -->
+A recall improvement for `richter:affected-tests` and `richter:impact`, from the same real-world adoption feedback that shaped v0.10.0 and v0.11.1. Richter now follows a *dispatched command* all the way to its handler even when that command is not a queued job — closing a blind spot in the change-impact graph.
+
 ### Fixed
 
 - **A dispatched command's handler is no longer a hidden caller.** The dispatch tracer drew a `dispatcher → handler` edge only when the dispatched or instantiated target *looked like a queued job* — namespaced under `Jobs\`, or implementing `ShouldQueue`. A resolved `dispatch(new SomeCommand())` whose target is a `Dispatchable` command, or a plain self-handling command (a `handle()`/`__invoke()` class with no queue trait, which Laravel still runs synchronously through the bus), drew **no** edge. A change to such a handler could then drop the dispatching action's test from `affected-tests` selection — but only when the graph contained no *other* unfollowable dispatch — and `richter:impact` under-reported the change's blast radius. Both now recognise the command handler as a real caller.
