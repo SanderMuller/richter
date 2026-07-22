@@ -99,6 +99,7 @@ final class AffectedTestsCommand extends Command
                 $changed,
                 TestReferenceIndex::fromTests(base_path('tests'), base_path()),
                 $graph->hasUnresolvedDispatches(),
+                $graph->hasUnparseableFiles(),
                 $graph,
                 $this->frontendTestIndex(),
             );

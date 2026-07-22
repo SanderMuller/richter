@@ -4,6 +4,7 @@ namespace SanderMuller\Richter\Analysis;
 
 use SanderMuller\Richter\Changes\ChangedFileSymbols;
 use SanderMuller\Richter\Graph\CodeGraph;
+use SanderMuller\Richter\Support\DispatchTarget;
 
 /**
  * Inverts the test-reference mapping into a test selection: which test files exercise the surface
@@ -28,7 +29,7 @@ final class AffectedTests
      *   input to determinability (a route no spec references is not a blocker)
      * @return array{determinable: bool, reasons: list<string>, tests: list<string>, frontendTests: list<string>, unreferencedEntryPoints: int}
      */
-    public static function select(array $result, array $changed, TestReferenceIndex $tests, bool $hasUnresolvedDispatches, ?CodeGraph $graph = null, ?FrontendTestIndex $frontendTests = null): array
+    public static function select(array $result, array $changed, TestReferenceIndex $tests, bool $hasUnresolvedDispatches, bool $hasUnparseableFiles = false, ?CodeGraph $graph = null, ?FrontendTestIndex $frontendTests = null): array
     {
         $reasons = [];
 
@@ -40,7 +41,18 @@ final class AffectedTests
             $reasons[] = 'a changed member could not be pinned to a graph node (low confidence)';
         }
 
-        if ($hasUnresolvedDispatches) {
+        // A file the parser could not read (S1) contributes zero edges, so it could hide a caller of
+        // ANY change — could-be-anything taint, unscopeable. It blocks determination globally.
+        if ($hasUnparseableFiles) {
+            $reasons[] = 'one or more app files could not be parsed — the graph is incomplete';
+        }
+
+        // An unfollowable dispatch (S2) hides a `dispatcher → target::handle` edge. It can only make
+        // an invisible dispatcher a missing caller of the change when a possible dispatch TARGET is
+        // in the change's upward-caller closure (or is the changed class). A change with no dispatch
+        // target upstream cannot be reached through the hidden edge, so an unresolved dispatch
+        // elsewhere is irrelevant to it — the scoping never under-selects (see changeReachesDispatchable).
+        if ($hasUnresolvedDispatches && self::changeReachesDispatchable($result, $changed)) {
             $reasons[] = 'the graph contains job dispatches that could not be followed';
         }
 
@@ -186,5 +198,50 @@ final class AffectedTests
             $files,
             static fn (string $file): bool => str_ends_with($file, 'Test.php'),
         ));
+    }
+
+    /**
+     * Whether a possible dispatch target ({@see DispatchTarget}) is the changed class itself or sits
+     * in the change's upward-caller closure. This is the ONLY condition under which an unfollowable
+     * dispatch (S2) can under-select the change's tests: the hidden `dispatcher → target::handle`
+     * edge inserts a missing caller only when such a target reaches the change. The uncertainty
+     * direction is safe — DispatchTarget fails toward "yes", so this over-fires rather than under.
+     *
+     * @param  array{callers?: list<array{node: string, depth: int, via: string, file?: string, line?: int}>, ...}  $result
+     * @param  list<ChangedFileSymbols>  $changed
+     */
+    private static function changeReachesDispatchable(array $result, array $changed): bool
+    {
+        foreach ($changed as $file) {
+            if ($file->fqcn !== '' && DispatchTarget::matches($file->fqcn)) {
+                return true;
+            }
+        }
+
+        foreach ($result['callers'] ?? [] as $hop) {
+            $class = self::classOfNode($hop['node']);
+
+            if ($class !== null && DispatchTarget::matches($class)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * The class FQCN a graph node id refers to, or null for a node whose structural prefix is never
+     * a bus-dispatch target (a route/view/command/schedule/middleware/model surface, or an ambiguous
+     * short controller/action id). A plain `Class::method` id yields its class segment.
+     */
+    private static function classOfNode(string $node): ?string
+    {
+        foreach (['route::', 'view::', 'command::', 'schedule::', 'middleware::', 'model::', 'controller::', 'action::'] as $prefix) {
+            if (str_starts_with($node, $prefix)) {
+                return null;
+            }
+        }
+
+        return explode('::', $node, 2)[0];
     }
 }

@@ -392,7 +392,10 @@ final readonly class ImpactAnalyzer
      */
     private function withUnresolvedJobFlips(array $coverage, array $changed, array $perFileSeeds, int $maxDepth, array &$riskInputsMemo): array
     {
-        if (! $this->graph->hasUnresolvedDispatches()) {
+        // Preserve this flip's original trigger across plan 036's S1/S2 split: a changed job's
+        // dispatcher could live in an unparseable file (S1) just as easily as in an unfollowable
+        // dispatch (S2), so proceed when EITHER source is present.
+        if (! $this->graph->hasUnparseableFiles() && ! $this->graph->hasUnresolvedDispatches()) {
             return $coverage;
         }
 

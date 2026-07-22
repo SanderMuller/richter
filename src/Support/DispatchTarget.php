@@ -4,11 +4,13 @@ namespace SanderMuller\Richter\Support;
 
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
+use SanderMuller\Richter\Analysis\AffectedTests;
+use SanderMuller\Richter\Tracers\DispatchEdgeTracer;
 use Throwable;
 
 /**
  * Whether a class COULD be the target of an unresolved bus dispatch (plan 036, Design C) — the
- * shared predicate {@see \SanderMuller\Richter\Analysis\AffectedTests}'s scoped S2 blocker uses to
+ * shared predicate {@see AffectedTests}'s scoped S2 blocker uses to
  * decide whether a change's upward-caller closure contains a possible dispatch target. `$fqcn` is
  * never a confirmed dispatch target here (an unresolved dispatch's target is, by definition, not
  * statically known) — this only asks "is this class SHAPED like something that verb could reach".
@@ -23,7 +25,7 @@ use Throwable;
  * future `richter.dispatch_target_bases` config allowlist would close this if a consumer reports it.
  *
  * Queued Mailables/Notifications/Events/broadcasts are NOT a gap: `Mail::queue`/`notify()`/
- * `event()`/`broadcast()` are never counted S2 dispatch verbs (see {@see \SanderMuller\Richter\Tracers\DispatchEdgeTracer}),
+ * `event()`/`broadcast()` are never counted S2 dispatch verbs (see {@see DispatchEdgeTracer}),
  * so their targets never reach this predicate in the first place.
  */
 final class DispatchTarget
@@ -47,7 +49,7 @@ final class DispatchTarget
      * exactly the under-fire this predicate exists to prevent. Any autoload failure anywhere in this
      * evaluation (a missing class, a broken parent/trait file) is uncertainty, and uncertainty must
      * never resolve to "not a target" — so the whole check fails toward `true`, not `false` (unlike
-     * {@see \SanderMuller\Richter\Tracers\DispatchEdgeTracer::isQueueable()}'s mirrored try/catch,
+     * {@see DispatchEdgeTracer::isQueueable()}'s mirrored try/catch,
      * which fails toward `false` because its own caller only ever wants a confident "yes, it's a
      * job").
      */

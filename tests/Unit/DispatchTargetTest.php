@@ -9,11 +9,12 @@ use App\Notifications\PostDigestNotification;
 use PHPUnit\Framework\Attributes\Test;
 use SanderMuller\Richter\Support\DispatchTarget;
 use SanderMuller\Richter\Tests\TestCase;
+use SanderMuller\Richter\Tracers\DispatchEdgeTracer;
 
 /**
  * Unit coverage for {@see DispatchTarget::matches()} — the predicate plan 036's scoped S2 blocker
  * uses to decide whether a class could be the target of an unresolved bus dispatch. Every "true"
- * case below models a shape {@see \SanderMuller\Richter\Tracers\DispatchEdgeTracer}'s counted
+ * case below models a shape {@see DispatchEdgeTracer}'s counted
  * dispatch verbs can reach; the "false" case and the fail-toward-fire case are what makes the
  * predicate safe to use as a determinability blocker at all.
  */

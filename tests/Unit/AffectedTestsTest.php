@@ -85,14 +85,88 @@ final class AffectedTestsTest extends TestCase
         $this->assertFalse($lowConfidence['determinable']);
         $this->assertStringContainsString('low confidence', $lowConfidence['reasons'][0]);
 
+        // Scoped (plan 036 S2): an unfollowable dispatch blocks only when the change reaches a
+        // dispatch target — here the changed class is itself a `\Jobs\` job (GUARD S2-job).
         $dispatches = AffectedTests::select(
             $this->detectResult([]),
-            [],
+            [$this->changed('app/Jobs/PublishPostJob.php', 'App\Jobs\PublishPostJob')],
             $this->index(),
             hasUnresolvedDispatches: true,
         );
         $this->assertFalse($dispatches['determinable']);
         $this->assertStringContainsString('dispatches', $dispatches['reasons'][0]);
+    }
+
+    #[Test]
+    public function an_unfollowable_dispatch_does_not_block_a_change_with_no_dispatch_target_upstream(): void
+    {
+        // THE UNLOCK: S2 is a graph-global signal, but a change whose upward-caller closure holds
+        // no dispatch target cannot be reached through a hidden `dispatcher → target` edge, so it
+        // narrows instead of falling back to the full suite.
+        $selection = AffectedTests::select(
+            $this->detectResult(
+                ['route::GET::/errors/log'],
+                callers: [['depth' => 1, 'node' => 'route::GET::/errors/log', 'via' => 'route-to-controller']],
+            ),
+            [$this->changed('app/Models/Post.php', 'App\Models\Post')],
+            $this->index(),
+            hasUnresolvedDispatches: true,
+        );
+        $this->assertTrue($selection['determinable']);
+        $this->assertSame([], $selection['reasons']);
+    }
+
+    #[Test]
+    public function an_unparseable_file_blocks_determination_globally_regardless_of_the_change(): void
+    {
+        // GUARD S1: an unparseable file has no edges and could hide a caller of any change — it is
+        // could-be-anything taint, so it blocks globally even when the change reaches no dispatchable.
+        $selection = AffectedTests::select(
+            $this->detectResult(['route::GET::/errors/log']),
+            [$this->changed('app/Models/Post.php', 'App\Models\Post')],
+            $this->index(),
+            hasUnresolvedDispatches: false,
+            hasUnparseableFiles: true,
+        );
+        $this->assertFalse($selection['determinable']);
+        $this->assertStringContainsString('could not be parsed', $selection['reasons'][0]);
+    }
+
+    #[Test]
+    public function an_unfollowable_dispatch_blocks_when_a_dispatchable_command_reaches_the_change(): void
+    {
+        // GUARD S2-command (the A2 fix): a `Dispatchable` command that is neither `\Jobs\` nor
+        // `ShouldQueue`, reaching the change as a caller, still blocks — v1's job-only predicate
+        // missed exactly this and would have under-selected.
+        $selection = AffectedTests::select(
+            $this->detectResult(
+                [],
+                callers: [['depth' => 1, 'node' => 'App\Actions\GenerateReport::handle', 'via' => 'call']],
+            ),
+            [$this->changed('app/Models/Post.php', 'App\Models\Post')],
+            $this->index(),
+            hasUnresolvedDispatches: true,
+        );
+        $this->assertFalse($selection['determinable']);
+        $this->assertStringContainsString('dispatches', $selection['reasons'][0]);
+    }
+
+    #[Test]
+    public function an_unfollowable_dispatch_blocks_when_a_caller_class_cannot_be_classified(): void
+    {
+        // GUARD S2-unclassifiable: an unloadable caller (e.g. an unresolved short id) is uncertainty,
+        // and uncertainty fails toward "could be a dispatch target" — never toward narrowing.
+        $selection = AffectedTests::select(
+            $this->detectResult(
+                [],
+                callers: [['depth' => 1, 'node' => 'App\Ghost\Unloadable::handle', 'via' => 'call']],
+            ),
+            [$this->changed('app/Models/Post.php', 'App\Models\Post')],
+            $this->index(),
+            hasUnresolvedDispatches: true,
+        );
+        $this->assertFalse($selection['determinable']);
+        $this->assertStringContainsString('dispatches', $selection['reasons'][0]);
     }
 
     #[Test]
