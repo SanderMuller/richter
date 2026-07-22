@@ -281,7 +281,7 @@ It fails safe, and the exit code is the contract:
 | Exit | Meaning |
 |---|---|
 | `0` | Selection determined (possibly empty). |
-| `2` | **Not determinable — run the full suite.** Any UNRESOLVED file, low-confidence seed, unfollowable dispatch, uncheckable entry point, or an untracked relevant file `git diff` can't see trips this; the reasons are printed (text) or carried in `reasons` (JSON). |
+| `2` | **Not determinable — run the full suite.** Any UNRESOLVED file, low-confidence seed, an unparseable app file, an unfollowable dispatch *that a possible dispatch target in the change's reach could hide*, an uncheckable entry point, or an untracked relevant file `git diff` can't see trips this; the reasons are printed (text) or carried in `reasons` (JSON). (A lone unfollowable dispatch no longer blocks a change with no dispatch target upstream.) |
 | `1` | Usage or unexpected error. |
 
 In `--plain` mode an undeterminable run prints nothing, so the command-substitution form degrades
