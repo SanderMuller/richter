@@ -654,7 +654,7 @@ final class ImpactAnalyzerTest extends TestCase
         $analyzer = new ImpactAnalyzer(new CodeGraph([
             ['source' => Post::class, 'target' => Comment::class, 'type' => 'model-relationship'],
             ['source' => Post::class, 'target' => 'App\Services\X::run', 'type' => 'action-to-service'],
-        ]));
+        ], hasUnparseableFiles: false));
 
         $result = $analyzer->detectChanges([
             $this->changedCoarse('app/Models/Post.php', Post::class),

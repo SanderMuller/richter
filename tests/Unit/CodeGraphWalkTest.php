@@ -265,7 +265,7 @@ final class CodeGraphWalkTest extends TestCase
         $graph = new CodeGraph([
             ['source' => 'route::GET::/r', 'target' => 'App\Http\Controllers\C::index', 'type' => 'route-to-controller'],
             ['source' => 'App\Http\Controllers\C::index', 'target' => 'App\Services\S::run', 'type' => 'action-to-service'],
-        ]);
+        ], hasUnparseableFiles: false);
 
         $this->assertSame([
             ['source' => 'App\Http\Controllers\C::index', 'target' => 'App\Services\S::run', 'via' => 'action-to-service', 'depth' => 1],
@@ -279,7 +279,7 @@ final class CodeGraphWalkTest extends TestCase
         $graph = new CodeGraph([
             ['source' => 'route::GET::/r', 'target' => 'App\Http\Controllers\C::index', 'type' => 'route-to-controller'],
             ['source' => 'App\Http\Controllers\C::index', 'target' => 'App\Services\S::run', 'type' => 'action-to-service'],
-        ]);
+        ], hasUnparseableFiles: false);
 
         $this->assertSame([
             ['source' => 'route::GET::/r', 'target' => 'App\Http\Controllers\C::index', 'via' => 'route-to-controller', 'depth' => 1],
@@ -304,7 +304,7 @@ final class CodeGraphWalkTest extends TestCase
             ['source' => 'B', 'target' => 'C', 'type' => 'call'],
             ['source' => 'Root', 'target' => 'A', 'type' => 'call'],
             ['source' => 'Root', 'target' => 'B', 'type' => 'call'],
-        ]);
+        ], hasUnparseableFiles: false);
 
         // Each list below is asserted whole: no repeated entry IS the tree property.
         $this->assertSame(['A', 'B', 'Root'], array_column($graph->callerEdgesOf(['C']), 'source'));
@@ -318,7 +318,7 @@ final class CodeGraphWalkTest extends TestCase
             ['source' => 'A', 'target' => 'B', 'type' => 'call'],
             ['source' => 'B', 'target' => 'C', 'type' => 'call'],
             ['source' => 'C', 'target' => 'A', 'type' => 'call'],
-        ]);
+        ], hasUnparseableFiles: false);
 
         $edges = $graph->callerEdgesOf(['B']);
 
@@ -336,7 +336,7 @@ final class CodeGraphWalkTest extends TestCase
             ['source' => 'N2', 'target' => 'N3', 'type' => 'call'],
             ['source' => 'N3', 'target' => 'N4', 'type' => 'call'],
             ['source' => 'N4', 'target' => 'N5', 'type' => 'call'],
-        ]);
+        ], hasUnparseableFiles: false);
 
         $edges = $graph->dependencyEdgesOf(['N1'], maxDepth: 2);
 
@@ -351,7 +351,7 @@ final class CodeGraphWalkTest extends TestCase
     {
         $graph = new CodeGraph([
             ['source' => 'A', 'target' => 'B', 'type' => 'call'],
-        ]);
+        ], hasUnparseableFiles: false);
 
         $this->assertSame([], $graph->callerEdgesOf([]));
         $this->assertSame([], $graph->dependencyEdgesOf([]));
@@ -367,7 +367,7 @@ final class CodeGraphWalkTest extends TestCase
             ['source' => 'X', 'target' => 'S', 'type' => 'call'],
             ['source' => 'S', 'target' => 'M', 'type' => 'call'],
             ['source' => 'M', 'target' => 'X', 'type' => 'call'],
-        ]);
+        ], hasUnparseableFiles: false);
 
         $this->assertContains(
             ['source' => 'X', 'target' => 'S', 'via' => 'call', 'depth' => 1],
