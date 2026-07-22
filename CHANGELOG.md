@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## v0.11.1 - 2026-07-22
 
 <!-- verified-sha: cd89bce118650b14d9360ec2847ec6feefa9acff -->
+A correctness fix for `richter:affected-tests`, from the same real-world dogfood that shaped v0.10.0. The test selection no longer collapses to "run the full suite" on every change just because the codebase dispatches a job somewhere it can't statically follow — while never selecting fewer tests than a change actually needs.
+
 ### Fixed
 
 - **`affected-tests` is usable on real applications again.** An unfollowable job/command dispatch anywhere in the graph previously made *every* change undeterminable ("run the full suite"), because the "unfollowable dispatch" signal was graph-global. It is now **change-scoped**: an unfollowable dispatch only blocks a change that could actually be reached through it — i.e. when a possible dispatch target (a queued job, a `Dispatchable` command, or a plain self-handling `handle()`/`__invoke()` command) sits in the change's caller closure, or is the changed class itself. A change with no dispatch target upstream — a read-only controller path, a model method, a Livewire component — now narrows to the tests it can reach.
