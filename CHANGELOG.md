@@ -5,6 +5,28 @@ All notable changes to `sandermuller/richter` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.12.0 - 2026-07-22
+
+<!-- verified-sha: b9b369df2b53f9c29fe3642d132cfc08da213083 -->
+### Fixed
+
+- **A dispatched command's handler is no longer a hidden caller.** The dispatch tracer drew a `dispatcher → handler` edge only when the dispatched or instantiated target *looked like a queued job* — namespaced under `Jobs\`, or implementing `ShouldQueue`. A resolved `dispatch(new SomeCommand())` whose target is a `Dispatchable` command, or a plain self-handling command (a `handle()`/`__invoke()` class with no queue trait, which Laravel still runs synchronously through the bus), drew **no** edge. A change to such a handler could then drop the dispatching action's test from `affected-tests` selection — but only when the graph contained no *other* unfollowable dispatch — and `richter:impact` under-reported the change's blast radius. Both now recognise the command handler as a real caller.
+  
+- **A queued job with an unloadable ancestor no longer silently disappears from the graph.** The previous job check swallowed autoload failures and concluded "not a job", so a `ShouldQueue` job whose parent class or trait could not be loaded drew no dispatch edge at all. The shared dispatch-target predicate now resolves that uncertainty toward drawing the edge, so an unclassifiable target is over-approximated (a caller is shown) rather than dropped.
+  
+
+### Changed
+
+- **`richter:impact` and `detect-changes` may report more reach — and occasionally a higher risk level — for code that dispatches commands.** This release only ever *adds* edges to the graph, so `affected-tests` can select the same tests or more, never fewer, and impact reports become more complete. If a change dispatches `Dispatchable` or self-handling commands, expect its reported reach to grow to include those handlers. This is the intended, more-honest behavior; it lands as a minor version because the output shifts for a real class of applications.
+
+### Internal
+
+- The dispatch tracer and the `affected-tests` determinability blocker now share one definition of "dispatch target", so edge-drawing and change-scoping recognise exactly the same set of shapes.
+- No cache-format bump was needed: the richter package version is part of the graph fingerprint, so upgrading invalidates any cached graph and rebuilds it once, automatically, on first use — the wider edge set appears immediately, no action required.
+- Suite grows to 717 tests / 1,649 assertions, including new coverage that a resolved dispatch of a self-handling command and of a `Dispatchable` command each draw the handler edge, and that a genuinely non-dispatchable class still draws none.
+
+**Full Changelog**: https://github.com/SanderMuller/richter/compare/v0.11.1...v0.12.0
+
 ## v0.11.1 - 2026-07-22
 
 <!-- verified-sha: cd89bce118650b14d9360ec2847ec6feefa9acff -->
