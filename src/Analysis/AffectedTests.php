@@ -29,7 +29,7 @@ final class AffectedTests
      *   input to determinability (a route no spec references is not a blocker)
      * @return array{determinable: bool, reasons: list<string>, tests: list<string>, frontendTests: list<string>, unreferencedEntryPoints: int}
      */
-    public static function select(array $result, array $changed, TestReferenceIndex $tests, bool $hasUnresolvedDispatches, bool $hasUnparseableFiles = false, ?CodeGraph $graph = null, ?FrontendTestIndex $frontendTests = null): array
+    public static function select(array $result, array $changed, TestReferenceIndex $tests, bool $hasUnresolvedDispatches, ?CodeGraph $graph = null, ?FrontendTestIndex $frontendTests = null, bool $hasUnparseableFiles = false): array
     {
         $reasons = [];
 

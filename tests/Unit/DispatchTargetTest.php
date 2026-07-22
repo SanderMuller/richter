@@ -3,6 +3,7 @@
 namespace SanderMuller\Richter\Tests\Unit;
 
 use App\Actions\GenerateReport;
+use App\Commands\ArchiveStalePosts;
 use App\Jobs\PublishPostJob;
 use App\Models\Post;
 use App\Notifications\PostDigestNotification;
@@ -41,8 +42,19 @@ final class DispatchTargetTest extends TestCase
     }
 
     #[Test]
-    public function a_plain_class_does_not_match(): void
+    public function a_plain_self_handling_command_matches(): void
     {
+        // The codex-found category the Dispatchable-only predicate missed: a plain class with
+        // handle() and no Dispatchable trait, run by dispatch($x) via BusDispatcher's dispatchNow
+        // fallback. Under-selecting a change it reaches would violate the cardinal rule.
+        $this->assertTrue(DispatchTarget::matches(ArchiveStalePosts::class));
+    }
+
+    #[Test]
+    public function a_plain_class_with_no_handle_or_invoke_does_not_match(): void
+    {
+        // A model has neither handle()/__invoke() nor any dispatch trait — the unlock depends on
+        // this staying false so a change reached only through such classes still narrows.
         $this->assertFalse(DispatchTarget::matches(Post::class));
     }
 

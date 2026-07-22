@@ -170,6 +170,25 @@ final class AffectedTestsTest extends TestCase
     }
 
     #[Test]
+    public function an_unfollowable_dispatch_blocks_when_a_self_handling_command_reaches_the_change(): void
+    {
+        // GUARD S2-self-handling (the codex-found gap): a plain command with handle() and no
+        // Dispatchable/ShouldQueue/\Jobs\, dispatched via dispatch($x), still reaches the change —
+        // the widened predicate (rule 5) must fire so it blocks rather than silently narrowing.
+        $selection = AffectedTests::select(
+            $this->detectResult(
+                [],
+                callers: [['depth' => 1, 'node' => 'App\Commands\ArchiveStalePosts::handle', 'via' => 'call']],
+            ),
+            [$this->changed('app/Models/Post.php', 'App\Models\Post')],
+            $this->index(),
+            hasUnresolvedDispatches: true,
+        );
+        $this->assertFalse($selection['determinable']);
+        $this->assertStringContainsString('dispatches', $selection['reasons'][0]);
+    }
+
+    #[Test]
     public function an_uncheckable_entry_point_blocks_determination(): void
     {
         // A schedule:: node has no reference detection — silently skipping it would shrink the set.
