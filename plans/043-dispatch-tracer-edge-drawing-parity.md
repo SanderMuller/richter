@@ -14,6 +14,18 @@
 
 ## Status
 
+- **State**: DONE — the three `isJobClass()` sites now call `DispatchTarget::matches()`;
+  `isJobClass`/`isQueueable`/`$jobClassCache` retired (one definition of "dispatch target" across
+  the tracer + 036). New test-first coverage: a resolved `dispatch(new ArchiveStalePosts())`
+  (plain self-handling `handle()`) and `dispatch(new GenerateReport())` (`Dispatchable`, not
+  `ShouldQueue`) now draw an `action-to-job` edge; the non-target case was re-pinned to a real
+  loadable class (`Post`) because an unloadable name fails toward firing under `DispatchTarget`.
+  Graph/impact expectations needed **no** reconciliation (the fixture project's only dispatch/`new`
+  is a job). Benchmark: 29 unit cases green; no `richter.benchmark_cases` corpus configured, so no
+  control-case `max_risk` STOP was reachable. Removing the mutable cache made the class
+  `readonly` (Rector `ReadOnlyClassRector`, applied). README needed no change — it makes no
+  "only jobs get a dispatch edge" claim; the exit-2/determinability wording describes the unchanged
+  S2 path. 717 tests green; phpstan/pint/rector clean.
 - **Priority**: P2
 - **Effort**: M
 - **Risk**: MED (safe direction — only ADDS edges, so `affected-tests` can only get MORE
@@ -159,11 +171,11 @@ control cases.
 
 ## Done criteria
 
-- [ ] The three `isJobClass` sites use `DispatchTarget::matches`; one definition of "dispatch target" across tracer + 036
-- [ ] A resolved self-handling-command dispatch draws an `action-to-job` edge (new test)
-- [ ] Graph/impact/benchmark expectations reconciled — each change is a correct reach increase, not a hidden regression
-- [ ] `composer test` / `phpstan` / `pint --test` / `rector --dry-run` clean
-- [ ] README dispatch-edge wording corrected if stale; `plans/README.md` row updated
+- [x] The three `isJobClass` sites use `DispatchTarget::matches`; one definition of "dispatch target" across tracer + 036
+- [x] A resolved self-handling-command dispatch draws an `action-to-job` edge (new test)
+- [x] Graph/impact/benchmark expectations reconciled — each change is a correct reach increase, not a hidden regression (no reconciliation needed — see Status)
+- [x] `composer test` / `phpstan` / `pint --test` / `rector --dry-run` clean
+- [x] README dispatch-edge wording corrected if stale (no stale claim found); `plans/README.md` row updated
 
 ## STOP conditions
 

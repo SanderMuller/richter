@@ -51,8 +51,11 @@ final class DispatchEdgeTracerTest extends TestCase
         yield 'Bus::chain — every job' => ['Bus::chain([new ImportJob(), new OtherJob()]);', $twoJobsAndBus, ['App\Jobs\ImportJob::handle', 'App\Jobs\OtherJob::handle']];
         yield 'Bus::batch — every job' => ['Bus::batch([new ImportJob(), new OtherJob()]);', $twoJobsAndBus, ['App\Jobs\ImportJob::handle', 'App\Jobs\OtherJob::handle']];
         yield 'grouped use import' => ['dispatch_with_retries(new OtherJob());', 'use App\Jobs\{ImportJob, OtherJob};', ['App\Jobs\OtherJob::handle']];
-        // RegularThing is in App\Http\Controllers (same namespace), not a job — no edge.
-        yield 'non-job class produces no edge' => ['dispatch(new RegularThing());', '', []];
+        // A real, loadable class that is not a dispatch target (no handle()/__invoke(), no
+        // Dispatchable/ShouldQueue, not \Jobs\) draws no edge. The class must exist: an unloadable
+        // name fails toward firing under DispatchTarget (uncertainty → could-be), so a made-up name
+        // here would wrongly draw an edge.
+        yield 'non-dispatch-target class produces no edge' => ['dispatch(new Post());', 'use App\Models\Post;', []];
         // `ImportJob::dispatch(...)` builds a closure; getArgs() would throw if not guarded for it.
         yield 'first-class callable does not emit' => ['$ref = ImportJob::dispatch(...);', $importJob, []];
     }
@@ -75,6 +78,30 @@ final class DispatchEdgeTracerTest extends TestCase
         foreach ($expectedTargets as $target) {
             $this->assertContains(['source' => self::DISPATCHER . '::store', 'target' => $target, 'type' => 'action-to-job'], $edges);
         }
+    }
+
+    /**
+     * Plan 043: a resolved dispatch of a non-job dispatch target — a plain self-handling command
+     * (a `handle()` with no `Dispatchable` trait, run via `BusDispatcher::dispatchNow`) or a
+     * `Dispatchable` command that is not `ShouldQueue` — now draws the `action-to-job` edge the
+     * job-only predicate previously omitted. The edge-drawer and the determinability predicate share
+     * one definition of "dispatch target" (the DispatchTarget predicate), so both recognise these shapes.
+     *
+     * @return Iterator<string, array{string, string, string}>
+     */
+    public static function nonJobDispatchTargets(): Iterator
+    {
+        yield 'plain self-handling command' => ['dispatch(new ArchiveStalePosts());', 'use App\Commands\ArchiveStalePosts;', 'App\Commands\ArchiveStalePosts::handle'];
+        yield 'Dispatchable command that is not ShouldQueue' => ['dispatch(new GenerateReport());', 'use App\Actions\GenerateReport;', 'App\Actions\GenerateReport::handle'];
+    }
+
+    #[Test]
+    #[DataProvider('nonJobDispatchTargets')]
+    public function it_draws_an_edge_to_a_resolved_non_job_dispatch_target(string $body, string $uses, string $expectedTarget): void
+    {
+        $edges = $this->edges($body, $uses);
+
+        $this->assertContains(['source' => self::DISPATCHER . '::store', 'target' => $expectedTarget, 'type' => 'action-to-job'], $edges);
     }
 
     /**

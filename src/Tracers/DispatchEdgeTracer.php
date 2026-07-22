@@ -2,7 +2,6 @@
 
 namespace SanderMuller\Richter\Tracers;
 
-use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Support\Facades\Bus;
 use PhpParser\Node;
 use PhpParser\Node\Arg;
@@ -20,7 +19,7 @@ use PhpParser\Node\Stmt\ClassMethod;
 use PhpParser\NodeFinder;
 use SanderMuller\Richter\Graph\CodeGraphBuilder;
 use SanderMuller\Richter\Support\AppFiles;
-use Throwable;
+use SanderMuller\Richter\Support\DispatchTarget;
 
 /**
  * Brain resolves the standard dispatch forms — `Job::dispatch()`, `dispatch()`, and, since v2.3.1, the
@@ -30,8 +29,14 @@ use Throwable;
  * `action-to-job` edges (FQCN-keyed, joining the normalised graph) and records an unresolved-dispatch
  * signal for a variable / factory / closure argument, so such a job reads as "unknown", not "none".
  * Dev/CI tooling only.
+ *
+ * A resolved target is recognised via the shared {@see DispatchTarget} predicate (plan 043), so the
+ * `action-to-job` edge is drawn for every dispatch-target shape — a queued job, a `Dispatchable`
+ * command, or a plain self-handling `handle()`/`__invoke()` command — not only `\Jobs\`/ShouldQueue
+ * jobs. The `action-to-job` type string is a stable internal label; a command dispatch is
+ * risk-bearing exactly like a job dispatch, so the name is kept despite now covering commands.
  */
-final class DispatchEdgeTracer
+final readonly class DispatchEdgeTracer
 {
     // `dispatch` / `dispatch_sync` stay though Brain resolves them (v2.3.1): only this tracer counts an
     // unfollowable dispatch (see class docblock).
@@ -43,11 +48,8 @@ final class DispatchEdgeTracer
 
     private const array BUS_GROUP = ['chain', 'batch'];
 
-    /** @var array<string, bool> */
-    private array $jobClassCache = [];
-
     /** @var list<string> */
-    private readonly array $dispatchFunctions;
+    private array $dispatchFunctions;
 
     /** @param  list<string>  $dispatchHelpers  project-custom global dispatch helper functions ({@see RichterConfig::dispatchHelpers()}) */
     public function __construct(array $dispatchHelpers = [])
@@ -93,17 +95,24 @@ final class DispatchEdgeTracer
             $dispatcher = ltrim($classFqcn, '\\') . '::' . $method->name->toString();
             $calls = new NodeFinder()->find($method, static fn (Node $n): bool => $n instanceof FuncCall || $n instanceof MethodCall || $n instanceof StaticCall);
 
+            // Edges target `::handle` (the method `BusDispatcher::dispatchNow` prefers, falling back
+            // to `__invoke` only when `handle` is absent), so an `__invoke`-only self-handling command
+            // draws an edge to a `::handle` node that may not exist — a narrow residual, not a
+            // regression: before this widening it drew no edge at all, so selection is no worse.
             foreach ($calls as $call) {
                 foreach ($this->jobsFromCall($call, $unresolved) as $jobFqcn) {
                     $edges[] = ['source' => $dispatcher, 'target' => $jobFqcn . '::handle', 'type' => 'action-to-job'];
                 }
             }
 
-            // Any job instantiation links the constructing method — over-approximate on purpose: the
-            // dispatch verb often receives the job as a variable (`$job = new X(...); dispatch($job)`),
-            // which no dispatch-site pattern above can follow — a defect class that ships unseen otherwise.
+            // Any dispatch-target instantiation links the constructing method — over-approximate on
+            // purpose: the dispatch verb often receives the target as a variable
+            // (`$job = new X(...); dispatch($job)`), which no dispatch-site pattern above can follow —
+            // a defect class that ships unseen otherwise. The target may be any dispatch-target shape
+            // (a queued job, a Dispatchable command, or a plain self-handling handle()/__invoke()
+            // command), not only a `\Jobs\`/ShouldQueue job.
             foreach (new NodeFinder()->findInstanceOf($method, New_::class) as $new) {
-                if ($new->class instanceof Name && $this->isJobClass($job = AppFiles::resolveName($new->class)) && $job !== ltrim($classFqcn, '\\')) {
+                if ($new->class instanceof Name && DispatchTarget::matches($job = AppFiles::resolveName($new->class)) && $job !== ltrim($classFqcn, '\\')) {
                     $edges[] = ['source' => $dispatcher, 'target' => $job . '::handle', 'type' => 'action-to-job'];
                 }
             }
@@ -126,7 +135,7 @@ final class DispatchEdgeTracer
         return match ($site['mode'] ?? null) {
             'single' => $this->jobsFromArg($site['arg'], $unresolved),
             'array' => $this->jobsFromArray($site['arg']?->value, $unresolved),
-            'class' => $this->isJobClass($site['class']) ? [$site['class']] : [],
+            'class' => DispatchTarget::matches($site['class']) ? [$site['class']] : [],
             default => [],
         };
     }
@@ -241,26 +250,6 @@ final class DispatchEdgeTracer
 
         $job = AppFiles::resolveName($new->class);
 
-        return $this->isJobClass($job) ? [$job] : [];
-    }
-
-    private function isJobClass(string $fqcn): bool
-    {
-        if (str_contains($fqcn, '\\Jobs\\')) {
-            return true;
-        }
-
-        // Memoize the autoloading check — the full-app scan asks the same FQCNs repeatedly, and
-        // class_exists()/is_subclass_of() autoload, which is the expensive part.
-        return $this->jobClassCache[$fqcn] ??= $this->isQueueable($fqcn);
-    }
-
-    private function isQueueable(string $fqcn): bool
-    {
-        try {
-            return class_exists($fqcn) && is_subclass_of($fqcn, ShouldQueue::class);
-        } catch (Throwable) {
-            return false;
-        }
+        return DispatchTarget::matches($job) ? [$job] : [];
     }
 }

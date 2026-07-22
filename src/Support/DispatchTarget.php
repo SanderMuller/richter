@@ -9,11 +9,13 @@ use SanderMuller\Richter\Tracers\DispatchEdgeTracer;
 use Throwable;
 
 /**
- * Whether a class COULD be the target of an unresolved bus dispatch (plan 036, Design C) — the
- * shared predicate {@see AffectedTests}'s scoped S2 blocker uses to
- * decide whether a change's upward-caller closure contains a possible dispatch target. `$fqcn` is
- * never a confirmed dispatch target here (an unresolved dispatch's target is, by definition, not
- * statically known) — this only asks "is this class SHAPED like something that verb could reach".
+ * Whether a class COULD be the target of an unresolved bus dispatch (plan 036, Design C) — the one
+ * shared definition of "dispatch target" across two callers: {@see AffectedTests}'s scoped S2
+ * blocker (does a change's upward-caller closure contain a possible dispatch target?) and, since
+ * plan 043, {@see DispatchEdgeTracer}'s resolved-dispatch edge-drawer (which instantiation/dispatch
+ * targets get an `action-to-job` edge). `$fqcn` is never a confirmed dispatch target here (an
+ * unresolved dispatch's target is, by definition, not statically known) — this only asks "is this
+ * class SHAPED like something that verb could reach".
  *
  * Covers every dispatch-target shape the counted verbs can reach: `\Jobs\`-namespaced classes,
  * `ShouldQueue` jobs outside that namespace, `Dispatchable` commands/actions, AND plain
@@ -55,10 +57,10 @@ final class DispatchTarget
      * class is loadable would let a missing/unclassifiable class wrongly conclude "not a target" —
      * exactly the under-fire this predicate exists to prevent. Any autoload failure anywhere in this
      * evaluation (a missing class, a broken parent/trait file) is uncertainty, and uncertainty must
-     * never resolve to "not a target" — so the whole check fails toward `true`, not `false` (unlike
-     * {@see DispatchEdgeTracer::isQueueable()}'s mirrored try/catch,
-     * which fails toward `false` because its own caller only ever wants a confident "yes, it's a
-     * job").
+     * never resolve to "not a target" — so the whole check fails toward `true`, not `false`. Both
+     * callers want that direction: as a determinability blocker (plan 036) an uncertain class must
+     * block the change, and as the edge-drawer's target test (plan 043) an uncertain class must
+     * still draw the `action-to-job` edge — an extra edge over-selects, never under.
      */
     private static function evaluate(string $fqcn): bool
     {
