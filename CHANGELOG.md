@@ -5,6 +5,23 @@ All notable changes to `sandermuller/richter` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.11.1 - 2026-07-22
+
+<!-- verified-sha: cd89bce118650b14d9360ec2847ec6feefa9acff -->
+### Fixed
+
+- **`affected-tests` is usable on real applications again.** An unfollowable job/command dispatch anywhere in the graph previously made *every* change undeterminable ("run the full suite"), because the "unfollowable dispatch" signal was graph-global. It is now **change-scoped**: an unfollowable dispatch only blocks a change that could actually be reached through it — i.e. when a possible dispatch target (a queued job, a `Dispatchable` command, or a plain self-handling `handle()`/`__invoke()` command) sits in the change's caller closure, or is the changed class itself. A change with no dispatch target upstream — a read-only controller path, a model method, a Livewire component — now narrows to the tests it can reach.
+  
+  This never trades away safety. The signal that a file could not be parsed at all is kept as a separate, **global** block (an unreadable file could hide anything), and the scoped-dispatch rule fails toward blocking on any uncertainty. The one narrow, documented gap — a command wired through `Bus::map` to a separate handler with none of the recognised markers — only affects a codebase with *no* unfollowable dispatch at all, and is a pre-existing analysis limitation, not a regression.
+  
+
+### Internal
+
+- The graph's on-disk cache format is bumped, so a consumer's cached graph rebuilds once, automatically, on first use after upgrading — no action required.
+- Suite grows to 715 tests / 1,647 assertions, including five adversarial guards that pin every path where the scoped selection must still block (a changed job, a job/command reached by the change, an unclassifiable caller, an unparseable file, and the unlock case where it correctly narrows).
+
+**Full Changelog**: https://github.com/SanderMuller/richter/compare/v0.11.0...v0.11.1
+
 ## v0.11.0 - 2026-07-21
 
 <!-- verified-sha: cc1cabb9eb2ed126dd508f58351f5219cf8c2688 -->
