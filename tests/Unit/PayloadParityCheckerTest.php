@@ -281,6 +281,45 @@ final class PayloadParityCheckerTest extends TestCase
     }
 
     #[Test]
+    public function a_non_empty_graph_result_never_falls_back_to_the_name_scan(): void
+    {
+        // The graph wires exactly one resource (ReviewResource), which exposes every added field —
+        // it stays silent. LookalikeResource sits on disk under the same namespace, carries the
+        // model's short name as a segment, and is missing the added field — the fallback would flag
+        // it, but it was never wired by the graph and must not be consulted at all.
+        $resourceFqcn = 'App\Http\Resources\Api\Post\ReviewResource';
+        $this->putResource('app/Http/Resources/Api/Post/ReviewResource.php', <<<'PHP'
+            <?php declare(strict_types=1);
+            namespace App\Http\Resources\Api\Post;
+            use Illuminate\Http\Resources\Json\JsonResource;
+            final class ReviewResource extends JsonResource
+            {
+                public function toArray($request): array
+                {
+                    return ['title' => $this->title, 'slug' => $this->slug, 'layout' => $this->layout];
+                }
+            }
+            PHP);
+        $this->putResource('app/Http/Resources/Api/Post/LookalikeResource.php', <<<'PHP'
+            <?php declare(strict_types=1);
+            namespace App\Http\Resources\Api\Post;
+            use Illuminate\Http\Resources\Json\JsonResource;
+            final class LookalikeResource extends JsonResource
+            {
+                public function toArray($request): array
+                {
+                    return ['title' => $this->title, 'slug' => $this->slug];
+                }
+            }
+            PHP);
+
+        $findings = $this->checker($this->wiredGraph($resourceFqcn))
+            ->findingsFor(self::MODEL, ['title', 'slug', 'layout'], ['layout']);
+
+        $this->assertSame([], $findings);
+    }
+
+    #[Test]
     public function the_fallback_minimum_of_two_shared_fields_is_enforced(): void
     {
         // Only one pre-existing field ('slug'); the fallback path's minimum of 2 shared fields keeps
