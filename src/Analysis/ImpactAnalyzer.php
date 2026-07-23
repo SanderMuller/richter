@@ -7,6 +7,7 @@ use SanderMuller\Richter\Changes\ChangedFileSymbols;
 use SanderMuller\Richter\Graph\CodeGraph;
 use SanderMuller\Richter\Graph\NodeMetadata;
 use SanderMuller\Richter\Support\Fqcn;
+use SanderMuller\Richter\Support\RichterConfig;
 
 /**
  * Over a {@see CodeGraph}: impact(symbol) blast radius + detectChanges(files) reached entry points/risk.
@@ -79,6 +80,9 @@ final readonly class ImpactAnalyzer
 
     /**
      * @param  list<ChangedFileSymbols>  $changed  the member-level change set per file (see ChangedSymbols)
+     *
+     * @param  bool|null  $payloadParityEnabled  overrides `richter.payload_parity.enabled` (e.g. the
+     *   command's `--no-payload-parity` flag); null defers to config
      * @return array{
      *     changed: array<string, int>,
      *     coverage: array<string, 'analyzed'|'unresolved'>,
@@ -100,7 +104,7 @@ final readonly class ImpactAnalyzer
      *     findings: list<string>,
      * }
      */
-    public function detectChanges(array $changed, int $maxDepth = 6): array
+    public function detectChanges(array $changed, int $maxDepth = 6, ?bool $payloadParityEnabled = null): array
     {
         $preciseSeeds = [];
         $coarseSeeds = [];
@@ -203,10 +207,19 @@ final readonly class ImpactAnalyzer
         [$risk, $coarseCapApplied] = $this->riskWithCoarseCap($impacted, $riskEntryPointCount, $touchesEntryClass, $preciseSeeds, $lowConfidence, $maxDepth, $riskInputsMemo);
 
         $findings = [];
+        $payloadParityChecker = ($payloadParityEnabled ?? RichterConfig::payloadParityEnabled())
+            ? new PayloadParityChecker($this->graph, RichterConfig::payloadParityMirrorThreshold(), RichterConfig::payloadParityIgnore())
+            : null;
 
         foreach ($changed as $file) {
             foreach ($file->findings as $finding) {
                 $findings[] = "{$file->file}: {$finding}";
+            }
+
+            // No file prefix here — unlike the source-checker findings above, this note names the
+            // RESOURCE the model change affects, not the changed model file itself.
+            if ($payloadParityChecker instanceof PayloadParityChecker && $file->addedModelFields !== []) {
+                $findings = [...$findings, ...$payloadParityChecker->findingsFor($file->fqcn, $file->modelFieldSet, $file->addedModelFields)];
             }
         }
 

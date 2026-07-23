@@ -11,6 +11,10 @@ final class ReviewResource extends JsonResource
     public function toArray(Request $request): array
     {
         return [
+            'title' => $this->title,
+            'slug' => $this->slug,
+            // Deliberately mirrors title/slug but not the model's 'status' field — the
+            // payload-parity fixture this omission is for.
             'player' => ReviewPlayerResource::make($this->resource),
         ];
     }
