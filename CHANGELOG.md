@@ -5,6 +5,35 @@ All notable changes to `sandermuller/richter` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.13.0 - 2026-07-23
+
+<!-- verified-sha: 1fd5e6b52db368dc789063b5bdcb5fd4d3e642d8 -->
+Change detection now works when the Laravel app lives in a **subdirectory** of its git repository — a monorepo — not only when the app root and the repo root are the same directory. Every command that reads a diff (`detect-changes`, `impact`, `affected-tests`, `benchmark`) is covered. This release also closes a latent `affected-tests` gap around unreadable base revisions.
+
+### Added
+
+- **Monorepo / nested-app support.** Richter replays git (`git diff`, `git show`, `git status`) from the Laravel project root, which until now had to *be* the git repository root. When the app is nested — e.g. `packages/api/` inside a larger repo — those git paths resolved against the repo root instead of the app, and change detection came back empty. Richter now re-roots them, so a nested app is analysed correctly. At the repo root the behavior is byte-for-byte identical, so the common case is unchanged.
+
+### Fixed
+
+- **A modification whose previous revision can't be read is no longer mistaken for new (additive) code.** When a changed file's base revision could not be read — a `git show` failure, or the mis-rooted path the monorepo case exposed — the file's members were classified as newly added, i.e. no-impact, which could silently narrow `affected-tests` selection. Such a change now fails closed to a coarse, impactful classification. Only a genuinely new file (added against no base — its diff starts from `/dev/null`) stays additive, as before.
+
+### Internal
+
+- Richter's own change-impact accuracy is now self-testable: a test runs a real, unfaked `richter:benchmark` replay against a throwaway git repository, at both the repo-root and nested-app layouts — the machinery that was previously only exercised with faked git.
+- Suite grows to 725 tests / 1,736 assertions, including adversarial guards for the re-rooting (a nested untracked file still forces an undetermined result; a sibling package's file is ignored) and for the unreadable-base classification (both the removed-line and addition-only shapes).
+
+### What's Changed
+
+* Bump actions/checkout from 6 to 7 by @dependabot[bot] in https://github.com/SanderMuller/richter/pull/2
+* Bump actions/cache from 5 to 6 by @dependabot[bot] in https://github.com/SanderMuller/richter/pull/1
+
+### New Contributors
+
+* @dependabot[bot] made their first contribution in https://github.com/SanderMuller/richter/pull/2
+
+**Full Changelog**: https://github.com/SanderMuller/richter/compare/v0.12.0...v0.13.0
+
 ## v0.12.0 - 2026-07-22
 
 <!-- verified-sha: b9b369df2b53f9c29fe3642d132cfc08da213083 -->
