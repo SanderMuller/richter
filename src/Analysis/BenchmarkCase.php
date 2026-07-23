@@ -19,6 +19,7 @@ final readonly class BenchmarkCase
         public string $bugClass,
         public bool $expectSignal,
         public RiskLevel $maxRisk = RiskLevel::High,
+        public ?string $expectFinding = null,
     ) {}
 
     public static function fromArray(mixed $case): self
@@ -39,7 +40,22 @@ final readonly class BenchmarkCase
             bugClass: $case['bug_class'],
             expectSignal: $case['expect_signal'],
             maxRisk: self::maxRisk($case['key'], $case['max_risk'] ?? null),
+            expectFinding: self::expectFinding($case['key'], $case['expect_finding'] ?? null),
         );
+    }
+
+    /** A non-string, non-null `expect_finding` throws — silently ignoring it would make the assertion unsatisfiable without ever testing it. */
+    private static function expectFinding(string $key, mixed $expectFinding): ?string
+    {
+        if ($expectFinding === null) {
+            return null;
+        }
+
+        if (! is_string($expectFinding)) {
+            throw new InvalidArgumentException("Benchmark case \"{$key}\" has an invalid expect_finding — it must be a string.");
+        }
+
+        return $expectFinding;
     }
 
     /**
@@ -67,7 +83,7 @@ final readonly class BenchmarkCase
     }
 
     /**
-     * @param  array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, risk: RiskLevel, ...}  $result  a {@see ImpactAnalyzer::detectChanges()} result
+     * @param  array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, risk: RiskLevel, findings: list<string>, ...}  $result  a {@see ImpactAnalyzer::detectChanges()} result
      * @return list<string> failure reasons; empty means the case passed
      */
     public function evaluate(array $result): array
@@ -96,6 +112,10 @@ final readonly class BenchmarkCase
 
         if ($result['risk']->exceeds($this->maxRisk)) {
             $failures[] = "risk {$result['risk']->value} exceeds the expected maximum of {$this->maxRisk->value} for this change";
+        }
+
+        if ($this->expectFinding !== null && ! array_any($result['findings'], fn (string $finding): bool => str_contains($finding, $this->expectFinding))) {
+            $failures[] = "no finding contains \"{$this->expectFinding}\"";
         }
 
         return $failures;

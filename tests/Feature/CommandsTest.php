@@ -962,6 +962,31 @@ final class CommandsTest extends TestCase
     }
 
     #[Test]
+    public function benchmark_add_prints_the_expect_finding_line_when_supplied(): void
+    {
+        $this->fakeBenchmarkReplayReachingRoutes(['*log*' => Process::result("PROJ-42 Fix duplicated post reviews\n")]);
+
+        // The replay's findings never actually contain "layout", so the case would currently FAIL —
+        // the stanza is still printed for the operator to paste in, unconditionally.
+        $this->runArtisan('richter:benchmark:add', ['fix-commit' => 'abc1234', '--expect-finding' => 'layout'])
+            ->expectsOutputToContain("'expect_finding' => 'layout'")
+            ->assertFailed();
+    }
+
+    #[Test]
+    public function benchmark_add_omits_the_expect_finding_line_when_not_supplied(): void
+    {
+        $this->fakeBenchmarkReplayReachingRoutes(['*log*' => Process::result("PROJ-42 Fix duplicated post reviews\n")]);
+
+        $this->withoutMockingConsoleOutput();
+        $exitCode = Artisan::call('richter:benchmark:add', ['fix-commit' => 'abc1234']);
+        $output = Artisan::output();
+
+        $this->assertSame(0, $exitCode);
+        $this->assertStringNotContainsString("'expect_finding'", $output);
+    }
+
+    #[Test]
     public function benchmark_add_fails_when_the_commit_changes_no_app_php(): void
     {
         Process::fake([

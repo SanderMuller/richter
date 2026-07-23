@@ -25,6 +25,7 @@ final class BenchmarkAddCommand extends Command
         {fix-commit : Historical fix commit to replay}
         {--control : Scaffold a harmless-change control (expect_signal false, max_risk capped at the replayed risk)}
         {--key= : Case key to use instead of the derived one}
+        {--expect-finding= : A substring the replay\'s findings list must contain (e.g. a payload-parity note)}
         {--no-cache : Build the code graph fresh, bypassing the graph cache}';
 
     /** @var string */
@@ -74,6 +75,8 @@ final class BenchmarkAddCommand extends Command
         $bugClass = $subject === '' ? 'TODO: describe the bug class' : $subject;
         $expectSignal = ! $isControl;
         $maxRisk = $isControl ? $result['risk'] : RiskLevel::High;
+        $expectFindingOption = $this->option('expect-finding');
+        $expectFinding = is_string($expectFindingOption) && $expectFindingOption !== '' ? $expectFindingOption : null;
 
         $case = new BenchmarkCase(
             key: $key,
@@ -81,6 +84,7 @@ final class BenchmarkAddCommand extends Command
             bugClass: $bugClass,
             expectSignal: $expectSignal,
             maxRisk: $maxRisk,
+            expectFinding: $expectFinding,
         );
 
         $failures = $case->evaluate($result);
@@ -93,7 +97,7 @@ final class BenchmarkAddCommand extends Command
             }
         }
 
-        $this->printStanza($key, $commit, $bugClass, $expectSignal, $maxRisk);
+        $this->printStanza($key, $commit, $bugClass, $expectSignal, $maxRisk, $expectFinding);
 
         return $failures === [] ? self::SUCCESS : self::FAILURE;
     }
@@ -127,7 +131,7 @@ final class BenchmarkAddCommand extends Command
         return substr($commit, 0, 7);
     }
 
-    private function printStanza(string $key, string $commit, string $bugClass, bool $expectSignal, RiskLevel $maxRisk): void
+    private function printStanza(string $key, string $commit, string $bugClass, bool $expectSignal, RiskLevel $maxRisk, ?string $expectFinding): void
     {
         $escapedKey = $this->escapeForSingleQuotedString($key);
         $escapedCommit = $this->escapeForSingleQuotedString($commit);
@@ -143,6 +147,11 @@ final class BenchmarkAddCommand extends Command
         $this->line("        'bug_class' => '{$escapedBugClass}',");
         $this->line("        'expect_signal' => {$expectSignalLiteral},");
         $this->line("        'max_risk' => '{$maxRisk->value}',");
+
+        if ($expectFinding !== null) {
+            $this->line("        'expect_finding' => '" . $this->escapeForSingleQuotedString($expectFinding) . "',");
+        }
+
         $this->line('    ],');
     }
 
