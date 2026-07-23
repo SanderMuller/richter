@@ -80,7 +80,8 @@ return [
      * Replayable accuracy fixtures for `richter:benchmark`: historical fix commits the change-impact
      * report is re-run against. Bug fixtures (expect_signal: true) must resolve and reach an entry
      * point; controls (expect_signal: false) cap the risk a harmless change may report via max_risk
-     * ('low', 'medium' or 'high').
+     * ('low', 'medium' or 'high'). expect_finding (optional) additionally asserts that one of the
+     * report's advisory findings contains the given substring — e.g. a payload-parity note.
      */
     'benchmark_cases' => [
         // [
@@ -89,6 +90,23 @@ return [
         //     'bug_class' => 'background-job change (data not copied on duplication)',
         //     'expect_signal' => true,
         //     'max_risk' => 'high',
+        //     'expect_finding' => 'layout',
         // ],
+    ],
+
+    /*
+     * Advisory-only check for a model field ($fillable/$casts/casts()) added to a model but never
+     * added to a resource that mirrors its other fields — the exact shape behind a payload field
+     * silently going missing. Never feeds risk, --fail-on, or affected-tests; only the findings list.
+     */
+    'payload_parity' => [
+        'enabled' => true,
+        // Fraction of a candidate resource's pre-existing fields that must be mirrored for it to
+        // count as a mirror of the model. Deliberately exact (1.0) — this is a no-guess advisory
+        // check, not a heuristic score.
+        'mirror_threshold' => 1.0,
+        // Suppress specific fields or resources, e.g. 'App\Models\Post::internal_flag' or
+        // 'App\Http\Resources\Api\InternalResource'.
+        'ignore' => [],
     ],
 ];

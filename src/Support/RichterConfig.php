@@ -128,6 +128,48 @@ final class RichterConfig
         return $value;
     }
 
+    public static function payloadParityEnabled(): bool
+    {
+        $value = config('richter.payload_parity.enabled');
+
+        if ($value === null) {
+            return true;
+        }
+
+        if (! is_bool($value)) {
+            throw new InvalidArgumentException('The richter.payload_parity.enabled config value must be a boolean.');
+        }
+
+        return $value;
+    }
+
+    public static function payloadParityMirrorThreshold(): float
+    {
+        $value = config('richter.payload_parity.mirror_threshold');
+
+        if ($value === null) {
+            return 1.0;
+        }
+
+        if (! is_int($value) && ! is_float($value)) {
+            throw new InvalidArgumentException('The richter.payload_parity.mirror_threshold config value must be a number between 0 and 1.');
+        }
+
+        $threshold = (float) $value;
+
+        if ($threshold < 0.0 || $threshold > 1.0) {
+            throw new InvalidArgumentException('The richter.payload_parity.mirror_threshold config value must be a number between 0 and 1.');
+        }
+
+        return $threshold;
+    }
+
+    /** @return list<string> */
+    public static function payloadParityIgnore(): array
+    {
+        return self::stringList('richter.payload_parity.ignore') ?? [];
+    }
+
     /** @return list<BenchmarkCase> */
     public static function benchmarkCases(): array
     {
