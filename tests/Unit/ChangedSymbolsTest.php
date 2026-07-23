@@ -127,7 +127,9 @@ final class ChangedSymbolsTest extends TestCase
             [8, '}'],
         ], []);
 
-        $result = ChangedSymbols::classifyFile('app/Jobs/NewJob.php', $head, baseSrc: null, hunk: $hunk);
+        // isNew: true — the diff's `--- /dev/null` marks a genuine new file (no base to read), so the
+        // null base is legitimately additive, not an unreadable-base I/O failure.
+        $result = ChangedSymbols::classifyFile('app/Jobs/NewJob.php', $head, baseSrc: null, hunk: $hunk, isNew: true);
 
         $this->assertTrue($result->hasOnlyAdditiveOrCosmeticChanges());
         $this->assertFalse($result->needsCoarseSeed());
@@ -481,6 +483,45 @@ final class ChangedSymbolsTest extends TestCase
         $this->assertCount(1, $changed[0]->members);
         $this->assertSame(MemberChange::KIND_CLASS, $changed[0]->members[0]->kind);
         $this->assertFalse($changed[0]->members[0]->resolvable);
+    }
+
+    #[Test]
+    public function a_modification_with_an_unreadable_base_seeds_coarse_not_additive(): void
+    {
+        // A null base source on a diff that REMOVES lines is an unreadable base on a file that existed
+        // — an I/O failure (a transient `git show` error, or a mis-rooted path in a nested-app repo),
+        // NOT a new file (whose diff is additions only). Its members must NOT read as CHANGE_ADDED
+        // (additive / no-impact): that silently under-selects a real modification. classifyFile()
+        // seeds a coarse resolvable:false class change instead. (Without the guard, `bar` returns as a
+        // resolvable additive member and the file reads additive-only — the forbidden under-selection.)
+        $head = "<?php\n\nclass Foo\n{\n    public function bar(): int\n    {\n        return 1;\n    }\n}\n";
+        $hunk = ['added' => [['line' => 7, 'text' => '        return 1;']], 'removed' => [['line' => 7, 'text' => '        return 0;']]];
+
+        $result = ChangedSymbols::classifyFile('app/Foo.php', $head, baseSrc: null, hunk: $hunk);
+
+        $this->assertFalse($result->hasOnlyAdditiveOrCosmeticChanges());
+        $this->assertCount(1, $result->members);
+        $this->assertSame(MemberChange::KIND_CLASS, $result->members[0]->kind);
+        $this->assertFalse($result->members[0]->resolvable);
+        $this->assertFalse($result->members[0]->isAdditive());
+    }
+
+    #[Test]
+    public function an_addition_inside_an_existing_method_with_an_unreadable_base_seeds_coarse_not_additive(): void
+    {
+        // The sibling shape with NO removed lines: a statement ADDED inside an existing method whose
+        // base is unreadable is still a modification, not a new file — it must not read as additive /
+        // no-impact. Only `isNew` (the diff's `--- /dev/null`) makes a null base legitimately additive,
+        // and this hunk carries no isNew, so it fails closed to a coarse class change.
+        $head = "<?php\n\nclass Foo\n{\n    public function bar(): int\n    {\n        log_value();\n        return 1;\n    }\n}\n";
+        $hunk = ['added' => [['line' => 7, 'text' => '        log_value();']], 'removed' => []];
+
+        $result = ChangedSymbols::classifyFile('app/Foo.php', $head, baseSrc: null, hunk: $hunk);
+
+        $this->assertFalse($result->hasOnlyAdditiveOrCosmeticChanges());
+        $this->assertCount(1, $result->members);
+        $this->assertSame(MemberChange::KIND_CLASS, $result->members[0]->kind);
+        $this->assertFalse($result->members[0]->isAdditive());
     }
 
     #[Test]

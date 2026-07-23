@@ -179,6 +179,9 @@ final class CommandsTest extends TestCase
 
         Process::fake([
             '*merge-base*' => Process::result("abc123\n"),
+            // base_path() is modelled as the git repo root here, so `git rev-parse --show-prefix`
+            // returns an empty prefix and the `app/`-relative status paths below need no re-rooting.
+            '*rev-parse*' => Process::result(),
             '*show*' => Process::result(errorOutput: 'bad object', exitCode: 128),
             '*status*' => Process::result("?? app/Models/Report.php\n"),
             '*diff*' => Process::result($diff),
@@ -589,6 +592,9 @@ final class CommandsTest extends TestCase
         // determinable selection. --plain stdout must still carry nothing (no test paths at all).
         Process::fake([
             '*merge-base*' => Process::result("abc123\n"),
+            // base_path() modelled as the repo root: empty prefix, so the `app/`-relative status path
+            // below is matched as-is (no monorepo re-rooting). See GitProjectPaths.
+            '*rev-parse*' => Process::result(),
             '*diff*' => Process::result(''),
             '*status*' => Process::result("?? app/Models/Report.php\n"),
         ]);
@@ -619,6 +625,9 @@ final class CommandsTest extends TestCase
 
         Process::fake([
             '*merge-base*' => Process::result("abc123\n"),
+            // base_path() modelled as the repo root: empty prefix, so the `app/`-relative status path
+            // below is matched as-is (no monorepo re-rooting). See GitProjectPaths.
+            '*rev-parse*' => Process::result(),
             '*show*' => Process::result(errorOutput: 'bad object', exitCode: 128),
             '*diff*' => Process::result($diff),
             '*status*' => Process::result("?? app/Jobs/Foo.php\n"),
@@ -642,6 +651,9 @@ final class CommandsTest extends TestCase
 
         Process::fake([
             '*merge-base*' => Process::result("abc123\n"),
+            // base_path() modelled as the repo root: empty prefix, so the `app/`-relative status path
+            // below is matched as-is (no monorepo re-rooting). See GitProjectPaths.
+            '*rev-parse*' => Process::result(),
             '*show*' => Process::result(errorOutput: 'bad object', exitCode: 128),
             '*diff*' => Process::result($diff),
             '*status*' => Process::result("?? app/Jobs/Foo.php\n"),
@@ -673,6 +685,9 @@ final class CommandsTest extends TestCase
         // undetermined path — the pre-existing determinable-empty-diff contract still holds.
         Process::fake([
             '*merge-base*' => Process::result("abc123\n"),
+            // base_path() modelled as the repo root: empty prefix. README.notes is filtered by the
+            // root allowlist (not under app/), not by re-rooting. See GitProjectPaths.
+            '*rev-parse*' => Process::result(),
             '*diff*' => Process::result(''),
             '*status*' => Process::result("?? README.notes\n"),
         ]);
@@ -696,6 +711,9 @@ final class CommandsTest extends TestCase
 
         Process::fake([
             '*merge-base*' => Process::result("abc123\n"),
+            // base_path() modelled as the repo root: empty prefix, so the `app/`-relative status path
+            // below is matched as-is (no monorepo re-rooting). See GitProjectPaths.
+            '*rev-parse*' => Process::result(),
             '*show*' => Process::result(errorOutput: 'bad object', exitCode: 128),
             '*diff*' => Process::result($diff),
             '*status*' => Process::result("?? app/Models/Report.php\n"),

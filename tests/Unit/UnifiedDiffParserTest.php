@@ -27,7 +27,37 @@ final class UnifiedDiffParserTest extends TestCase
             'added' => [['line' => 6, 'text' => '        return 1;']],
             'removed' => [['line' => 6, 'text' => '        return 0;']],
             'oldPath' => 'app/Foo.php',
+            'isNew' => false,
         ], $parsed['app/Foo.php']);
+    }
+
+    #[Test]
+    public function it_flags_a_new_file_and_only_a_new_file_as_new(): void
+    {
+        // `isNew` distinguishes a genuine new file (base legitimately absent → additive) from an
+        // unreadable base on an existing file (an I/O failure the classifier must fail closed on).
+        $newFile = <<<'DIFF'
+        diff --git a/app/New.php b/app/New.php
+        new file mode 100644
+        index 0000000..2222222
+        --- /dev/null
+        +++ b/app/New.php
+        @@ -0,0 +1 @@
+        +<?php
+        DIFF;
+
+        $deletion = <<<'DIFF'
+        diff --git a/app/Gone.php b/app/Gone.php
+        deleted file mode 100644
+        index 2222222..0000000
+        --- a/app/Gone.php
+        +++ /dev/null
+        @@ -1 +0,0 @@
+        -<?php
+        DIFF;
+
+        $this->assertTrue(UnifiedDiffParser::parse($newFile)['app/New.php']['isNew']);
+        $this->assertFalse(UnifiedDiffParser::parse($deletion)['app/Gone.php']['isNew']);
     }
 
     #[Test]
@@ -227,7 +257,7 @@ final class UnifiedDiffParserTest extends TestCase
         $parsed = UnifiedDiffParser::parse($diff);
 
         $this->assertSame([
-            'app/Services/New.php' => ['added' => [], 'removed' => [], 'oldPath' => 'app/Services/Old.php'],
+            'app/Services/New.php' => ['added' => [], 'removed' => [], 'oldPath' => 'app/Services/Old.php', 'isNew' => false],
         ], $parsed);
     }
 
@@ -250,11 +280,12 @@ final class UnifiedDiffParserTest extends TestCase
         $parsed = UnifiedDiffParser::parse($diff);
 
         $this->assertSame([
-            'app/Services/New.php' => ['added' => [], 'removed' => [], 'oldPath' => 'app/Services/Old.php'],
+            'app/Services/New.php' => ['added' => [], 'removed' => [], 'oldPath' => 'app/Services/Old.php', 'isNew' => false],
             'app/Foo.php' => [
                 'added' => [['line' => 6, 'text' => '        return 1;']],
                 'removed' => [['line' => 6, 'text' => '        return 0;']],
                 'oldPath' => 'app/Foo.php',
+                'isNew' => false,
             ],
         ], $parsed);
     }
@@ -283,6 +314,7 @@ final class UnifiedDiffParserTest extends TestCase
             'added' => [['line' => 3, 'text' => '    return 2;']],
             'removed' => [['line' => 3, 'text' => '    return 1;']],
             'oldPath' => 'app/Old.php',
+            'isNew' => false,
         ], $parsed['app/New.php']);
     }
 
@@ -339,6 +371,7 @@ final class UnifiedDiffParserTest extends TestCase
                 'added' => [],
                 'removed' => [],
                 'oldPath' => "resources/views/caf\xC3\xA9.blade.php",
+                'isNew' => false,
             ],
         ], $parsed);
     }

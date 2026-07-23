@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\Process;
 use RuntimeException;
 use SanderMuller\Richter\Graph\BladeViews;
 use SanderMuller\Richter\Support\Fqcn;
+use SanderMuller\Richter\Support\GitProjectPaths;
 use SanderMuller\Richter\Support\RichterConfig;
 use SanderMuller\Richter\Tracers\EagerLoadStringChecker;
 use SanderMuller\Richter\Tracers\FeatureGateChecker;
@@ -39,11 +40,24 @@ final class ChangedSymbols
         // tree against it); any other ref keeps the three-dot committed-tree form untouched.
         $diffRange = $head === 'HEAD' ? [$mergeBase] : ["{$base}...{$head}"];
 
-        $diff = Process::path(base_path())->run(['git', '-c', 'core.quotepath=off', 'diff', '-U0', '--end-of-options', ...$diffRange]);
+        // `--relative` scopes the diff to the process cwd (base_path()) and emits paths relative to
+        // it, so the `app/`/`resources/` gates below match whether base_path() is the repo root or a
+        // subdirectory of a larger repo. At the repo root it is a no-op (paths are already
+        // root-relative and nothing is out of scope), so the common case is byte-for-byte unchanged.
+        $diff = Process::path(base_path())->run(['git', '-c', 'core.quotepath=off', 'diff', '-U0', '--relative', '--end-of-options', ...$diffRange]);
 
         if (! $diff->successful()) {
             throw new RuntimeException("git diff against '{$base}' failed: " . trim($diff->errorOutput()));
         }
+
+        // Resolved once here (not per file): the diff paths are base_path()-relative via `--relative`,
+        // but `git show {ref}:PATH` resolves PATH against the repo root, so baseSource()/headSource()
+        // re-root through this prefix. Empty at the repo root, so the common case is unchanged. Null
+        // (rev-parse failed in a checkout the diff already proved valid — near-unreachable) coalesces
+        // to '': a wrong `git show` path then returns null, which the unreadable-base guard below and
+        // the existing unreadable-head guard both turn into a coarse seed — fail-closed, never
+        // falsely additive.
+        $prefix = GitProjectPaths::prefix() ?? '';
 
         $changed = [];
 
@@ -68,7 +82,7 @@ final class ChangedSymbols
                     continue;
                 }
 
-                $headSrc = self::headSource($head, $file);
+                $headSrc = self::headSource($head, $file, $prefix);
 
                 // An unreadable head source (failed `git show` on a diff that *adds* lines, so the file
                 // must exist at head) cannot classify — an empty string would read as cosmetic/additive,
@@ -84,9 +98,9 @@ final class ChangedSymbols
 
                 $headSrc ??= '';
                 // Use the pre-change path so a rename still resolves the base-side members.
-                $baseSrc = self::baseSource($mergeBase, $hunk['oldPath']);
+                $baseSrc = self::baseSource($mergeBase, $hunk['oldPath'], $prefix);
 
-                $changed[] = self::classifyFile($file, $headSrc, $baseSrc, ['added' => $hunk['added'], 'removed' => $hunk['removed']], $eagerLoadChecker, $featureGateChecker, $inertiaPageChecker);
+                $changed[] = self::classifyFile($file, $headSrc, $baseSrc, ['added' => $hunk['added'], 'removed' => $hunk['removed']], $eagerLoadChecker, $featureGateChecker, $inertiaPageChecker, isNew: $hunk['isNew']);
 
                 continue;
             }
@@ -94,7 +108,7 @@ final class ChangedSymbols
             // A changed frontend file (opt-in via richter.frontend.roots) seeds the route nodes of
             // the backend endpoints it references — Wayfinder imports and Ziggy route() calls.
             if ($frontendChanges->handles($file)) {
-                $headSrc = self::headSource($head, $file);
+                $headSrc = self::headSource($head, $file, $prefix);
 
                 // Same honesty rule as the PHP branch above: a diff that adds lines proves the file
                 // exists at head, so an unreadable head is an I/O failure, not a deletion — scanning
@@ -107,7 +121,7 @@ final class ChangedSymbols
                     continue;
                 }
 
-                $changed[] = $frontendChanges->resolve($file, $headSrc, self::baseSource($mergeBase, $hunk['oldPath']));
+                $changed[] = $frontendChanges->resolve($file, $headSrc, self::baseSource($mergeBase, $hunk['oldPath'], $prefix));
 
                 continue;
             }
@@ -120,10 +134,10 @@ final class ChangedSymbols
                 // An unreadable view source just skips the flag note — the seed itself is unaffected.
                 // Inline-script endpoint literals (`fetch('/api/…')` in Alpine/vanilla JS) ride along
                 // as touched-surface seeds next to the view node.
-                $headSrc = self::headSource($head, $file);
+                $headSrc = self::headSource($head, $file, $prefix);
                 $changed[] = new ChangedFileSymbols($file, '', [], cosmeticOnly: false, directSeeds: [
                     $viewSeed,
-                    ...$frontendChanges->inlineUriSeeds($headSrc, self::baseSource($mergeBase, $hunk['oldPath'])),
+                    ...$frontendChanges->inlineUriSeeds($headSrc, self::baseSource($mergeBase, $hunk['oldPath'], $prefix)),
                 ], findings: $featureGateChecker->bladeFindingsFor($headSrc ?? ''));
             }
         }
@@ -154,22 +168,33 @@ final class ChangedSymbols
             RichterConfig::frontendRoots(),
         )];
 
-        $untrackedLines = array_filter(
-            explode("\n", $status->output()),
-            static fn (string $line): bool => str_starts_with($line, '?? '),
+        // `status --porcelain` prints repo-root-relative paths even from a subdirectory, so
+        // GitProjectPaths re-roots each to base_path() before the roots (base_path()-relative) match,
+        // dropping anything outside base_path()'s subtree and failing closed if the layout is unknown.
+        $untrackedPaths = array_map(
+            static fn (string $line): string => substr($line, 3),
+            array_values(array_filter(
+                explode("\n", $status->output()),
+                static fn (string $line): bool => str_starts_with($line, '?? '),
+            )),
         );
 
-        $untrackedPaths = array_map(static fn (string $line): string => substr($line, 3), $untrackedLines);
-
-        return array_values(array_filter(
-            $untrackedPaths,
-            static fn (string $file): bool => array_any($roots, static fn (string $root): bool => str_starts_with($file, $root)),
-        ));
+        return GitProjectPaths::relevantUntracked($untrackedPaths, $roots);
     }
 
     /** @param  array{added: list<array{line: int, text: string}>, removed: list<array{line: int, text: string}>}  $hunk */
-    public static function classifyFile(string $file, string $headSrc, ?string $baseSrc, array $hunk, ?EagerLoadStringChecker $eagerLoadChecker = null, ?FeatureGateChecker $featureGateChecker = null, ?InertiaPageChecker $inertiaPageChecker = null): ChangedFileSymbols
+    public static function classifyFile(string $file, string $headSrc, ?string $baseSrc, array $hunk, ?EagerLoadStringChecker $eagerLoadChecker = null, ?FeatureGateChecker $featureGateChecker = null, ?InertiaPageChecker $inertiaPageChecker = null, bool $isNew = false): ChangedFileSymbols
     {
+        // A null base on a file that is NOT genuinely new is an unreadable base — an I/O failure (a
+        // transient `git show` error, or a mis-rooted path in a nested-app repo). Classifying its head
+        // members against the empty base would mark a real change's members CHANGE_ADDED (additive /
+        // no-impact) and silently under-select — the cardinal rule's forbidden failure. Seed a coarse
+        // class change. `$isNew` (from the diff's `--- /dev/null`, {@see UnifiedDiffParser}) is the only
+        // signal that distinguishes this from a real new file, which is legitimately additive.
+        if ($baseSrc === null && ! $isNew) {
+            return new ChangedFileSymbols($file, Fqcn::fromPath($file), [self::coarseClassChange()], cosmeticOnly: false);
+        }
+
         $head = MemberResolver::resolve($headSrc);
         $base = $baseSrc !== null ? MemberResolver::resolve($baseSrc) : ['parsed' => true, 'members' => [], 'classRanges' => []];
 
@@ -427,19 +452,21 @@ final class ChangedSymbols
         return $member['kind'] . '|' . $member['name'];
     }
 
-    private static function baseSource(string $mergeBase, string $file): ?string
+    private static function baseSource(string $mergeBase, string $file, string $prefix): ?string
     {
         if ($mergeBase === '') {
             return null;
         }
 
-        $show = Process::path(base_path())->run(['git', 'show', '--end-of-options', "{$mergeBase}:{$file}"]);
+        // The diff paths are base_path()-relative (via `--relative`); `git show {ref}:PATH` resolves
+        // PATH against the repo root, so re-root it through {@see GitProjectPaths} (no-op at the root).
+        $show = Process::path(base_path())->run(['git', 'show', '--end-of-options', "{$mergeBase}:" . GitProjectPaths::objectPath($prefix, $file)]);
 
         return $show->successful() ? $show->output() : null;
     }
 
     /** Null means the head source could not be read — the caller decides what that implies per hunk shape. */
-    private static function headSource(string $head, string $file): ?string
+    private static function headSource(string $head, string $file, string $prefix): ?string
     {
         if ($head === 'HEAD') {
             if (! is_file(base_path($file))) {
@@ -453,7 +480,8 @@ final class ChangedSymbols
             return $contents === false ? null : $contents;
         }
 
-        $show = Process::path(base_path())->run(['git', 'show', '--end-of-options', "{$head}:{$file}"]);
+        // See baseSource(): re-root the base_path()-relative path for `git show`.
+        $show = Process::path(base_path())->run(['git', 'show', '--end-of-options', "{$head}:" . GitProjectPaths::objectPath($prefix, $file)]);
 
         return $show->successful() ? $show->output() : null;
     }

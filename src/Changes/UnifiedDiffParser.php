@@ -13,7 +13,11 @@ final class UnifiedDiffParser
      * `oldPath` is the file's pre-change path — equal to the key for a normal edit, but the original
      * name for a rename, so the base-side source can be fetched from the right path.
      *
-     * @return array<string, array{added: list<array{line: int, text: string}>, removed: list<array{line: int, text: string}>, oldPath: string}>
+     * `isNew` is true when the old side is `/dev/null` — a genuinely new file. A null base source for
+     * a NON-new file is an unreadable base (I/O failure), which the classifier must fail closed on
+     * rather than treat as additive; see {@see ChangedSymbols::classifyFile()}.
+     *
+     * @return array<string, array{added: list<array{line: int, text: string}>, removed: list<array{line: int, text: string}>, oldPath: string, isNew: bool}>
      *   keyed by the new-side file path (or old-side path for deletions).
      */
     public static function parse(string $diff): array
@@ -27,9 +31,12 @@ final class UnifiedDiffParser
         $removed = [];
         /** @var array<string, string> $oldPaths */
         $oldPaths = [];
+        /** @var array<string, bool> $isNewFiles */
+        $isNewFiles = [];
 
         $current = null;
         $pendingOld = null;
+        $pendingIsNew = false;
         $pendingRenameFrom = null;
         $pendingRenameTo = null;
         $inHunk = false;
@@ -42,6 +49,7 @@ final class UnifiedDiffParser
 
                 $current = null;
                 $pendingOld = null;
+                $pendingIsNew = false;
                 $pendingRenameFrom = null;
                 $pendingRenameTo = null;
                 $inHunk = false;
@@ -66,6 +74,8 @@ final class UnifiedDiffParser
             // `-- `/`++ `, never a file header.
             if (! $inHunk && str_starts_with($line, '--- ')) {
                 $pendingOld = self::stripPrefix(substr($line, 4));
+                // stripPrefix() returns null only for `/dev/null`, i.e. the old side is absent — a new file.
+                $pendingIsNew = $pendingOld === null;
 
                 continue;
             }
@@ -79,6 +89,7 @@ final class UnifiedDiffParser
                     $added[$current] = [];
                     $removed[$current] = [];
                     $oldPaths[$current] = $pendingOld ?? $current;
+                    $isNewFiles[$current] = $pendingIsNew;
                 }
 
                 continue;
@@ -109,7 +120,9 @@ final class UnifiedDiffParser
         $files = [];
 
         foreach ($oldPaths as $path => $oldPath) {
-            $files[$path] = ['added' => $added[$path], 'removed' => $removed[$path], 'oldPath' => $oldPath];
+            // A 100%-rename registers only via flushPendingRename() (no `+++`), so it never sets
+            // isNewFiles — default false: a rename is not a new file.
+            $files[$path] = ['added' => $added[$path], 'removed' => $removed[$path], 'oldPath' => $oldPath, 'isNew' => $isNewFiles[$path] ?? false];
         }
 
         return $files;
