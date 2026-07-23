@@ -255,7 +255,27 @@ final class ChangedSymbols
             $members[] = self::coarseClassChange();
         }
 
-        return new ChangedFileSymbols($file, Fqcn::fromPath($file), $members, $members === [], findings: self::sourceFindings($members, $head['members'], $headSrc, $eagerLoadChecker, $featureGateChecker, $inertiaPageChecker));
+        [$modelFieldSet, $addedModelFields] = self::modelFields($file, $isNew, $headSrc, $baseSrc);
+
+        return new ChangedFileSymbols($file, Fqcn::fromPath($file), $members, $members === [], findings: self::sourceFindings($members, $head['members'], $headSrc, $eagerLoadChecker, $featureGateChecker, $inertiaPageChecker), modelFieldSet: $modelFieldSet, addedModelFields: $addedModelFields);
+    }
+
+    /**
+     * The payload-parity checker's diff-time inputs for a changed `app/Models` file: the head-side
+     * field union and the names added by this diff. `$isNew` (a brand-new model has no established
+     * payload contract yet) and an unreadable base (already coarse-seeded above, before this runs)
+     * both carry nothing — this is reached only past that early return, so `$baseSrc` is never null
+     * here for a genuinely existing model.
+     *
+     * @return array{0: list<string>, 1: list<string>}
+     */
+    private static function modelFields(string $file, bool $isNew, string $headSrc, ?string $baseSrc): array
+    {
+        if ($isNew || $baseSrc === null || ! str_starts_with($file, 'app/Models/')) {
+            return [[], []];
+        }
+
+        return [EloquentConfig::fieldSet($headSrc), EloquentConfig::addedNames($headSrc, $baseSrc)];
     }
 
     /**

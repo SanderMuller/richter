@@ -3,6 +3,7 @@
 namespace SanderMuller\Richter\Changes;
 
 use SanderMuller\Richter\Analysis\ImpactAnalyzer;
+use SanderMuller\Richter\Analysis\PayloadParityChecker;
 
 /**
  * The member-level change set for one changed PHP file. `cosmeticOnly` files seed nothing; a file
@@ -21,6 +22,12 @@ final readonly class ChangedFileSymbols
      * @param  bool  $unresolvedFrontendReferences  a frontend file contained endpoint references the
      *   scan could not resolve (a dynamic route() argument, an unmatched Wayfinder import) — the
      *   file must read as UNRESOLVED, never as "touches nothing"
+     * @param  list<string>  $modelFieldSet  a changed `app/Models` file's head-side `$fillable`/`$casts`/`casts()`
+     *   field union — the {@see PayloadParityChecker} denominator; empty
+     *   for a non-model file, a new model file, or an unreadable base
+     * @param  list<string>  $addedModelFields  the subset of `$modelFieldSet` added by this diff (present
+     *   at head, absent at base) — the check's trigger; empty unless the file is an existing model
+     *   whose base source was readable
      */
     public function __construct(
         public string $file,
@@ -30,6 +37,8 @@ final readonly class ChangedFileSymbols
         public array $directSeeds = [],
         public array $findings = [],
         public bool $unresolvedFrontendReferences = false,
+        public array $modelFieldSet = [],
+        public array $addedModelFields = [],
     ) {}
 
     /** @return list<MemberChange> */

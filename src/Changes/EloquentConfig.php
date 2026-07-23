@@ -19,6 +19,7 @@ use PhpParser\Node\Stmt\Return_;
 use PhpParser\NodeFinder;
 use PhpParser\PrettyPrinter\Standard;
 use SanderMuller\Richter\Support\AppFiles;
+use SanderMuller\Richter\Tracers\EagerLoadStringChecker;
 
 /**
  * Recognises an *addition-only* edit to a model's `$fillable`/`$casts`/`casts()` (elements added,
@@ -37,6 +38,61 @@ final class EloquentConfig
     {
         return ($kind === MemberChange::KIND_PROPERTY && in_array($name, self::CONFIG_PROPERTIES, strict: true))
             || ($kind === MemberChange::KIND_METHOD && $name === 'casts');
+    }
+
+    /**
+     * The union of `$fillable`, `$casts` and `casts()` field names declared by the single class in
+     * `$source` that declares each — a column add here is exactly the shape a resource can silently
+     * miss. Constants are resolved by reflection (as {@see EagerLoadStringChecker}
+     * resolves relation constants), degrading to skip on anything unloadable. Never throws: an
+     * unparseable or ambiguous source simply contributes no fields.
+     *
+     * @return list<string>
+     */
+    public static function fieldSet(string $source): array
+    {
+        $ast = AppFiles::parseResolved($source);
+
+        if ($ast === null) {
+            return [];
+        }
+
+        $selfFqcn = self::classFqcn($ast);
+
+        $fields = [];
+
+        foreach (self::CONFIG_PROPERTIES as $property) {
+            $node = self::memberNodeInAst($ast, $property, MemberChange::KIND_PROPERTY);
+
+            if ($node instanceof Property) {
+                $fields = [...$fields, ...self::propertyFieldNames($node, $property, $selfFqcn)];
+            }
+        }
+
+        $castsMethod = self::memberNodeInAst($ast, 'casts', MemberChange::KIND_METHOD);
+
+        if ($castsMethod instanceof ClassMethod) {
+            $fields = [...$fields, ...self::keyFieldNames($castsMethod, $selfFqcn)];
+        }
+
+        return array_values(array_unique($fields));
+    }
+
+    /**
+     * Names present in `$headSrc`'s field set but absent from `$baseSrc`'s — independent of
+     * {@see isAdditionOnlyEdit()}, so a MODIFIED classification (a mixed rename-plus-add) still
+     * surfaces the added name.
+     *
+     * @return list<string>
+     */
+    public static function addedNames(string $headSrc, string $baseSrc): array
+    {
+        $base = array_flip(self::fieldSet($baseSrc));
+
+        return array_values(array_filter(
+            self::fieldSet($headSrc),
+            static fn (string $field): bool => ! isset($base[$field]),
+        ));
     }
 
     public static function isAdditionOnlyEdit(string $headSrc, string $baseSrc, string $name, string $kind): bool
@@ -69,10 +125,14 @@ final class EloquentConfig
     {
         $ast = AppFiles::parse($source);
 
-        if ($ast === null) {
-            return null;
-        }
+        return $ast === null ? null : self::memberNodeInAst($ast, $name, $kind);
+    }
 
+    /**
+     * @param  list<Node\Stmt>  $ast
+     */
+    private static function memberNodeInAst(array $ast, string $name, string $kind): Property|ClassMethod|null
+    {
         /** @var list<Property|ClassMethod> $matches */
         $matches = [];
 
@@ -88,6 +148,98 @@ final class EloquentConfig
         // Exactly one declaring class — otherwise the array can't be attributed to the changed
         // member's class, so bail conservatively (the caller treats null as "not addition-only").
         return count($matches) === 1 ? $matches[0] : null;
+    }
+
+    /**
+     * The FQCN of the single class declared in `$ast` (as resolved by php-parser's `NameResolver`
+     * onto the class node's `namespacedName`), or null when the file declares zero or several
+     * classes — the self/static resolution below then simply fails to resolve, degrading to skip.
+     *
+     * @param  list<Node\Stmt>  $ast
+     */
+    private static function classFqcn(array $ast): ?string
+    {
+        /** @var list<ClassLike> $classes */
+        $classes = array_values(new NodeFinder()->findInstanceOf($ast, ClassLike::class));
+
+        if (count($classes) !== 1) {
+            return null;
+        }
+
+        return $classes[0]->namespacedName?->toString();
+    }
+
+    /**
+     * `$fillable`'s field names are its array VALUES (a plain list of column names).
+     *
+     * @return list<string>
+     */
+    private static function propertyFieldNames(Property $node, string $name, ?string $selfFqcn): array
+    {
+        if ($name !== 'fillable') {
+            return self::keyFieldNames($node, $selfFqcn);
+        }
+
+        $fields = [];
+
+        foreach (self::arrayOf($node, MemberChange::KIND_PROPERTY)->items as $item) {
+            $field = self::resolveFieldName($item->value, $selfFqcn);
+
+            if ($field !== null) {
+                $fields[] = $field;
+            }
+        }
+
+        return $fields;
+    }
+
+    /**
+     * `$casts`/`casts()`'s field names are its array KEYS (column name → cast type).
+     *
+     * @return list<string>
+     */
+    private static function keyFieldNames(Property|ClassMethod $node, ?string $selfFqcn): array
+    {
+        $kind = $node instanceof Property ? MemberChange::KIND_PROPERTY : MemberChange::KIND_METHOD;
+        $fields = [];
+
+        foreach (self::arrayOf($node, $kind)->items as $item) {
+            if ($item->key === null) {
+                continue;
+            }
+
+            $field = self::resolveFieldName($item->key, $selfFqcn);
+
+            if ($field !== null) {
+                $fields[] = $field;
+            }
+        }
+
+        return $fields;
+    }
+
+    /**
+     * A field-name node resolved to its actual string value — unlike {@see canonical()}, which keeps
+     * a constant symbolic for pure text comparison, this needs the real column name. `self`/`static`
+     * resolve through the declaring class's own FQCN; anything else through the name resolver. Null
+     * (skip) whenever the class or constant can't be loaded — never a guess.
+     */
+    private static function resolveFieldName(Node $node, ?string $selfFqcn): ?string
+    {
+        if ($node instanceof String_) {
+            return $node->value;
+        }
+
+        if (! $node instanceof ClassConstFetch || ! $node->class instanceof Name || ! $node->name instanceof Identifier) {
+            return null;
+        }
+
+        $written = $node->class->toString();
+        $class = in_array(strtolower($written), ['self', 'static'], true)
+            ? $selfFqcn
+            : AppFiles::resolveName($node->class);
+
+        return $class === null ? null : AppFiles::stringConstantValue($class, $node->name->toString());
     }
 
     private static function declaresMember(Node $stmt, string $name, string $kind): bool
