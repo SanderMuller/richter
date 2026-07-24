@@ -13,30 +13,32 @@
 
 ## Status
 
-- **State**: EVALUATED 2026-07-24 — **no lever executed.** Verdict below: B is not worth it in
-  richter (measured), A and C are gated on the Brain autoresearch **release**. Revisit A/C when Brain
-  ships; drop B.
+- **State**: EVALUATED + PARTIALLY EXECUTED 2026-07-24 — **lever B EXECUTED in its safe form**
+  (commit `bb12564`); A and C deferred to the Brain autoresearch **release**.
 
 ## Evaluation verdict (2026-07-24)
 
-Evaluated against the live code + a richter-specific measurement before executing. Outcome: **execute
-nothing now.**
+Evaluated against the live code + richter-specific measurements. A first pass rejected B; deeper
+research ("research better") corrected that — B's *naive* form is unsafe, but a safe form exists and
+was shipped.
 
-- **Lever B — REJECTED (not deferred).** Two independent reasons:
-  1. **Measured win is negligible in richter.** The plan's ~13% was transferred from phpstan, not
-     measured here. Measured on hihaho (2,323 input files, warm OS cache): content-hash **81 ms** vs
-     stat **4.5 ms** → Lever B saves **~77 ms/run**, i.e. **<1%** of the ~13 s parallel build and
-     ~2.5% of the ~3 s post-Brain-wins build. Not worth a `FORMAT_VERSION` bump + a cache-correctness
-     surface change.
-  2. **It overturns a documented core invariant.** `GraphCache`'s own docblock states the fingerprint
-     "content-hashes everything the build reads … staleness is designed out rather than expired out",
-     and "a false hit would be the falsely-reassuring stale report this package exists to prevent."
-     The git mtime+size model reintroduces a false-hit hole (content swap that preserves size **and**
-     mtime — restores-from-archive, `cp -p`, `touch -r`) that the racy-clean guard does **not** close,
-     aimed at richter's exact threat model. Bulletproofness is impossible to keep while skipping the
-     content read (any mtime+size shortcut has the same hole). A <1% win does not justify relaxing the
-     one invariant the component is built around. If ever revisited, it must be a conscious maintainer
-     decision to relax that invariant — not an executor's optimisation.
+- **Lever B — EXECUTED (safe form); the plan's naive form REJECTED.**
+  - **Rejected: mtime+size *as the fingerprint key*** (what the plan sketched). It reintroduces a
+    false-hit hole (content swap preserving size **and** mtime) and overturns `GraphCache`'s
+    documented "staleness designed out" invariant. Do not do this.
+  - **Shipped instead: an in-process stat-cache that *accelerates* the content-hash.** `fileHash()`
+    reuses a file's hash only when its full stat signature (**inode, size, mtime, ctime**) is
+    unchanged and not racily-recent; otherwise it re-hashes. Because a content write bumps **ctime**
+    even when mtime is preserved (`cp -p`/`touch -r`/archive-restore can't fake ctime), the
+    fingerprint VALUE is **byte-identical** to hashing every file — the invariant is *preserved*, not
+    relaxed, so no `FORMAT_VERSION` bump. `clearstatcache()` makes a long-lived process see post-edit
+    metadata. (My first-pass rejection missed ctime and used the wrong denominator — see below.)
+  - **Where the win lands (corrected):** *not* the full cold build (there the ~85 ms content read is
+    <1% and dwarfed by the build it precedes). It lands on the **cache-hit / MCP** path: `GraphCache`
+    is the MCP singleton and recomputes the fingerprint on **every** tool call (`GraphCache.php:71`,
+    before the memo check), so an agent doing N calls on an unchanged tree paid ~85 ms × N; now it
+    pays stat-speed after the first. Larger cold. Measured basis (hihaho, 2,323 files, warm):
+    content-hash 81–90 ms vs stat 4.4 ms.
 - **Lever A — DEFER to the Brain release.** Its win needs Brain's disk-backed shared parser (on the
   `perf/graph-build-autoresearch` branch, **not released**); against released Brain v2.3.1 the swap is
   perf-neutral and carries a name-resolution-equivalence correctness risk. No benefit now, real risk
