@@ -17,6 +17,23 @@ final class EloquentConfigTest extends TestCase
     }
 
     #[Test]
+    public function field_set_reads_each_propertys_own_array_in_a_combined_declaration(): void
+    {
+        // $fillable and $casts declared in ONE statement — a single Property node shared by both
+        // PropertyItems. Each name must read its OWN array, not whichever the parser happens to
+        // find first (the bug this test guards against would return ['title', 'slug'] twice and
+        // miss 'status' entirely).
+        $source = "<?php\nclass Post\n{\n    protected \$fillable = ['title', 'slug'], \$casts = ['status' => 'string'];\n}\n";
+
+        $fields = EloquentConfig::fieldSet($source);
+
+        $this->assertCount(3, $fields);
+        $this->assertContains('title', $fields);
+        $this->assertContains('slug', $fields);
+        $this->assertContains('status', $fields);
+    }
+
+    #[Test]
     public function field_set_deduplicates_a_field_declared_in_more_than_one_member(): void
     {
         $source = "<?php\nclass Post\n{\n    protected \$fillable = ['title'];\n\n    protected \$casts = ['title' => 'string'];\n}\n";
@@ -82,5 +99,14 @@ final class EloquentConfigTest extends TestCase
         $head = "<?php\nclass Post\n{\n    protected \$fillable = ['title'];\n}\n";
 
         $this->assertSame([], EloquentConfig::addedNames($head, $base));
+    }
+
+    #[Test]
+    public function added_names_reads_each_propertys_own_array_in_a_combined_declaration(): void
+    {
+        $base = "<?php\nclass Post\n{\n    protected \$fillable = ['title', 'slug'], \$casts = [];\n}\n";
+        $head = "<?php\nclass Post\n{\n    protected \$fillable = ['title', 'slug'], \$casts = ['status' => 'string'];\n}\n";
+
+        $this->assertSame(['status'], EloquentConfig::addedNames($head, $base));
     }
 }

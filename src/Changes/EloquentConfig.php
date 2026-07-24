@@ -170,19 +170,28 @@ final class EloquentConfig
     }
 
     /**
-     * `$fillable`'s field names are its array VALUES (a plain list of column names).
+     * `$fillable`'s field names are its array VALUES (a plain list of column names). Resolved
+     * through {@see arrayForNamedProperty()}, not the name-agnostic {@see arrayOf()} — a combined
+     * declaration (`protected $fillable = [...], $casts = [...];`) is ONE `Property` node shared by
+     * both names, and `arrayOf()` would always hand back whichever PropertyItem it finds first.
      *
      * @return list<string>
      */
     private static function propertyFieldNames(Property $node, string $name, ?string $selfFqcn): array
     {
+        $array = self::arrayForNamedProperty($node, $name);
+
+        if (! $array instanceof Array_) {
+            return [];
+        }
+
         if ($name !== 'fillable') {
-            return self::keyFieldNames($node, $selfFqcn);
+            return self::keysOf($array, $selfFqcn);
         }
 
         $fields = [];
 
-        foreach (self::arrayOf($node, MemberChange::KIND_PROPERTY)->items as $item) {
+        foreach ($array->items as $item) {
             $field = self::resolveFieldName($item->value, $selfFqcn);
 
             if ($field !== null) {
@@ -194,16 +203,37 @@ final class EloquentConfig
     }
 
     /**
-     * `$casts`/`casts()`'s field names are its array KEYS (column name → cast type).
+     * `casts()`'s field names are its array KEYS (column name → cast type). A method has exactly one
+     * return array, so no name-aware resolution is needed here — {@see propertyFieldNames()} is
+     * where the combined-property ambiguity lives.
      *
      * @return list<string>
      */
-    private static function keyFieldNames(Property|ClassMethod $node, ?string $selfFqcn): array
+    private static function keyFieldNames(ClassMethod $node, ?string $selfFqcn): array
     {
-        $kind = $node instanceof Property ? MemberChange::KIND_PROPERTY : MemberChange::KIND_METHOD;
+        return self::keysOf(self::arrayOf($node, MemberChange::KIND_METHOD), $selfFqcn);
+    }
+
+    /**
+     * The Array_ default of the PropertyItem named `$name` within a (possibly multi-property)
+     * declaration — e.g. `protected $fillable = ['a'], $casts = ['b' => 'int'];` declares both
+     * `$fillable` and `$casts` on ONE `Property` node, each with its own `PropertyItem`. Null when no
+     * item of that name defaults to an array literal (guaranteed not to happen for a node
+     * {@see declaresMember()} already matched, but kept total for safety).
+     */
+    private static function arrayForNamedProperty(Property $node, string $name): ?Array_
+    {
+        $prop = array_find($node->props, static fn (PropertyItem $prop): bool => $prop->name->toString() === $name && $prop->default instanceof Array_);
+
+        return $prop?->default instanceof Array_ ? $prop->default : null;
+    }
+
+    /** @return list<string> */
+    private static function keysOf(Array_ $array, ?string $selfFqcn): array
+    {
         $fields = [];
 
-        foreach (self::arrayOf($node, $kind)->items as $item) {
+        foreach ($array->items as $item) {
             if ($item->key === null) {
                 continue;
             }
