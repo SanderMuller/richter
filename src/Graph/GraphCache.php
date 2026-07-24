@@ -3,6 +3,7 @@
 namespace SanderMuller\Richter\Graph;
 
 use Composer\InstalledVersions;
+use Illuminate\Support\Facades\Date;
 use OutOfBoundsException;
 use SanderMuller\Richter\Support\RichterConfig;
 use Symfony\Component\Finder\Finder;
@@ -34,6 +35,19 @@ final class GraphCache
     private ?CodeGraph $memoized = null;
 
     private ?string $memoizedFingerprint = null;
+
+    /**
+     * In-process (absolute path => [stat signature, content-hash]) cache so a repeated fingerprint —
+     * the MCP singleton re-checking a mostly-unchanged tree between tool calls — skips re-reading
+     * files it already hashed. The fingerprint VALUE stays byte-identical to hashing every file: a
+     * stored hash is reused only when the full stat signature (inode, size, mtime, ctime) is
+     * unchanged and the file is not racily-recent. A content change bumps ctime even when mtime is
+     * preserved (`cp -p`/`touch -r`/archive-restore cannot fake ctime), so this stays "staleness
+     * designed out", not heuristically hoped out — it never serves a hash for changed content.
+     *
+     * @var array<string, array{sig: string, hash: string}>
+     */
+    private array $fileHashCache = [];
 
     public function __construct(private readonly CodeGraphBuilder $builder) {}
 
@@ -93,13 +107,54 @@ final class GraphCache
             'laravel-brain' => $this->brainConfigInput(),
         ], JSON_THROW_ON_ERROR));
 
+        // Fresh stat metadata: in a long-lived process (the MCP singleton) PHP's per-request stat
+        // cache would otherwise report a file changed since the previous call as unchanged.
+        clearstatcache();
+        $now = Date::now()->getTimestamp();
+
         foreach ($this->inputFiles($projectRoot) as $path) {
-            // A file racing away between listing and hashing reads as '' — still a deterministic miss.
-            $hash = hash_file('xxh128', "{$projectRoot}/{$path}");
-            hash_update($context, "|{$path}:" . ($hash === false ? '' : $hash));
+            hash_update($context, "|{$path}:" . $this->fileHash("{$projectRoot}/{$path}", $now));
         }
 
         return hash_final($context);
+    }
+
+    /**
+     * The file's content hash — reused from {@see $fileHashCache} when its stat signature is
+     * unchanged and it is not racily-recent, otherwise (re)hashed. A file racing away reads as ''
+     * (a deterministic miss, as before). This never changes the fingerprint versus hashing every
+     * time; it only skips the content read when stat proves the bytes are unchanged. `$now` is the
+     * one-per-fingerprint wall-clock second, passed in so the racy check costs nothing per file.
+     */
+    private function fileHash(string $absolutePath, int $now): string
+    {
+        $stat = @stat($absolutePath);
+
+        if ($stat === false) {
+            unset($this->fileHashCache[$absolutePath]);
+
+            return '';
+        }
+
+        $signature = "{$stat['ino']}:{$stat['size']}:{$stat['mtime']}:{$stat['ctime']}";
+        // Racily-recent: a change in this same second could keep an identical signature, so never
+        // trust the cache for it — re-hash and don't store (git's racy-clean discipline).
+        $racy = $stat['mtime'] >= $now || $stat['ctime'] >= $now;
+
+        if (! $racy && ($this->fileHashCache[$absolutePath]['sig'] ?? null) === $signature) {
+            return $this->fileHashCache[$absolutePath]['hash'];
+        }
+
+        $computed = hash_file('xxh128', $absolutePath);
+        $hash = $computed === false ? '' : $computed;
+
+        if ($racy) {
+            unset($this->fileHashCache[$absolutePath]);
+        } else {
+            $this->fileHashCache[$absolutePath] = ['sig' => $signature, 'hash' => $hash];
+        }
+
+        return $hash;
     }
 
     /**
