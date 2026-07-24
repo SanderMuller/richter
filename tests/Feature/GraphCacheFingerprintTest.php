@@ -2,6 +2,7 @@
 
 namespace SanderMuller\Richter\Tests\Feature;
 
+use Illuminate\Support\Facades\Date;
 use PHPUnit\Framework\Attributes\Test;
 use SanderMuller\Richter\Graph\CodeGraphBuilder;
 use SanderMuller\Richter\Graph\GraphCache;
@@ -24,8 +25,12 @@ final class GraphCacheFingerprintTest extends TestCase
         file_put_contents($this->project . '/app/Alpha.php', "<?php\nnamespace App;\nclass Alpha { public function a() { return 1; } }\n");
         file_put_contents($this->project . '/app/Beta.php', "<?php\nnamespace App;\nclass Beta { public function b() { return 2; } }\n");
         // Age both files out of the current second so the first fingerprint caches them (not racy).
-        touch($this->project . '/app/Alpha.php', time() - 5);
-        touch($this->project . '/app/Beta.php', time() - 5);
+        touch($this->project . '/app/Alpha.php', Date::now()
+            ->subSeconds(5)
+            ->getTimestamp());
+        touch($this->project . '/app/Beta.php', Date::now()
+            ->subSeconds(5)
+            ->getTimestamp());
         clearstatcache();
     }
 

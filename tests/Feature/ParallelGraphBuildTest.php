@@ -90,6 +90,18 @@ final class ParallelGraphBuildTest extends TestCase
     }
 
     #[Test]
+    public function finish_rejects_a_semantically_impossible_payload(): void
+    {
+        // A negative count (or a non-list edges map) can't come from the worker; it's corruption,
+        // and validate() must fail closed to serial rather than build a graph with false flags.
+        $out = (string) tempnam(sys_get_temp_dir(), 'richter-test-');
+        file_put_contents($out, (string) json_encode(['edges' => [], 'unparseableFiles' => -1, 'unresolvedDispatches' => 0]));
+        $process = Process::path(base_path())->start([PHP_BINARY, '-r', 'exit(0);']);
+
+        $this->assertNull(TracerBranchRunner::finish(new PendingTracerBranch($process, $out)));
+    }
+
+    #[Test]
     public function finish_returns_the_validated_branch_on_success(): void
     {
         $out = (string) tempnam(sys_get_temp_dir(), 'richter-test-');

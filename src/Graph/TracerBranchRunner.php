@@ -94,8 +94,13 @@ final class TracerBranchRunner
     {
         if (! is_array($decoded)
             || ! is_array($decoded['edges'] ?? null)
+            || ! array_is_list($decoded['edges'])
             || ! is_int($decoded['unparseableFiles'] ?? null)
-            || ! is_int($decoded['unresolvedDispatches'] ?? null)) {
+            || ! is_int($decoded['unresolvedDispatches'] ?? null)
+            || $decoded['unparseableFiles'] < 0
+            || $decoded['unresolvedDispatches'] < 0) {
+            // A negative count or a non-list edges map is impossible from the worker (counts only
+            // increment; edges is json_encode of a PHP list) — treat it as corruption and fall back.
             return null;
         }
 
