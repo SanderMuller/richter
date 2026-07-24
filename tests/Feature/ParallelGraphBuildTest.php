@@ -11,7 +11,7 @@ use SanderMuller\Richter\Graph\TracerBranchRunner;
 use SanderMuller\Richter\Tests\TestCase;
 
 /**
- * Plan 046: the graph build runs Brain's branch and richter's tracer branch concurrently (the
+ * Plan 050: the graph build runs Brain's branch and richter's tracer branch concurrently (the
  * tracer branch in a child artisan process). These prove the concurrent path is byte-identical to
  * the serial one and that any worker failure falls back to serial without throwing.
  */
@@ -26,7 +26,7 @@ final class ParallelGraphBuildTest extends TestCase
         config()->set('richter.parallel', true);
         $parallel = new CodeGraphBuilder()->build(self::fixtureProjectPath());
 
-        // Byte-identical, edge order included — the hard gate for plan 046.
+        // Byte-identical, edge order included — the hard gate for plan 050.
         $this->assertEquals($serial, $parallel);
     }
 

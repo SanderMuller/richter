@@ -11,7 +11,7 @@ use Throwable;
  * analyze() in {@see CodeGraphBuilder::build()}. Two-phase: {@see start()} launches the worker
  * before Branch A runs; {@see finish()} awaits and reads its result after. Any failure returns null
  * so the caller falls back to the in-process branch — this is advisory tooling and must never fail
- * closed on a fork hiccup (plan 046).
+ * closed on a fork hiccup (plan 050).
  *
  * @internal
  */

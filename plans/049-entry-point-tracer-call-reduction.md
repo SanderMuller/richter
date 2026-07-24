@@ -1,4 +1,4 @@
-# Plan 045: Skip call-free methods in EntryPointTracer (fewer MethodTracer calls)
+# Plan 049: Skip call-free methods in EntryPointTracer (fewer MethodTracer calls)
 
 > **Executor instructions**: Follow this plan step by step. Run every
 > verification command and confirm the expected result before moving to the

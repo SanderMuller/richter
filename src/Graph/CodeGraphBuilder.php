@@ -122,7 +122,7 @@ final class CodeGraphBuilder
 
         // Branch B: richter's own source-tracer edges. The concurrent worker's result when it ran
         // and succeeded, else in-process (serial / profiling / fallback). Returned in the same order
-        // build() appends them serially, so the merged graph is byte-identical either way (plan 046).
+        // build() appends them serially, so the merged graph is byte-identical either way (plan 050).
         $tracerBranch = ($pending instanceof PendingTracerBranch ? TracerBranchRunner::finish($pending) : null)
             ?? $this->buildTracerBranch($projectRoot, $onProgress);
 
@@ -169,7 +169,7 @@ final class CodeGraphBuilder
      * from the consolidated AST pass, the queue/console/helper entry points, and the blade views)
      * that Brain's route-anchored analysis misses. Data-independent from Brain's analyze(), so
      * build() runs it concurrently; the {@see InternalTracerBranchCommand}
-     * worker runs exactly this method in a child process (plan 046). Edges are returned in the same
+     * worker runs exactly this method in a child process (plan 050). Edges are returned in the same
      * order build() appends them serially, keeping the merged graph byte-identical either way.
      *
      * @param  (callable(string, array<string, mixed>): void)|null  $onProgress

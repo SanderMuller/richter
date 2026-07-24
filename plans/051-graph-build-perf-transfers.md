@@ -1,4 +1,4 @@
-# Plan 047: richter-side graph-build perf transfers from the Brain autoresearch handoff
+# Plan 051: richter-side graph-build perf transfers from the Brain autoresearch handoff
 
 > **Executor instructions**: Follow this plan step by step. Run every verification command and
 > confirm the expected result before moving on. If a "STOP conditions" item occurs, stop and report.
@@ -49,8 +49,8 @@ was shipped.
   it needs the same conscious-invariant-relaxation treatment. Sequence after A + Brain incremental.
 - **Watch item / CI enablement** — release-gated verification and host-app docs; no richter code now.
 
-Net: 047 stays parked until the Brain autoresearch work releases (then re-evaluate A and C with real
-measurements). B is closed. The near-term graph-build wins already shipped are 045 + 046.
+Net: 051 stays parked until the Brain autoresearch work releases (then re-evaluate A and C with real
+measurements). B is closed. The near-term graph-build wins already shipped are 049 + 050.
 
 ## Original plan (retained for when Brain releases)
 - **Priority**: P2 (lever A), P3 (B, C — Brain-release-gated for full value)
@@ -70,9 +70,9 @@ The Brain autoresearch loop collapsed the two Brain hot paths (`brain-analyze` 1
 Brain/richter execution split to ≈43/57: **`consolidated-tracers` (~1.65s) is now the single largest
 phase of the build**, and it is richter's own code. Consequences already banked:
 
-- **Plan 045 (skip call-free methods)** now trims a ~0.19s phase — keep it (shipped, output-invariant)
+- **Plan 049 (skip call-free methods)** now trims a ~0.19s phase — keep it (shipped, output-invariant)
   but expect ~no measurable win once the Brain wins land. Do not invest further there.
-- **Plan 046 (parallel branches)** still holds, but with `brain-analyze`≈1s the overlap saves less;
+- **Plan 050 (parallel branches)** still holds, but with `brain-analyze`≈1s the overlap saves less;
   it stays correct and free (serial fallback), no action.
 - **The upstream `traceMethod` memoization ask (report §5.A/B) is moot** — the Brain agent measured a
   re-walk factor of only 1.4× and shared parse/resolution caches already collapsed per-call cost. Do

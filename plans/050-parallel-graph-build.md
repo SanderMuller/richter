@@ -1,4 +1,4 @@
-# Plan 046: Build the Brain branch and the tracer branch concurrently
+# Plan 050: Build the Brain branch and the tracer branch concurrently
 
 > **Executor instructions**: Follow this plan step by step. Run every
 > verification command and confirm the expected result before moving to the
@@ -21,7 +21,7 @@
 - **Risk**: MED — the output graph must be **byte-identical** to the serial build. Mitigated by a
   hard parallel-==-serial equality gate (below) and a robust **fallback to serial** on any worker
   failure (advisory tooling must never fail closed on a fork hiccup).
-- **Depends on**: nothing. Composes with 045 (independent).
+- **Depends on**: nothing. Composes with 049 (independent).
 - **Category**: performance (graph-build wall-time)
 - **Context**: `internal/perf-graph-build-report-2026-07-24.md` — read §3–§5 and the "Runtime split"
   section first. This plan implements the report's headline richter-side lever.
@@ -150,4 +150,4 @@ cross-process spawn is not unit-testable — tests 2–5 cover the merge/worker/
 
 - Fine-grained `traceMethod` parallelism (chunk entry-point classes across workers) — only worth it
   for apps where Branch B > Branch A; defer until such an app is measured.
-- Plan 045 (skip call-free methods) composes with this and stays independent.
+- Plan 049 (skip call-free methods) composes with this and stays independent.

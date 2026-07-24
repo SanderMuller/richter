@@ -8,7 +8,7 @@ use SanderMuller\Richter\Graph\GraphCache;
 use SanderMuller\Richter\Tests\TestCase;
 
 /**
- * The fingerprint's in-process stat-cache (plan 047 lever B, safe form): it skips re-reading a file
+ * The fingerprint's in-process stat-cache (plan 051 lever B, safe form): it skips re-reading a file
  * whose stat signature is unchanged, but must produce a fingerprint byte-identical to hashing every
  * file and must never miss a real content change.
  */

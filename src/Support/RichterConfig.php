@@ -113,7 +113,7 @@ final class RichterConfig
         return $value;
     }
 
-    /** Whether to build Brain's branch and richter's tracer branch concurrently (plan 046). */
+    /** Whether to build Brain's branch and richter's tracer branch concurrently (plan 050). */
     public static function parallel(): bool
     {
         $value = config('richter.parallel');

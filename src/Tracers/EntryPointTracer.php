@@ -175,7 +175,7 @@ final readonly class EntryPointTracer
 
         foreach (new NodeFinder()->findInstanceOf($ast, ClassMethod::class) as $method) {
             // Trace only methods that make a call: a call-free body emits no call edge, so skipping
-            // it is output-invariant and avoids pure overhead (plan 045 /
+            // it is output-invariant and avoids pure overhead (plan 049 /
             // internal/perf-graph-build-report-2026-07-24.md).
             if (EntryPointMethodFilter::shouldTrace($method)) {
                 $methods[] = $method->name->toString();

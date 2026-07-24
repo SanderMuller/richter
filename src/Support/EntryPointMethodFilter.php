@@ -15,7 +15,7 @@ use SanderMuller\Richter\Tracers\EntryPointTracer;
 /**
  * Decides which entry-point methods {@see EntryPointTracer} traces.
  * A concrete method whose body contains no call node can only emit zero call edges through Brain's
- * MethodTracer, so skipping it is output-invariant and avoids pure overhead (plan 045 /
+ * MethodTracer, so skipping it is output-invariant and avoids pure overhead (plan 049 /
  * internal/perf-graph-build-report-2026-07-24.md).
  *
  * @internal
