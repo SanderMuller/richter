@@ -433,6 +433,7 @@ Point Claude Code, Cursor, or any MCP client at the Artisan entry point, e.g. in
 | `frontend.http_callees` | `[]` | Extra JS/TS callees, beyond the built-in `route`/`fetch`/`axios`/`useFetch`/`$http`/`$`/`window`/`page`/`cy`, whose call-argument string literals count as backend endpoints. Matched on the callee's leading identifier, e.g. `myHttpClient` for `myHttpClient.post(...)`. |
 | `cache.enabled` | `true` | On-disk graph cache, keyed by a content fingerprint of the build inputs (see [Graph cache](#graph-cache)). |
 | `cache.directory` | `null` | Cache location; `null` means `storage/framework/cache/richter`. |
+| `parallel` | `true` | Build Brain's analysis and richter's own tracers concurrently (the tracers run in a child `artisan` process) instead of sequentially — shortens a cold build on a multi-core machine. The merged graph is identical either way; any child-process failure falls back to the serial build, and `--profile` forces serial. Set to `false` to always build serially. |
 | `benchmark_cases` | `[]` | Replayable accuracy fixtures for `richter:benchmark`. |
 
 Filament coverage is class-level: resources, pages and widgets surface as entry points (and their
