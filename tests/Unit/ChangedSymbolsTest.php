@@ -809,4 +809,72 @@ final class ChangedSymbolsTest extends TestCase
 
         return $index + 1;
     }
+
+    #[Test]
+    public function an_existing_model_carries_its_field_set_and_added_names(): void
+    {
+        $base = "<?php\nclass Post\n{\n    protected \$fillable = ['title'];\n}\n";
+        $head = "<?php\nclass Post\n{\n    protected \$fillable = ['title', 'layout'];\n}\n";
+        $hunk = $this->hunk([[4, "    protected \$fillable = ['title', 'layout'];"]], [[4, "    protected \$fillable = ['title'];"]]);
+
+        $result = ChangedSymbols::classifyFile('app/Models/Post.php', $head, $base, $hunk);
+
+        $this->assertSame(['title', 'layout'], $result->modelFieldSet);
+        $this->assertSame(['layout'], $result->addedModelFields);
+    }
+
+    #[Test]
+    public function a_mixed_rename_and_add_still_reports_the_added_field(): void
+    {
+        // slug -> heading is a rename (a real change, not additive); layout is a genuine add. The
+        // added field must still surface regardless of how the edit as a whole classifies.
+        $base = "<?php\nclass Post\n{\n    protected \$fillable = ['slug'];\n}\n";
+        $head = "<?php\nclass Post\n{\n    protected \$fillable = ['heading', 'layout'];\n}\n";
+        $hunk = $this->hunk([[4, "    protected \$fillable = ['heading', 'layout'];"]], [[4, "    protected \$fillable = ['slug'];"]]);
+
+        $result = ChangedSymbols::classifyFile('app/Models/Post.php', $head, $base, $hunk);
+
+        $this->assertTrue($result->needsCoarseSeed());
+        $this->assertSame(['heading', 'layout'], $result->addedModelFields);
+    }
+
+    #[Test]
+    public function a_brand_new_model_file_carries_no_field_data(): void
+    {
+        $head = "<?php\nclass Post\n{\n    protected \$fillable = ['title'];\n}\n";
+        $hunk = ['added' => [[4, "    protected \$fillable = ['title'];"]], 'removed' => []];
+        $hunk = $this->hunk($hunk['added'], $hunk['removed']);
+
+        $result = ChangedSymbols::classifyFile('app/Models/Post.php', $head, baseSrc: null, hunk: $hunk, isNew: true);
+
+        $this->assertSame([], $result->modelFieldSet);
+        $this->assertSame([], $result->addedModelFields);
+    }
+
+    #[Test]
+    public function an_unreadable_base_on_an_existing_model_carries_no_field_data(): void
+    {
+        $head = "<?php\nclass Post\n{\n    protected \$fillable = ['title'];\n}\n";
+        $hunk = $this->hunk([[4, "    protected \$fillable = ['title'];"]], [[4, "    protected \$fillable = ['x'];"]]);
+
+        $result = ChangedSymbols::classifyFile('app/Models/Post.php', $head, baseSrc: null, hunk: $hunk);
+
+        // The unreadable-base guard already coarse-seeds before field capture ever runs.
+        $this->assertTrue($result->needsCoarseSeed());
+        $this->assertSame([], $result->modelFieldSet);
+        $this->assertSame([], $result->addedModelFields);
+    }
+
+    #[Test]
+    public function a_non_model_file_carries_no_field_data(): void
+    {
+        $base = "<?php\nclass Foo\n{\n    protected \$fillable = ['title'];\n}\n";
+        $head = "<?php\nclass Foo\n{\n    protected \$fillable = ['title', 'layout'];\n}\n";
+        $hunk = $this->hunk([[4, "    protected \$fillable = ['title', 'layout'];"]], [[4, "    protected \$fillable = ['title'];"]]);
+
+        $result = ChangedSymbols::classifyFile('app/Foo.php', $head, $base, $hunk);
+
+        $this->assertSame([], $result->modelFieldSet);
+        $this->assertSame([], $result->addedModelFields);
+    }
 }

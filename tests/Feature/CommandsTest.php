@@ -615,6 +615,29 @@ final class CommandsTest extends TestCase
     }
 
     #[Test]
+    public function affected_tests_fails_closed_on_an_untracked_file_whose_path_git_quotes(): void
+    {
+        // git status --porcelain double-quotes any path with a space, independent of
+        // core.quotepath. If the quoting isn't undone, the root-prefix check misses the
+        // file and the fail-closed silently doesn't fire — the exact under-selection bug.
+        Process::fake([
+            '*merge-base*' => Process::result("abc123\n"),
+            '*rev-parse*' => Process::result(),
+            '*diff*' => Process::result(''),
+            '*status*' => Process::result("?? \"resources/views/my page.blade.php\"\n"),
+        ]);
+
+        $this->withoutMockingConsoleOutput();
+        $exitCode = Artisan::call('richter:affected-tests', ['--base' => 'some-base', '--plain' => true]);
+        $output = Artisan::output();
+
+        $this->assertSame(2, $exitCode);
+        $this->assertStringContainsString('untracked file(s)', $output);
+        $this->assertStringContainsString('resources/views/my page.blade.php', $output);
+        $this->assertStringNotContainsString('"resources/views', $output); // the leading quote was stripped
+    }
+
+    #[Test]
     public function affected_tests_plain_exits_undetermined_when_a_tracked_change_has_an_untracked_sibling(): void
     {
         // The exact regression this fixes: a tracked change under app/ ALONGSIDE a brand-new,
@@ -959,6 +982,31 @@ final class CommandsTest extends TestCase
         $this->assertStringContainsString('        \'key\' => \'O\\\'Brien-7\',', $output);
         $this->assertStringContainsString("        'fix_commit' => 'abc1234',", $output);
         $this->assertStringContainsString('        \'bug_class\' => \'Fix user\\\'s dash\\\\board rendering\',', $output);
+    }
+
+    #[Test]
+    public function benchmark_add_prints_the_expect_finding_line_when_supplied(): void
+    {
+        $this->fakeBenchmarkReplayReachingRoutes(['*log*' => Process::result("PROJ-42 Fix duplicated post reviews\n")]);
+
+        // The replay's findings never actually contain "layout", so the case would currently FAIL —
+        // the stanza is still printed for the operator to paste in, unconditionally.
+        $this->runArtisan('richter:benchmark:add', ['fix-commit' => 'abc1234', '--expect-finding' => 'layout'])
+            ->expectsOutputToContain("'expect_finding' => 'layout'")
+            ->assertFailed();
+    }
+
+    #[Test]
+    public function benchmark_add_omits_the_expect_finding_line_when_not_supplied(): void
+    {
+        $this->fakeBenchmarkReplayReachingRoutes(['*log*' => Process::result("PROJ-42 Fix duplicated post reviews\n")]);
+
+        $this->withoutMockingConsoleOutput();
+        $exitCode = Artisan::call('richter:benchmark:add', ['fix-commit' => 'abc1234']);
+        $output = Artisan::output();
+
+        $this->assertSame(0, $exitCode);
+        $this->assertStringNotContainsString("'expect_finding'", $output);
     }
 
     #[Test]

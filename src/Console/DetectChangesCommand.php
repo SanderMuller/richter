@@ -40,6 +40,7 @@ final class DetectChangesCommand extends Command
         {--fail-on= : Exit non-zero when risk is at least this level (low|medium|high); advisory by default}
         {--fail-on-unresolved : Exit non-zero when any changed PHP file is UNRESOLVED}
         {--no-cache : Build the code graph fresh, bypassing the graph cache}
+        {--no-payload-parity : Skip the payload-parity findings lane (a model field added but never mirrored in a resource)}
         {--profile : Time each graph-build phase and print the split to stderr (forces a fresh build)}
         {--html= : Write a self-contained HTML report to this path (all CSS/JS inline; opens offline)}
         {--open : Open the --html report in the default browser after writing it}';
@@ -144,7 +145,7 @@ final class DetectChangesCommand extends Command
             return $this->reportEmptyDiff($base, $failOn, $failOnUnresolved, $gateActive);
         }
 
-        $result = new ImpactAnalyzer($this->graph($graphs))->detectChanges($changed);
+        $result = new ImpactAnalyzer($this->graph($graphs))->detectChanges($changed, payloadParityEnabled: $this->payloadParityEnabled());
 
         $markdown = (bool) $this->option('markdown');
         $tests = TestReferenceIndex::fromTests(base_path('tests'));
@@ -218,7 +219,7 @@ final class DetectChangesCommand extends Command
             return self::SUCCESS;
         }
 
-        $result = new ImpactAnalyzer($this->graph($graphs))->detectChanges($changed);
+        $result = new ImpactAnalyzer($this->graph($graphs))->detectChanges($changed, payloadParityEnabled: $this->payloadParityEnabled());
         $tests = TestReferenceIndex::fromTests(base_path('tests'));
         $payload = JsonPresenter::detectChanges($result, $base, $tests);
 
@@ -312,6 +313,12 @@ final class DetectChangesCommand extends Command
             'tripped' => $tripped,
             'reasons' => $reasons,
         ];
+    }
+
+    /** null (config decides) unless `--no-payload-parity` explicitly forces the lane off. */
+    private function payloadParityEnabled(): ?bool
+    {
+        return (bool) $this->option('no-payload-parity') ? false : null;
     }
 
     private function graph(GraphCache $graphs): CodeGraph

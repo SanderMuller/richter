@@ -2,6 +2,7 @@
 
 namespace SanderMuller\Richter\Tests\Unit;
 
+use InvalidArgumentException;
 use PHPUnit\Framework\Attributes\Test;
 use SanderMuller\Richter\Analysis\BenchmarkCase;
 use SanderMuller\Richter\Analysis\RiskLevel;
@@ -13,15 +14,17 @@ final class BenchmarkCaseTest extends TestCase
      * @param  array<string, 'analyzed'|'unresolved'>  $coverage
      * @param  list<string>  $entryPoints
      * @param  array<string, int>|null  $changed  per-file seed counts; defaults to 1 seed per covered file
-     * @return array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, risk: RiskLevel}
+     * @param  list<string>  $findings
+     * @return array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, risk: RiskLevel, findings: list<string>}
      */
-    private function analyzerResult(array $coverage, array $entryPoints, RiskLevel $risk, ?array $changed = null): array
+    private function analyzerResult(array $coverage, array $entryPoints, RiskLevel $risk, ?array $changed = null, array $findings = []): array
     {
         return [
             'changed' => $changed ?? array_map(static fn (): int => 1, $coverage),
             'coverage' => $coverage,
             'entryPoints' => $entryPoints,
             'risk' => $risk,
+            'findings' => $findings,
         ];
     }
 
@@ -131,5 +134,74 @@ final class BenchmarkCaseTest extends TestCase
 
         $this->assertCount(1, $failures);
         $this->assertStringContainsString('exceeds the expected maximum', $failures[0]);
+    }
+
+    #[Test]
+    public function absent_expect_finding_behaves_exactly_as_before(): void
+    {
+        $case = BenchmarkCase::fromArray([
+            'key' => 'HPB-0002',
+            'fix_commit' => 'abc123',
+            'bug_class' => 'a bug class',
+            'expect_signal' => true,
+        ]);
+
+        $this->assertNull($case->expectFinding);
+        $this->assertSame([], $case->evaluate($this->analyzerResult(['app/Foo.php' => 'analyzed'], ['route::GET /foo'], RiskLevel::Medium)));
+    }
+
+    #[Test]
+    public function a_matching_finding_passes(): void
+    {
+        $case = BenchmarkCase::fromArray([
+            'key' => 'HPB-0003',
+            'fix_commit' => 'abc123',
+            'bug_class' => 'a bug class',
+            'expect_signal' => true,
+            'expect_finding' => 'layout',
+        ]);
+
+        $result = $this->analyzerResult(
+            ['app/Foo.php' => 'analyzed'],
+            ['route::GET /foo'],
+            RiskLevel::Medium,
+            findings: ['app/Http/Resources/FooResource.php mirrors App\\Models\\Foo but does not expose layout added to App\\Models\\Foo'],
+        );
+
+        $this->assertSame([], $case->evaluate($result));
+    }
+
+    #[Test]
+    public function a_non_matching_finding_fails_with_a_readable_reason(): void
+    {
+        $case = BenchmarkCase::fromArray([
+            'key' => 'HPB-0004',
+            'fix_commit' => 'abc123',
+            'bug_class' => 'a bug class',
+            'expect_signal' => true,
+            'expect_finding' => 'layout',
+        ]);
+
+        $result = $this->analyzerResult(['app/Foo.php' => 'analyzed'], ['route::GET /foo'], RiskLevel::Medium);
+
+        $failures = $case->evaluate($result);
+
+        $this->assertCount(1, $failures);
+        $this->assertStringContainsString('layout', $failures[0]);
+    }
+
+    #[Test]
+    public function a_non_string_expect_finding_throws(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('"HPB-0005"');
+
+        BenchmarkCase::fromArray([
+            'key' => 'HPB-0005',
+            'fix_commit' => 'abc123',
+            'bug_class' => 'a bug class',
+            'expect_signal' => true,
+            'expect_finding' => 42,
+        ]);
     }
 }

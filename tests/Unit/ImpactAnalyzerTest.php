@@ -1098,6 +1098,120 @@ final class ImpactAnalyzerTest extends TestCase
         $this->assertSame(["app/Exports/X.php: eager-load string 'commentsreviews' matches no relation"], $result['findings']);
     }
 
+    /** A graph wiring Post::reviews to a controller method that in turn references a resource. */
+    private function payloadParityGraph(string $resourceFqcn, string $resourceFile): CodeGraph
+    {
+        return new CodeGraph([
+            ['source' => 'App\Http\Controllers\Post\ReviewController::show', 'target' => Post::class . '::reviews', 'type' => 'loads-relation'],
+            ['source' => 'App\Http\Controllers\Post\ReviewController::show', 'target' => $resourceFqcn, 'type' => 'resource'],
+        ], hasUnparseableFiles: false, nodeMetadata: [
+            $resourceFqcn => ['file' => $resourceFile],
+        ]);
+    }
+
+    /**
+     * @param  list<string>  $fieldSet
+     * @param  list<string>  $addedFields
+     */
+    private function changedPost(array $fieldSet, array $addedFields): ChangedFileSymbols
+    {
+        return new ChangedFileSymbols('app/Models/Post.php', Post::class, [], cosmeticOnly: false, modelFieldSet: $fieldSet, addedModelFields: $addedFields);
+    }
+
+    #[Test]
+    public function payload_parity_flags_a_wired_mirror_resource_missing_an_added_field(): void
+    {
+        // Real fixture files, read from base_path() like production — {@see ReviewResource} mirrors
+        // title/slug but not 'status'.
+        $originalBasePath = base_path();
+        app()->setBasePath(self::fixtureProjectPath());
+
+        try {
+            $analyzer = new ImpactAnalyzer($this->payloadParityGraph(
+                'App\Http\Resources\Api\v2\Post\ReviewResource',
+                'app/Http/Resources/Api/v2/Post/ReviewResource.php',
+            ));
+
+            $result = $analyzer->detectChanges([$this->changedPost(['title', 'slug', 'status'], ['status'])]);
+
+            $this->assertCount(1, $result['findings']);
+            $this->assertStringContainsString('status', $result['findings'][0]);
+            $this->assertStringContainsString('ReviewResource.php', $result['findings'][0]);
+            // No model-file prefix — the note names the resource, not app/Models/Post.php.
+            $this->assertStringNotContainsString('app/Models/Post.php:', $result['findings'][0]);
+        } finally {
+            app()->setBasePath($originalBasePath);
+        }
+    }
+
+    #[Test]
+    public function payload_parity_stays_silent_for_a_control_resource_that_does_not_mirror(): void
+    {
+        $originalBasePath = base_path();
+        app()->setBasePath(self::fixtureProjectPath());
+
+        try {
+            // ReviewPlayerResource's toArray() is empty — shares nothing with Post's fields.
+            $analyzer = new ImpactAnalyzer($this->payloadParityGraph(
+                'App\Http\Resources\Api\v2\Post\ReviewPlayerResource',
+                'app/Http/Resources/Api/v2/Post/ReviewPlayerResource.php',
+            ));
+
+            $result = $analyzer->detectChanges([$this->changedPost(['title', 'slug', 'status'], ['status'])]);
+
+            $this->assertSame([], $result['findings']);
+        } finally {
+            app()->setBasePath($originalBasePath);
+        }
+    }
+
+    #[Test]
+    public function payload_parity_is_suppressed_when_explicitly_disabled(): void
+    {
+        $originalBasePath = base_path();
+        app()->setBasePath(self::fixtureProjectPath());
+
+        try {
+            $analyzer = new ImpactAnalyzer($this->payloadParityGraph(
+                'App\Http\Resources\Api\v2\Post\ReviewResource',
+                'app/Http/Resources/Api/v2/Post/ReviewResource.php',
+            ));
+
+            $enabled = $analyzer->detectChanges([$this->changedPost(['title', 'slug', 'status'], ['status'])]);
+            $disabled = $analyzer->detectChanges([$this->changedPost(['title', 'slug', 'status'], ['status'])], payloadParityEnabled: false);
+
+            $this->assertCount(1, $enabled['findings']);
+            $this->assertSame([], $disabled['findings']);
+            // Disabling the lane must never move anything but findings.
+            $this->assertSame($enabled['risk'], $disabled['risk']);
+            $this->assertSame($enabled['entryPoints'], $disabled['entryPoints']);
+            $this->assertSame($enabled['impacted'], $disabled['impacted']);
+        } finally {
+            app()->setBasePath($originalBasePath);
+        }
+    }
+
+    #[Test]
+    public function payload_parity_is_suppressed_via_config(): void
+    {
+        $originalBasePath = base_path();
+        app()->setBasePath(self::fixtureProjectPath());
+        config()->set('richter.payload_parity.enabled', false);
+
+        try {
+            $analyzer = new ImpactAnalyzer($this->payloadParityGraph(
+                'App\Http\Resources\Api\v2\Post\ReviewResource',
+                'app/Http/Resources/Api/v2/Post/ReviewResource.php',
+            ));
+
+            $result = $analyzer->detectChanges([$this->changedPost(['title', 'slug', 'status'], ['status'])]);
+
+            $this->assertSame([], $result['findings']);
+        } finally {
+            app()->setBasePath($originalBasePath);
+        }
+    }
+
     #[Test]
     public function a_change_without_findings_yields_an_empty_findings_list(): void
     {

@@ -176,8 +176,11 @@ final class UnifiedDiffParser
      * Undo git's core.quotePath C-style quoting: a path containing bytes ≥ 0x80 or
      * specials is emitted double-quoted with octal (\303\251) and character (\" \\ \t \n)
      * escapes. Unquoted values pass through untouched, so this is safe on every path.
+     *
+     * Public so {@see ChangedSymbols::untrackedRelevantFiles()} can reuse it on
+     * `git status --porcelain` output.
      */
-    private static function unquote(string $path): string
+    public static function unquote(string $path): string
     {
         if (strlen($path) < 2 || ! str_starts_with($path, '"') || ! str_ends_with($path, '"')) {
             return $path;

@@ -321,4 +321,88 @@ final class RichterConfigTest extends TestCase
 
         $this->assertSame(['myHttpClient'], RichterConfig::frontendHttpCallees());
     }
+
+    #[Test]
+    public function payload_parity_is_enabled_by_default(): void
+    {
+        config()->offsetUnset('richter.payload_parity');
+
+        $this->assertTrue(RichterConfig::payloadParityEnabled());
+    }
+
+    #[Test]
+    public function payload_parity_enabled_reads_the_configured_value(): void
+    {
+        config()->set('richter.payload_parity.enabled', false);
+
+        $this->assertFalse(RichterConfig::payloadParityEnabled());
+    }
+
+    #[Test]
+    public function a_non_bool_payload_parity_enabled_value_throws(): void
+    {
+        config()->set('richter.payload_parity.enabled', 'yes');
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('richter.payload_parity.enabled');
+
+        RichterConfig::payloadParityEnabled();
+    }
+
+    #[Test]
+    public function the_mirror_threshold_defaults_to_an_exact_predicate(): void
+    {
+        config()->offsetUnset('richter.payload_parity');
+
+        $this->assertEqualsWithDelta(1.0, RichterConfig::payloadParityMirrorThreshold(), PHP_FLOAT_EPSILON);
+    }
+
+    #[Test]
+    public function a_configured_mirror_threshold_is_returned_as_a_float(): void
+    {
+        config()->set('richter.payload_parity.mirror_threshold', 0.5);
+
+        $this->assertEqualsWithDelta(0.5, RichterConfig::payloadParityMirrorThreshold(), PHP_FLOAT_EPSILON);
+    }
+
+    #[Test]
+    public function a_non_numeric_mirror_threshold_throws(): void
+    {
+        config()->set('richter.payload_parity.mirror_threshold', 'high');
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('richter.payload_parity.mirror_threshold');
+
+        RichterConfig::payloadParityMirrorThreshold();
+    }
+
+    #[Test]
+    public function an_out_of_range_mirror_threshold_throws(): void
+    {
+        config()->set('richter.payload_parity.mirror_threshold', 1.5);
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('richter.payload_parity.mirror_threshold');
+
+        RichterConfig::payloadParityMirrorThreshold();
+    }
+
+    #[Test]
+    public function payload_parity_ignore_defaults_to_an_empty_list(): void
+    {
+        config()->offsetUnset('richter.payload_parity');
+
+        $this->assertSame([], RichterConfig::payloadParityIgnore());
+    }
+
+    #[Test]
+    public function configured_payload_parity_ignore_entries_round_trip(): void
+    {
+        config()->set('richter.payload_parity.ignore', ['App\\Models\\Post::layout', 'App\\Http\\Resources\\Api\\v2\\Post\\ReviewPlayerResource']);
+
+        $this->assertSame(
+            ['App\\Models\\Post::layout', 'App\\Http\\Resources\\Api\\v2\\Post\\ReviewPlayerResource'],
+            RichterConfig::payloadParityIgnore(),
+        );
+    }
 }
