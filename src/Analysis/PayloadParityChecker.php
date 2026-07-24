@@ -200,13 +200,33 @@ final class PayloadParityChecker
 
         foreach (['app/Http/Resources', 'app/Transformers'] as $relativeDir) {
             foreach (AppFiles::phpClasses("{$projectRoot}/{$relativeDir}", $projectRoot) as $class) {
-                if (in_array($shortName, explode('\\', $class['fqcn']), strict: true)) {
+                if ($this->matchesModelName($class['fqcn'], $shortName)) {
                     $candidates[] = ['fqcn' => $class['fqcn'], 'path' => "{$relativeDir}/" . substr($class['path'], strlen("{$projectRoot}/{$relativeDir}/"))];
                 }
             }
         }
 
         return $candidates;
+    }
+
+    /**
+     * The model's short name as an exact namespace/class segment anywhere in the FQCN (the
+     * `Api\v2\Post\ReviewResource` shape), OR the conventional `{Model}Resource`/`{Model}Collection`
+     * class name (the far more common `PostResource`/`PostCollection` shape) — exact equality on the
+     * class's own last segment, never a substring/prefix match, so model `Post` never matches
+     * `PostRevisionResource`, a different model's conventionally-named resource.
+     */
+    private function matchesModelName(string $resourceFqcn, string $shortName): bool
+    {
+        $segments = explode('\\', $resourceFqcn);
+
+        if (in_array($shortName, $segments, strict: true)) {
+            return true;
+        }
+
+        $className = $segments[array_key_last($segments)];
+
+        return $className === "{$shortName}Resource" || $className === "{$shortName}Collection";
     }
 
     /**

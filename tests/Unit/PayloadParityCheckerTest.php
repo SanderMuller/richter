@@ -281,6 +281,84 @@ final class PayloadParityCheckerTest extends TestCase
     }
 
     #[Test]
+    public function the_fallback_matches_the_conventional_model_resource_class_name(): void
+    {
+        // App\Http\Resources\PostResource — the far more common convention than the segment-match
+        // shape above: the class name is `{Model}Resource`, not a namespace/class segment match.
+        $graph = new CodeGraph([], hasUnparseableFiles: false);
+
+        $this->putResource('app/Http/Resources/PostResource.php', <<<'PHP'
+            <?php declare(strict_types=1);
+            namespace App\Http\Resources;
+            use Illuminate\Http\Resources\Json\JsonResource;
+            final class PostResource extends JsonResource
+            {
+                public function toArray($request): array
+                {
+                    return ['title' => $this->title, 'slug' => $this->slug];
+                }
+            }
+            PHP);
+
+        $findings = $this->checker($graph)->findingsFor(self::MODEL, ['title', 'slug', 'layout'], ['layout']);
+
+        $this->assertCount(1, $findings);
+        $this->assertStringContainsString('PostResource.php', $findings[0]);
+        $this->assertStringContainsString('layout', $findings[0]);
+    }
+
+    #[Test]
+    public function the_fallback_matches_the_conventional_model_collection_class_name(): void
+    {
+        $graph = new CodeGraph([], hasUnparseableFiles: false);
+
+        $this->putResource('app/Http/Resources/PostCollection.php', <<<'PHP'
+            <?php declare(strict_types=1);
+            namespace App\Http\Resources;
+            use Illuminate\Http\Resources\Json\ResourceCollection;
+            final class PostCollection extends ResourceCollection
+            {
+                public function toArray($request): array
+                {
+                    return ['title' => $this->title, 'slug' => $this->slug];
+                }
+            }
+            PHP);
+
+        $findings = $this->checker($graph)->findingsFor(self::MODEL, ['title', 'slug', 'layout'], ['layout']);
+
+        $this->assertCount(1, $findings);
+        $this->assertStringContainsString('PostCollection.php', $findings[0]);
+        $this->assertStringContainsString('layout', $findings[0]);
+    }
+
+    #[Test]
+    public function the_fallback_never_matches_a_different_models_conventional_resource(): void
+    {
+        // PostRevisionResource's class name is NOT exactly "PostResource" — it must not match model
+        // Post via a substring/prefix rule. It mirrors Post's fields perfectly, but must stay silent:
+        // matching it would misattribute a PostRevision resource's gap to the Post model.
+        $graph = new CodeGraph([], hasUnparseableFiles: false);
+
+        $this->putResource('app/Http/Resources/PostRevisionResource.php', <<<'PHP'
+            <?php declare(strict_types=1);
+            namespace App\Http\Resources;
+            use Illuminate\Http\Resources\Json\JsonResource;
+            final class PostRevisionResource extends JsonResource
+            {
+                public function toArray($request): array
+                {
+                    return ['title' => $this->title, 'slug' => $this->slug];
+                }
+            }
+            PHP);
+
+        $findings = $this->checker($graph)->findingsFor(self::MODEL, ['title', 'slug', 'layout'], ['layout']);
+
+        $this->assertSame([], $findings);
+    }
+
+    #[Test]
     public function a_non_empty_graph_result_never_falls_back_to_the_name_scan(): void
     {
         // The graph wires exactly one resource (ReviewResource), which exposes every added field —
