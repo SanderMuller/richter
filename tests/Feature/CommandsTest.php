@@ -615,6 +615,29 @@ final class CommandsTest extends TestCase
     }
 
     #[Test]
+    public function affected_tests_fails_closed_on_an_untracked_file_whose_path_git_quotes(): void
+    {
+        // git status --porcelain double-quotes any path with a space, independent of
+        // core.quotepath. If the quoting isn't undone, the root-prefix check misses the
+        // file and the fail-closed silently doesn't fire — the exact under-selection bug.
+        Process::fake([
+            '*merge-base*' => Process::result("abc123\n"),
+            '*rev-parse*' => Process::result(),
+            '*diff*' => Process::result(''),
+            '*status*' => Process::result("?? \"resources/views/my page.blade.php\"\n"),
+        ]);
+
+        $this->withoutMockingConsoleOutput();
+        $exitCode = Artisan::call('richter:affected-tests', ['--base' => 'some-base', '--plain' => true]);
+        $output = Artisan::output();
+
+        $this->assertSame(2, $exitCode);
+        $this->assertStringContainsString('untracked file(s)', $output);
+        $this->assertStringContainsString('resources/views/my page.blade.php', $output);
+        $this->assertStringNotContainsString('"resources/views', $output); // the leading quote was stripped
+    }
+
+    #[Test]
     public function affected_tests_plain_exits_undetermined_when_a_tracked_change_has_an_untracked_sibling(): void
     {
         // The exact regression this fixes: a tracked change under app/ ALONGSIDE a brand-new,

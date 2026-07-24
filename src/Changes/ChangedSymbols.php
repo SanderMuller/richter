@@ -172,7 +172,7 @@ final class ChangedSymbols
         // GitProjectPaths re-roots each to base_path() before the roots (base_path()-relative) match,
         // dropping anything outside base_path()'s subtree and failing closed if the layout is unknown.
         $untrackedPaths = array_map(
-            static fn (string $line): string => substr($line, 3),
+            static fn (string $line): string => UnifiedDiffParser::unquote(substr($line, 3)),
             array_values(array_filter(
                 explode("\n", $status->output()),
                 static fn (string $line): bool => str_starts_with($line, '?? '),
