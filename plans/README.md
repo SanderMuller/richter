@@ -105,7 +105,8 @@ Performance round (2026-07-24):
 
 | Plan | Title | Priority | Effort | Depends on | Status |
 |------|-------|----------|--------|------------|--------|
-| 045  | Skip call-free methods in `EntryPointTracer` (fewer `MethodTracer` calls) | P3 | S | none | TODO — output-invariant micro-opt (~8.5% of `traceMethod` calls on hihaho, the cheapest ones). Small by design; the real graph-build lever is upstream Brain. Full context + the upstream asks in `internal/perf-graph-build-report-2026-07-24.md` (local/gitignored). |
+| 045  | Skip call-free methods in `EntryPointTracer` (fewer `MethodTracer` calls) | P3 | S | none | DONE (2026-07-24, commit `9173d10`) — the call-free skip lives in the extracted `Support\EntryPointMethodFilter` (adding it in-class tipped `EntryPointTracer`'s cognitive complexity 79→83). Output-invariant (the full graph-build suite is unchanged); ~8.5% of `traceMethod` calls on hihaho, the cheapest ones. The real graph-build lever is upstream Brain — see `internal/perf-graph-build-report-2026-07-24.md`. |
+| 046  | Build the Brain branch and the tracer branch concurrently | P2 | M–H | none (composes with 045) | DONE (2026-07-24, commit `daaaf17`) — concurrent Brain-branch ‖ tracer-branch build via a hidden `richter:internal-tracer-branch` worker + `illuminate/process` and a serial fallback; `richter.parallel` config (default on; serial in the suite and under `--profile`). Byte-identical to serial — the equality test spawns a **real** child process and asserts the graph matches. 734 tests; phpstan/pint/rector clean. ~40% cold-build wall-time, capped by the serial `brain-analyze` floor. Used the hidden-worker approach, not the `Concurrency` facade (its process driver breaks on `$this`, its fork driver needs `pcntl`). |
 
 ## Dependency notes
 
