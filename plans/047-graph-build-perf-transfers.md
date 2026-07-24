@@ -13,7 +13,44 @@
 
 ## Status
 
-- **State**: WRITTEN — not executed.
+- **State**: EVALUATED 2026-07-24 — **no lever executed.** Verdict below: B is not worth it in
+  richter (measured), A and C are gated on the Brain autoresearch **release**. Revisit A/C when Brain
+  ships; drop B.
+
+## Evaluation verdict (2026-07-24)
+
+Evaluated against the live code + a richter-specific measurement before executing. Outcome: **execute
+nothing now.**
+
+- **Lever B — REJECTED (not deferred).** Two independent reasons:
+  1. **Measured win is negligible in richter.** The plan's ~13% was transferred from phpstan, not
+     measured here. Measured on hihaho (2,323 input files, warm OS cache): content-hash **81 ms** vs
+     stat **4.5 ms** → Lever B saves **~77 ms/run**, i.e. **<1%** of the ~13 s parallel build and
+     ~2.5% of the ~3 s post-Brain-wins build. Not worth a `FORMAT_VERSION` bump + a cache-correctness
+     surface change.
+  2. **It overturns a documented core invariant.** `GraphCache`'s own docblock states the fingerprint
+     "content-hashes everything the build reads … staleness is designed out rather than expired out",
+     and "a false hit would be the falsely-reassuring stale report this package exists to prevent."
+     The git mtime+size model reintroduces a false-hit hole (content swap that preserves size **and**
+     mtime — restores-from-archive, `cp -p`, `touch -r`) that the racy-clean guard does **not** close,
+     aimed at richter's exact threat model. Bulletproofness is impossible to keep while skipping the
+     content read (any mtime+size shortcut has the same hole). A <1% win does not justify relaxing the
+     one invariant the component is built around. If ever revisited, it must be a conscious maintainer
+     decision to relax that invariant — not an executor's optimisation.
+- **Lever A — DEFER to the Brain release.** Its win needs Brain's disk-backed shared parser (on the
+  `perf/graph-build-autoresearch` branch, **not released**); against released Brain v2.3.1 the swap is
+  perf-neutral and carries a name-resolution-equivalence correctness risk. No benefit now, real risk
+  now → wait.
+- **Lever C — DEFER to the Brain release.** Its value materialises only once Brain's wins make
+  `consolidated-tracers` the dominant phase; it also shares B's mtime+size staleness hazard (a per-file
+  result cache keyed on mtime+size can serve a stale edge set for a preserved-mtime content swap), so
+  it needs the same conscious-invariant-relaxation treatment. Sequence after A + Brain incremental.
+- **Watch item / CI enablement** — release-gated verification and host-app docs; no richter code now.
+
+Net: 047 stays parked until the Brain autoresearch work releases (then re-evaluate A and C with real
+measurements). B is closed. The near-term graph-build wins already shipped are 045 + 046.
+
+## Original plan (retained for when Brain releases)
 - **Priority**: P2 (lever A), P3 (B, C — Brain-release-gated for full value)
 - **Effort**: A=S, B=M, C=M–L
 - **Risk**: A LOW · B MED (cache-correctness) · C MED (cache-correctness)
