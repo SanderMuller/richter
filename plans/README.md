@@ -17,6 +17,17 @@ with no false positives; `--profile` clean). All new fixtures use a neutral
 domain (`Post`/`Comment`/`Report`/`Tag`/`Category`, `PostController`,
 `App\Jobs\PublishPostJob`, `App\Livewire\StatusPanel`, `App\Enums\FeatureToggle`)
 — never the consumer's product nouns.
+**Unplanned consumer handoff added 2026-07-23** (pinned at commit `7e5369c`,
+v0.12.0-2) —
+[handoff-payload-parity-2026-07-23.md](handoff-payload-parity-2026-07-23.md):
+one P1-recall detection gap (a model field that never reaches its API Resource
+is invisible; 2 of the reporting consumer's 5 real-bug fixtures are this class)
+plus the observation that `expect_signal` fixtures score blast radius rather
+than detection. **Now planned as 048** — the three open questions were settled
+in a maintainer interview on 2026-07-23; chiefly, the mirror ratio ships
+configurable but defaulting to **1.0**, an exact predicate that keeps the
+no-guess rule every other checker follows intact. The same dogfood found the
+0.8.0 → 0.12.0 bump itself clean.
 Execute in the order below unless dependencies say otherwise. Each executor:
 read the plan fully before starting, honor its STOP conditions, and update
 your row when done.
@@ -79,7 +90,7 @@ Dogfood round (2026-07-20, pinned at `2d8a437`):
 
 | Plan | Title | Priority | Effort | Depends on | Status |
 |------|-------|----------|--------|------------|--------|
-| 036  | Stop one unfollowable dispatch anywhere from nullifying `affected-tests` — change-scope the determinability blocker (Finding 1) | P1 | L | none | DONE (v2 redesign; main `7c44ba0`+`ba60581`+`240f82c`+`b9cf632`, 2026-07-21; 623 tests). S1 (unparseable) stays GLOBAL, S2 (dispatch) scoped via `DispatchTarget` (`\Jobs\`/ShouldQueue/`Dispatchable` trait/**has handle()·__invoke()**/unclassifiable→fire); `GraphCache::FORMAT_VERSION` 3→4 + 3 construction sites. Design cold review = sound (GraphCache gap folded in); code cold review 2 rounds — R1 fixed self-handling-command under-selection (rule 5), R2 found the pre-existing `DispatchEdgeTracer`/Brain job-only edge-drawing (not a 036 regression) → **follow-up 043**. Executor stalled twice (infra); reviewer finished + integrated. NOT yet released (v0.10.1 decision pending). |
+| 036  | Stop one unfollowable dispatch anywhere from nullifying `affected-tests` — change-scope the determinability blocker (Finding 1) | P1 | L | none | DONE (v2 redesign; main `7c44ba0`+`ba60581`+`240f82c`+`b9cf632`, 2026-07-21; 623 tests). S1 (unparseable) stays GLOBAL, S2 (dispatch) scoped via `DispatchTarget` (`\Jobs\`/ShouldQueue/`Dispatchable` trait/**has handle()·__invoke()**/unclassifiable→fire); `GraphCache::FORMAT_VERSION` 3→4 + 3 construction sites. Design cold review = sound (GraphCache gap folded in); code cold review 2 rounds — R1 fixed self-handling-command under-selection (rule 5), R2 found the pre-existing `DispatchEdgeTracer`/Brain job-only edge-drawing (not a 036 regression) → **follow-up 043**. Executor stalled twice (infra); reviewer finished + integrated. **Advisor note (2026-07-22): the 2026-07-22 `/improve` round independently re-derived this same redesign as plan 047 before spotting this shipped work — 047 is REJECTED as redundant; this row is the authoritative record.** |
 | 043  | Widen `DispatchEdgeTracer` resolved-dispatch edge-drawing to the `DispatchTarget` predicate (036 R2 follow-up) | P2 | M | 036 | DONE (2026-07-22) — three `isJobClass()` sites → `DispatchTarget::matches()`; `isJobClass`/`isQueueable`/cache retired (class became `readonly`). A resolved `dispatch(new SelfHandlingCommand())` / `dispatch(new DispatchableCommand())` now draws the `action-to-job` edge Brain + the job-only predicate omitted — closes the S2=false residual (a change to such a command's `handle()` no longer drops the dispatcher's test) and the `richter:impact` under-draw. Safe direction (only ADDS edges). Graph/impact expectations needed no reconciliation (fixtures dispatch only a job); 29 benchmark cases green, no corpus configured; 717 tests, phpstan/pint/rector clean. Test-first: new self-handling + `Dispatchable` edge cases, non-target case re-pinned to a real loadable class (`Post`). **NB: index numbering collides with the GUI-round 043 (HTML data layer) below — distinct plans, distinct files.** |
 | 037  | Make `HEAD` mode see the working tree — no silent false negatives before commit (Finding 2) | P1 | M | none (pairs with 036) | DONE (reviewed + independently re-verified; main `8d8452d`+`cdd530d`+`37a00a4`, 2026-07-20; HEAD-mode diff = working-tree net change vs merge-base (current-state contract, not a superset of committed-only — a locally-reverted committed change is correctly excluded; CI is clean so working-tree ≡ HEAD there); non-HEAD replay byte-for-byte pinned + benchmarks 29/29; neutral fixtures. **Codex follow-up (fixing): affected-tests must fail-closed on untracked relevant files — the stderr warning alone under-selects; regex left-boundary for the callee gate**) |
 | 038  | Only treat a string literal as a route when it's an argument to an HTTP/route callee (Finding 3) | P2 | M | none mechanically; **priority-coupled to 036** | DONE (reviewed + independently re-verified; main `d77567d`+`fe701f2`+`e274b65`, 2026-07-20; callee-gated `uriCandidates`, config `frontend.http_callees`; default allowlist also gained `page`/`cy` so Playwright/Cypress spec navigation keeps `FrontendTestIndex` recall — a gap the executor surfaced; scanner stays diff-time, no `GraphCache` fingerprint change; neutral fixtures) |
@@ -92,9 +103,32 @@ GUI round (2026-07-21, pinned at `2d8a437`; renumbered 043/044 to clear the dogf
 
 | 043  | HTML report data layer: depth-tagged edge lists on CodeGraph + surface the reach map | P2 | S–M | — | DONE (2 commits `3612072`+`9df09c7`, 2026-07-20; pure insertions, `--json` byte-identical, BFS-tree invariant corrected mid-execution — see the plan's two "Correction" notes) |
 
-| 044  | The self-contained HTML report: --html/--open, five tabs, PHP-computed radial SVG + editor links | P2 | M | 043 | DONE (2026-07-21; 672 tests green. Deviations: CHANGELOG left alone — it is CI-managed here and has no Unreleased section; `RadialLayout` returns an array shape rather than a `LayoutResult` object, matching the codebase's array-shape convention; association-only nodes keep their true depth ring. Added beyond the plan: an empty-diff `--html` report, custom-styled graph tooltips, a full visual redesign, and clickable editor links reusing debugbar's/Ignition's env chain) |
+| 044  | The self-contained HTML report: --html/--open, five tabs, PHP-computed radial SVG + editor links | P2 | M | 043 | DONE (2026-07-21; 672 tests green (suite now 700). Deviations: CHANGELOG left alone — it is CI-managed here and has no Unreleased section; `RadialLayout` returns an array shape rather than a `LayoutResult` object, matching the codebase's array-shape convention; association-only nodes keep their true depth ring. Added beyond the plan: an empty-diff `--html` report, custom-styled graph tooltips, a full visual redesign, and clickable editor links reusing debugbar's/Ignition's env chain) |
 
-Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED (with one-line rationale — finding fixed independently or approach abandoned)
+Advisor round (2026-07-22, pinned at `afcefa1`; suite green at 700 tests, PHPStan/Pint/Rector clean). Fresh `/improve` audit targeting the newest surface (the HTML report cluster, plans 043/044) plus code changed since the last audit, and re-verifying the known-outstanding items. Both security sweeps came back clean on exploitable issues (no XSS, no command/path injection). New findings below:
+
+> **Reconcile note (2026-07-22, same day):** the audit base `afcefa1` was already
+> behind `origin/main`, which had advanced to the v0.11.x/v0.12.0 line — the
+> maintainer had implemented plan 036's change-scoped dispatch determinability
+> redesign directly in the release (see the 036/047 rows). So plan 047 was
+> REJECTED as redundant on the day it was written. Plan 045 was executed against
+> `origin/main` (where its bug still lived) and reviewed APPROVE; plan 046
+> remains valid (its area is unchanged on `origin/main`). The plans read
+> `Planned at afcefa1` because that was the working-dir HEAD when they were
+> written; a subsequent `git pull` then fast-forwarded the checkout onto the
+> v0.12.0 line (`7e5369c`). For the authoritative record of the shipped 036
+> redesign, see the 036 and dispatch-tracer 043 rows above, not 047's summary.
+
+| Plan | Title | Priority | Effort | Depends on | Status |
+|------|-------|----------|--------|------------|--------|
+| 045  | Unquote git-quoted untracked paths so the affected-tests fail-closed contract holds (Advisor-B) | P1 | S | none | **DONE** (executed + reviewed 2026-07-22; APPROVE). Executor branch `advisor/045-untracked-quoted-paths-fail-closed`, commit `168182a`, based on `origin/main` tip `308abf4` (the local `afcefa1` was behind main). Bug confirmed still present on `origin/main`; fix reuses `UnifiedDiffParser::unquote()` (made public). Verified in worktree: PHPStan 0, Pint clean, new regression test passes (4 assertions), guard-proof confirmed (reverting the unquote → test fails, exit 0 vs 2). Full suite 716/716. Scope clean (3 in-scope files only). **Not yet merged — the user merges.** |
+| 046  | Harden and honestly document the HTML report's escaping invariant (Advisor-D+E+F) | P2 | S | none | TODO — report is safe today; closes a fragility: no adversarial test on the editor-link `href`/URL context (D), `BlastDiagram` writes SVG attrs bypassing the central `Html::e` rule its own docblock claims is exceptionless (E), and code comments inaccurately credit `Html::e` (not `rawurlencode`+scheme-allowlist) for URL safety (F). **Still valid** — the HTML report area is unchanged between `afcefa1` and `origin/main`. |
+| 047  | Change-scope the unfollowable-dispatch blocker so affected-tests is usable on real apps — supersedes 036 (Advisor-A) | P1 | M + M–L | none | **REJECTED — the maintainer shipped this redesign directly (see the authoritative 036 + 043 rows above)**. 047 was written on 2026-07-22 before that shipped work was spotted; it independently converged on the same mechanism (split S1 unparseable from S2 dispatch; scope S2 via a dispatch-target predicate incl. self-handling commands — closing both of 036's blockers). No longer needed; retained as the record of the convergence, not as a task. |
+| 048  | Note a model field that never reaches its API Resource (payload parity — consumer handoff H1) | P1 | L | none | **DONE + MERGED** (executed + reviewed 2026-07-24; APPROVE). Executor branch `advisor/048-payload-parity-detection`, **9 signed commits `2ba9b27`…`3af7aac`**, based on `acb128b`, fast-forward merged to `main`. Plan was reconciled `7e5369c`→`acb128b` before dispatch (`1fd5e6b` added `classifyFile()`'s `$isNew` param + unreadable-base early return; the "skip new model files" rule was re-keyed off `$isNew`). Closeout via `/final-verification-review` → `evaluate` → `code-review` + `codex-review`: **783 tests, 1831 assertions**, PHPStan 0, Pint clean, Rector 0; `GraphCache::FORMAT_VERSION` still 4; findings-lane iron rule intact (risk/entryPoints/impacted byte-identical lane on vs off). Codex rounds: R1 fixed the name fallback missing conventional `{Model}Resource`/`{Model}Collection` (`c026788`); R2 fixed `fieldSet()` mis-reading a combined multi-property statement (`3af7aac`); R3 dismissed with reasoning (constants resolved by reflection — intended design matching `EagerLoadStringChecker`, fails safe). Accepted deviations: no new shared-fixture control resource (existing edge-asserting suites — control covered via temp-dir fixtures); `--no-payload-parity` covered at the `ImpactAnalyzer` level. Follow-up: dedupe `classFqcn`/constant-resolver shared by `EloquentConfig` + `PayloadParityChecker` into `AppFiles`. |
+
+Not planned this round (maintainer's call): **Advisor-C** — dev dep `symplify/phpstan-extensions` is abandoned (fresh `composer audit`; replacement `symplify/phpstan-rules` already a direct dev dep). Trivial removal; skipped per user selection. Fold config into `symplify/phpstan-rules` and re-run PHPStan to confirm baseline unchanged if picked up later.
+
+Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED (with one-line rationale — finding fixed independently or approach abandoned) | SUPERSEDED (by plan NNN)
 
 **GUI round added 2026-07-21** (plans 043–044, pinned at commit `2d8a437`)
 from [research-gui-2026-07-20.md](research-gui-2026-07-20.md) — the delivery
@@ -220,6 +254,12 @@ of the 2026-07-16 round, so nobody re-audits these:
 > [audit-2026-07-19.md](audit-2026-07-19.md) are deliberately unplanned
 > (DIR-3 gated on plan 029's corpus; DIR-4 on the Laravel-12 drop; DIR-5 is a
 > small docs pass).
+
+**2026-07-22 update**: finding 16 (QA workflow docs) is now RESOLVED
+independently — `README.md` (Testing section, ~lines 431-439) documents
+`composer qa-check` as the read-only pre-push gate and notes `qa` auto-fixes.
+Finding 15 (abandoned `symplify/phpstan-extensions`) re-confirmed still live by
+fresh `composer audit`; recorded as Advisor-C above (not planned this round).
 
 Original 2026-07-16 note: findings 7 (laravel/mcp version boundary), 13 (Brain contract test —
 deliberately waiting for upstream laramint/laravel-brain#65 to merge),
