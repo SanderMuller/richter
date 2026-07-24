@@ -24,6 +24,7 @@ use PhpParser\Node\Stmt\Property;
 use PhpParser\NodeFinder;
 use SanderMuller\Richter\Graph\CodeGraphBuilder;
 use SanderMuller\Richter\Support\AppFiles;
+use SanderMuller\Richter\Support\EntryPointMethodFilter;
 use Throwable;
 
 /**
@@ -173,7 +174,10 @@ final readonly class EntryPointTracer
         $methods = [];
 
         foreach (new NodeFinder()->findInstanceOf($ast, ClassMethod::class) as $method) {
-            if (! $method->isAbstract()) {
+            // Trace only methods that make a call: a call-free body emits no call edge, so skipping
+            // it is output-invariant and avoids pure overhead (plan 045 /
+            // internal/perf-graph-build-report-2026-07-24.md).
+            if (EntryPointMethodFilter::shouldTrace($method)) {
                 $methods[] = $method->name->toString();
             }
         }
