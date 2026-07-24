@@ -41,9 +41,10 @@ final class GraphCache
      * the MCP singleton re-checking a mostly-unchanged tree between tool calls — skips re-reading
      * files it already hashed. The fingerprint VALUE stays byte-identical to hashing every file: a
      * stored hash is reused only when the full stat signature (inode, size, mtime, ctime) is
-     * unchanged and the file is not racily-recent. A content change bumps ctime even when mtime is
-     * preserved (`cp -p`/`touch -r`/archive-restore cannot fake ctime), so this stays "staleness
-     * designed out", not heuristically hoped out — it never serves a hash for changed content.
+     * unchanged and the file is not racily-recent. A content write bumps POSIX ctime even when mtime
+     * is preserved (`cp -p`/`touch -r`/archive-restore can't fake it), so on Linux/macOS staleness
+     * stays designed out. On Windows ctime is creation-time, so there the mtime+size check carries it
+     * and an mtime-preserving content swap is the one residual gap — `--fresh`/`--no-cache` escapes it.
      *
      * @var array<string, array{sig: string, hash: string}>
      */
