@@ -30,5 +30,9 @@ abstract class TestCase extends OrchestraTestCase
         // Every test builds the graph fresh so no state leaks between tests through the on-disk
         // cache; cache behaviour itself is exercised explicitly in GraphCacheTest.
         $app->make(Repository::class)->set('richter.cache.enabled', false);
+
+        // Build serially by default so the suite never forks a child artisan per graph build;
+        // the parallel path is exercised explicitly in ParallelGraphBuildTest.
+        $app->make(Repository::class)->set('richter.parallel', false);
     }
 }

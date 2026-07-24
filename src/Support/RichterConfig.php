@@ -113,6 +113,22 @@ final class RichterConfig
         return $value;
     }
 
+    /** Whether to build Brain's branch and richter's tracer branch concurrently (plan 046). */
+    public static function parallel(): bool
+    {
+        $value = config('richter.parallel');
+
+        if ($value === null) {
+            return true;
+        }
+
+        if (! is_bool($value)) {
+            throw new InvalidArgumentException('The richter.parallel config value must be a boolean.');
+        }
+
+        return $value;
+    }
+
     public static function cacheDirectory(): string
     {
         $value = config('richter.cache.directory');

@@ -9,6 +9,7 @@ use SanderMuller\Richter\Console\BenchmarkAddCommand;
 use SanderMuller\Richter\Console\BenchmarkCommand;
 use SanderMuller\Richter\Console\DetectChangesCommand;
 use SanderMuller\Richter\Console\ImpactCommand;
+use SanderMuller\Richter\Console\InternalTracerBranchCommand;
 use SanderMuller\Richter\Graph\GraphCache;
 use SanderMuller\Richter\Mcp\RichterServer;
 use Spatie\LaravelPackageTools\Package;
@@ -22,7 +23,7 @@ final class RichterServiceProvider extends PackageServiceProvider
         $package
             ->name('richter')
             ->hasConfigFile()
-            ->hasCommands(ImpactCommand::class, DetectChangesCommand::class, AffectedTestsCommand::class, BenchmarkCommand::class, BenchmarkAddCommand::class);
+            ->hasCommands(ImpactCommand::class, DetectChangesCommand::class, AffectedTestsCommand::class, BenchmarkCommand::class, BenchmarkAddCommand::class, InternalTracerBranchCommand::class);
     }
 
     #[Override]

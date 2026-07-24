@@ -14,6 +14,7 @@ use PhpParser\NodeVisitorAbstract;
 use SanderMuller\Richter\Analysis\ImpactAnalyzer;
 use SanderMuller\Richter\Changes\MemberChange;
 use SanderMuller\Richter\Changes\MemberResolver;
+use SanderMuller\Richter\Console\InternalTracerBranchCommand;
 use SanderMuller\Richter\Support\AppFiles;
 use SanderMuller\Richter\Support\RichterConfig;
 use SanderMuller\Richter\Tracers\BladeViewTracer;
@@ -44,6 +45,10 @@ final class CodeGraphBuilder
     public function build(?string $projectRoot = null, ?callable $onProgress = null): CodeGraph
     {
         $projectRoot ??= base_path();
+
+        // Start richter's tracer branch (Branch B) concurrently when eligible, so it overlaps Brain's
+        // analyze() below. Null → the branch runs in-process (serial / profiling / fallback).
+        $pending = TracerBranchRunner::start($projectRoot, $onProgress);
 
         // The override must not outlive the build: the process may be a long-lived MCP server whose
         // global config repository the host app shares. Only analyze() reads these keys.
@@ -115,40 +120,17 @@ final class CodeGraphBuilder
 
         $phaseStart = $this->emitPhase($onProgress, 'canonicalize-metadata', $phaseStart);
 
-        // One instance serves both passes below: the consolidated pass reads its roots to decide
-        // which ASTs to retain, and trace() consumes them — same instance, so they can never diverge.
-        $entryPointTracer = new EntryPointTracer(RichterConfig::entryPointRoots());
+        // Branch B: richter's own source-tracer edges. The concurrent worker's result when it ran
+        // and succeeded, else in-process (serial / profiling / fallback). Returned in the same order
+        // build() appends them serially, so the merged graph is byte-identical either way (plan 046).
+        $tracerBranch = ($pending instanceof PendingTracerBranch ? TracerBranchRunner::finish($pending) : null)
+            ?? $this->buildTracerBranch($projectRoot, $onProgress);
 
-        // One consolidated AST pass feeds the dispatch/policy/reference/interface tracers — each used
-        // to re-parse the whole app tree itself, which cost ~30-60s per tracer per build.
-        $consolidated = $this->consolidatedTracerEdges($projectRoot, $entryPointTracer);
-
-        foreach ($consolidated['edges'] as $tracerEdge) {
+        foreach ($tracerBranch['edges'] as $tracerEdge) {
             $edges[] = $tracerEdge;
         }
 
-        $phaseStart = $this->emitPhase($onProgress, 'consolidated-tracers', $phaseStart);
-
-        // Brain's graph is route-anchored; add queue/console/helper entry points (+ `$listen`
-        // event→listener and interface→impl links) Brain misses. Tracer edges are FQCN-keyed, so they
-        // join the normalised nodes above directly.
-        foreach ($entryPointTracer->trace($projectRoot, $consolidated['entryPointAsts']) as $entryPointEdge) {
-            $edges[] = $entryPointEdge;
-        }
-
-        $phaseStart = $this->emitPhase($onProgress, 'entry-point-tracer', $phaseStart);
-
-        // Descend into the views a view renders (`<x-...>`, `@include`/`@extends`) and link the
-        // policies views gate on — both surfaces Brain's route-anchored graph misses.
-        foreach (new BladeViewTracer()->trace($projectRoot) as $viewEdge) {
-            $edges[] = $viewEdge;
-        }
-
-        foreach (new PolicyEdgeTracer()->bladeEdges($projectRoot) as $bladePolicyEdge) {
-            $edges[] = $bladePolicyEdge;
-        }
-
-        $phaseStart = $this->emitPhase($onProgress, 'blade-tracers', $phaseStart);
+        $phaseStart = $onProgress !== null ? (float) hrtime(true) : 0.0;
 
         $controllerBasenames = $this->controllerBasenames($projectRoot);
         $middlewareAliases = MiddlewareAliases::forProject($projectRoot);
@@ -172,14 +154,68 @@ final class CodeGraphBuilder
 
         $graph = new CodeGraph(
             $edges,
-            $consolidated['unparseableFiles'] > 0,
-            $consolidated['unresolvedDispatches'] > 0,
+            $tracerBranch['unparseableFiles'] > 0,
+            $tracerBranch['unresolvedDispatches'] > 0,
             NodeMetadata::withFallbackFiles($edges, $metadata, $projectRoot),
         );
 
         $this->emitPhase($onProgress, 'rewrites-and-members', $phaseStart);
 
         return $graph;
+    }
+
+    /**
+     * Branch B — richter's own source-tracer edges (the dispatch/policy/reference/interface edges
+     * from the consolidated AST pass, the queue/console/helper entry points, and the blade views)
+     * that Brain's route-anchored analysis misses. Data-independent from Brain's analyze(), so
+     * build() runs it concurrently; the {@see InternalTracerBranchCommand}
+     * worker runs exactly this method in a child process (plan 046). Edges are returned in the same
+     * order build() appends them serially, keeping the merged graph byte-identical either way.
+     *
+     * @param  (callable(string, array<string, mixed>): void)|null  $onProgress
+     * @return array{edges: list<array{source: string, target: string, type: string}>, unparseableFiles: int, unresolvedDispatches: int}
+     */
+    public function buildTracerBranch(string $projectRoot, ?callable $onProgress = null): array
+    {
+        $phaseStart = $onProgress !== null ? (float) hrtime(true) : 0.0;
+
+        // One instance serves both passes below: the consolidated pass reads its roots to decide
+        // which ASTs to retain, and trace() consumes them — same instance, so they can never diverge.
+        $entryPointTracer = new EntryPointTracer(RichterConfig::entryPointRoots());
+
+        // One consolidated AST pass feeds the dispatch/policy/reference/interface tracers — each used
+        // to re-parse the whole app tree itself, which cost ~30-60s per tracer per build.
+        $consolidated = $this->consolidatedTracerEdges($projectRoot, $entryPointTracer);
+        $edges = $consolidated['edges'];
+
+        $phaseStart = $this->emitPhase($onProgress, 'consolidated-tracers', $phaseStart);
+
+        // Brain's graph is route-anchored; add queue/console/helper entry points (+ `$listen`
+        // event→listener and interface→impl links) Brain misses. Tracer edges are FQCN-keyed, so they
+        // join the normalised nodes above directly.
+        foreach ($entryPointTracer->trace($projectRoot, $consolidated['entryPointAsts']) as $entryPointEdge) {
+            $edges[] = $entryPointEdge;
+        }
+
+        $phaseStart = $this->emitPhase($onProgress, 'entry-point-tracer', $phaseStart);
+
+        // Descend into the views a view renders (`<x-...>`, `@include`/`@extends`) and link the
+        // policies views gate on — both surfaces Brain's route-anchored graph misses.
+        foreach (new BladeViewTracer()->trace($projectRoot) as $viewEdge) {
+            $edges[] = $viewEdge;
+        }
+
+        foreach (new PolicyEdgeTracer()->bladeEdges($projectRoot) as $bladePolicyEdge) {
+            $edges[] = $bladePolicyEdge;
+        }
+
+        $this->emitPhase($onProgress, 'blade-tracers', $phaseStart);
+
+        return [
+            'edges' => $edges,
+            'unparseableFiles' => $consolidated['unparseableFiles'],
+            'unresolvedDispatches' => $consolidated['unresolvedDispatches'],
+        ];
     }
 
     /**

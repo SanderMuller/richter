@@ -77,6 +77,15 @@ return [
     ],
 
     /*
+     * Build Brain's route-anchored analysis and richter's own source-tracer branch concurrently
+     * (the tracer branch runs in a child `artisan` process) instead of sequentially. The two
+     * branches are data-independent and the merged graph is byte-identical either way, so this only
+     * shortens the cold build (~40% on a multi-core machine). Any child-process failure falls back
+     * to the serial build, and `--profile` forces serial so the phase split stays measurable.
+     */
+    'parallel' => true,
+
+    /*
      * Replayable accuracy fixtures for `richter:benchmark`: historical fix commits the change-impact
      * report is re-run against. Bug fixtures (expect_signal: true) must resolve and reach an entry
      * point; controls (expect_signal: false) cap the risk a harmless change may report via max_risk
