@@ -101,6 +101,12 @@ from [research-gui-2026-07-20.md](research-gui-2026-07-20.md) — the delivery
 decision (self-contained HTML file, HTML-only graph payload, reach-classified
 diagram) is settled there; the plans implement it.
 
+Performance round (2026-07-24):
+
+| Plan | Title | Priority | Effort | Depends on | Status |
+|------|-------|----------|--------|------------|--------|
+| 045  | Skip call-free methods in `EntryPointTracer` (fewer `MethodTracer` calls) | P3 | S | none | TODO — output-invariant micro-opt (~8.5% of `traceMethod` calls on hihaho, the cheapest ones). Small by design; the real graph-build lever is upstream Brain. Full context + the upstream asks in `internal/perf-graph-build-report-2026-07-24.md` (local/gitignored). |
+
 ## Dependency notes
 
 - 001 folds in the diff-parser characterization tests from audit finding 11
