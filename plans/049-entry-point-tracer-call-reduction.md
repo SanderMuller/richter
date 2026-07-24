@@ -23,18 +23,18 @@
 - **Depends on**: nothing.
 - **Category**: performance (graph-build wall-time)
 - **Planned at**: commit `acb128b`, 2026-07-24
-- **Context**: full findings in `internal/perf-graph-build-report-2026-07-24.md` (§4, §5). Read it
+- **Context**: full findings in `an internal performance analysis` (§4, §5). Read it
   before executing — it explains why this is a *small* win and where the real lever is (upstream).
 
 ## Why this matters / honest sizing
 
-`entry-point-tracer` is ~32% of a fresh graph build (`internal/perf-graph-build-report-2026-07-24.md`
+`entry-point-tracer` is ~32% of a fresh graph build (`an internal performance analysis`
 §3). It calls Brain's `MethodTracer::traceMethod($fqcn, $method)` once per **non-abstract method**
-of every entry-point class — **1141 calls** on hihaho (§4). A method whose body contains no call
+of every entry-point class — **1141 calls** on the host app (§4). A method whose body contains no call
 node (`MethodCall`/`StaticCall`/`NullsafeMethodCall`/`FuncCall`/`New_`) cannot produce any call
 edge, so tracing it is pure overhead.
 
-**Measured ceiling: 8.5% of calls (97/1141) on hihaho**, and those are the *cheapest* traces
+**Measured ceiling: 8.5% of calls (97/1141) on the host app**, and those are the *cheapest* traces
 (nothing to walk), so the wall-time saving is smaller still. This is a safe, cheap cleanup — **not**
 the fix for the 120s build. The structural levers are upstream (Brain `traceMethod` memoization /
 direct-callee mode; incremental `analyze()`) — see "Upstream follow-up" and the report §5–6. Do not

@@ -3,7 +3,6 @@
 namespace SanderMuller\Richter\Graph;
 
 use Composer\InstalledVersions;
-use Illuminate\Support\Facades\Date;
 use OutOfBoundsException;
 use SanderMuller\Richter\Support\RichterConfig;
 use Symfony\Component\Finder\Finder;
@@ -111,7 +110,9 @@ final class GraphCache
         // Fresh stat metadata: in a long-lived process (the MCP singleton) PHP's per-request stat
         // cache would otherwise report a file changed since the previous call as unchanged.
         clearstatcache();
-        $now = Date::now()->getTimestamp();
+        // The real wall clock, not Date::now() — a host app can freeze the Date facade
+        // (Carbon::setTestNow), which would disable the racy-clean guard below against real writes.
+        $now = time();
 
         foreach ($this->inputFiles($projectRoot) as $path) {
             hash_update($context, "|{$path}:" . $this->fileHash("{$projectRoot}/{$path}", $now));

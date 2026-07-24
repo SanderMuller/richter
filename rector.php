@@ -1,6 +1,7 @@
 <?php declare(strict_types=1);
 
 use Rector\Caching\ValueObject\Storage\FileCacheStorage;
+use Rector\Carbon\Rector\FuncCall\TimeFuncCallToCarbonRector;
 use Rector\CodeQuality\Rector\ClassMethod\InlineArrayReturnAssignRector;
 use Rector\CodeQuality\Rector\If_\ExplicitBoolCompareRector;
 use Rector\CodingStyle\Rector\Encapsed\EncapsedStringsToSprintfRector;
@@ -74,4 +75,8 @@ return RectorConfig::configure()
         // The fixture project is verbatim input for Laravel Brain and the tracers — "improving" it
         // changes what the tests analyze (Rector removed the fixture Kernel's alias map as dead code).
         __DIR__ . '/tests/Fixtures',
+        // GraphCache's racy-clean guard must compare file mtimes/ctimes to the real wall clock;
+        // Date::now() is fakeable (Carbon::setTestNow), which a host app could freeze and silently
+        // disable the guard. Keep the raw time() call there.
+        TimeFuncCallToCarbonRector::class => [__DIR__ . '/src/Graph/GraphCache.php'],
     ]);

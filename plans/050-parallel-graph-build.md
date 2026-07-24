@@ -23,7 +23,7 @@
   failure (advisory tooling must never fail closed on a fork hiccup).
 - **Depends on**: nothing. Composes with 049 (independent).
 - **Category**: performance (graph-build wall-time)
-- **Context**: `internal/perf-graph-build-report-2026-07-24.md` — read §3–§5 and the "Runtime split"
+- **Context**: `an internal performance analysis` — read §3–§5 and the "Runtime split"
   section first. This plan implements the report's headline richter-side lever.
 - **Planned at**: commit `e57931b`, 2026-07-24
 
@@ -32,7 +32,7 @@
 `CodeGraphBuilder::build()` runs two data-independent branches **sequentially**:
 
 - **Branch A (Brain):** `ProjectAnalyzer::analyze()` + `canonicalize-metadata` ≈ **12.6s** (cold,
-  hihaho). Produces Brain's edges + the node-metadata map.
+  the host app). Produces Brain's edges + the node-metadata map.
 - **Branch B (richter's source tracers):** `consolidated-tracers` → `entry-point-tracer` →
   `blade-tracers` ≈ **10.0s**. `consolidatedTracerEdges()` and `entryPointTracer->trace()` take only
   `$projectRoot`/parsed ASTs — **verified: neither reads `$analysis`** (`CodeGraphBuilder.php:124,135`).
@@ -127,14 +127,14 @@ miss; the output graph (hence the fingerprint-keyed cached value) is unchanged.
 **Testbench note**: the package test env has no real `base_path('artisan')` binary, so the *live*
 cross-process spawn is not unit-testable — tests 2–5 cover the merge/worker/fallback logic with
 `Process::fake` + in-process `buildTracerBranch`. Validate the true fork in a **host app**: run
-`richter:detect-changes --profile` (serial baseline) vs a normal run (parallel) in hihaho and confirm
+`richter:detect-changes --profile` (serial baseline) vs a normal run (parallel) in the host app and confirm
 (a) identical `--json`, (b) wall-time drop toward ~max(A,B). Record the before/after in the report.
 
 ## Verification
 
 - `vendor/bin/pest` — full suite green (equality + fallback + worker + profile cases).
 - `vendor/bin/phpstan analyse`, `vendor/bin/pint --dirty`, rector — clean.
-- Host-app check (hihaho): `--json` identical serial-vs-parallel; wall-time ~13s vs ~23s.
+- Host-app check (the host app): `--json` identical serial-vs-parallel; wall-time ~13s vs ~23s.
 
 ## STOP conditions
 

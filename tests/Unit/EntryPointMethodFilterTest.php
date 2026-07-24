@@ -56,6 +56,23 @@ final class EntryPointMethodFilterTest extends TestCase
     }
 
     #[Test]
+    public function a_class_const_or_enum_case_fetch_counts_as_an_edge_source(): void
+    {
+        // Brain's MethodTracer draws edges from ClassConstFetch (`::class`, class constants, and
+        // enum cases). A method whose only traceable dependency is one of those must NOT be skipped,
+        // or its edge would be dropped and impact under-reported (codex review, plan 049).
+        $methods = $this->methods('
+            public function enumCase(): mixed { return Status::Published; }
+            public function classConstant(): mixed { return Config::TIMEOUT; }
+            public function classNameFetch(): string { return Model::class; }
+        ');
+
+        foreach (['enumCase', 'classConstant', 'classNameFetch'] as $name) {
+            $this->assertTrue(EntryPointMethodFilter::hasCallNode($methods[$name]), $name);
+        }
+    }
+
+    #[Test]
     public function a_call_nested_inside_a_closure_still_counts(): void
     {
         // The only call node lives inside the closure body — the recursive find must reach it, so

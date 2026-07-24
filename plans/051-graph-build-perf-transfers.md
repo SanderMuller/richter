@@ -37,10 +37,10 @@ was shipped.
     <1% and dwarfed by the build it precedes). It lands on the **cache-hit / MCP** path: `GraphCache`
     is the MCP singleton and recomputes the fingerprint on **every** tool call (`GraphCache.php:71`,
     before the memo check), so an agent doing N calls on an unchanged tree paid ~85 ms × N; now it
-    pays stat-speed after the first. Larger cold. Measured basis (hihaho, 2,323 files, warm):
+    pays stat-speed after the first. Larger cold. Measured basis (the host app, 2,323 files, warm):
     content-hash 81–90 ms vs stat 4.4 ms.
-- **Lever A — DEFER to the Brain release.** Its win needs Brain's disk-backed shared parser (on the
-  `perf/graph-build-autoresearch` branch, **not released**); against released Brain v2.3.1 the swap is
+- **Lever A — DEFER to the Brain release.** Its win needs Brain's disk-backed shared parser (in an
+  unreleased upstream Brain performance branch); against released Brain v2.3.1 the swap is
   perf-neutral and carries a name-resolution-equivalence correctness risk. No benefit now, real risk
   now → wait.
 - **Lever C — DEFER to the Brain release.** Its value materialises only once Brain's wins make
@@ -56,11 +56,11 @@ measurements). B is closed. The near-term graph-build wins already shipped are 0
 - **Priority**: P2 (lever A), P3 (B, C — Brain-release-gated for full value)
 - **Effort**: A=S, B=M, C=M–L
 - **Risk**: A LOW · B MED (cache-correctness) · C MED (cache-correctness)
-- **Depends on**: nothing for A. B and C realise most of their value only once the laravel-brain
-  `perf/graph-build-autoresearch` work **releases** (disk-backed shared parser; incremental analyze).
+- **Depends on**: nothing for A. B and C realise most of their value only once the upstream
+  laravel-brain performance work **releases** (disk-backed shared parser; incremental analyze).
 - **Category**: performance (graph-build wall-time)
-- **Source**: `internal/brain-perf-handoff-2026-07-24.md` (the Brain autoresearch agent's reply) +
-  `internal/perf-graph-build-report-2026-07-24.md`. Read both before executing.
+- **Source**: `the Brain autoresearch handoff` (the Brain autoresearch agent's reply) +
+  `an internal performance analysis`. Read both before executing.
 - **Planned at**: commit `d83341e`, 2026-07-24
 
 ## Why this matters — the split inverted
