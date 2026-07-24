@@ -5,6 +5,29 @@ All notable changes to `sandermuller/richter` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.14.0 - 2026-07-24
+
+<!-- verified-sha: f281c2c16644c138f14c8ad1e7aa7fd07733a00b -->
+### v0.14.0
+
+Adds a payload-parity findings lane: richter now notices when a model field is added but never reaches the API Resource that renders it — the shape behind a setting that saves fine yet silently reverts on the client. Sourced from production dogfood, where this was the single most-reproduced defect class. Advisory only; nothing about the risk level, the `--fail-on` gate, or `affected-tests` changes.
+
+#### Added
+
+- **Payload-parity detection.** When a diff adds a name to a model's `$fillable`, `$casts`, or `casts()`, richter checks the resources that render that model and reports — under Findings — any that mirror the model's other fields but omit the newly added one. Findings are advisory strings only; they never feed `risk`, `--fail-on`, or `affected-tests`.
+  - Candidate resources are matched by graph wiring first (the controllers/actions that touch the model and the resources they return), falling back to conventional names (`App\Http\Resources\PostResource`, `PostCollection`, or the model name as a namespace segment) and `App\Transformers` only when nothing is wired.
+  - Deliberately no-guess: the default `mirror_threshold` of `1.0` fires only on an exact mirror, and any resource whose `toArray()` the parser cannot statically enumerate — a spread, `array_merge`, `mergeWhen`, `parent::toArray()`, `only()`, or a dynamic key — is skipped rather than guessed at. Constant-based field names and keys (`Post::TITLE`) are resolved on both sides.
+  
+- **Configuration:** `payload_parity.{enabled, mirror_threshold, ignore}` in `config/richter.php`. On by default. `ignore` suppresses a specific field (`App\Models\Post::internal_flag`) or a whole resource (its FQCN).
+- **`--no-payload-parity`** on `richter:detect-changes` disables the lane for a single run.
+- **`expect_finding`** on benchmark cases (and a `--expect-finding` option on `richter:benchmark:add`) asserts that a replayed case surfaces a finding containing a given substring — scoring a checker's *identification*, not just the blast radius it elevates.
+
+#### Compatibility
+
+No breaking changes. The lane is purely additive: the `--json` contract is unchanged (`findings` remains a `list<string>`), and existing reports read identically with the lane disabled. A project that wants it off sets `payload_parity.enabled` to `false` or passes `--no-payload-parity`.
+
+**Full Changelog**: https://github.com/SanderMuller/richter/compare/v0.13.0...v0.14.0
+
 ## v0.13.0 - 2026-07-23
 
 <!-- verified-sha: 1fd5e6b52db368dc789063b5bdcb5fd4d3e642d8 -->
