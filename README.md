@@ -158,6 +158,18 @@ suggests, and the reviewer should know. Route detection reads statically visible
 recognised — a project convention like `FeatureToggle::BETA_DASHBOARD->isActive()` needs an
 allowlist entry (see [Configuration](#configuration)) before it is noted.
 
+A model field added to `$fillable`/`$casts`/`casts()` but never added to a resource that otherwise
+mirrors the model's other fields is noted under Findings too (`AppResource.php mirrors App\Models\X
+but does not expose <field> added to App\Models\X`) — the exact shape behind a payload field
+silently going missing after an otherwise-correct edit. This is advisory only: it never feeds
+`risk`, a `--fail-on` gate, or `affected-tests`. Deliberately no-guess — the default
+`mirror_threshold` requires an exact match against the candidate's pre-existing fields before it
+counts as a mirror, candidate resources are matched by graph wiring first and only by name when
+nothing is wired, and anything the checker can't statically enumerate (a dynamic `toArray()` key, a
+spread, an unparseable resource) is silently skipped rather than guessed at. On by default; disable
+it for one run with `--no-payload-parity` or globally via `payload_parity.enabled` (see
+[Configuration](#configuration)).
+
 With `--markdown`, the report renders as GitHub-flavoured markdown: a risk badge up front, changed files as a table, entry points as a review checklist with their file:line, test tags and exposure badges, and long lists collapsed into `<details>` instead of truncated. The result is ready to paste into (or post onto) a pull request. `--markdown --explain` composes.
 
 With `--html=<path>`, the report is written as ONE self-contained HTML file — every style and script inline, nothing fetched — so it opens offline straight from `file://` and travels as a CI artifact you can link from a pull request. It has five tabs: Overview (a Files / Impacted / Depth / Risk stat row, the reached entry points, and what to focus on), Graph (the blast radius as concentric rings, one per BFS depth), Paths (how each entry point reaches the change), Changes (the member-level diff, naming the member that drove a low-confidence verdict), and Advisory (findings, test references, and the gate). `--open` launches it in the default browser afterwards; a failing opener is a warning, never a failed run.
@@ -412,6 +424,7 @@ Point Claude Code, Cursor, or any MCP client at the Artisan entry point, e.g. in
 | `editor` | `phpstorm` (via `CODE_EDITOR` / `DEBUGBAR_EDITOR` / `IGNITION_EDITOR`) | Editor for the clickable `file:line` links in the `--html` report — reuses debugbar's/Ignition's env chain. One of `phpstorm`, `idea`, `vscode`(+`-insiders`/`-remote`/`ium`), `sublime`, `textmate`, `emacs`, `macvim`, `atom`, `nova`, `netbeans`, `xdebug`, or `null` to keep the references plain text. |
 | `dispatch_helpers` | `[]` | Project-custom global job-dispatch helper functions (e.g. `dispatch_with_retries`) the dispatch tracer should follow. |
 | `feature_gate_methods` | `[]` | `FQCN::method` allowlist of project wrappers around Pennant (e.g. `App\Enums\FeatureToggle::isActive`) — an `EnumCase->method()` call then annotates the change as flag-gated, alongside the built-in `Feature` facade / `@feature` support. |
+| `payload_parity` | `{enabled: true, mirror_threshold: 1.0, ignore: []}` | Advisory lane flagging a model field added to `$fillable`/`$casts`/`casts()` but never mirrored into its resource. `mirror_threshold` is the exact-mirror fraction (`1.0` — no-guess by default); `ignore` suppresses a field (`App\Models\X::field`) or a whole resource (its FQCN). Disable for one run with `--no-payload-parity`, or globally by setting `enabled` to `false`. |
 | `entry_point_roots` | `Jobs`, `Listeners`, `Console/Commands`, `Filament`, `Helpers`, `Http/Middleware`, `Livewire`, `Observers` | Directories under `app/` traced as entry points beyond Brain's route-anchored graph (graph tracing only; the analyzer's risk-floor namespace heuristics are fixed). |
 | `frontend.roots` | `[]` (off) | Frontend roots whose changed TS/JS/Vue files are scanned for Wayfinder/Ziggy endpoint references (see [Frontend changes](#frontend-changes-wayfinder--ziggy)). |
 | `frontend.generated_paths` | `actions`, `routes`, `wayfinder`, `ziggy.js` | Wayfinder's generated trees and Ziggy's generated route map under each frontend root — excluded from scanning as regeneration churn. Each entry matches a directory, an exact file, or a `*`-glob (crosses `/`). `.d.ts` files are always excluded, regardless of this list. |
