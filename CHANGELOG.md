@@ -5,6 +5,28 @@ All notable changes to `sandermuller/richter` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.15.0 - 2026-07-25
+
+<!-- verified-sha: f39bfbdbcc1a2c97cc72a81d9098a4b37cae0f69 -->
+A new advisory payload-parity check plus a set of graph-build performance improvements. No breaking changes — every new behaviour is advisory or output-invariant, and the new config keys default to sensible values.
+
+### Added
+
+- **Payload-parity detection.** A new advisory lane flags a model field added to `$fillable`/`$casts`/`casts()` that is *not* mirrored into a resource which already mirrors the model's other fields — the exact shape behind a payload field silently going missing from an API response. It is advisory only: it never feeds the risk level, `--fail-on`, or `richter:affected-tests`, only the report's findings list. Tunable via the `payload_parity` config (`enabled`, `mirror_threshold`, `ignore`) and suppressible for one run with `--no-payload-parity`.
+- **Parallel graph build.** Every command that builds the graph now runs Brain's route-anchored analysis and richter's own source-tracers **concurrently** — the tracers run in a child `artisan` process — instead of sequentially, shortening a cold build on a multi-core machine. The merged graph is identical to the serial build (edge order included); any child-process failure transparently falls back to the serial build, and `--profile` forces serial so the phase split stays measurable. Controlled by the new `parallel` config key (default on).
+
+### Fixed
+
+- **`richter:affected-tests` now fails closed on git-quoted untracked paths.** An untracked file whose pathname git quotes (non-ASCII or special characters) is unquoted before the fail-closed check, so it can no longer slip past and yield a falsely-narrow test selection.
+
+### Internal
+
+- **Faster repeated fingerprinting.** The graph cache's content fingerprint reuses a file's hash across repeated builds within one process (e.g. a long-lived MCP session re-checking a mostly-unchanged tree) when the file's stat signature — inode, size, mtime, and ctime — is unchanged and not racily-recent, skipping the re-read. The fingerprint value stays byte-identical to hashing every file: staleness is still designed out, not heuristically hoped out.
+- **Fewer entry-point traces.** The entry-point tracer skips a method whose body contains none of the AST nodes Brain's `MethodTracer` draws an edge from, cutting redundant per-method traces with no change to the graph.
+- Suite: 796 tests / 1,858 assertions, including a byte-identical parallel-vs-serial build gate, fingerprint transparency + change-detection tests, and adversarial coverage of the worker payload validation.
+
+**Full Changelog**: https://github.com/SanderMuller/richter/compare/v0.14.0...v0.15.0
+
 ## v0.14.0 - 2026-07-24
 
 <!-- verified-sha: f281c2c16644c138f14c8ad1e7aa7fd07733a00b -->
@@ -15,12 +37,16 @@ Adds a payload-parity findings lane: richter now notices when a model field is a
 #### Added
 
 - **Payload-parity detection.** When a diff adds a name to a model's `$fillable`, `$casts`, or `casts()`, richter checks the resources that render that model and reports — under Findings — any that mirror the model's other fields but omit the newly added one. Findings are advisory strings only; they never feed `risk`, `--fail-on`, or `affected-tests`.
+  
   - Candidate resources are matched by graph wiring first (the controllers/actions that touch the model and the resources they return), falling back to conventional names (`App\Http\Resources\PostResource`, `PostCollection`, or the model name as a namespace segment) and `App\Transformers` only when nothing is wired.
   - Deliberately no-guess: the default `mirror_threshold` of `1.0` fires only on an exact mirror, and any resource whose `toArray()` the parser cannot statically enumerate — a spread, `array_merge`, `mergeWhen`, `parent::toArray()`, `only()`, or a dynamic key — is skipped rather than guessed at. Constant-based field names and keys (`Post::TITLE`) are resolved on both sides.
   
 - **Configuration:** `payload_parity.{enabled, mirror_threshold, ignore}` in `config/richter.php`. On by default. `ignore` suppresses a specific field (`App\Models\Post::internal_flag`) or a whole resource (its FQCN).
+  
 - **`--no-payload-parity`** on `richter:detect-changes` disables the lane for a single run.
+  
 - **`expect_finding`** on benchmark cases (and a `--expect-finding` option on `richter:benchmark:add`) asserts that a replayed case surfaces a finding containing a given substring — scoring a checker's *identification*, not just the blast radius it elevates.
+  
 
 #### Compatibility
 
