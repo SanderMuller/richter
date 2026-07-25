@@ -7,7 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## v0.15.0 - 2026-07-25
 
-<!-- verified-sha: f39bfbdbcc1a2c97cc72a81d9098a4b37cae0f69 -->
 A new advisory payload-parity check plus a set of graph-build performance improvements. No breaking changes — every new behaviour is advisory or output-invariant, and the new config keys default to sensible values.
 
 ### Added
