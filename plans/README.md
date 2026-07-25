@@ -32,6 +32,13 @@ Execute in the order below unless dependencies say otherwise. Each executor:
 read the plan fully before starting, honor its STOP conditions, and update
 your row when done.
 
+> **Housekeeping (2026-07-25)**: the detailed per-plan spec files for every
+> closed plan (all DONE plans, plus the REJECTED 047) were removed — the
+> status rows below are the retained record of what shipped and why. Only
+> plans with work still open keep their spec file: **046** (TODO) and **051**
+> (lever B shipped; A/C deferred to the upstream Brain performance release).
+> The source audit / handoff / research docs this index links to are kept.
+
 > **Integrated (2026-07-17)**: plans 001-006, 010, 011 (minus its binding
 > half) and 012 were cherry-picked onto main via `advisor/integration` and
 > fast-forward merged at `db3d192`, closing with a green `composer qa-check`
