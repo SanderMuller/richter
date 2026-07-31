@@ -403,7 +403,7 @@ final class CommandsTest extends TestCase
         $html = (string) file_get_contents($path);
         unlink($path);
 
-        $this->assertStringNotContainsString('advisory — not a gate', $html);
+        $this->assertStringNotContainsString('(advisory)', $html);
         $this->assertStringContainsString('not tripped', $html);
     }
 

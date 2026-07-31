@@ -48,7 +48,7 @@ final class ImpactFormatter
 
         foreach ($result['changed'] as $file => $nodeCount) {
             $note = ($result['coverage'][$file] ?? 'analyzed') === 'unresolved'
-                ? '  (coverage incomplete for this area — UNRESOLVED, not "no impact")'
+                ? '  (UNRESOLVED: coverage incomplete for this area)'
                 : '';
             $lines[] = "  {$file} ({$nodeCount} graph nodes){$note}";
         }
@@ -84,7 +84,7 @@ final class ImpactFormatter
 
         $lines[] = '';
         $lines[] = 'Impacted nodes: ' . $result['impacted'];
-        $lines[] = 'Risk: ' . Str::upper($result['risk']->value) . ($gateActive ? '' : ' (advisory — not a gate)');
+        $lines[] = 'Risk: ' . Str::upper($result['risk']->value) . ($gateActive ? '' : ' (advisory)');
 
         if ($result['lowConfidence']) {
             // Only claim the cap when it actually bound the result — when precise seeds genuinely

@@ -211,9 +211,9 @@ final class HtmlFormatterTest extends TestCase
     {
         $html = $this->render();
 
-        // Both the per-file badge and the advisory note carry the standing wording.
-        $this->assertStringContainsString('UNRESOLVED — not graphed, never "no impact"', $html);
-        $this->assertStringContainsString('UNRESOLVED never means "no impact"', $html);
+        // The per-file badge and the advisory note both name the unresolved coverage.
+        $this->assertStringContainsString('UNRESOLVED (not placed in the graph)', $html);
+        $this->assertStringContainsString('Some changed files could not be placed in the graph', $html);
         $this->assertStringContainsString('may be incomplete', $html);
     }
 

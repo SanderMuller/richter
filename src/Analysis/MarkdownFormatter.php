@@ -27,7 +27,7 @@ final class MarkdownFormatter
         $lines = ["## Richter blast radius: `{$result['target']}`", ''];
 
         if ($result['callers'] === [] && $result['dependencies'] === []) {
-            $lines[] = '_No graph nodes matched. It may not be reachable from a traced entry point yet — a no-match is a signal, not proof of no impact._';
+            $lines[] = '_No graph nodes matched. The change may not be reachable from a traced entry point yet._';
 
             return implode("\n", $lines);
         }
@@ -55,7 +55,7 @@ final class MarkdownFormatter
         $lines[] = sprintf(
             '**Risk:** %s%s · **Entry points reached:** %d · **Impacted nodes:** %d',
             self::riskBadge($result['risk']),
-            $gateActive ? '' : ' _(advisory — not a gate)_',
+            $gateActive ? '' : ' _(advisory)_',
             count($result['entryPoints']),
             $result['impacted'],
         );
@@ -77,7 +77,7 @@ final class MarkdownFormatter
 
         foreach ($result['changed'] as $file => $nodeCount) {
             $coverage = ($result['coverage'][$file] ?? 'analyzed') === 'unresolved'
-                ? '⚠️ **UNRESOLVED** — not graphed, never "no impact"'
+                ? '⚠️ **UNRESOLVED** (not placed in the graph)'
                 : 'analyzed';
             $lines[] = '| ' . self::pathCell($file) . " | {$nodeCount} | {$coverage} |";
         }

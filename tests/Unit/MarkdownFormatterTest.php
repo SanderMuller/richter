@@ -53,7 +53,7 @@ final class MarkdownFormatterTest extends TestCase
         $output = MarkdownFormatter::detectChanges($this->summary(['route::GET::/posts'], risk: RiskLevel::High));
 
         $this->assertStringContainsString('## Richter change impact', $output);
-        $this->assertStringContainsString('**Risk:** 🔴 HIGH _(advisory — not a gate)_', $output);
+        $this->assertStringContainsString('**Risk:** 🔴 HIGH _(advisory)_', $output);
     }
 
     #[Test]
@@ -313,6 +313,6 @@ final class MarkdownFormatterTest extends TestCase
         ]);
 
         $this->assertStringContainsString('No graph nodes matched', $output);
-        $this->assertStringContainsString('not proof of no impact', $output);
+        $this->assertStringContainsString('may not be reachable from a traced entry point yet', $output);
     }
 }

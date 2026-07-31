@@ -83,7 +83,7 @@ final class HtmlFormatter
 
     private static function header(string $base, bool $gateActive): string
     {
-        $advisory = $gateActive ? '' : ' <span class="muted">(advisory — not a gate)</span>';
+        $advisory = $gateActive ? '' : ' <span class="muted">(advisory)</span>';
 
         return '<header><h1>Richter change impact</h1><p class="muted">against <code>' . Html::e($base) . '</code>' . $advisory . '</p></header>';
     }
@@ -313,7 +313,7 @@ final class HtmlFormatter
     private static function changedFile(ChangedFileSymbols $file, string $coverage, ?EditorLink $editor): string
     {
         $badges = $coverage === 'unresolved'
-            ? '<span class="badge warn">UNRESOLVED — not graphed, never "no impact"</span>'
+            ? '<span class="badge warn">UNRESOLVED (not placed in the graph)</span>'
             : '<span class="badge">analyzed</span>';
 
         if ($file->cosmeticOnly) {
@@ -422,7 +422,7 @@ final class HtmlFormatter
             return '';
         }
 
-        return '<p class="note warn">Some changed files could not be placed in the graph — the reach reported here may be incomplete. UNRESOLVED never means "no impact".</p>';
+        return '<p class="note warn">Some changed files could not be placed in the graph, so the reach reported here may be incomplete.</p>';
     }
 
     // -------------------------------------------------------------- shared
