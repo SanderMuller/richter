@@ -5,6 +5,17 @@ All notable changes to `sandermuller/richter` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.15.1 - 2026-07-31
+
+### Internal
+
+- **HTML report escaping hardened — no output change.** The `--html` report was already safe; this closes the fragilities that would let a future edit reintroduce a hole. Added adversarial coverage for the editor-link `href` at both the unit and integration levels; routed every remaining interpolation in the blast-radius SVG through the central escape helper so the renderer keeps no silent exception to its own "escape everything" rule; and corrected the docblocks to state that the editor `href` is kept URL-safe by `rawurlencode` plus a fixed scheme allow-list, with HTML-escaping only the attribute layer — not a substitute for encoding the URL. The rendered report is byte-for-byte identical.
+- **Dropped the abandoned `rector/type-perfect` dev dependency.** Abandoned upstream, it had begun colliding with current PHPStan and broke the static-analysis job on every push. Removed it along with its two rules (`null_over_false`, `narrow_return`); the maintained `tomasvotruba/type-coverage` stays. Dev-only — nothing a consumer installs changes.
+- The CHANGELOG decorator now sanitises the release body before prepending it, so internal markers no longer leak into `CHANGELOG.md`.
+- Suite: 798 tests / 1,864 assertions.
+
+**Full Changelog**: https://github.com/SanderMuller/richter/compare/v0.15.0...v0.15.1
+
 ## v0.15.0 - 2026-07-25
 
 A new advisory payload-parity check plus a set of graph-build performance improvements. No breaking changes — every new behaviour is advisory or output-invariant, and the new config keys default to sensible values.
