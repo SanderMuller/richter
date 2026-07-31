@@ -17,11 +17,32 @@ jobs:
         with:
           ref: ${{ github.event.release.target_commitish }}
 
+      - name: Sanitise the release body for the changelog
+        id: notes
+        env:
+          # Passed as an env var, never inlined into the script, so a crafted body cannot inject shell.
+          BODY: ${{ github.event.release.body }}
+        run: |
+          # github.event.release.body is the RAW body. GitHub hides two things when it renders the
+          # release page, but the changelog step would otherwise copy them verbatim into CHANGELOG.md
+          # (both leaked every release and were stripped by hand each time):
+          #   1. the first-line "<!-- verified-sha: … -->" marker the release-notes file pins, and
+          #   2. the leading "# vX.Y.Z" heading, which duplicates the "## vX.Y.Z - <date>" heading the
+          #      changelog action generates itself.
+          clean=$(printf '%s' "$BODY" \
+            | perl -0pe 's/<!--.*?-->//gs; s/\A\s+//; s/\A#{1,6}[ \t]*v?\d[^\n]*\n+//; s/\A\s+//;')
+          delim="RICHTER_NOTES_$(openssl rand -hex 8)"
+          {
+            echo "body<<${delim}"
+            printf '%s\n' "$clean"
+            echo "${delim}"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Update Changelog
         uses: stefanzweifel/changelog-updater-action@v1
         with:
           latest-version: ${{ github.event.release.tag_name }}
-          release-notes: ${{ github.event.release.body }}
+          release-notes: ${{ steps.notes.outputs.body }}
 
       - name: Commit updated CHANGELOG
         uses: stefanzweifel/git-auto-commit-action@v7
