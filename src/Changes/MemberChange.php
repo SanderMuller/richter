@@ -3,11 +3,14 @@
 namespace SanderMuller\Richter\Changes;
 
 use SanderMuller\Richter\Analysis\ImpactAnalyzer;
+use SanderMuller\Richter\Tracers\ConstantReferenceTracer;
 
 /**
  * One changed member of a class, so {@see ImpactAnalyzer} seeds on the member that changed, not the
- * whole file. `resolvable` means Brain emits a member-level node for this kind (methods do; enum
- * cases / constants / properties collapse to the class node → coarse, low-confidence class seed).
+ * whole file. `resolvable` means the graph has a member-level node for this kind: methods (from
+ * Brain), and class constants / enum cases (from {@see ConstantReferenceTracer}).
+ * Properties and class-level modifiers have no member node, so they collapse to the class node → a
+ * coarse, low-confidence class seed.
  */
 final readonly class MemberChange
 {

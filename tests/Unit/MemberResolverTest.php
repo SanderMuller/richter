@@ -34,8 +34,10 @@ final class MemberResolverTest extends TestCase
     }
 
     #[Test]
-    public function it_marks_enum_cases_constants_and_properties_non_resolvable(): void
+    public function it_marks_constants_resolvable_but_properties_not(): void
     {
+        // Constants get a member node via ConstantReferenceTracer, so they pin precisely; a property
+        // (e.g. $fillable) has no member node and still collapses to the class node (coarse).
         $source = <<<'PHP'
         <?php
         class Foo
@@ -47,8 +49,41 @@ final class MemberResolverTest extends TestCase
 
         $resolved = MemberResolver::resolve($source);
 
-        $this->assertFalse($this->member($resolved['members'], 'BAR')['resolvable']);
+        $this->assertTrue($this->member($resolved['members'], 'BAR')['resolvable']);
         $this->assertFalse($this->member($resolved['members'], 'fillable')['resolvable']);
+    }
+
+    #[Test]
+    public function it_marks_enum_cases_resolvable(): void
+    {
+        $source = <<<'PHP'
+        <?php
+        enum Status
+        {
+            case Draft;
+            case Shipped;
+        }
+        PHP;
+
+        $resolved = MemberResolver::resolve($source);
+
+        $this->assertTrue($this->member($resolved['members'], 'Draft')['resolvable']);
+    }
+
+    #[Test]
+    public function it_keeps_trait_constants_coarse(): void
+    {
+        // A trait constant is copied into each using class, not inherited, so ConstantReferenceTracer
+        // skips it — it stays non-resolvable (coarse) so a change reaches the using classes via the
+        // coarse seed rather than reading UNRESOLVED.
+        $source = <<<'PHP'
+        <?php
+        trait HasStatus { public const STATUS_ACTIVE = 1; }
+        PHP;
+
+        $resolved = MemberResolver::resolve($source);
+
+        $this->assertFalse($this->member($resolved['members'], 'STATUS_ACTIVE')['resolvable']);
     }
 
     #[Test]

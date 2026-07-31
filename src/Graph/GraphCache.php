@@ -31,8 +31,10 @@ final class GraphCache
      * 4 → 5 (plan cha-wire): the graph gained CHA `override` edges (ancestor→concrete), which change
      * the edge set for identical file inputs the fingerprint already hashes; a stale pre-CHA entry
      * would be served to CHA-aware code and miss the added reach — under-selection.
+     * 5 → 6 (plan cref-wire): the graph gained constant/enum-case member nodes + `references-constant`
+     * and `declares` edges for them — same reasoning; a stale pre-cref entry would miss them.
      */
-    private const int FORMAT_VERSION = 5;
+    private const int FORMAT_VERSION = 6;
 
     private ?CodeGraph $memoized = null;
 

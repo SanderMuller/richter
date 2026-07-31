@@ -19,6 +19,7 @@ use SanderMuller\Richter\Support\AppFiles;
 use SanderMuller\Richter\Support\RichterConfig;
 use SanderMuller\Richter\Tracers\BladeViewTracer;
 use SanderMuller\Richter\Tracers\ClassHierarchyTracer;
+use SanderMuller\Richter\Tracers\ConstantReferenceTracer;
 use SanderMuller\Richter\Tracers\DispatchEdgeTracer;
 use SanderMuller\Richter\Tracers\EntryPointTracer;
 use SanderMuller\Richter\Tracers\PolicyEdgeTracer;
@@ -264,6 +265,9 @@ final class CodeGraphBuilder
         // CHA (plan cha-wire): accumulates class-likes across the whole loop below and flushes its
         // ancestor→override edges once after it — the inverse subclass/implementor map spans files.
         $hierarchyTracer = new ClassHierarchyTracer();
+        // Constant/enum-case member references (plan cref-wire): same accumulate-then-flush shape —
+        // reads resolve to the constant's declaring class, which needs the full hierarchy.
+        $constantTracer = new ConstantReferenceTracer();
 
         // The paths whose ASTs trace() consumes: files under the tracer's own roots, plus the
         // EventServiceProvider it reads `$listen` from.
@@ -297,6 +301,7 @@ final class CodeGraphBuilder
 
             $nodes = $this->collectTracerNodes($ast);
             $hierarchyTracer->collect($nodes['classLikes']);
+            $constantTracer->collect($nodes['classLikes']);
 
             // Dispatchers → jobs incl. configured custom helpers + the unresolved-dispatch signal
             // (a variable dispatch must make a job read "unknown", not "none"). The target is
@@ -313,6 +318,10 @@ final class CodeGraphBuilder
         // CHA override edges (ancestor::m → concrete::m). Emitted once here, after every file's
         // class-likes have been collected, because the subclass/implementor map is cross-file.
         array_push($edges, ...$hierarchyTracer->overrideEdges());
+
+        // Constant/enum-case member nodes + reader edges — likewise flushed after the loop, because
+        // declaring-class resolution spans files.
+        array_push($edges, ...$constantTracer->edges());
 
         return [
             'edges' => AppFiles::dedupeEdges($edges, byType: true),

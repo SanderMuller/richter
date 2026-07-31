@@ -987,6 +987,48 @@ final class ImpactAnalyzerTest extends TestCase
     }
 
     #[Test]
+    public function a_constant_change_seeds_its_readers_precisely_without_low_confidence(): void
+    {
+        // route → controller → withTax → (references-constant) Pricing::VAT. A change to VAT walks up
+        // from the constant to its reader and on to the entry point — precise, no coarse fallback,
+        // where a non-resolvable member would coarse-seed the whole class and flag low confidence.
+        $analyzer = new ImpactAnalyzer(new CodeGraph([
+            ['source' => 'route::GET::/price', 'target' => 'App\Http\Controllers\PriceController::show', 'type' => 'route-to-controller'],
+            ['source' => 'App\Http\Controllers\PriceController::show', 'target' => 'App\Money\Pricing::withTax', 'type' => 'call'],
+            ['source' => 'App\Money\Pricing::withTax', 'target' => 'App\Money\Pricing::VAT', 'type' => 'references-constant'],
+            ['source' => 'App\Money\Pricing', 'target' => 'App\Money\Pricing::VAT', 'type' => 'declares'],
+        ], hasUnparseableFiles: false));
+
+        $result = $analyzer->detectChanges([
+            new ChangedFileSymbols('app/Money/Pricing.php', 'App\Money\Pricing', [
+                new MemberChange('VAT', MemberChange::KIND_CONSTANT, MemberChange::CHANGE_MODIFIED, resolvable: true),
+            ], cosmeticOnly: false),
+        ]);
+
+        $this->assertFalse($result['lowConfidence'], 'a resolvable constant change must not be low-confidence');
+        $this->assertContains('route::GET::/price', $result['entryPoints']);
+        $this->assertSame('analyzed', $result['coverage']['app/Money/Pricing.php']);
+    }
+
+    #[Test]
+    public function a_constant_change_with_no_graph_node_reads_unresolved_not_no_impact(): void
+    {
+        // A constant whose node the graph never captured (a dynamic/unresolvable read) must read
+        // UNRESOLVED — never a falsely-reassuring "no impact" — even though it is now resolvable-kind.
+        $analyzer = new ImpactAnalyzer(new CodeGraph([
+            ['source' => 'App\Other::a', 'target' => 'App\Other::b', 'type' => 'call'],
+        ], hasUnparseableFiles: false));
+
+        $result = $analyzer->detectChanges([
+            new ChangedFileSymbols('app/Money/Ghost.php', 'App\Money\Ghost', [
+                new MemberChange('MISSING', MemberChange::KIND_CONSTANT, MemberChange::CHANGE_MODIFIED, resolvable: true),
+            ], cosmeticOnly: false),
+        ]);
+
+        $this->assertSame('unresolved', $result['coverage']['app/Money/Ghost.php']);
+    }
+
+    #[Test]
     public function a_changed_entry_point_class_with_no_callers_lists_itself_as_the_entry_surface(): void
     {
         // A vendor-fired listener has no app-side caller edge, but it still runs on every event —

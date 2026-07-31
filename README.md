@@ -43,6 +43,7 @@ Richter adds two things over Laravel Brain alone: the tooling above (CLI, MCP, a
 - `$listen`-registered event listeners;
 - container bindings and interface implementations;
 - polymorphic overrides — a call on an abstract-class or interface method also reaches the concrete overrides in its subclasses/implementors, so a handler chosen at runtime (a config-registry driver, a factory, `app()->make($runtimeClass)`) is not left orphaned;
+- class-constant and enum-case reads — a change to a constant or enum case pins to the methods that read it (resolved to the declaring class, so an inherited constant still connects), instead of coarsely flagging the whole class;
 - policy references (`$user->can(PostPolicy::UPDATE, …)` and `@can(...)` in Blade);
 - API resource composition;
 - custom validation rules;

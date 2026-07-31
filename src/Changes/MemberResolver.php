@@ -10,6 +10,7 @@ use PhpParser\Node\Stmt\ClassLike;
 use PhpParser\Node\Stmt\ClassMethod;
 use PhpParser\Node\Stmt\EnumCase;
 use PhpParser\Node\Stmt\Property;
+use PhpParser\Node\Stmt\Trait_;
 use PhpParser\NodeFinder;
 use SanderMuller\Richter\Support\AppFiles;
 
@@ -43,8 +44,13 @@ final class MemberResolver
         foreach (new NodeFinder()->findInstanceOf($ast, ClassLike::class) as $class) {
             $classRanges[] = ['start' => $class->getStartLine(), 'end' => $class->getEndLine()];
 
+            // A trait's constants are copied into each using class, not inherited, so
+            // ConstantReferenceTracer skips them — keep them coarse here so a trait-constant change
+            // still coarse-seeds the trait and reaches the using classes (rather than reading UNRESOLVED).
+            $inTrait = $class instanceof Trait_;
+
             foreach ($class->stmts as $stmt) {
-                foreach (self::membersOf($stmt) as $member) {
+                foreach (self::membersOf($stmt, $inTrait) as $member) {
                     $members[] = $member;
                 }
             }
@@ -54,7 +60,7 @@ final class MemberResolver
     }
 
     /** @return list<array{name: string, kind: string, resolvable: bool, start: int, end: int}> */
-    private static function membersOf(Stmt $stmt): array
+    private static function membersOf(Stmt $stmt, bool $inTrait): array
     {
         $start = self::startLineWithAttributes($stmt);
         $end = $stmt instanceof ClassMethod || $stmt instanceof Property || $stmt instanceof ClassConst || $stmt instanceof EnumCase
@@ -66,7 +72,9 @@ final class MemberResolver
         }
 
         if ($stmt instanceof EnumCase) {
-            return [self::makeMember($stmt->name->toString(), MemberChange::KIND_ENUM_CASE, resolvable: false, start: $start, end: $end)];
+            // Enum cases now get a member node via ConstantReferenceTracer (`Enum::Case` + reader
+            // edges), so a case change pins to its readers instead of coarse-seeding the whole enum.
+            return [self::makeMember($stmt->name->toString(), MemberChange::KIND_ENUM_CASE, resolvable: true, start: $start, end: $end)];
         }
 
         if ($stmt instanceof Property) {
@@ -74,7 +82,10 @@ final class MemberResolver
         }
 
         if ($stmt instanceof ClassConst) {
-            return array_values(array_map(static fn (Const_ $const): array => self::makeMember($const->name->toString(), MemberChange::KIND_CONSTANT, resolvable: false, start: $start, end: $end), $stmt->consts));
+            // Class constants get a member node via ConstantReferenceTracer (`Class::CONST` + reader
+            // edges) → resolvable, so a change pins to its readers. Trait constants are the exception:
+            // the tracer skips traits, so they stay coarse (`$inTrait`) rather than read UNRESOLVED.
+            return array_values(array_map(static fn (Const_ $const): array => self::makeMember($const->name->toString(), MemberChange::KIND_CONSTANT, resolvable: ! $inTrait, start: $start, end: $end), $stmt->consts));
         }
 
         return [];
