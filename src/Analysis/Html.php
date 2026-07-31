@@ -95,6 +95,12 @@ final class Html
     /**
      * Wrap already-escaped HTML in an editor deep link, or return it unchanged when no editor is
      * configured — the single place the report decides whether a file reference is clickable.
+     *
+     * `self::e($url)` here is only the HTML-attribute layer: it keeps the URL from breaking out of
+     * `href="…"`. The URL's own safety — no `javascript:` scheme, every path metacharacter encoded —
+     * is established upstream in {@see EditorLink::url()} by a fixed scheme allow-list plus
+     * `rawurlencode`. `e()` is not a substitute for that: HTML-escaping a URL does not make the URL
+     * itself safe.
      */
     public static function link(?EditorLink $editor, string $file, ?int $line, string $inner): string
     {

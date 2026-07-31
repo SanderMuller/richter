@@ -84,6 +84,19 @@ final class EditorLinkTest extends TestCase
     }
 
     #[Test]
+    public function url_metacharacters_in_the_path_are_percent_encoded(): void
+    {
+        // The href is a URL context, not HTML body — rawurlencode (not Html::e) is what keeps a '"',
+        // '&', or '<' in a filename from breaking out of the attribute or the query string. Every
+        // metacharacter is percent-encoded in the path segment; '/' stays readable and the single '&'
+        // is the scheme's own {file}/{line} separator. Remove rawurlencode and this exact match breaks.
+        $this->assertSame(
+            'phpstorm://open?file=/app/app/Weird%22%3C%26%3E%23%3F.php&line=7',
+            $this->url('phpstorm', '/app', 'app/Weird"<&>#?.php', 7),
+        );
+    }
+
+    #[Test]
     public function a_windows_base_path_is_normalised_to_forward_slashes(): void
     {
         $this->assertSame(

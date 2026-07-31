@@ -293,6 +293,52 @@ final class HtmlFormatterTest extends TestCase
     }
 
     #[Test]
+    public function a_hostile_changed_file_path_is_safe_inside_the_editor_href(): void
+    {
+        // With an editor configured the changed-file heading renders as an <a href> — a URL context,
+        // not HTML body. Its safety comes from two independent layers: EditorLink's rawurlencode
+        // (URL) turns each metacharacter in the path into a percent form, then Html::e (attribute)
+        // turns the scheme's own '&' separator into '&amp;'. This test reaches the href the other
+        // adversarial test never does, because that one runs with no editor.
+        $editor = EditorLink::fromConfig('phpstorm', '/base');
+        $this->assertInstanceOf(EditorLink::class, $editor);
+
+        $html = HtmlFormatter::detectChanges([
+            'changed' => ['app/We"ird<x>&.php' => 1],
+            'coverage' => ['app/We"ird<x>&.php' => 'analyzed'],
+            'entryPoints' => [],
+            'entryPointPaths' => [],
+            'entryPointLocations' => [],
+            'entryPointSecurity' => [],
+            'entryPointGates' => [],
+            'seeds' => [],
+            'reach' => [],
+            'edges' => [],
+            'impacted' => 0,
+            'relatedModels' => [],
+            'risk' => RiskLevel::Low,
+            'lowConfidence' => false,
+            'coarseCapApplied' => false,
+            'findings' => [],
+        ], [
+            new ChangedFileSymbols('app/We"ird<x>&.php', 'App\Weird', [
+                new MemberChange('run', MemberChange::KIND_METHOD, MemberChange::CHANGE_MODIFIED, resolvable: true),
+            ], cosmeticOnly: false),
+        ], 'origin/main', editor: $editor);
+
+        // The href was exercised (proving the URL layer ran), and every path metacharacter arrived
+        // percent-encoded while the scheme separator arrived HTML-escaped. Break rawurlencode in
+        // EditorLink::url() and the %-forms collapse to &quot;/&lt;/&amp;, so this fails closed.
+        $this->assertStringContainsString('<a class="ref" href="phpstorm://open?file=', $html);
+        $this->assertStringContainsString(
+            'href="phpstorm://open?file=/base/app/We%22ird%3Cx%3E%26.php&amp;line=1"',
+            $html,
+        );
+        // No raw metacharacter survived into the href to break out of the attribute or its query.
+        $this->assertStringNotContainsString('open?file=/base/app/We"ird', $html);
+    }
+
+    #[Test]
     public function the_svg_is_a_stable_snapshot(): void
     {
         $result = $this->fixture(

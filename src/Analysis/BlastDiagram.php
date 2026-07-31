@@ -37,17 +37,22 @@ final class BlastDiagram
     private static function svg(array $layout): string
     {
         $size = $layout['size'];
+        // Every interpolated value below — geometry numbers and the enum `kind` included — runs
+        // through Html::e even though each is type-guaranteed safe. The point is uniformity: no value
+        // is a silent exception a later edit could widen into an unescaped hole. Escaping a number or
+        // an enum word is inert, so the rendered bytes are unchanged (the SVG snapshot pins that).
+        //
         // role="group", not role="img": an img is a leaf, so assistive tech would never reach the
         // per-node labels inside — leaving a keyboard user tabbing through silent focus stops.
-        $svg = '<svg class="graph" viewBox="0 0 ' . $size . ' ' . $size . '" role="group" aria-label="Blast radius: '
-            . count($layout['nodes']) . ' nodes arranged by depth from the change">';
+        $svg = '<svg class="graph" viewBox="0 0 ' . Html::e((string) $size) . ' ' . Html::e((string) $size) . '" role="group" aria-label="Blast radius: '
+            . Html::e((string) count($layout['nodes'])) . ' nodes arranged by depth from the change">';
 
         foreach ($layout['rings'] as $ring) {
-            $svg .= '<circle class="ring" cx="' . $layout['centre'] . '" cy="' . $layout['centre'] . '" r="' . $ring['r'] . '"/>';
+            $svg .= '<circle class="ring" cx="' . Html::e((string) $layout['centre']) . '" cy="' . Html::e((string) $layout['centre']) . '" r="' . Html::e((string) $ring['r']) . '"/>';
         }
 
         foreach ($layout['edges'] as $edge) {
-            $svg .= '<line x1="' . $edge['x1'] . '" y1="' . $edge['y1'] . '" x2="' . $edge['x2'] . '" y2="' . $edge['y2']
+            $svg .= '<line x1="' . Html::e((string) $edge['x1']) . '" y1="' . Html::e((string) $edge['y1']) . '" x2="' . Html::e((string) $edge['x2']) . '" y2="' . Html::e((string) $edge['y2'])
                 . '" data-from="' . Html::e($edge['source']) . '" data-to="' . Html::e($edge['target']) . '"/>';
         }
 
@@ -64,13 +69,13 @@ final class BlastDiagram
         $label = Html::nodeLabel($node['id']);
         $kind = self::kindLabel($node['kind']);
 
-        return '<circle class="n-' . $node['kind'] . '" cx="' . $node['x'] . '" cy="' . $node['y'] . '" r="6"'
+        return '<circle class="n-' . Html::e($node['kind']) . '" cx="' . Html::e((string) $node['x']) . '" cy="' . Html::e((string) $node['y']) . '" r="6"'
             . ' tabindex="0" role="button"'
             . ' data-id="' . Html::e($node['id']) . '"'
             . ' data-label="' . Html::e($label) . '"'
             . ' data-kind="' . Html::e($kind) . '"'
             . ' data-raw="' . Html::e($node['id'] === $label ? '' : $node['id']) . '"'
-            . ' data-depth="' . $node['depth'] . '"'
+            . ' data-depth="' . Html::e((string) $node['depth']) . '"'
             . ' data-loc="' . Html::e(Html::locationText($node['location'])) . '"'
             . ' aria-label="' . Html::e("{$label}, {$kind}, depth {$node['depth']}") . '"/>';
     }

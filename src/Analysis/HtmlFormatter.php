@@ -13,7 +13,10 @@ use SanderMuller\Richter\Graph\NodeMetadata;
  *
  * Every interpolated value is project-derived and untrusted: diff paths, node ids carrying route
  * URIs, finding and security text. Unlike {@see MarkdownFormatter} there is no structurally-safe
- * exception list — run everything through {@see e()}.
+ * exception list — run everything through {@see e()}. The editor-link `href` is the one value where
+ * `e()` is not the load-bearing layer: that is a URL context, kept safe by {@see EditorLink::url()}'s
+ * scheme allow-list plus `rawurlencode`, with `e()` layered on top only to escape it into the
+ * attribute.
  *
  * @phpstan-import-type SecurityShape from NodeMetadata
  * @phpstan-import-type Layout from RadialLayout
