@@ -43,7 +43,6 @@
         "phpstan/phpstan-strict-rules": "^2.0",
         "phpunit/phpunit": "^12.5",
         "rector/rector": "^2.5",
-        "rector/type-perfect": "^2.1",
         "sandermuller/boost-skills": "^2.19",
         "sandermuller/package-boost-laravel": "^1.0",
         "spaze/phpstan-disallowed-calls": "^4.12",

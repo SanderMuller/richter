@@ -32,10 +32,6 @@ parameters:
         constant: 0
         declare: 100
 
-    type_perfect:
-        null_over_false: true
-        narrow_return: true
-
     cognitive_complexity:
         class: 80
         function: 20
