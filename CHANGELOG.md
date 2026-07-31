@@ -5,6 +5,25 @@ All notable changes to `sandermuller/richter` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.16.0 - 2026-07-31
+
+Wider graph coverage: the change graph now follows polymorphic dispatch, so a concrete override reached only through an abstract class or interface is no longer invisible. Plus a plainer report.
+
+### Added
+
+- **Class-hierarchy analysis.** A call that resolves to an abstract-class or interface method now also reaches the concrete overrides in every subclass/implementor, drawn as a new `override` edge. This connects handlers chosen at runtime — a driver registered in a config array, a factory, `app()->make($runtimeClass)`, constructor-injected polymorphism — that a static call graph otherwise leaves orphaned, so a change to one of their overrides no longer reads as "unreachable" or "no entry point". Reachability only: the edge feeds the blast radius and `richter:affected-tests`, never the risk level (it is an over-approximated association, not a direct call). It reads only the class hierarchy — no configuration to add. Documented under "Coverage beyond Brain".
+
+### Changed
+
+- **Plainer report copy.** The detect-changes report drops the em-dash asides and double negatives (`(advisory — not a gate)`, `UNRESOLVED — not graphed, never "no impact"`) in favour of plain wording. The `UNRESOLVED` status token itself is unchanged — only the surrounding prose — and the `--json` contract is untouched.
+
+### Internal
+
+- The graph cache format version was bumped: the new `override` edges change the graph for identical file inputs, so warm caches invalidate automatically rather than serving a pre-CHA graph.
+- Suite: 812 tests / 1,900 assertions, including class-hierarchy unit coverage, a graph-build reachability test, and a reachability-not-risk pin for the new edge.
+
+**Full Changelog**: https://github.com/SanderMuller/richter/compare/v0.15.1...v0.16.0
+
 ## v0.15.1 - 2026-07-31
 
 ### Internal
