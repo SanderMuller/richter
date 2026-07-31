@@ -126,7 +126,7 @@ Findings (in the changed source itself):
   ! app/Models/Post.php: eager-load string 'ownerprofile': segment 'ownerprofile' is not a method on any model — check the relation name (a broken constant concatenation reads exactly like this)
 
 Impacted nodes: 7
-Risk: MEDIUM (advisory — not a gate)
+Risk: MEDIUM (advisory)
 ```
 
 With `--explain`, each reached entry point carries the shortest call chain down to the changed code. That is the difference between knowing a change reaches `PATCH /api/posts/{post}` and seeing exactly which controller and service carry it there:
