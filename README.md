@@ -42,6 +42,7 @@ Richter adds two things over Laravel Brain alone: the tooling above (CLI, MCP, a
 - queue dispatches, including unresolvable ones;
 - `$listen`-registered event listeners;
 - container bindings and interface implementations;
+- polymorphic overrides — a call on an abstract-class or interface method also reaches the concrete overrides in its subclasses/implementors, so a handler chosen at runtime (a config-registry driver, a factory, `app()->make($runtimeClass)`) is not left orphaned;
 - policy references (`$user->can(PostPolicy::UPDATE, …)` and `@can(...)` in Blade);
 - API resource composition;
 - custom validation rules;
@@ -112,7 +113,7 @@ Resolves which class members the branch changed (member-level, not file-level: a
 ```text
 Changed files:
   app/Models/Post.php (4 graph nodes)
-  app/Services/CategoryImporter.php (0 graph nodes)  (coverage incomplete for this area — UNRESOLVED, not "no impact")
+  app/Services/CategoryImporter.php (0 graph nodes)  (UNRESOLVED: coverage incomplete for this area)
 
 Entry points reached: 2 (some changed files are in an area not yet graphed — see UNRESOLVED above)
   - command::categories:sync  (app/Console/Commands/SyncCategories.php)  [test-referenced]

@@ -18,6 +18,7 @@ use SanderMuller\Richter\Console\InternalTracerBranchCommand;
 use SanderMuller\Richter\Support\AppFiles;
 use SanderMuller\Richter\Support\RichterConfig;
 use SanderMuller\Richter\Tracers\BladeViewTracer;
+use SanderMuller\Richter\Tracers\ClassHierarchyTracer;
 use SanderMuller\Richter\Tracers\DispatchEdgeTracer;
 use SanderMuller\Richter\Tracers\EntryPointTracer;
 use SanderMuller\Richter\Tracers\PolicyEdgeTracer;
@@ -260,6 +261,9 @@ final class CodeGraphBuilder
         $dispatchTracer = new DispatchEdgeTracer(RichterConfig::dispatchHelpers());
         $policyTracer = new PolicyEdgeTracer();
         $referenceTracer = new ReferenceEdgeTracer();
+        // CHA (plan cha-wire): accumulates class-likes across the whole loop below and flushes its
+        // ancestor→override edges once after it — the inverse subclass/implementor map spans files.
+        $hierarchyTracer = new ClassHierarchyTracer();
 
         // The paths whose ASTs trace() consumes: files under the tracer's own roots, plus the
         // EventServiceProvider it reads `$listen` from.
@@ -292,6 +296,7 @@ final class CodeGraphBuilder
             }
 
             $nodes = $this->collectTracerNodes($ast);
+            $hierarchyTracer->collect($nodes['classLikes']);
 
             // Dispatchers → jobs incl. configured custom helpers + the unresolved-dispatch signal
             // (a variable dispatch must make a job read "unknown", not "none"). The target is
@@ -304,6 +309,10 @@ final class CodeGraphBuilder
             array_push($edges, ...$referenceTracer->edgesForNodes($nodes['classMethods'], $nodes['traitUses'], $class['fqcn']));
             array_push($edges, ...$entryPointTracer->interfaceEdgesForClassLikes($nodes['classLikes'], $class['fqcn']));
         }
+
+        // CHA override edges (ancestor::m → concrete::m). Emitted once here, after every file's
+        // class-likes have been collected, because the subclass/implementor map is cross-file.
+        array_push($edges, ...$hierarchyTracer->overrideEdges());
 
         return [
             'edges' => AppFiles::dedupeEdges($edges, byType: true),

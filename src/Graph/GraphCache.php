@@ -28,8 +28,11 @@ final class GraphCache
      * key to the payload is invisible to the fingerprint's other inputs, so without this bump a
      * stale pre-split cache entry (written by the old combined-flag code) would be served to the
      * new code and revive with `hasUnparseableFiles` silently defaulted — under-selection.
+     * 4 → 5 (plan cha-wire): the graph gained CHA `override` edges (ancestor→concrete), which change
+     * the edge set for identical file inputs the fingerprint already hashes; a stale pre-CHA entry
+     * would be served to CHA-aware code and miss the added reach — under-selection.
      */
-    private const int FORMAT_VERSION = 4;
+    private const int FORMAT_VERSION = 5;
 
     private ?CodeGraph $memoized = null;
 

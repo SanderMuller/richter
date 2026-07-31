@@ -36,9 +36,12 @@ final readonly class ImpactAnalyzer
      * Edge types that associate rather than invoke — reach through them is not risk. `uses-trait`
      * is excluded deliberately: a hub trait with dozens of using classes would otherwise
      * saturate the impacted count for any one-method change — the classic over-reporting shape.
+     * `override` (CHA, plan cha-risk) is excluded for the same reason: it is an over-approximated
+     * ancestor→concrete link (an interface with many implementors fans out widely), so it carries
+     * reachability but must not inflate the risk level.
      * Reach, coverage, and entry-point discovery still flow through these edges.
      */
-    public const array RISK_EXCLUDED_EDGE_TYPES = ['model-relationship', 'declares', 'uses-trait'];
+    public const array RISK_EXCLUDED_EDGE_TYPES = ['model-relationship', 'declares', 'uses-trait', 'override'];
 
     public function __construct(private CodeGraph $graph) {}
 

@@ -967,6 +967,26 @@ final class ImpactAnalyzerTest extends TestCase
     }
 
     #[Test]
+    public function an_override_fan_out_is_reachability_not_risk(): void
+    {
+        // CHA links an abstract method to its concrete overrides for reachability, but the
+        // over-approximated ancestor→concrete edge must not inflate risk — a change to a
+        // widely-implemented interface method would otherwise saturate the impacted count via the
+        // fan-out. Mirrors the model-relationship / declares / uses-trait exclusions (plan cha-risk).
+        $analyzer = new ImpactAnalyzer(new CodeGraph([
+            ['source' => 'App\Reports\ReportExporter::body', 'target' => 'App\Reports\CsvExporter::body', 'type' => 'override'],
+            ['source' => 'App\Reports\ReportExporter::body', 'target' => 'App\Reports\PdfExporter::body', 'type' => 'override'],
+        ], hasUnparseableFiles: false));
+
+        $result = $analyzer->detectChanges([
+            $this->changedMethod('app/Reports/ReportExporter.php', 'App\Reports\ReportExporter', 'body'),
+        ]);
+
+        $this->assertSame(0, $result['impacted']);
+        $this->assertSame(RiskLevel::Low, $result['risk']);
+    }
+
+    #[Test]
     public function a_changed_entry_point_class_with_no_callers_lists_itself_as_the_entry_surface(): void
     {
         // A vendor-fired listener has no app-side caller edge, but it still runs on every event —
