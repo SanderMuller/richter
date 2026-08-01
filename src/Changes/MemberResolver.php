@@ -2,6 +2,7 @@
 
 namespace SanderMuller\Richter\Changes;
 
+use PhpParser\Comment\Doc;
 use PhpParser\Node\Const_;
 use PhpParser\Node\PropertyItem;
 use PhpParser\Node\Stmt;
@@ -62,7 +63,7 @@ final class MemberResolver
     /** @return list<array{name: string, kind: string, resolvable: bool, start: int, end: int}> */
     private static function membersOf(Stmt $stmt, bool $inTrait): array
     {
-        $start = self::startLineWithAttributes($stmt);
+        $start = self::memberStartLine($stmt);
         $end = $stmt instanceof ClassMethod || $stmt instanceof Property || $stmt instanceof ClassConst || $stmt instanceof EnumCase
             ? $stmt->getEndLine()
             : 0;
@@ -98,19 +99,26 @@ final class MemberResolver
     }
 
     /**
-     * A member's leading attributes sit on lines above the declaration; include them so a
-     * changed attribute line (e.g. `#[WithoutRelations]`) maps to its member.
+     * A member's declaration can be preceded by lines that belong to it — `#[Attr]` attribute groups
+     * and a leading doc comment both sit above the `function`/property keyword that php-parser reports
+     * as the start line. Include them so a changed attribute or docblock line maps to its member, and
+     * so a new method added together with its docblock reads as one additive member rather than a
+     * class-level modification (which would coarse-seed the class and raise a false low-confidence flag).
      */
-    private static function startLineWithAttributes(Stmt $stmt): int
+    private static function memberStartLine(Stmt $stmt): int
     {
         $start = $stmt->getStartLine();
 
-        if ($stmt instanceof ClassMethod || $stmt instanceof Property || $stmt instanceof ClassConst || $stmt instanceof EnumCase) {
-            foreach ($stmt->attrGroups as $group) {
-                $start = min($start, $group->getStartLine());
-            }
+        if (! ($stmt instanceof ClassMethod || $stmt instanceof Property || $stmt instanceof ClassConst || $stmt instanceof EnumCase)) {
+            return $start;
         }
 
-        return $start;
+        foreach ($stmt->attrGroups as $group) {
+            $start = min($start, $group->getStartLine());
+        }
+
+        $doc = $stmt->getDocComment();
+
+        return $doc instanceof Doc ? min($start, $doc->getStartLine()) : $start;
     }
 }

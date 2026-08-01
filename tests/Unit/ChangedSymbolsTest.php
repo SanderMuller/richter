@@ -109,6 +109,32 @@ final class ChangedSymbolsTest extends TestCase
     }
 
     #[Test]
+    public function a_new_method_added_with_its_docblock_is_additive_not_a_class_level_change(): void
+    {
+        // A new method is normally added together with its `/** */` docblock. The docblock lines sit
+        // above the `function` keyword, so a member span that excluded its leading doc comment would
+        // read them as an "outer" class-level modification → a coarse class seed → a false low-
+        // confidence flag. The whole block belongs to the (additive) new method.
+        $head = "<?php\nclass Foo\n{\n    public function bar(): int\n    {\n        return 1;\n    }\n\n    /**\n     * Doubles the base value.\n     */\n    public function baz(): int\n    {\n        return 2;\n    }\n}\n";
+        $base = "<?php\nclass Foo\n{\n    public function bar(): int\n    {\n        return 1;\n    }\n}\n";
+        $hunk = $this->hunk([
+            [8, ''],
+            [9, '    /**'],
+            [10, '     * Doubles the base value.'],
+            [11, '     */'],
+            [12, '    public function baz(): int'],
+            [13, '    {'],
+            [14, '        return 2;'],
+            [15, '    }'],
+        ], []);
+
+        $result = ChangedSymbols::classifyFile('app/Foo.php', $head, $base, $hunk);
+
+        $this->assertTrue($result->hasOnlyAdditiveOrCosmeticChanges());
+        $this->assertFalse($result->needsCoarseSeed());
+    }
+
+    #[Test]
     public function a_newly_added_file_is_additive_not_a_class_level_change(): void
     {
         // A brand-new file has no base side; every line is added. The class header / braces are

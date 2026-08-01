@@ -105,6 +105,28 @@ final class MemberResolverTest extends TestCase
         $this->assertSame(4, $this->member(MemberResolver::resolve($source)['members'], 'bar')['start']);
     }
 
+    #[Test]
+    public function it_includes_a_leading_doc_comment_in_a_member_span(): void
+    {
+        $source = <<<'PHP'
+        <?php
+        class Foo
+        {
+            /**
+             * Returns the answer.
+             */
+            public function bar(): int
+            {
+                return 42;
+            }
+        }
+        PHP;
+
+        // The docblock opens on line 4; the member span must start there so a new method added
+        // together with its docblock reads as one additive member, not a class-level change.
+        $this->assertSame(4, $this->member(MemberResolver::resolve($source)['members'], 'bar')['start']);
+    }
+
     /**
      * @param  list<array{name: string, kind: string, resolvable: bool, start: int, end: int}>  $members
      * @return array{name: string, kind: string, resolvable: bool, start: int, end: int}
