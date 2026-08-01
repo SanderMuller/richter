@@ -5,6 +5,24 @@ All notable changes to `sandermuller/richter` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.17.0 - 2026-08-01
+
+More precise change impact: a change to a class constant or enum case now pins to the code that reads it, instead of coarsely flagging the whole class.
+
+### Added
+
+- **Class-constant and enum-case member references.** A changed class constant or enum case could not be pinned to a member node — only methods could — so the impact walk seeded the whole class and reported "low confidence: a coarse class-level estimate". richter now gives constants and enum cases their own graph nodes and draws a `references-constant` edge from every method that reads one, so a change to a constant or case pins to its actual readers and drops the low-confidence flag. Reads resolve to the constant's **declaring** class through the hierarchy, so a constant read via `self::`/`static::` in a subclass still connects to the ancestor that declares it. The edge feeds the blast radius, `richter:affected-tests`, and the risk level (a constant read is a real value dependency). Documented under "Coverage beyond Brain".
+  
+  Scope, kept honest: a constant read whose owner can't be resolved to a scanned class (a dynamic `$var::CONST`, a vendor constant) reads UNRESOLVED, never "no impact"; a trait constant, a property (`$fillable`/`$casts`), and a class-level modifier still resolve coarsely to the class.
+  
+
+### Internal
+
+- `GraphCache` format version bumped: constants and enum cases are new graph nodes/edges, so warm caches invalidate rather than serving a pre-feature graph.
+- Suite: 831 tests / 1,942 assertions, including declaring-class resolution (inherited/interface constants), parameter-default and nested-anonymous-class reads, and a reachability check that a constant change pins to its readers without low confidence.
+
+**Full Changelog**: https://github.com/SanderMuller/richter/compare/v0.16.0...v0.17.0
+
 ## v0.16.0 - 2026-07-31
 
 Wider graph coverage: the change graph now follows polymorphic dispatch, so a concrete override reached only through an abstract class or interface is no longer invisible. Plus a plainer report.
