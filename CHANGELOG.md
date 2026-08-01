@@ -5,6 +5,21 @@ All notable changes to `sandermuller/richter` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.17.1 - 2026-08-01
+
+A precision fix: adding a new, documented method no longer makes a diff read as a coarse class-level change and raise a false low-confidence flag.
+
+### Fixed
+
+- **A documented new method no longer lowers confidence.** When a diff added a method together with its `/** … */` docblock, the docblock lines — which sit above the `function` keyword — fell outside the method's span and were read as a class-level modification. That forced a coarse, class-level seed and raised a false "low confidence: a changed member could not be pinned to a graph node" warning on an otherwise precise, method-only diff. A member's span now includes its leading doc comment, exactly as it already did for `#[Attribute]` groups, so a documented new method reads as one additive member and the surrounding method changes seed precisely.
+
+### Internal
+
+- Diff-classification only — the graph output is unchanged, so warm caches stay valid (no `GraphCache` format-version bump).
+- Suite: 833 tests / 1,945 assertions, including regressions that a new method added with its docblock stays additive, and that a member span starts at its leading doc comment.
+
+**Full Changelog**: https://github.com/SanderMuller/richter/compare/v0.17.0...v0.17.1
+
 ## v0.17.0 - 2026-08-01
 
 More precise change impact: a change to a class constant or enum case now pins to the code that reads it, instead of coarsely flagging the whole class.
