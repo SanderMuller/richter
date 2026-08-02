@@ -5,6 +5,21 @@ All notable changes to `sandermuller/richter` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.17.4 - 2026-08-02
+
+The report now cross-checks a route's `PUBLIC_WRITE` security finding against richter's own authorization edges, flagging a likely false positive when the route is in fact policy-gated.
+
+### Added
+
+- **`PUBLIC_WRITE` cross-check against `authorizes` edges.** richter surfaces Laravel Brain's per-route security findings as advisory annotations. Brain classifies a route's exposure from its static middleware surface, so it can flag `PUBLIC_WRITE` ("requires no authentication — anyone can call this endpoint") on a route that is in fact gated by a policy-constant check (`Gate::authorize(PostPolicy::UPDATE, …)` / `$user->can(PostPolicy::UPDATE, …)`) or a middleware group it cannot see. richter's own graph already records that gate as a `PolicyEdgeTracer` `authorizes` edge. For a route carrying a `PUBLIC_WRITE` issue, richter now checks whether the route's reach authorizes a policy and, on a hit, adds a note naming it — evidence for you to verify, not a verdict. It **contradicts, it never suppresses**: the Brain finding stays shown, so a genuinely public write is never hidden. Throttle and middleware-group auth are still not verified, so a `MISSING_THROTTLE` (and a group-only auth gate) is left to stand.
+
+### Internal
+
+- Analyzer/report only — it reads existing graph edges and adds an `entryPointAuthGates` annotation; it never seeds a walk or influences the risk level, so warm caches stay valid (no `GraphCache` format-version bump).
+- Suite: 848 tests / 1,975 assertions, including the reachable-set ∩ `authorizes` intersection (guarded against a BFS-tree edge-drop), the routes-only + `PUBLIC_WRITE`-only trigger, an end-to-end route→controller→policy join on the fixture app, and the contradiction note across the text, Markdown, and HTML formatters (HTML-escaped).
+
+**Full Changelog**: https://github.com/SanderMuller/richter/compare/v0.17.3...v0.17.4
+
 ## v0.17.3 - 2026-08-02
 
 A precision fix: constructing a value object that merely carries a `handle()`/`__invoke()` method is no longer read as dispatching a job, so a change to such a class no longer fans out across every method that builds one.
