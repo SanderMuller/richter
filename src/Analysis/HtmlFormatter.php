@@ -21,7 +21,7 @@ use SanderMuller\Richter\Graph\NodeMetadata;
  * @phpstan-import-type SecurityShape from NodeMetadata
  * @phpstan-import-type Layout from RadialLayout
  * @phpstan-type GateVerdict array{failOn: string|null, failOnUnresolved: bool, tripped: bool, reasons: list<string>}
- * @phpstan-type DetectChangesResult array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, SecurityShape>, entryPointGates: array<string, list<string>>, seeds: list<string>, reach: array<string, array<string, true>>, edges: list<array{source: string, target: string, via: string, depth: int}>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied: bool, findings: list<string>, ...}
+ * @phpstan-type DetectChangesResult array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, SecurityShape>, entryPointGates: array<string, list<string>>, entryPointAuthGates?: array<string, list<string>>, seeds: list<string>, reach: array<string, array<string, true>>, edges: list<array{source: string, target: string, via: string, depth: int}>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied: bool, findings: list<string>, ...}
  */
 final class HtmlFormatter
 {
@@ -41,6 +41,7 @@ final class HtmlFormatter
             $result['entryPointLocations'],
             $result['entryPointSecurity'],
             $result['entryPointGates'],
+            $result['entryPointAuthGates'] ?? [],
             $tests,
         );
 
@@ -168,10 +169,30 @@ final class HtmlFormatter
             $items .= '<li><p class="entry"><code>' . Html::e(Html::nodeLabel($row->node)) . '</code></p>'
                 . ($meta === '' ? '' : '<p class="entry-meta">' . $meta . '</p>')
                 . self::securityIssues($row->security, $editor)
+                . self::authGatesNote($row->authGates)
                 . '</li>';
         }
 
         return $items;
+    }
+
+    /**
+     * Evidence, not a verdict (F3): richter's own `authorizes` edges show a policy gate in a route
+     * flagged `PUBLIC_WRITE`. Rendered beside — never replacing — Brain's finding.
+     *
+     * @param  list<string>  $authGates
+     */
+    private static function authGatesNote(array $authGates): string
+    {
+        if ($authGates === []) {
+            return '';
+        }
+
+        $policies = implode('</code>, <code>', array_map(Html::e(...), $authGates));
+
+        return '<p class="note">richter: an authorization policy (<code>' . $policies . '</code>) is applied '
+            . 'in this route\'s reach — verify whether it gates this write. Brain does not resolve middleware '
+            . 'groups or in-controller gates.</p>';
     }
 
     /**

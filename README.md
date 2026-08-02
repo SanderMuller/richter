@@ -149,6 +149,8 @@ Reached routes also inherit [Laravel Brain](https://github.com/laramint/laravel-
 
 This is annotation only — it never feeds the risk level or a `--fail-on` gate, it exists for routes only (Brain classifies nothing else), and false positives are suppressed where Brain's own config says so (`laravel-brain.security.trusted_route_names` / `trusted_route_uris`). A Livewire, Filament, or queue entry point never carries one of these tags at all — that absence means *not classified*, never "public" or "unauthenticated"; its real exposure comes from mount-time `authorize()` calls, middleware, or route placement the graph doesn't model.
 
+Brain classifies exposure from the route's static middleware surface, so it can flag a `PUBLIC_WRITE` on a route that is in fact gated by a policy-constant check (`Gate::authorize(PostPolicy::UPDATE, …)`) it cannot see. Richter cross-checks such a finding against its own `authorizes` edges and, when the route's reach authorizes a policy, adds a note pointing at it — evidence for you to verify, never a suppression (the finding stays shown). It still cannot verify throttle or middleware-group auth, so a `MISSING_THROTTLE` and a group-only auth gate are left to stand.
+
 Pennant feature gating is annotated the same way. A route guarded by `EnsureFeaturesAreActive`
 renders its flags inline (`[gated: ai-coach]`, a 🚩 badge in markdown, `entryPointGates` in JSON),
 and a changed member or Blade view that itself checks a flag (`Feature::active(...)`, `@feature`)

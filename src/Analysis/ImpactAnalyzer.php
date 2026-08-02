@@ -68,7 +68,7 @@ final readonly class ImpactAnalyzer
      * draw "nothing changed" without a graph build. {@see JsonPresenter::emptyDetectChanges()} is
      * the separate JSON-shaped equivalent; the two differ in `risk` (enum here, string there).
      *
-     * @return array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, callers: list<array{depth: int, node: string, via: string}>, dependencies: list<array{depth: int, node: string, via: string}>, seeds: list<string>, reach: array<string, array<string, true>>, edges: list<array{source: string, target: string, via: string, depth: int}>, entryPoints: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, SecurityShape>, entryPointGates: array<string, list<string>>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied: bool, findings: list<string>}
+     * @return array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, callers: list<array{depth: int, node: string, via: string}>, dependencies: list<array{depth: int, node: string, via: string}>, seeds: list<string>, reach: array<string, array<string, true>>, edges: list<array{source: string, target: string, via: string, depth: int}>, entryPoints: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, SecurityShape>, entryPointGates: array<string, list<string>>, entryPointAuthGates: array<string, list<string>>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied: bool, findings: list<string>}
      */
     public static function emptyDetectChanges(): array
     {
@@ -76,6 +76,7 @@ final readonly class ImpactAnalyzer
             'changed' => [], 'coverage' => [], 'callers' => [], 'dependencies' => [],
             'seeds' => [], 'reach' => [], 'edges' => [], 'entryPoints' => [], 'entryPointPaths' => [],
             'entryPointLocations' => [], 'entryPointSecurity' => [], 'entryPointGates' => [],
+            'entryPointAuthGates' => [],
             'impacted' => 0, 'relatedModels' => [], 'risk' => RiskLevel::Low,
             'lowConfidence' => false, 'coarseCapApplied' => false, 'findings' => [],
         ];
@@ -99,6 +100,7 @@ final readonly class ImpactAnalyzer
      *     entryPointLocations: array<string, array{file: string, line?: int}>,
      *     entryPointSecurity: array<string, SecurityShape>,
      *     entryPointGates: array<string, list<string>>,
+     *     entryPointAuthGates: array<string, list<string>>,
      *     impacted: int,
      *     relatedModels: list<string>,
      *     risk: RiskLevel,
@@ -227,6 +229,7 @@ final readonly class ImpactAnalyzer
         }
 
         [$entryPointLocations, $entryPointSecurity, $entryPointGates] = $this->entryPointAnnotations($entryPoints);
+        $entryPointAuthGates = new PublicWriteAuthCrossCheck($this->graph)->gatesByEntryPoint($entryPointSecurity, $maxDepth);
 
         return [
             'changed' => $summary,
@@ -243,6 +246,7 @@ final readonly class ImpactAnalyzer
             'entryPointLocations' => $entryPointLocations,
             'entryPointSecurity' => $entryPointSecurity,
             'entryPointGates' => $entryPointGates,
+            'entryPointAuthGates' => $entryPointAuthGates,
             'impacted' => $impacted,
             'relatedModels' => $this->readableModelLabels($relatedModels),
             'risk' => $risk,

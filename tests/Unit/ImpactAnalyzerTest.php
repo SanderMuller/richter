@@ -168,6 +168,85 @@ final class ImpactAnalyzerTest extends TestCase
         $this->assertArrayNotHasKey('App\Livewire\StatusPanel', $result['entryPointSecurity']);
     }
 
+    /**
+     * @param  list<array{source: string, target: string, type: string}>  $extraEdges
+     * @param  list<array{type: string, severity: string, message: string}>  $issues
+     */
+    private function publicWriteGraph(array $extraEdges, array $issues): ImpactAnalyzer
+    {
+        return new ImpactAnalyzer(new CodeGraph([
+            ['source' => self::ROUTE, 'target' => 'App\Http\Controllers\PostController::publish', 'type' => 'route-to-controller'],
+            ['source' => 'App\Http\Controllers\PostController::publish', 'target' => 'App\Services\PostPublisher::publish', 'type' => 'call'],
+            ...$extraEdges,
+        ], hasUnparseableFiles: false, nodeMetadata: [
+            self::ROUTE => ['security' => ['exposure' => 'public', 'riskLevel' => 'high', 'issues' => $issues]],
+        ]));
+    }
+
+    #[Test]
+    public function a_public_write_route_whose_reach_authorizes_a_policy_records_the_gate(): void
+    {
+        // Brain flags the route PUBLIC_WRITE, but its handler authorizes a policy — richter's own
+        // `authorizes` edge contradicts Brain's "no authentication". The gate is recorded as evidence.
+        $analyzer = $this->publicWriteGraph(
+            [['source' => 'App\Http\Controllers\PostController::publish', 'target' => PostPolicy::class, 'type' => 'authorizes']],
+            [['type' => 'PUBLIC_WRITE', 'severity' => 'high', 'message' => 'POST route with no auth middleware']],
+        );
+
+        $result = $analyzer->detectChanges([$this->changedMethod('app/Services/PostPublisher.php', 'App\Services\PostPublisher', 'publish')]);
+
+        $this->assertSame([PostPolicy::class], $result['entryPointAuthGates'][self::ROUTE]);
+    }
+
+    #[Test]
+    public function a_public_write_route_with_no_authorization_in_reach_records_no_gate(): void
+    {
+        // A genuinely-ungated public write: no `authorizes` edge, so nothing contradicts Brain and the
+        // finding is left to stand (never softened).
+        $analyzer = $this->publicWriteGraph(
+            [],
+            [['type' => 'PUBLIC_WRITE', 'severity' => 'high', 'message' => 'POST route with no auth middleware']],
+        );
+
+        $result = $analyzer->detectChanges([$this->changedMethod('app/Services/PostPublisher.php', 'App\Services\PostPublisher', 'publish')]);
+
+        $this->assertArrayNotHasKey(self::ROUTE, $result['entryPointAuthGates']);
+    }
+
+    #[Test]
+    public function a_public_route_without_a_public_write_issue_is_not_cross_checked(): void
+    {
+        // The trigger is the PUBLIC_WRITE issue, not the `public` exposure — a public-by-design route
+        // with an `authorizes` edge in reach must not be annotated (no false "verify this" noise).
+        $analyzer = $this->publicWriteGraph(
+            [['source' => 'App\Http\Controllers\PostController::publish', 'target' => PostPolicy::class, 'type' => 'authorizes']],
+            [],
+        );
+
+        $result = $analyzer->detectChanges([$this->changedMethod('app/Services/PostPublisher.php', 'App\Services\PostPublisher', 'publish')]);
+
+        $this->assertArrayNotHasKey(self::ROUTE, $result['entryPointAuthGates']);
+    }
+
+    #[Test]
+    public function an_authorizes_edge_is_found_even_when_the_policy_is_also_reached_another_way(): void
+    {
+        // Guards the BFS-tree hazard: the policy node is ALSO reached via a non-`authorizes` edge. A
+        // dependencyEdgesOf()-filter would keep only the first edge into the policy and could drop the
+        // `authorizes` one; reading the adjacency by type finds it regardless of traversal order.
+        $analyzer = $this->publicWriteGraph(
+            [
+                ['source' => 'App\Services\PostPublisher::publish', 'target' => PostPolicy::class, 'type' => 'references'],
+                ['source' => 'App\Http\Controllers\PostController::publish', 'target' => PostPolicy::class, 'type' => 'authorizes'],
+            ],
+            [['type' => 'PUBLIC_WRITE', 'severity' => 'high', 'message' => 'POST route with no auth middleware']],
+        );
+
+        $result = $analyzer->detectChanges([$this->changedMethod('app/Services/PostPublisher.php', 'App\Services\PostPublisher', 'publish')]);
+
+        $this->assertSame([PostPolicy::class], $result['entryPointAuthGates'][self::ROUTE]);
+    }
+
     #[Test]
     public function detect_changes_annotates_a_gated_route_with_its_feature_flags(): void
     {

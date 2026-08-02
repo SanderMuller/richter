@@ -38,7 +38,7 @@ final class ImpactFormatter
     }
 
     /**
-     * @param  array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, entryPointPaths?: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations?: array<string, array{file: string, line?: int}>, entryPointSecurity?: array<string, SecurityShape>, entryPointGates?: array<string, list<string>>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied?: bool, findings?: list<string>, ...}  $result
+     * @param  array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, entryPointPaths?: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations?: array<string, array{file: string, line?: int}>, entryPointSecurity?: array<string, SecurityShape>, entryPointGates?: array<string, list<string>>, entryPointAuthGates?: array<string, list<string>>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied?: bool, findings?: list<string>, ...}  $result
      * @param  bool  $gateActive  when a `--fail-on*` gate is active the command prints its own verdict, so the advisory suffix is dropped to avoid contradicting it
      * @param  bool  $explain  render the call chain from each reached entry point down to the changed symbol
      */
@@ -64,6 +64,7 @@ final class ImpactFormatter
             $result['entryPointLocations'] ?? [],
             $result['entryPointSecurity'] ?? [],
             $result['entryPointGates'] ?? [],
+            $result['entryPointAuthGates'] ?? [],
             $tests,
         )];
 
@@ -125,11 +126,12 @@ final class ImpactFormatter
      * @param  array<string, array{file: string, line?: int}>  $locations  keyed by entry-point node
      * @param  array<string, SecurityShape>  $security  keyed by entry-point node; routes only
      * @param  array<string, list<string>>  $gates  keyed by entry-point node; Pennant flags gating the route
+     * @param  array<string, list<string>>  $authGates  keyed by entry-point node; policy gates that contradict a PUBLIC_WRITE finding
      * @return list<string>
      */
-    private static function entryPointList(array $entryPoints, array $paths, array $locations, array $security, array $gates, ?TestReferenceIndex $tests): array
+    private static function entryPointList(array $entryPoints, array $paths, array $locations, array $security, array $gates, array $authGates, ?TestReferenceIndex $tests): array
     {
-        $rows = EntryPointRow::build($entryPoints, $paths, $locations, $security, $gates, $tests);
+        $rows = EntryPointRow::build($entryPoints, $paths, $locations, $security, $gates, $authGates, $tests);
 
         $overCap = count($rows) > self::LIST_CAP;
         $shown = $overCap ? array_slice($rows, 0, self::LIST_CAP) : $rows;
@@ -153,6 +155,12 @@ final class ImpactFormatter
                     ? ' — ' . $issue['file'] . (isset($issue['line']) ? ":{$issue['line']}" : '')
                     : '';
                 $lines[] = "      ⚠ {$issue['type']} ({$issue['severity']}): {$issue['message']}{$issueLocation}";
+            }
+
+            if ($row->authGates !== []) {
+                $lines[] = '      richter: an authorization policy (' . implode(', ', $row->authGates)
+                    . ') is applied in this route\'s reach — verify whether it gates this write '
+                    . '(Brain does not resolve middleware groups or in-controller gates).';
             }
         }
 

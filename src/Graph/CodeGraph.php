@@ -2,6 +2,8 @@
 
 namespace SanderMuller\Richter\Graph;
 
+use SanderMuller\Richter\Analysis\ImpactAnalyzer;
+
 /**
  * A directed code graph (nodes connected by typed edges) with upstream/downstream traversal. Built
  * from Laravel Brain's analysis by {@see CodeGraphBuilder} but knows nothing about Brain, so it stays
@@ -322,6 +324,34 @@ final class CodeGraph
         }
 
         return $via;
+    }
+
+    /**
+     * Every distinct target of an edge of `$type` whose source is one of `$sources`, read straight
+     * from the downstream adjacency — so ALL such edges are returned, unlike {@see dependencyEdgesOf()}
+     * whose BFS tree keeps only the first edge reaching each node (an edge to an already-visited node
+     * is dropped). Used to collect, e.g., the policies a route's reachable handlers authorize against
+     * ({@see ImpactAnalyzer}'s PUBLIC_WRITE cross-check).
+     *
+     * @param  list<string>  $sources
+     * @return list<string>  sorted, unique target node ids
+     */
+    public function outgoingTargetsOfType(array $sources, string $type): array
+    {
+        $targets = [];
+
+        foreach ($sources as $source) {
+            foreach ($this->downstream[$source] ?? [] as $hop) {
+                if ($hop['via'] === $type) {
+                    $targets[$hop['node']] = true;
+                }
+            }
+        }
+
+        $targets = array_keys($targets);
+        sort($targets);
+
+        return $targets;
     }
 
     /**

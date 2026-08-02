@@ -165,6 +165,38 @@ final class MarkdownFormatterTest extends TestCase
     }
 
     #[Test]
+    public function a_public_write_route_with_a_policy_gate_in_reach_renders_a_contradiction_note(): void
+    {
+        $result = $this->summary(['route::POST::/checkout']) + [
+            'entryPointSecurity' => ['route::POST::/checkout' => ['exposure' => 'public', 'riskLevel' => 'high', 'issues' => [
+                ['type' => 'PUBLIC_WRITE', 'severity' => 'high', 'message' => 'POST route with no auth middleware'],
+            ]]],
+            'entryPointAuthGates' => ['route::POST::/checkout' => ['App\Policies\OrderPolicy']],
+        ];
+
+        $output = MarkdownFormatter::detectChanges($result);
+
+        // Brain's finding is still shown — the note is evidence beside it, not a replacement.
+        $this->assertStringContainsString('⚠️ **PUBLIC_WRITE** (high): POST route with no auth middleware', $output);
+        $this->assertStringContainsString(
+            "  - ℹ️ richter: an authorization policy (`App\Policies\OrderPolicy`) is applied in this route's reach — verify whether it gates this write",
+            $output,
+        );
+    }
+
+    #[Test]
+    public function a_public_write_route_with_no_gate_renders_no_contradiction_note(): void
+    {
+        $result = $this->summary(['route::POST::/checkout']) + [
+            'entryPointSecurity' => ['route::POST::/checkout' => ['exposure' => 'public', 'riskLevel' => 'high', 'issues' => [
+                ['type' => 'PUBLIC_WRITE', 'severity' => 'high', 'message' => 'POST route with no auth middleware'],
+            ]]],
+        ];
+
+        $this->assertStringNotContainsString('richter: an authorization policy', MarkdownFormatter::detectChanges($result));
+    }
+
+    #[Test]
     public function a_gated_route_renders_a_flag_badge(): void
     {
         $result = $this->summary(['route::POST::/checkout']) + [

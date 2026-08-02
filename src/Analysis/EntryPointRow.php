@@ -22,6 +22,9 @@ final readonly class EntryPointRow
      * @param  bool|null  $testReferenced  {@see TestReferenceIndex::hasReference()}'s tri-state: null means "couldn't check", never rendered as unreferenced
      * @param  SecurityShape|null  $security  Brain's exposure/issues annotation; routes only
      * @param  list<string>  $gates  Pennant flags gating this route; empty when ungated
+     * @param  list<string>  $authGates  `App\Policies\*` classes richter's own `authorizes` edges show
+     *   this route's reach gates on — evidence that contradicts a Brain `PUBLIC_WRITE` finding; empty
+     *   unless the route carries a `PUBLIC_WRITE` issue and a gate is found in reach
      * @param  bool  $assertionWeak  {@see TestReferenceIndex::referencedWithoutBehaviouralAssertion()}; false whenever it cannot be graded true, never a tri-state
      */
     private function __construct(
@@ -32,6 +35,7 @@ final readonly class EntryPointRow
         public ?bool $testReferenced,
         public ?array $security,
         public array $gates,
+        public array $authGates,
         public bool $assertionWeak,
     ) {}
 
@@ -46,9 +50,10 @@ final readonly class EntryPointRow
      * @param  array<string, array{file: string, line?: int}>  $locations  keyed by entry-point node
      * @param  array<string, SecurityShape>  $security  keyed by entry-point node; routes only
      * @param  array<string, list<string>>  $gates  keyed by entry-point node
+     * @param  array<string, list<string>>  $authGates  keyed by entry-point node; contradicting policy gates
      * @return list<self>
      */
-    public static function build(array $entryPoints, array $paths, array $locations, array $security, array $gates, ?TestReferenceIndex $tests): array
+    public static function build(array $entryPoints, array $paths, array $locations, array $security, array $gates, array $authGates, ?TestReferenceIndex $tests): array
     {
         $rows = array_map(static fn (string $node): self => new self(
             node: $node,
@@ -58,6 +63,7 @@ final readonly class EntryPointRow
             testReferenced: $tests?->hasReference($node),
             security: $security[$node] ?? null,
             gates: $gates[$node] ?? [],
+            authGates: $authGates[$node] ?? [],
             assertionWeak: $tests?->referencedWithoutBehaviouralAssertion($node) ?? false,
         ), $entryPoints);
 

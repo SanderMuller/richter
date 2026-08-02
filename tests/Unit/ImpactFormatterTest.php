@@ -119,6 +119,26 @@ final class ImpactFormatterTest extends TestCase
     }
 
     #[Test]
+    public function a_public_write_route_with_a_policy_gate_in_reach_renders_a_contradiction_note(): void
+    {
+        $result = $this->summary(['route::POST::/checkout']) + [
+            'entryPointSecurity' => ['route::POST::/checkout' => ['exposure' => 'public', 'riskLevel' => 'high', 'issues' => [
+                ['type' => 'PUBLIC_WRITE', 'severity' => 'high', 'message' => 'POST route with no auth middleware'],
+            ]]],
+            'entryPointAuthGates' => ['route::POST::/checkout' => ['App\Policies\OrderPolicy']],
+        ];
+
+        $output = ImpactFormatter::detectChanges($result);
+
+        // Brain's finding stays; the note is evidence beside it.
+        $this->assertStringContainsString('⚠ PUBLIC_WRITE (high): POST route with no auth middleware', $output);
+        $this->assertStringContainsString(
+            "richter: an authorization policy (App\Policies\OrderPolicy) is applied in this route's reach — verify whether it gates this write",
+            $output,
+        );
+    }
+
+    #[Test]
     public function a_reference_with_no_behavioural_assertion_renders_the_weaker_wording(): void
     {
         $tests = new TestReferenceIndex();

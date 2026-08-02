@@ -100,6 +100,18 @@ final class CodeGraphBuilderTest extends TestCase
     }
 
     #[Test]
+    public function a_real_routes_reach_yields_the_policy_it_authorizes(): void
+    {
+        // End-to-end id-join for the PUBLIC_WRITE auth cross-check: a real route's downstream reachable
+        // set (Brain route node → short-controller-resolved action) intersected with the PolicyEdgeTracer
+        // `authorizes` edge (`ReviewController::edit` → `PostPolicy`, from `->can(PostPolicy::UPDATE, …)`)
+        // must surface the policy. Proves the analyzer's evidence works on real ids, not just hand-built graphs.
+        $reached = array_column($this->graph()->dependenciesOf(['route::GET::/posts/{post}/edit']), 'node');
+
+        $this->assertContains(PostPolicy::class, $this->graph()->outgoingTargetsOfType($reached, 'authorizes'));
+    }
+
+    #[Test]
     public function an_alias_registered_middleware_resolves_onto_its_fqcn(): void
     {
         // The route registers `->middleware('auth')`; the Kernel fixture aliases it. Without the

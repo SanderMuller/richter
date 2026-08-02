@@ -416,6 +416,22 @@ final class HtmlFormatterTest extends TestCase
     }
 
     #[Test]
+    public function a_policy_gate_in_reach_renders_an_escaped_contradiction_note_beside_the_finding(): void
+    {
+        // richter's own `authorizes` edge contradicts Brain's PUBLIC_WRITE: the note is evidence beside
+        // the finding (never replacing it), and the policy FQCN is HTML-escaped (046 hardening).
+        $result = $this->fixture();
+        $result['entryPointAuthGates'] = [self::ENTRY => ['App\Policies\Order<Policy>']];
+
+        $html = HtmlFormatter::detectChanges($result, $this->changedFiles(), 'origin/main');
+
+        $this->assertStringContainsString('richter: an authorization policy', $html);
+        $this->assertStringContainsString('App\Policies\Order&lt;Policy&gt;', $html);
+        $this->assertStringNotContainsString('Order<Policy>', $html);
+        $this->assertStringContainsString('PUBLIC_WRITE', $html);
+    }
+
+    #[Test]
     public function file_references_are_plain_text_without_a_configured_editor(): void
     {
         // The default: no editor means no links, so a shared CI artifact never points readers at

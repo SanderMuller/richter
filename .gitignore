@@ -48,3 +48,6 @@ phpstan.neon
 # <<< boost (managed) <<<
 
 .claude/worktrees/
+
+# Codex CLI local config/artifacts (written by codex-review runs)
+.codex/
