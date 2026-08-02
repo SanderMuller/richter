@@ -105,14 +105,35 @@ final readonly class DispatchEdgeTracer
                 }
             }
 
-            // Any dispatch-target instantiation links the constructing method — over-approximate on
-            // purpose: the dispatch verb often receives the target as a variable
-            // (`$job = new X(...); dispatch($job)`), which no dispatch-site pattern above can follow —
-            // a defect class that ships unseen otherwise. The target may be any dispatch-target shape
-            // (a queued job, a Dispatchable command, or a plain self-handling handle()/__invoke()
-            // command), not only a `\Jobs\`/ShouldQueue job.
+            // The instantiation over-approximation exists for two shapes no dispatch-site pattern
+            // above can follow: `$job = new X(...); dispatch($job)` (a variable argument), and a
+            // dispatch through a helper this tracer doesn't recognise. So an INTRINSIC target (a
+            // \Jobs\/ShouldQueue/Dispatchable class, or one that can't be resolved) is linked from a
+            // bare `new` unconditionally — that keeps a custom-helper dispatch of a real job caught.
+            // A class that matches ONLY because it carries handle()/__invoke() (a shape countless
+            // value objects share) is linked only inside a method that actually dispatches; otherwise
+            // a `new X(...)` that is merely constructed or returned is object construction, not a
+            // dispatch, and must draw no edge — else every DTO-returning method reads as a dispatcher.
+            $methodDispatches = array_any(
+                $calls,
+                fn (Node $call): bool => (! $call instanceof CallLike || ! $call->isFirstClassCallable()) && $this->dispatchSite($call) !== null,
+            );
+
             foreach (new NodeFinder()->findInstanceOf($method, New_::class) as $new) {
-                if ($new->class instanceof Name && DispatchTarget::matches($job = AppFiles::resolveName($new->class)) && $job !== ltrim($classFqcn, '\\')) {
+                if (! $new->class instanceof Name) {
+                    continue;
+                }
+
+                $job = AppFiles::resolveName($new->class);
+                if ($job === ltrim($classFqcn, '\\')) {
+                    continue;
+                }
+
+                if (! DispatchTarget::matches($job)) {
+                    continue;
+                }
+
+                if ($methodDispatches || DispatchTarget::isIntrinsicOrUnresolvable($job)) {
                     $edges[] = ['source' => $dispatcher, 'target' => $job . '::handle', 'type' => 'action-to-job'];
                 }
             }

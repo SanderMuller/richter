@@ -69,18 +69,6 @@ final class DispatchTarget
                 return true;
             }
 
-            if (str_contains($fqcn, '\\Jobs\\')) {
-                return true;
-            }
-
-            if (is_subclass_of($fqcn, ShouldQueue::class)) {
-                return true;
-            }
-
-            if (in_array(Dispatchable::class, class_uses_recursive($fqcn), true)) {
-                return true;
-            }
-
             // A self-handling bus command: dispatch($x) / dispatch_sync($x) / Bus::dispatch($x) call
             // handle() or __invoke() on a plain object with NO Dispatchable trait (Laravel's
             // BusDispatcher::dispatchNow falls back to `container->call([$command, 'handle'|'__invoke'])`).
@@ -89,9 +77,50 @@ final class DispatchTarget
             // (route::/controller::/action::/middleware::/model::), which classOfNode() skips before
             // here; a directly-changed invokable controller or an event listener carrying handle() can
             // still match — an accepted safe OVER-selection, never under-selection.
-            return method_exists($fqcn, 'handle') || method_exists($fqcn, '__invoke');
+            if (self::isIntrinsic($fqcn)) {
+                return true;
+            }
+
+            if (method_exists($fqcn, 'handle')) {
+                return true;
+            }
+
+            return method_exists($fqcn, '__invoke');
         } catch (Throwable) {
             return true;
         }
+    }
+
+    /**
+     * A class worth linking from a bare `new X(...)` ({@see DispatchEdgeTracer}'s instantiation
+     * over-approximation) even with no dispatch verb in sight: an INTRINSIC dispatch target —
+     * dispatchable by declaration (`\Jobs\`-namespaced, `ShouldQueue`, or using `Dispatchable`), so a
+     * `new` of one is very likely bound for a dispatch, including through a helper the tracer doesn't
+     * recognise — OR a class that can't be resolved (uncertainty → fail toward could-be). A class that
+     * is a dispatch target ONLY because it carries handle()/__invoke() is deliberately excluded: that
+     * plain shape is a dispatch target only when a dispatch verb actually runs it, and countless value
+     * objects share it — so the tracer links it from an instantiation only inside a dispatching method.
+     * (This is a subset of {@see matches()}, not a replacement: {@see matches()} still fires on the
+     * handle()/__invoke() shape, which the S2 determinability blocker and a resolved dispatch need.)
+     */
+    public static function isIntrinsicOrUnresolvable(string $fqcn): bool
+    {
+        try {
+            return ! class_exists($fqcn) || self::isIntrinsic($fqcn);
+        } catch (Throwable) {
+            return true;
+        }
+    }
+
+    /**
+     * Dispatchable by declaration: `\Jobs\`-namespaced, a `ShouldQueue` job, or using the
+     * `Dispatchable` trait. Callers guard `class_exists()` first — `is_subclass_of()` /
+     * `class_uses_recursive()` return `false`/`[]` for a missing class rather than confirming intent.
+     */
+    private static function isIntrinsic(string $fqcn): bool
+    {
+        return str_contains($fqcn, '\\Jobs\\')
+            || is_subclass_of($fqcn, ShouldQueue::class)
+            || in_array(Dispatchable::class, class_uses_recursive($fqcn), true);
     }
 }

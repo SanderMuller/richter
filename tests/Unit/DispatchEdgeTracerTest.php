@@ -134,6 +134,19 @@ final class DispatchEdgeTracerTest extends TestCase
     }
 
     #[Test]
+    public function constructing_a_handle_only_shape_without_a_dispatch_verb_draws_no_edge(): void
+    {
+        // A method that merely constructs a class matching the dispatch predicate ONLY via
+        // handle()/__invoke() — with no dispatch verb in the method — must draw no edge. Countless
+        // value objects carry a handle() method; without this, every DTO-constructing method reads as
+        // a dispatcher. (An INTRINSIC job/command is still linked from a bare instantiation — see the
+        // `dispatch_with_retries helper` case above, which uses a \Jobs\ class.)
+        $source = "<?php\nnamespace App\Formulas;\nuse App\Commands\ArchiveStalePosts;\nclass PriceCalculator\n{\n    public function build(): void\n    {\n        \$pending = new ArchiveStalePosts();\n    }\n}\n";
+
+        $this->assertSame([], new DispatchEdgeTracer()->edgesForSource($source, 'App\Formulas\PriceCalculator')['edges']);
+    }
+
+    #[Test]
     public function a_job_constructing_itself_emits_no_self_edge(): void
     {
         $source = "<?php\nnamespace App\Jobs;\nclass ImportJob\n{\n    public function copy(): void\n    {\n        \$clone = new ImportJob();\n    }\n}\n";

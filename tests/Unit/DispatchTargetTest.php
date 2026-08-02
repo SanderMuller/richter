@@ -67,6 +67,21 @@ final class DispatchTargetTest extends TestCase
     }
 
     #[Test]
+    public function is_intrinsic_or_unresolvable_separates_declared_targets_from_the_plain_handle_shape(): void
+    {
+        // The subset {@see DispatchEdgeTracer} links from a bare `new` even with no dispatch verb:
+        // dispatchable-by-declaration or unresolvable → true; a plain handle()-only command → false
+        // (it needs an actual dispatch to be one), and a non-target → false.
+        $this->assertTrue(DispatchTarget::isIntrinsicOrUnresolvable(PublishPostJob::class));       // \Jobs\
+        $this->assertTrue(DispatchTarget::isIntrinsicOrUnresolvable(PostDigestNotification::class)); // ShouldQueue
+        $this->assertTrue(DispatchTarget::isIntrinsicOrUnresolvable(GenerateReport::class));        // Dispatchable
+        $this->assertTrue(DispatchTarget::isIntrinsicOrUnresolvable('App\Does\Not\Exist'));         // unresolvable → fail toward could-be
+
+        $this->assertFalse(DispatchTarget::isIntrinsicOrUnresolvable(ArchiveStalePosts::class));    // matches only via handle()
+        $this->assertFalse(DispatchTarget::isIntrinsicOrUnresolvable(Post::class));                 // not a dispatch target at all
+    }
+
+    #[Test]
     public function repeated_calls_for_the_same_class_agree(): void
     {
         // The predicate is memoised — pinning that repeated lookups don't drift.
