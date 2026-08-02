@@ -5,6 +5,24 @@ All notable changes to `sandermuller/richter` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.17.3 - 2026-08-02
+
+A precision fix: constructing a value object that merely carries a `handle()`/`__invoke()` method is no longer read as dispatching a job, so a change to such a class no longer fans out across every method that builds one.
+
+### Fixed
+
+- **A bare instantiation of a `handle()`-shaped class is no longer treated as a job dispatch.** The dispatch tracer links a `new X(...)` to `X` to catch the shapes static analysis can't otherwise follow — `$job = new X(...); dispatch($job)`, and dispatches through a project-custom helper. But it linked *any* instantiation of a class matching the dispatch predicate, and that predicate matches any class with a `handle()` or `__invoke()` method — the shape of a self-handling bus command, but also of countless plain value objects. So a method that merely built and returned a value object (a calculator returning a result object, say) read as dispatching it, and one widely-constructed object became a phantom hub inflating the reached-entry-point and impacted-node counts across every method that constructed it. Now an intrinsic dispatch target — a `\Jobs\`-namespaced class, a `ShouldQueue` job, a `Dispatchable` command, or one that can't be resolved — is still linked from a bare instantiation unconditionally, so a dispatch through an unrecognised helper stays caught; a class that matches *only* via the `handle()`/`__invoke()` shape is linked from an instantiation only inside a method that actually dispatches.
+  
+  If you dispatch a plain (non-`Dispatchable`) command through a project-custom helper function, register that helper in `richter.dispatch_helpers` so it is recognised as a dispatch verb — otherwise that shape is no longer linked from a bare `new`.
+  
+
+### Internal
+
+- `GraphCache` format version bumped: the change shrinks the edge set for identical file inputs, so warm caches invalidate rather than serving a pre-fix graph carrying the phantom dispatch edges.
+- Suite: 839 tests / 1,961 assertions, including a regression that a `handle()`-only class constructed with no dispatch verb draws no edge, and that an intrinsic job through an unrecognised helper still does.
+
+**Full Changelog**: https://github.com/SanderMuller/richter/compare/v0.17.2...v0.17.3
+
 ## v0.17.2 - 2026-08-02
 
 A precision fix: changing or adding one constant in a grouped `const A = …, B = …;` declaration no longer treats every co-declared constant as changed, so the blast radius stays scoped to what actually changed.
