@@ -135,6 +135,53 @@ final class ChangedSymbolsTest extends TestCase
     }
 
     #[Test]
+    public function adding_a_constant_to_a_group_seeds_only_the_new_one_not_its_siblings(): void
+    {
+        // A `const A = …, B = …;` group previously gave every constant the whole statement's span, so
+        // adding one sibling (plus a comment) marked every existing constant "modified" and seeded
+        // each one's readers — a large, false blast radius. The new constant is additive; the siblings
+        // are untouched, and the comment is not a class-level change.
+        $base = "<?php\nnamespace App\\Enums;\n\nclass Companies\n{\n    const\n        DAK = 'dak',\n        MOVIR = 'movir',\n        MSIG = 'msig';\n}\n";
+        $head = "<?php\nnamespace App\\Enums;\n\nclass Companies\n{\n    const\n        DAK = 'dak',\n        MOVIR = 'movir',\n        // Movir also sells a sommen variant.\n        MOVIR_SOMMEN = 'movirSommen',\n        MSIG = 'msig';\n}\n";
+        $hunk = $this->hunk([
+            [9, '        // Movir also sells a sommen variant.'],
+            [10, "        MOVIR_SOMMEN = 'movirSommen',"],
+        ], []);
+
+        $result = ChangedSymbols::classifyFile('app/Enums/Companies.php', $head, $base, $hunk);
+
+        $this->assertTrue($result->hasOnlyAdditiveOrCosmeticChanges(), 'adding one constant to a group is additive');
+        $this->assertFalse($result->needsCoarseSeed());
+        $this->assertSame([], $result->resolvableMembers(), 'sibling constants must not be seeded');
+    }
+
+    #[Test]
+    public function modifying_one_constant_in_a_group_flags_only_that_constant(): void
+    {
+        $base = "<?php\nnamespace App\\Enums;\n\nclass Companies\n{\n    const\n        DAK = 'dak',\n        MOVIR = 'movir',\n        MSIG = 'msig';\n}\n";
+        $head = "<?php\nnamespace App\\Enums;\n\nclass Companies\n{\n    const\n        DAK = 'dak',\n        MOVIR = 'movirMomentum',\n        MSIG = 'msig';\n}\n";
+        $hunk = $this->hunk([[8, "        MOVIR = 'movirMomentum',"]], [[8, "        MOVIR = 'movir',"]]);
+
+        $result = ChangedSymbols::classifyFile('app/Enums/Companies.php', $head, $base, $hunk);
+
+        $names = array_map(static fn (MemberChange $m): string => $m->name, $result->members);
+        $this->assertSame(['MOVIR'], $names, 'only the changed constant is flagged, not DAK/MSIG');
+    }
+
+    #[Test]
+    public function a_comment_only_change_between_members_is_not_a_class_level_change(): void
+    {
+        $base = "<?php\nclass Foo\n{\n    public function a(): int\n    {\n        return 1;\n    }\n\n    public function b(): int\n    {\n        return 2;\n    }\n}\n";
+        $head = "<?php\nclass Foo\n{\n    public function a(): int\n    {\n        return 1;\n    }\n\n    // b doubles its input\n    public function b(): int\n    {\n        return 2;\n    }\n}\n";
+        $hunk = $this->hunk([[9, '    // b doubles its input']], []);
+
+        $result = ChangedSymbols::classifyFile('app/Foo.php', $head, $base, $hunk);
+
+        $this->assertTrue($result->hasOnlyAdditiveOrCosmeticChanges(), 'a lone comment between methods is not a change');
+        $this->assertFalse($result->needsCoarseSeed());
+    }
+
+    #[Test]
     public function a_newly_added_file_is_additive_not_a_class_level_change(): void
     {
         // A brand-new file has no base side; every line is added. The class header / braces are

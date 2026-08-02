@@ -127,6 +127,28 @@ final class MemberResolverTest extends TestCase
         $this->assertSame(4, $this->member(MemberResolver::resolve($source)['members'], 'bar')['start']);
     }
 
+    #[Test]
+    public function it_gives_each_constant_in_a_group_its_own_line_span(): void
+    {
+        $source = <<<'PHP'
+        <?php
+        class Companies
+        {
+            const
+                FOO = 'foo',
+                BAR = 'bar';
+        }
+        PHP;
+
+        // A multi-constant declaration must not give every constant the whole statement's span —
+        // otherwise touching one marks them all. FOO (the first item) absorbs the `const` keyword
+        // on line 4; BAR starts and ends on its own line 6.
+        $members = MemberResolver::resolve($source)['members'];
+        $this->assertSame(4, $this->member($members, 'FOO')['start']);
+        $this->assertSame(6, $this->member($members, 'BAR')['start']);
+        $this->assertSame(6, $this->member($members, 'BAR')['end']);
+    }
+
     /**
      * @param  list<array{name: string, kind: string, resolvable: bool, start: int, end: int}>  $members
      * @return array{name: string, kind: string, resolvable: bool, start: int, end: int}

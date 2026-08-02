@@ -398,10 +398,23 @@ final class ChangedSymbols
                 }
             }
 
+            // A comment sitting between members (e.g. documenting one entry of a `const` group) is not
+            // a structural class-level change — skip it, so a comment-only edit outside every member
+            // never coarse-seeds the whole class.
+            if (self::isCommentLine($line['text'])) {
+                continue;
+            }
+
             $texts[] = $line['text'];
         }
 
         return $texts;
+    }
+
+    /** A full-line comment — `//`, `/*`, a block-comment continuation `*`, or a `#` line (never a `#[Attr]`). */
+    private static function isCommentLine(string $text): bool
+    {
+        return preg_match('~^\s*(?://|/\*|\*|#(?!\[))~', $text) === 1;
     }
 
     /**

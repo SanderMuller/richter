@@ -64,32 +64,54 @@ final class MemberResolver
     private static function membersOf(Stmt $stmt, bool $inTrait): array
     {
         $start = self::memberStartLine($stmt);
-        $end = $stmt instanceof ClassMethod || $stmt instanceof Property || $stmt instanceof ClassConst || $stmt instanceof EnumCase
-            ? $stmt->getEndLine()
-            : 0;
 
         if ($stmt instanceof ClassMethod) {
-            return [self::makeMember($stmt->name->toString(), MemberChange::KIND_METHOD, resolvable: true, start: $start, end: $end)];
+            return [self::makeMember($stmt->name->toString(), MemberChange::KIND_METHOD, resolvable: true, start: $start, end: $stmt->getEndLine())];
         }
 
         if ($stmt instanceof EnumCase) {
             // Enum cases now get a member node via ConstantReferenceTracer (`Enum::Case` + reader
             // edges), so a case change pins to its readers instead of coarse-seeding the whole enum.
-            return [self::makeMember($stmt->name->toString(), MemberChange::KIND_ENUM_CASE, resolvable: true, start: $start, end: $end)];
+            return [self::makeMember($stmt->name->toString(), MemberChange::KIND_ENUM_CASE, resolvable: true, start: $start, end: $stmt->getEndLine())];
         }
 
         if ($stmt instanceof Property) {
-            return array_values(array_map(static fn (PropertyItem $prop): array => self::makeMember($prop->name->toString(), MemberChange::KIND_PROPERTY, resolvable: false, start: $start, end: $end), $stmt->props));
+            return self::declarationItems($stmt->props, MemberChange::KIND_PROPERTY, resolvable: false, statementStart: $start);
         }
 
         if ($stmt instanceof ClassConst) {
             // Class constants get a member node via ConstantReferenceTracer (`Class::CONST` + reader
             // edges) → resolvable, so a change pins to its readers. Trait constants are the exception:
             // the tracer skips traits, so they stay coarse (`$inTrait`) rather than read UNRESOLVED.
-            return array_values(array_map(static fn (Const_ $const): array => self::makeMember($const->name->toString(), MemberChange::KIND_CONSTANT, resolvable: ! $inTrait, start: $start, end: $end), $stmt->consts));
+            return self::declarationItems($stmt->consts, MemberChange::KIND_CONSTANT, resolvable: ! $inTrait, statementStart: $start);
         }
 
         return [];
+    }
+
+    /**
+     * One member per item in a declaration group (`const A = 1, B = 2;` or `public $a, $b;`), each
+     * with its OWN line span rather than the shared statement span. Without this, touching one item —
+     * or adding a sibling to the group — marks EVERY co-declared member changed, so seeding one
+     * constant fans out to every constant's readers. The first item absorbs the declaration's leading
+     * region ($statementStart: the `const`/visibility keyword, attribute groups, and doc comment) so a
+     * changed attribute or docblock line still maps to the member.
+     *
+     * @template T of Const_|PropertyItem
+     *
+     * @param  array<T>  $items
+     * @return list<array{name: string, kind: string, resolvable: bool, start: int, end: int}>
+     */
+    private static function declarationItems(array $items, string $kind, bool $resolvable, int $statementStart): array
+    {
+        $members = [];
+
+        foreach (array_values($items) as $index => $item) {
+            $start = $index === 0 ? min($statementStart, $item->getStartLine()) : $item->getStartLine();
+            $members[] = self::makeMember($item->name->toString(), $kind, $resolvable, $start, $item->getEndLine());
+        }
+
+        return $members;
     }
 
     /** @return array{name: string, kind: string, resolvable: bool, start: int, end: int} */
