@@ -1,0 +1,70 @@
+# Advisory only: posts the richter change-impact report as a sticky PR comment. Never blocks the PR.
+# Scaffolded by the `richter-setup` skill — adapt the PHP version, the app-boot steps, and the path
+# filter to your project. If richter is already wired into another workflow, integrate there instead
+# of adding this one (two commenting jobs => duplicate comments).
+name: Richter report
+
+on:
+  pull_request:
+    # Optional: skip PRs that can't change backend reach (docs-only, etc.).
+    # paths: ['app/**', 'routes/**', 'config/**', 'composer.json', 'composer.lock']
+
+# Least privilege: read the code, write the PR comment. Nothing else.
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  richter:
+    runs-on: ubuntu-latest
+    # Advisory by contract: nothing in this job may fail the PR.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # fetch-depth: 0 so the PR base commit is in the object DB and diffable against the head.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+
+      - name: Install dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      # Brain boots and autoloads the app during analysis, so the app must be bootable in CI.
+      # Drop these two steps if your analysis doesn't need a booted app.
+      - name: Prepare app
+        run: |
+          cp .env.example .env || true
+          php artisan key:generate || true
+
+      - name: Richter report
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        # `|| true`: advisory — a failed analysis never fails the job.
+        run: php artisan richter:detect-changes --base="$BASE_SHA" --markdown > richter-report.md || true
+
+      - name: Post / update the sticky PR comment
+        # Guarded too, so "never blocks" holds even when commenting can't (e.g. a fork PR without
+        # pull-requests: write). First-party github-script — no third-party action to vet.
+        continue-on-error: true
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const marker = '<!-- richter-report -->';
+            let report = '_No report generated._';
+            try { report = fs.readFileSync('richter-report.md', 'utf8').trim() || report; } catch (e) {}
+            const body = `${marker}\n${report}`;
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            // Paginate: the default page is 30, so a large PR could miss the marker and double-comment.
+            const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number, per_page: 100 });
+            const existing = comments.find((c) => c.body && c.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }

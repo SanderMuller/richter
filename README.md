@@ -64,6 +64,28 @@ Requires PHP 8.4+ and Laravel 12 or 13. Optionally publish the config:
 php artisan vendor:publish --tag=richter-config
 ```
 
+## Set up richter for your project
+
+richter is accurate only once it knows your app's shape — which subsystems are entry surfaces, which
+helpers dispatch jobs, your real base branch, your frontend stack. Two ways to get there.
+
+**With an agent (recommended).** richter ships an invoke-only `richter-setup` skill: run `/richter-setup`
+(or ask your agent to "set up richter") and it inspects the project, proposes `config/richter.php`, and
+— only if you say yes — scaffolds a CI comment workflow, confirming every write. To make the skill
+available: with **boost-core**, add `sandermuller/richter` to `withAllowedVendors([...])` in your
+`boost.php`, then `vendor/bin/boost sync`; with **laravel/boost**, it's discovered as a third-party AI
+package (an existing install may need `boost:update` / package selection).
+
+**Or paste these prompts to any agent** (two, so CI stays opt-in):
+
+_Configure:_
+
+> Set up richter for this Laravel project. Inspect the code and **propose** edits to `config/richter.php` — show me each change and get my OK, write nothing unasked. Cover: `default_base` (my repo's real default branch), `entry_point_roots` (any `app/` subsystem reached via runtime/vendor dispatch — form-builder Forms, registry-dispatched calculators — that `richter:detect-changes` reports `UNRESOLVED`; pick the narrowest dir), `dispatch_helpers` (custom job-dispatch wrapper functions), frontend roots if there's an Inertia/Wayfinder/Ziggy frontend, and `editor: null` if this is mainly for CI. Also flag any Laravel Brain config (`security.auth_middleware`/`throttle_middleware`, route/command/listener discovery) that would fix mis-classified routes at the source.
+
+_Add the CI advisory comment:_
+
+> Add a GitHub Actions workflow that posts the richter report as an advisory PR comment. First check whether richter is already wired into an existing workflow and integrate there instead of adding a duplicate. Make the whole job non-blocking, least-privilege (`permissions: contents: read, pull-requests: write`), triggered on `pull_request` (not `pull_request_target`), checkout with `fetch-depth: 0`, run `php artisan richter:detect-changes --base=<PR base sha> --markdown` and post it as a sticky comment. Show me the file before creating it.
+
 ## Usage
 
 ### Blast radius of a symbol
