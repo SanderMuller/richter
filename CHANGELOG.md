@@ -5,6 +5,24 @@ All notable changes to `sandermuller/richter` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.17.2 - 2026-08-02
+
+A precision fix: changing or adding one constant in a grouped `const A = …, B = …;` declaration no longer treats every co-declared constant as changed, so the blast radius stays scoped to what actually changed.
+
+### Fixed
+
+- **Grouped constant and property declarations are pinned per item.** A multi-item declaration — `const A = …, B = …;` or `public $a, $b;` — gave every item the whole statement's line span. Touching one item, or adding a sibling to the group, then fell inside every item's span, so richter marked every co-declared member changed. Since 0.17.0 seeds constants precisely, adding one constant to a large group (e.g. a company- or identifier-style enum) fanned the blast radius out to every constant's readers — a long, misleading list of reached entry points and impacted nodes. Each item now gets its own line span, so a change pins to the item that actually changed.
+  
+- **A comment between members is no longer a class-level change.** A comment-only line sitting outside every member — for example, documenting one entry of a grouped declaration — previously registered as a coarse class-level modification and lowered confidence. It is now recognised as the non-behavioural change it is.
+  
+
+### Internal
+
+- Diff-classification only — the graph output is unchanged, so warm caches stay valid (no `GraphCache` format-version bump).
+- Suite: 837 tests / 1,954 assertions, including regressions that adding one constant to a group is additive, that modifying one flags only that constant, and that a comment between members is not a change.
+
+**Full Changelog**: https://github.com/SanderMuller/richter/compare/v0.17.1...v0.17.2
+
 ## v0.17.1 - 2026-08-01
 
 A precision fix: adding a new, documented method no longer makes a diff read as a coarse class-level change and raise a false low-confidence flag.
