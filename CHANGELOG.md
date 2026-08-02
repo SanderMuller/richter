@@ -5,6 +5,22 @@ All notable changes to `sandermuller/richter` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.17.5 - 2026-08-02
+
+A setup release: richter now ships a guided way to configure itself for a new project, so a fresh install stops reading `UNRESOLVED` on subsystems the defaults can't see (runtime-dispatched Forms, registry-dispatched calculators) and stops scoping the report against the wrong base branch. No analysis behaviour changed — the engine is byte-identical to 0.17.4.
+
+### Added
+
+- **`richter-setup` skill (invoke-only).** A new boost skill that inspects a Laravel project and *proposes* `config/richter.php` — `default_base`, `entry_point_roots`, `dispatch_helpers`, frontend roots, and the relevant Laravel Brain `security.*` / discovery levers — then, only on explicit opt-in, scaffolds an advisory PR-comment workflow from a shipped template. It never auto-activates (run `/richter-setup` or ask an agent to "set up richter"), reads existing config before proposing, and confirms every write; reading config never publishes it. To make it available: boost-core consumers add `sandermuller/richter` to `withAllowedVendors([...])` and run `boost sync`; laravel/boost discovers it as a third-party AI package.
+- **README "Set up richter for your project" section.** Two paste-able prompts for agents without the skill — one to configure `config/richter.php`, one to add the CI advisory comment — kept separate so the CI step stays opt-in.
+- **Advisory CI workflow template** (`richter-report.yml`, shipped beside the skill). A non-blocking `pull_request` job with least-privilege permissions (`contents: read`, `pull-requests: write`) that runs `richter:detect-changes` and posts the report as a sticky PR comment via first-party `actions/github-script`. Advisory by contract — nothing in it can fail a PR.
+
+### Notes
+
+This release adds shipped resources and documentation only; there are no code or public-API changes, so existing installs need no action to upgrade.
+
+**Full Changelog**: https://github.com/SanderMuller/richter/compare/v0.17.4...v0.17.5
+
 ## v0.17.4 - 2026-08-02
 
 The report now cross-checks a route's `PUBLIC_WRITE` security finding against richter's own authorization edges, flagging a likely false positive when the route is in fact policy-gated.
