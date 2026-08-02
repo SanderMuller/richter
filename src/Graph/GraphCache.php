@@ -33,8 +33,12 @@ final class GraphCache
      * would be served to CHA-aware code and miss the added reach — under-selection.
      * 5 → 6 (plan cref-wire): the graph gained constant/enum-case member nodes + `references-constant`
      * and `declares` edges for them — same reasoning; a stale pre-cref entry would miss them.
+     * 6 → 7: the dispatch tracer stopped emitting `action-to-job` edges for a bare instantiation of a
+     * class that matches the dispatch predicate only via handle()/__invoke() (a plain value object) —
+     * the edge set shrinks for identical file inputs, so a stale pre-fix entry would serve those
+     * phantom edges (over-selection) to the fixed code.
      */
-    private const int FORMAT_VERSION = 6;
+    private const int FORMAT_VERSION = 7;
 
     private ?CodeGraph $memoized = null;
 
