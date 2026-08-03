@@ -150,6 +150,10 @@ A missing signature is a blocker to resolve (unlock the agent, re-authenticate 1
 
 Before claiming any work is complete or successful, run the verification command fresh and confirm the output. Evidence before claims, always.
 
+### Claims About How the Code Behaves — Trace, Don't Assume
+
+A claim about **how the code currently behaves** — a root cause, an existing mechanism, or present behavior — in a spec, PR, commit message, code-review finding, issue, comment, or answer must be traced to the actual code (or observed at runtime) **before** you write it, never asserted from plausibility. (This governs statements of *fact about the present code*; the *intended* future behavior a spec or PR proposes is fine when it's clearly framed as a requirement, proposal, or decision — not disguised as a fact about what already exists.) Every illustrative example must be one you actually observed, never invented to fit a guess. A wrong "why" is worse than none: reproduction steps, tests, QA testables, and the fix itself all get built on the stated cause, so one unverified guess corrupts everything derived from it. When you have not traced it, say so — mark it `NEEDS-CONFIRMATION` or ask — rather than asserting. (A ticket once claimed a list was "sorted by display name" and backed it with an example that could not occur; the sort actually keyed on an internal identifier — one grep away. The trace is cheap; the false premise is not.)
+
 ### Required Before Any Completion Claim
 
 1. **Run** the relevant command (in the current message, not from memory)
