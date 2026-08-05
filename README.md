@@ -262,6 +262,20 @@ spread, an unparseable resource) is silently skipped rather than guessed at. On 
 it for one run with `--no-payload-parity` or globally via `payload_parity.enabled` (see
 [Configuration](#configuration)).
 
+The same lane runs in the **consumer direction**: a `toArray()` key the diff *removes* from a
+resource is flagged when a frontend file that consumes one of the routes the resource reaches
+still reads it (`resources/js/Pages/Posts/Show.vue references GET /posts/{post} and reads
+'published_at', which this diff removes from App\Http\Resources\PostResource (renamed to
+'publishedAt'?)` — the rename hint appears only when exactly one key was removed and one added,
+never from a similarity guess). Consumers are the configured `frontend.roots` JS/TS files plus
+every Blade view's inline `<script>` blocks (server-side Blade PHP never counts as a read), matched
+access-shaped only (`.key`, `['key']`, destructuring) so a translation key or unrelated variable
+can't trigger it. The key diff is stricter than the model→resource side: a conditional
+(`mergeWhen`) or constant-keyed entry makes the whole side unenumerable — silence, never a guessed
+removal. The consumer scan only runs on a diff that actually removed a key, shares the
+`payload_parity.enabled` switch and `--no-payload-parity` flag, and a false positive is suppressed
+per key with an `ignore` entry (`App\Http\Resources\PostResource::published_at`).
+
 With `--markdown`, the report renders as GitHub-flavoured markdown: a risk badge up front, changed files as a table, entry points as a review checklist with their file:line, test tags and exposure badges, and long lists collapsed into `<details>` instead of truncated. The result is ready to paste into (or post onto) a pull request. `--markdown --explain` composes.
 
 With `--html=<path>`, the report is written as ONE self-contained HTML file — every style and script inline, nothing fetched — so it opens offline straight from `file://` and travels as a CI artifact you can link from a pull request. It has five tabs: Overview (a Files / Impacted / Depth / Risk stat row, the reached entry points, and what to focus on), Graph (the blast radius as concentric rings, one per BFS depth), Paths (how each entry point reaches the change), Changes (the member-level diff, naming the member that drove a low-confidence verdict), and Advisory (findings, test references, and the gate). `--open` launches it in the default browser afterwards; a failing opener is a warning, never a failed run.
@@ -525,7 +539,7 @@ Point Claude Code, Cursor, or any MCP client at the Artisan entry point, e.g. in
 | `editor` | `phpstorm` (via `CODE_EDITOR` / `DEBUGBAR_EDITOR` / `IGNITION_EDITOR`) | Editor for the clickable `file:line` links in the `--html` report — reuses debugbar's/Ignition's env chain. One of `phpstorm`, `idea`, `vscode`(+`-insiders`/`-remote`/`ium`), `sublime`, `textmate`, `emacs`, `macvim`, `atom`, `nova`, `netbeans`, `xdebug`, or `null` to keep the references plain text. |
 | `dispatch_helpers` | `[]` | Project-custom global job-dispatch helper functions (e.g. `dispatch_with_retries`) the dispatch tracer should follow. |
 | `feature_gate_methods` | `[]` | `FQCN::method` allowlist of project wrappers around Pennant (e.g. `App\Enums\FeatureToggle::isActive`) — an `EnumCase->method()` call then annotates the change as flag-gated, alongside the built-in `Feature` facade / `@feature` support. |
-| `payload_parity` | `{enabled: true, mirror_threshold: 1.0, ignore: []}` | Advisory lane flagging a model field added to `$fillable`/`$casts`/`casts()` but never mirrored into its resource. `mirror_threshold` is the exact-mirror fraction (`1.0` — no-guess by default); `ignore` suppresses a field (`App\Models\X::field`) or a whole resource (its FQCN). Disable for one run with `--no-payload-parity`, or globally by setting `enabled` to `false`. |
+| `payload_parity` | `{enabled: true, mirror_threshold: 1.0, ignore: []}` | Advisory lane flagging payload-parity breaks in both directions: a model field added but never mirrored into its resource, and a resource `toArray()` key removed while a frontend consumer of its routes still reads it. `mirror_threshold` is the exact-mirror fraction (`1.0` — no-guess by default); `ignore` suppresses a model field (`App\Models\X::field`), a resource key (`App\Http\Resources\XResource::key`), or a whole resource (its FQCN, both directions). Disable for one run with `--no-payload-parity`, or globally by setting `enabled` to `false`. |
 | `entry_point_roots` | `Jobs`, `Listeners`, `Console/Commands`, `Filament`, `Helpers`, `Http/Middleware`, `Livewire`, `Observers` | Directories under `app/` traced as entry points beyond Brain's route-anchored graph (graph tracing only; the analyzer's risk-floor namespace heuristics are fixed). |
 | `frontend.roots` | `[]` (off) | Frontend roots whose changed TS/JS/Vue files are scanned for Wayfinder/Ziggy endpoint references (see [Frontend changes](#frontend-changes-wayfinder--ziggy)). |
 | `frontend.generated_paths` | `actions`, `routes`, `wayfinder`, `ziggy.js` | Wayfinder's generated trees and Ziggy's generated route map under each frontend root — excluded from scanning as regeneration churn. Each entry matches a directory, an exact file, or a `*`-glob (crosses `/`). `.d.ts` files are always excluded, regardless of this list. |

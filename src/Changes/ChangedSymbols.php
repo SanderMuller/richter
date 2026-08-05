@@ -4,6 +4,7 @@ namespace SanderMuller\Richter\Changes;
 
 use Illuminate\Support\Facades\Process;
 use RuntimeException;
+use SanderMuller\Richter\Analysis\ResourceKeyParser;
 use SanderMuller\Richter\Graph\BladeViews;
 use SanderMuller\Richter\Support\Fqcn;
 use SanderMuller\Richter\Support\GitProjectPaths;
@@ -256,8 +257,9 @@ final class ChangedSymbols
         }
 
         [$modelFieldSet, $addedModelFields] = self::modelFields($file, $isNew, $headSrc, $baseSrc);
+        [$removedResourceKeys, $addedResourceKeys] = ResourceKeyParser::diffFor($file, $isNew, $headSrc, $baseSrc);
 
-        return new ChangedFileSymbols($file, Fqcn::fromPath($file), $members, $members === [], findings: self::sourceFindings($members, $head['members'], $headSrc, $eagerLoadChecker, $featureGateChecker, $inertiaPageChecker), modelFieldSet: $modelFieldSet, addedModelFields: $addedModelFields, isNewFile: $isNew);
+        return new ChangedFileSymbols($file, Fqcn::fromPath($file), $members, $members === [], findings: self::sourceFindings($members, $head['members'], $headSrc, $eagerLoadChecker, $featureGateChecker, $inertiaPageChecker), modelFieldSet: $modelFieldSet, addedModelFields: $addedModelFields, isNewFile: $isNew, removedResourceKeys: $removedResourceKeys, addedResourceKeys: $addedResourceKeys);
     }
 
     /**

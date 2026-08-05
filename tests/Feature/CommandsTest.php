@@ -7,6 +7,7 @@ use Illuminate\Foundation\Application;
 use Illuminate\Process\PendingProcess;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Process;
+use Illuminate\Support\Facades\Route;
 use Illuminate\Testing\PendingCommand;
 use InvalidArgumentException;
 use PHPUnit\Framework\Attributes\Test;
@@ -625,6 +626,94 @@ final class CommandsTest extends TestCase
         $this->assertSame('HEAD', $decoded['base']);
         $this->assertTrue($decoded['determinable']);
         $this->assertSame([], $decoded['tests']);
+    }
+
+    #[Test]
+    public function a_removed_resource_key_still_read_by_a_consumer_is_a_finding(): void
+    {
+        // End-to-end consumer parity: the fixture's review-consumer.ts fetches the
+        // reviews route and reads `.summary`; the faked diff removes 'summary' from the
+        // resource that route's controller composes. The finding is advisory — the risk
+        // level must be identical with the lane switched off.
+        $withLane = $this->detectChangesJsonForRemovedResourceKey();
+        $withoutLane = $this->detectChangesJsonForRemovedResourceKey(noPayloadParity: true);
+
+        $findings = $withLane['findings'] ?? null;
+        $this->assertIsArray($findings);
+        $expected = "resources/js/review-consumer.ts references GET /posts/{post}/reviews and reads 'summary', which this diff removes from App\\Http\\Resources\\Api\\v2\\Post\\ReviewResource";
+        $this->assertContains($expected, $findings);
+
+        $withoutFindings = $withoutLane['findings'] ?? null;
+        $this->assertIsArray($withoutFindings);
+        $this->assertNotContains($expected, $withoutFindings);
+        $this->assertSame($withoutLane['risk'], $withLane['risk']);
+    }
+
+    #[Test]
+    public function consumer_parity_findings_never_alter_the_affected_tests_selection(): void
+    {
+        // Findings are advisory strings — the selection and its determinability must be
+        // byte-identical with the whole parity family on or off.
+        $this->fakeRemovedResourceKeyDiff();
+        config()->set('richter.payload_parity.enabled', true);
+        $this->withoutMockingConsoleOutput();
+        Artisan::call('richter:affected-tests', ['--base' => 'some-base', '--json' => true]);
+        $withLane = Artisan::output();
+
+        $this->fakeRemovedResourceKeyDiff();
+        config()->set('richter.payload_parity.enabled', false);
+        Artisan::call('richter:affected-tests', ['--base' => 'some-base', '--json' => true]);
+
+        $this->assertSame($withLane, Artisan::output());
+    }
+
+    /** Fixture base path, frontend root config, the reviews route on the running router, and a faked diff removing 'summary' from ReviewResource. */
+    private function fakeRemovedResourceKeyDiff(): void
+    {
+        $this->useFixtureProject();
+        config()->set('richter.frontend.roots', ['resources/js']);
+        // The consumer index resolves endpoint literals against the RUNNING app's router.
+        Route::get('/posts/{post}/reviews', ['App\Http\Controllers\Post\ReviewController', 'show'])->name('posts.reviews.show');
+
+        $file = 'app/Http/Resources/Api/v2/Post/ReviewResource.php';
+        $headSource = (string) file_get_contents(self::fixtureProjectPath() . '/' . $file);
+        $needle = "            'slug' => \$this->slug,";
+        $index = array_search($needle, explode("\n", $headSource), true);
+        $this->assertIsInt($index);
+        $line = $index + 1;
+        $baseSource = str_replace($needle, $needle . "\n            'summary' => true,", $headSource);
+
+        $diff = "diff --git a/{$file} b/{$file}\n--- a/{$file}\n+++ b/{$file}\n"
+            . '@@ -' . ($line + 1) . ",1 +{$line},0 @@\n"
+            . "-            'summary' => true,\n";
+
+        Process::fake([
+            '*merge-base*' => Process::result("abc123\n"),
+            '*rev-parse*' => Process::result(),
+            '*status*' => Process::result(''),
+            '*show*' => Process::result($baseSource),
+            '*diff*' => Process::result($diff),
+        ]);
+    }
+
+    /** @return array<mixed> */
+    private function detectChangesJsonForRemovedResourceKey(bool $noPayloadParity = false): array
+    {
+        $this->fakeRemovedResourceKeyDiff();
+
+        $this->withoutMockingConsoleOutput();
+        $parameters = ['--base' => 'some-base', '--json' => true];
+
+        if ($noPayloadParity) {
+            $parameters['--no-payload-parity'] = true;
+        }
+
+        Artisan::call('richter:detect-changes', $parameters);
+
+        $document = json_decode(Artisan::output(), true, flags: JSON_THROW_ON_ERROR);
+        $this->assertIsArray($document);
+
+        return $document;
     }
 
     #[Test]

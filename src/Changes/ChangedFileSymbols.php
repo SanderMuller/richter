@@ -4,6 +4,7 @@ namespace SanderMuller\Richter\Changes;
 
 use SanderMuller\Richter\Analysis\ImpactAnalyzer;
 use SanderMuller\Richter\Analysis\PayloadParityChecker;
+use SanderMuller\Richter\Analysis\ResourceKeyParser;
 
 /**
  * The member-level change set for one changed PHP file. `cosmeticOnly` files seed nothing; a file
@@ -30,6 +31,12 @@ final readonly class ChangedFileSymbols
      *   whose base source was readable
      * @param  bool  $isNewFile  the diff's old side was `/dev/null` — a genuinely new file, which is a
      *   real change even though every member of it reads as added ({@see hasOnlyAdditiveOrCosmeticChanges()})
+     * @param  list<string>  $removedResourceKeys  a changed resource file's `toArray()` keys present at
+     *   base and absent at head, strict-mode-parsed ({@see ResourceKeyParser}) —
+     *   the consumer-parity lane's trigger; empty for a non-resource file, a new file, an unreadable
+     *   base, or a `null` strict parse on either side
+     * @param  list<string>  $addedResourceKeys  the inverse diff (head − base), feeding the finding's
+     *   rename hint; same emptiness rules as `$removedResourceKeys`
      */
     public function __construct(
         public string $file,
@@ -42,6 +49,8 @@ final readonly class ChangedFileSymbols
         public array $modelFieldSet = [],
         public array $addedModelFields = [],
         public bool $isNewFile = false,
+        public array $removedResourceKeys = [],
+        public array $addedResourceKeys = [],
     ) {}
 
     /** @return list<MemberChange> */

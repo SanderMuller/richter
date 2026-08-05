@@ -9,7 +9,6 @@ use SanderMuller\Richter\Graph\CodeGraph;
 use SanderMuller\Richter\Graph\NodeMetadata;
 use SanderMuller\Richter\Support\AppNamespace;
 use SanderMuller\Richter\Support\Fqcn;
-use SanderMuller\Richter\Support\RichterConfig;
 
 /**
  * Over a {@see CodeGraph}: impact(symbol) blast radius + detectChanges(files) reached entry points/risk.
@@ -262,20 +261,14 @@ final readonly class ImpactAnalyzer
         [$risk, $coarseCapApplied] = $this->riskWithCoarseCap($impacted, $riskEntryPointCount, $touchesEntryClass, $preciseSeeds, $lowConfidence, $maxDepth, $riskInputsMemo);
 
         $findings = $newFileFindings;
-        $payloadParityChecker = ($payloadParityEnabled ?? RichterConfig::payloadParityEnabled())
-            ? new PayloadParityChecker($this->graph, RichterConfig::payloadParityMirrorThreshold(), RichterConfig::payloadParityIgnore())
-            : null;
+        [$modelParityLane, $consumerParityLane] = ParityFindings::checkers($this->graph, $payloadParityEnabled);
 
         foreach ($changed as $file) {
             foreach ($file->findings as $finding) {
                 $findings[] = "{$file->file}: {$finding}";
             }
 
-            // No file prefix here — unlike the source-checker findings above, this note names the
-            // RESOURCE the model change affects, not the changed model file itself.
-            if ($payloadParityChecker instanceof PayloadParityChecker && $file->addedModelFields !== []) {
-                $findings = [...$findings, ...$payloadParityChecker->findingsFor($file->fqcn, $file->modelFieldSet, $file->addedModelFields)];
-            }
+            $findings = [...$findings, ...ParityFindings::for($file, $modelParityLane, $consumerParityLane)];
         }
 
         [$entryPointLocations, $entryPointSecurity, $entryPointGates] = $this->entryPointAnnotations($entryPoints);

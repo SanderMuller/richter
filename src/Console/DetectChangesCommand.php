@@ -44,7 +44,7 @@ final class DetectChangesCommand extends Command
         {--fail-on= : Exit non-zero when risk is at least this level (low|medium|high); advisory by default}
         {--fail-on-unresolved : Exit non-zero when any changed PHP file is UNRESOLVED}
         {--no-cache : Build the code graph fresh, bypassing the graph cache}
-        {--no-payload-parity : Skip the payload-parity findings lane (a model field added but never mirrored in a resource)}
+        {--no-payload-parity : Skip the payload-parity findings lanes (a model field never mirrored in a resource; a removed resource key a frontend consumer still reads)}
         {--profile : Time each graph-build phase and print the split to stderr (forces a fresh build)}
         {--html= : Write a self-contained HTML report to this path (all CSS/JS inline; opens offline)}
         {--open : Open the --html report in the default browser after writing it}';

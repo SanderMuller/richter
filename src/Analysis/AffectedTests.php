@@ -64,8 +64,11 @@ final class AffectedTests
         }
 
         $graph = $graphs->graph(fresh: $fresh);
+        // Parity lanes off: they only produce findings, which the selection never reads —
+        // and the consumer lane would otherwise pay a whole frontend-tree scan on a CI
+        // hot path for output this command discards.
         $selection = self::select(
-            new ImpactAnalyzer($graph)->detectChanges($changed),
+            new ImpactAnalyzer($graph)->detectChanges($changed, payloadParityEnabled: false),
             $changed,
             TestReferenceIndex::fromTests(base_path('tests'), base_path()),
             $graph->hasUnresolvedDispatches(),

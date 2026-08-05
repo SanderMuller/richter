@@ -929,6 +929,113 @@ final class ChangedSymbolsTest extends TestCase
     }
 
     #[Test]
+    public function a_changed_resource_carries_its_removed_and_added_keys(): void
+    {
+        $base = "<?php\nnamespace App\\Http\\Resources;\nclass PostResource\n{\n    public function toArray(\$request): array\n    {\n        return ['id' => 1, 'published_at' => 2];\n    }\n}\n";
+        $head = "<?php\nnamespace App\\Http\\Resources;\nclass PostResource\n{\n    public function toArray(\$request): array\n    {\n        return ['id' => 1, 'publishedAt' => 2];\n    }\n}\n";
+        $hunk = $this->hunk([[7, "        return ['id' => 1, 'publishedAt' => 2];"]], [[7, "        return ['id' => 1, 'published_at' => 2];"]]);
+
+        $result = ChangedSymbols::classifyFile('app/Http/Resources/PostResource.php', $head, $base, $hunk);
+
+        $this->assertSame(['published_at'], $result->removedResourceKeys);
+        $this->assertSame(['publishedAt'], $result->addedResourceKeys);
+    }
+
+    #[Test]
+    public function an_addition_only_resource_edit_yields_an_empty_removed_set(): void
+    {
+        $base = "<?php\nnamespace App\\Http\\Resources;\nclass PostResource\n{\n    public function toArray(\$request): array\n    {\n        return ['id' => 1];\n    }\n}\n";
+        $head = "<?php\nnamespace App\\Http\\Resources;\nclass PostResource\n{\n    public function toArray(\$request): array\n    {\n        return ['id' => 1, 'title' => 2];\n    }\n}\n";
+        $hunk = $this->hunk([[7, "        return ['id' => 1, 'title' => 2];"]], [[7, "        return ['id' => 1];"]]);
+
+        $result = ChangedSymbols::classifyFile('app/Http/Resources/PostResource.php', $head, $base, $hunk);
+
+        $this->assertSame([], $result->removedResourceKeys);
+        $this->assertSame(['title'], $result->addedResourceKeys);
+    }
+
+    #[Test]
+    public function a_new_resource_file_carries_no_key_diff(): void
+    {
+        // No consumer relies on a key that never shipped.
+        $head = "<?php\nnamespace App\\Http\\Resources;\nclass PostResource\n{\n    public function toArray(\$request): array\n    {\n        return ['id' => 1];\n    }\n}\n";
+        $hunk = $this->hunk([[1, '<?php']], []);
+
+        $result = ChangedSymbols::classifyFile('app/Http/Resources/PostResource.php', $head, null, $hunk);
+
+        $this->assertSame([], $result->removedResourceKeys);
+        $this->assertSame([], $result->addedResourceKeys);
+    }
+
+    #[Test]
+    public function a_key_moved_into_merge_when_never_reads_as_removed(): void
+    {
+        // Strict mode: an unkeyed item hides its keys, so the whole side aborts — a
+        // conditional key must not fabricate a removed-key finding.
+        $base = "<?php\nnamespace App\\Http\\Resources;\nclass PostResource\n{\n    public function toArray(\$request): array\n    {\n        return ['id' => 1, 'published_at' => 2];\n    }\n}\n";
+        $head = "<?php\nnamespace App\\Http\\Resources;\nclass PostResource\n{\n    public function toArray(\$request): array\n    {\n        return ['id' => 1, \$this->mergeWhen(true, ['published_at' => 2])];\n    }\n}\n";
+        $hunk = $this->hunk([[7, "        return ['id' => 1, \$this->mergeWhen(true, ['published_at' => 2])];"]], [[7, "        return ['id' => 1, 'published_at' => 2];"]]);
+
+        $result = ChangedSymbols::classifyFile('app/Http/Resources/PostResource.php', $head, $base, $hunk);
+
+        $this->assertSame([], $result->removedResourceKeys);
+    }
+
+    #[Test]
+    public function a_const_keyed_resource_entry_aborts_the_strict_key_diff(): void
+    {
+        // A base-side constant would resolve against the HEAD codebase — silence, never
+        // a wrong value.
+        $base = "<?php\nnamespace App\\Http\\Resources;\nclass PostResource\n{\n    public function toArray(\$request): array\n    {\n        return [self::KEY => 1, 'published_at' => 2];\n    }\n}\n";
+        $head = "<?php\nnamespace App\\Http\\Resources;\nclass PostResource\n{\n    public function toArray(\$request): array\n    {\n        return [self::KEY => 1];\n    }\n}\n";
+        $hunk = $this->hunk([[7, '        return [self::KEY => 1];']], [[7, "        return [self::KEY => 1, 'published_at' => 2];"]]);
+
+        $result = ChangedSymbols::classifyFile('app/Http/Resources/PostResource.php', $head, $base, $hunk);
+
+        $this->assertSame([], $result->removedResourceKeys);
+    }
+
+    #[Test]
+    public function a_deleted_resource_file_carries_no_key_diff(): void
+    {
+        // A deletion has no head source; it degrades to an empty string upstream, whose
+        // strict parse is null — the lane stays silent and the blast radius owns the story.
+        $base = "<?php\nnamespace App\\Http\\Resources;\nclass PostResource\n{\n    public function toArray(\$request): array\n    {\n        return ['id' => 1];\n    }\n}\n";
+        $hunk = $this->hunk([], [[7, "        return ['id' => 1];"]]);
+
+        $result = ChangedSymbols::classifyFile('app/Http/Resources/PostResource.php', '', $base, $hunk);
+
+        $this->assertSame([], $result->removedResourceKeys);
+        $this->assertSame([], $result->addedResourceKeys);
+    }
+
+    #[Test]
+    public function a_non_resource_path_carries_no_key_diff_even_with_a_to_array(): void
+    {
+        $base = "<?php\nclass Widget\n{\n    public function toArray(\$request): array\n    {\n        return ['id' => 1, 'name' => 2];\n    }\n}\n";
+        $head = "<?php\nclass Widget\n{\n    public function toArray(\$request): array\n    {\n        return ['id' => 1];\n    }\n}\n";
+        $hunk = $this->hunk([[6, "        return ['id' => 1];"]], [[6, "        return ['id' => 1, 'name' => 2];"]]);
+
+        $result = ChangedSymbols::classifyFile('app/Support/Widget.php', $head, $base, $hunk);
+
+        $this->assertSame([], $result->removedResourceKeys);
+    }
+
+    #[Test]
+    public function a_non_app_root_namespace_resource_is_matched_by_path(): void
+    {
+        // Path-prefix matching is namespace-independent — an Acme\-rooted app's resource
+        // still carries its key diff.
+        $base = "<?php\nnamespace Acme\\Http\\Resources;\nclass PostResource\n{\n    public function toArray(\$request): array\n    {\n        return ['id' => 1, 'published_at' => 2];\n    }\n}\n";
+        $head = "<?php\nnamespace Acme\\Http\\Resources;\nclass PostResource\n{\n    public function toArray(\$request): array\n    {\n        return ['id' => 1];\n    }\n}\n";
+        $hunk = $this->hunk([[7, "        return ['id' => 1];"]], [[7, "        return ['id' => 1, 'published_at' => 2];"]]);
+
+        $result = ChangedSymbols::classifyFile('app/Http/Resources/PostResource.php', $head, $base, $hunk);
+
+        $this->assertSame(['published_at'], $result->removedResourceKeys);
+    }
+
+    #[Test]
     public function an_existing_model_carries_its_field_set_and_added_names(): void
     {
         $base = "<?php\nclass Post\n{\n    protected \$fillable = ['title'];\n}\n";

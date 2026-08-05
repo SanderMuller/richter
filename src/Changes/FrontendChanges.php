@@ -159,7 +159,12 @@ final class FrontendChanges
         return array_values(array_unique($this->seedsForUris($uris, $indexes['uriTemplates'])));
     }
 
-    private function scriptSlices(string $source): string
+    /**
+     * The concatenated contents of every inline `<script>` block — the only slice of a
+     * Blade view that carries endpoint *calls* rather than link generation. Public: the
+     * consumer index reduces whole views through the same extraction.
+     */
+    public function scriptSlices(string $source): string
     {
         preg_match_all('/<script\b[^>]*>(.*?)<\/script>/is', $source, $matches);
 

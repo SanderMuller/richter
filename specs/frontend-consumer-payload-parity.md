@@ -1,6 +1,6 @@
 # Frontend-Consumer Payload Parity
 
-<!-- spec:planned-at b272efb918d5cbba193e6ceadd0e65f7548cf301 2026-08-05 +uncommitted -->
+<!-- spec:planned-at 43ce34aa4dbc0b3f2c0e61f981e81ea564091da5 2026-08-05 -->
 
 ## Overview
 
@@ -37,7 +37,7 @@ Sign-off-ready by skimming this section alone. -->
   never a similarity guess.
 - **No new config toggle**: the lane rides the existing `payload_parity.enabled` switch
   and the `--no-payload-parity` flag (the same `$payloadParityEnabled` parameter that
-  gates the model→resource checker, src/Analysis/ImpactAnalyzer.php:229-241). One knob
+  gates the model→resource checker, src/Analysis/ImpactAnalyzer.php:265-274). One knob
   for one findings family. AI-chosen default.
 - **`payload_parity.ignore` gains a resource-key form**: existing entries are
   `App\Models\X::field` or a resource FQCN; `App\Http\Resources\XResource::key` now also
@@ -92,7 +92,7 @@ All anchors verified at the stamp commit.
   during classification and carries it on `ChangedFileSymbols`
   (`modelFieldSet`/`addedModelFields`, src/Changes/ChangedFileSymbols.php:34-46);
   `ImpactAnalyzer::detectChanges()` consumes it in the parity lane
-  (src/Analysis/ImpactAnalyzer.php:229-241).
+  (src/Analysis/ImpactAnalyzer.php:265-274).
 - **Resource→route reachability exists**: `ReferenceEdgeTracer` draws `resource` edges
   from any referencing class — including nested resource composition — so
   `callersOf(<resource FQCN>)` walks up through parent resources and actions to `route::`
@@ -160,7 +160,7 @@ changed resource FQCN and its removed/added key sets:
    (`$item['published_at']`) and markup would match, a false-positive class the
    accepted profile does not include.
 4. **Finding text**, hedged and evidence-first — as rendered by the CLI (the leading
-   `! ` is `ImpactFormatter` decoration, src/Analysis/ImpactFormatter.php:87; the
+   `! ` is `ImpactFormatter` decoration, src/Analysis/ImpactFormatter.php:126; the
    finding *string* carries no prefix):
 
    ```text
@@ -206,19 +206,19 @@ the gate, `affected-tests` selection or determinability.
 
 **ID:** resource-key-diff · **Depends:** none
 
-- [ ] Extract the content-accepting key-parse core from
+- [x] Extract the content-accepting key-parse core from
       `PayloadParityChecker::parseKeys()` with a strict-mode parameter (default mode =
       today's behaviour; strict = literal string keys only, abort on unkeyed items,
       const-fetch keys, spreads, dynamic keys) — path handling and memo stay in the
       checker; existing payload-parity tests must pass unmodified.
-- [ ] Compute `removedResourceKeys`/`addedResourceKeys` in `ChangedSymbols` for changed
+- [x] Compute `removedResourceKeys`/`addedResourceKeys` in `ChangedSymbols` for changed
       files whose path starts with `app/Http/Resources/` or `app/Transformers/`
       (path-prefix matching per the `modelFields()` precedent, ChangedSymbols.php:274 —
       never an `App\` FQCN prefix, which breaks non-`App\` root namespaces), using strict
       mode on `$baseSrc`/`$headSrc` — base − head and head − base; empty on new file,
       unreadable base, or a `null` strict parse.
-- [ ] Add both properties to `ChangedFileSymbols` (defaulted, like the model-field pair).
-- [ ] Tests — in `tests/Unit/ChangedSymbolsTest.php` (key-diff behaviour) and
+- [x] Add both properties to `ChangedFileSymbols` (defaulted, like the model-field pair).
+- [x] Tests — in `tests/Unit/ChangedSymbolsTest.php` (key-diff behaviour) and
       `tests/Unit/PayloadParityCheckerTest.php` (parser-extraction regression net, green
       unmodified): removed key detected; added-only diff yields empty removed set; new
       resource file silent; deleted resource silent (empty-string head); a key moved
@@ -231,17 +231,17 @@ the gate, `affected-tests` selection or determinability.
 
 **ID:** consumer-index · **Depends:** none
 
-- [ ] Make `FrontendChanges::scriptSlices()` reusable (public static or extracted) —
+- [x] Make `FrontendChanges::scriptSlices()` reusable (public static or extracted) —
       behaviour-identical for the changed-Blade lane.
-- [ ] Extract the bridge's extension list and generated-path/`.d.ts` exclusion logic
+- [x] Extract the bridge's extension list and generated-path/`.d.ts` exclusion logic
       into a reusable seam too — `EXTENSIONS` is a private const and the exclusion
       semantics live inside `handles()` (src/Changes/FrontendChanges.php:25, :48-71);
       duplicating them in the index invites bridge/index drift.
-- [ ] Create `src/Analysis/FrontendConsumerIndex.php` — Finder over `frontend.roots`
+- [x] Create `src/Analysis/FrontendConsumerIndex.php` — Finder over `frontend.roots`
       (bridge extensions and exclusions) plus `resources/views` Blade script slices;
       `filesReferencing(string $routeNode)` inverse lookup; cheap `<script` pre-check for
       Blade files.
-- [ ] Tests — a new `tests/Unit/FrontendConsumerIndexTest.php` (no shared test file with
+- [x] Tests — a new `tests/Unit/FrontendConsumerIndexTest.php` (no shared test file with
       resource-key-diff, keeping the phases write-disjoint), using **inline
       `addSource()` sources, not the shared fixture project** (the
       `FrontendTestIndexTest` pattern — count-asserting suites elsewhere must not be
@@ -253,19 +253,19 @@ the gate, `affected-tests` selection or determinability.
 
 **ID:** consumer-parity-findings · **Depends:** resource-key-diff, consumer-index
 
-- [ ] Create `src/Analysis/FrontendConsumerParityChecker.php` (beside-class): affected
+- [x] Create `src/Analysis/FrontendConsumerParityChecker.php` (beside-class): affected
       `route::` nodes via `callersOf(<resource nodes>)`, consuming files via the lazy
       index, access-shaped key scan, rename-aware finding text, `payload_parity.ignore`
       suppression (FQCN and `ResourceFqcn::key` forms).
-- [ ] Wire into `ImpactAnalyzer::detectChanges()` beside the existing parity lane, behind
+- [x] Wire into `ImpactAnalyzer::detectChanges()` beside the existing parity lane, behind
       the same `$payloadParityEnabled` gate; build the index only when removed keys
       survive the ignore list.
-- [ ] Extend the fixture project: a resource composed by a route's controller plus a
+- [x] Extend the fixture project: a resource composed by a route's controller plus a
       consuming JS file and a Blade inline script reading one of its keys. **Caution:**
       several suites assert counts against this fixture (graph nodes, entry points,
       reached routes) — after adding files, run the full suite and update any
       count-asserting test deliberately, never by loosening the assertion.
-- [ ] Tests — Feature (detect-changes E2E on the fixture): removed key read by a consumer
+- [x] Tests — Feature (detect-changes E2E on the fixture): removed key read by a consumer
       → finding with route + rename hint; unaffected-route consumer stays silent; a
       removed key appearing only in a Blade file's server-side PHP produces no finding
       (slice-scoped scan); `--no-payload-parity` silences the lane; findings never alter
@@ -276,13 +276,13 @@ the gate, `affected-tests` selection or determinability.
 
 **ID:** docs · **Depends:** consumer-parity-findings
 
-- [ ] Extend the README payload-parity section: the consumer direction, the finding
+- [x] Extend the README payload-parity section: the consumer direction, the finding
       shape, the access-shaped matching rule and its documented false-positive/negative
       profile, the shared `payload_parity.enabled` switch, and the
       `ResourceFqcn::key` ignore form.
-- [ ] Update the `payload_parity` entry in the README configuration table and the
+- [x] Update the `payload_parity` entry in the README configuration table and the
       `config/richter.php` docblock for the extended `ignore` semantics.
-- [ ] Tests — none executable (docs); check every documented key and flag against the
+- [x] Tests — none executable (docs); check every documented key and flag against the
       shipped code.
 
 ---
@@ -336,3 +336,8 @@ None.
 ## Findings
 
 <!-- Notes added during implementation. Do not remove this section. -->
+
+- **consumer-index (2026-08-05):** The "extract the extensions/exclusions seam" task is
+  satisfied by reusing the bridge's existing public `FrontendChanges::handles()` filter
+  directly (the index walks root files and asks `handles()` per path) — no extraction,
+  no duplication, no drift surface at all. `scriptSlices()` went public as tasked.

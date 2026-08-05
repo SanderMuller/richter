@@ -7,12 +7,42 @@ use Iterator;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use SanderMuller\Richter\Analysis\PayloadParityChecker;
+use SanderMuller\Richter\Analysis\ResourceKeyParser;
 use SanderMuller\Richter\Graph\CodeGraph;
 use SanderMuller\Richter\Tests\TestCase;
 
 final class PayloadParityCheckerTest extends TestCase
 {
     private const string MODEL = 'App\\Models\\Post';
+
+    #[Test]
+    public function strict_mode_aborts_on_an_unkeyed_item_where_default_mode_skips_it(): void
+    {
+        // The two modes exist for opposite failure costs: default (the model→resource
+        // lane) may drop a conditional key — at worst a missed finding; strict (the
+        // classification-time key diff) must abort, or a key moved into mergeWhen would
+        // fabricate a removed-key finding.
+        $source = "<?php\nnamespace App\\Http\\Resources;\nclass PostResource\n{\n    public function toArray(\$request): array\n    {\n        return ['id' => 1, \$this->mergeWhen(true, ['extra' => 2])];\n    }\n}\n";
+
+        $this->assertSame(['id'], ResourceKeyParser::keysOf($source));
+        $this->assertNull(ResourceKeyParser::keysOf($source, strict: true));
+
+        // Spreads and computed keys abort in strict mode too (as they always did in default mode).
+        $spread = "<?php\nnamespace App\\Http\\Resources;\nclass PostResource\n{\n    public function toArray(\$request): array\n    {\n        return [...\$base, 'id' => 1];\n    }\n}\n";
+        $computed = "<?php\nnamespace App\\Http\\Resources;\nclass PostResource\n{\n    public function toArray(\$request): array\n    {\n        return [\$key => 1];\n    }\n}\n";
+        $this->assertNull(ResourceKeyParser::keysOf($spread, strict: true));
+        $this->assertNull(ResourceKeyParser::keysOf($computed, strict: true));
+    }
+
+    #[Test]
+    public function strict_mode_aborts_on_a_class_constant_key(): void
+    {
+        // A base-side constant key would resolve against the autoloaded HEAD codebase —
+        // strict mode never touches reflection.
+        $source = "<?php\nnamespace App\\Http\\Resources;\nclass PostResource\n{\n    public function toArray(\$request): array\n    {\n        return [self::KEY => 1];\n    }\n}\n";
+
+        $this->assertNull(ResourceKeyParser::keysOf($source, strict: true));
+    }
 
     private string $projectRoot;
 

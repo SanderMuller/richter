@@ -113,9 +113,11 @@ return [
     ],
 
     /*
-     * Advisory-only check for a model field ($fillable/$casts/casts()) added to a model but never
-     * added to a resource that mirrors its other fields — the exact shape behind a payload field
-     * silently going missing. Never feeds risk, --fail-on, or affected-tests; only the findings list.
+     * Advisory-only payload-parity checks, both directions: a model field ($fillable/$casts/
+     * casts()) added but never added to a resource that mirrors its other fields, and a resource
+     * toArray() key REMOVED while a frontend consumer of the routes it reaches still reads it —
+     * the two shapes behind a payload field silently going missing. Never feeds risk, --fail-on,
+     * or affected-tests; only the findings list.
      */
     'payload_parity' => [
         'enabled' => true,
@@ -123,8 +125,9 @@ return [
         // count as a mirror of the model. Deliberately exact (1.0) — this is a no-guess advisory
         // check, not a heuristic score.
         'mirror_threshold' => 1.0,
-        // Suppress specific fields or resources, e.g. 'App\Models\Post::internal_flag' or
-        // 'App\Http\Resources\Api\InternalResource'.
+        // Suppress specific model fields ('App\Models\Post::internal_flag'), resource keys
+        // ('App\Http\Resources\PostResource::published_at'), or whole resources by FQCN
+        // ('App\Http\Resources\Api\InternalResource' — both directions).
         'ignore' => [],
     ],
 ];
