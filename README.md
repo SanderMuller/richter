@@ -80,11 +80,14 @@ php artisan vendor:publish --tag=richter-config
 Richter is accurate only once it knows your app's shape — which subsystems are entry surfaces, which
 helpers dispatch jobs, your real base branch, your frontend stack. You can set that up two ways.
 
-**With an agent (recommended).** Richter ships an invoke-only `richter-setup` skill: run `/richter-setup`
-(or ask your agent to "set up Richter") and it inspects the project, proposes `config/richter.php`, and
-— only if you say yes — scaffolds a CI comment workflow. It shows you every edit before writing it. To
-make the skill available: with **boost-core**, add `sandermuller/richter` to `withAllowedVendors([...])` in your
-`boost.php`, then `vendor/bin/boost sync`; with **laravel/boost**, it's discovered as a third-party AI
+**With an agent (recommended).** Richter ships two invoke-only skills. `/richter-setup` (or ask your
+agent to "set up Richter") inspects the project, proposes `config/richter.php`, and — only if you say
+yes — scaffolds a CI comment workflow and registers the MCP server in `.mcp.json`. It shows you every
+edit before writing it. `/richter-review` reviews the current branch graph-first: it runs the report,
+triages the reached entry points (unexpected reach, missing test references, security and gate
+annotations), walks the findings, and closes with an advisory verdict — it recommends, never gates. To
+make the skills available: with **boost-core**, add `sandermuller/richter` to `withAllowedVendors([...])` in your
+`boost.php`, then `vendor/bin/boost sync`; with **laravel/boost**, they're discovered as a third-party AI
 package (an existing install may need `boost:update` / package selection).
 
 **Or paste these prompts to any agent** (two, so CI stays opt-in):
@@ -104,6 +107,7 @@ _Add the CI advisory comment:_
 ```bash
 php artisan richter:impact "App\Services\PostPublisher"
 php artisan richter:impact PostPublisher                     # substrings work too
+php artisan richter:impact "App\Services\PostPublisher" --explain    # chain from each reached entry surface
 php artisan richter:impact "App\Services\PostPublisher" --json       # machine-readable, for scripting
 php artisan richter:impact "App\Services\PostPublisher" --markdown   # PR-ready markdown
 ```
@@ -122,6 +126,15 @@ Dependencies (what "App\Services\PostPublisher" reaches):
 
 Every hop carries its defining file (and line, when known), project-relative — no grepping to find what a report names.
 
+Between the callers and dependencies, the report names the **entry surfaces** the callers walk
+reaches — routes, commands, schedules, and Livewire/Filament component classes — with the same
+annotations `detect-changes` carries: defining location, `[test-referenced]` /
+`[⚠ no test references this]` tags, security exposure (`[public]`, `[authed]`, … — advisory,
+routes only, absence means *not classified*) and Pennant gates. `--explain` adds the shortest call
+chain from each surface down to the symbol. The tags are orientation, not verdicts — `impact`
+reports no risk figure at all, and the section reads `(none)` when the walk reaches no surface.
+The `tests/` scan behind the test tags only runs when a surface was actually reached.
+
 A symbol that matches nothing is a lead rather than a dead end: the report names the nearest graph nodes (ranked by shared identifiers, so a lookup under the wrong root namespace surfaces the real node), or — when nothing in the graph resembles it — how many nodes were scanned.
 
 ```text
@@ -129,7 +142,40 @@ No graph nodes matched "App\Services\TokenInspector". It may not be reachable fr
 Nearest graph nodes: Acme\Services\TokenInspector, Acme\Services\TokenInspector::inspect
 ```
 
-With `--json`, stdout is a single document (`{target, callers, dependencies}`, each hop `{depth, node, via, file?, line?}`), or `{"error": "…"}` on failure.
+With `--json`, stdout is a single document (`{target, callers, dependencies, entryPoints,
+entryPointPaths, entryPointLocations, entryPointSecurity, entryPointGates, entryPointAuthGates,
+entryPointTestReferences}` — the entry-point keys share `detect-changes`' vocabulary and shapes,
+so a consumer parses both reports identically; each hop is `{depth, node, via, file?, line?}`),
+or `{"error": "…"}` on failure.
+
+### Shortest path between two symbols
+
+```bash
+php artisan richter:trace "App\Http\Controllers\PostController" "App\Services\PostPublisher"
+php artisan richter:trace PostController PostPublisher        # substrings work too
+php artisan richter:trace PostController PostPublisher --json       # machine-readable
+php artisan richter:trace PostController PostPublisher --markdown   # PR-pasteable chain
+```
+
+Answers "does FROM reach TO, and through which chain?" — strictly in call direction; swap the
+arguments to query the reverse. A found path prints as one chain, each arrow labelled with the
+edge type connecting its two hops:
+
+```text
+Path from "PostController" to "App\Services\PostPublisher" (call direction, 1 hop(s)):
+  ↳ App\Http\Controllers\PostController::publish →(action-to-service) App\Services\PostPublisher
+```
+
+No path is a result, not an error (exit 0): the report names the deepest caller reached from the
+TO side within the depth limit — how far upstream connectivity extends, not a pointer toward
+FROM — or says plainly that the target has no callers, and reminds you that swapping the
+arguments queries the reverse. An unresolvable symbol *is* an error, deliberately stricter than
+`richter:impact`'s empty result: an empty trace would read as "no path", the one misleading
+answer the command must never give.
+
+With `--json`, stdout is `{from, to, resolvedFrom, resolvedTo, found, path}` — plus
+`furthestReached` (`{node, depth, file?, line?}`) on a miss whose target has callers — or
+`{"error": "…"}` on failure.
 
 ### Advisory change impact of the current diff
 
@@ -445,7 +491,15 @@ Building the code graph is the dominant cost of every command. Richter caches th
 
 ### MCP server
 
-When [`laravel/mcp`](https://github.com/laravel/mcp) is installed, Richter registers a local MCP server named `richter` exposing two read-only tools: `impact` (blast radius of a symbol) and `detect-changes` (advisory impact of the current branch diff). A coding agent can then triage changes without shelling out to Artisan. Because the MCP session holds the graph cache in memory, repeated tool calls in one review don't rebuild the graph. Both tools also return MCP structured content in the same shape as the CLI `--json` output, so an agent can branch on fields instead of parsing prose. The supported range is `laravel/mcp` `^0.8||^0.9`; `composer.json` carries a matching `conflict` entry so an unvalidated release fails at resolution time rather than at boot.
+When [`laravel/mcp`](https://github.com/laravel/mcp) is installed, Richter registers a local MCP server named `richter` exposing four read-only tools — `impact` (blast radius plus reached entry surfaces of a symbol), `trace` (shortest call-direction path between two symbols), `detect-changes` (advisory impact of the current branch diff), and `affected-tests` (the test selection the diff warrants; **`determinable: false` means run the full suite** — every non-determinable cause returns that shape with its reasons, never a tool error) — plus three read-only resources for orientation without a tool call:
+
+| Resource | URI | Content |
+|---|---|---|
+| Entry points | `richter://graph/entry-points` | Every statically-known entry surface — routes, commands, schedules, Livewire/Filament components — with kind and `file:line` where known. |
+| Graph stats | `richter://graph/stats` | Node and edge counts by edge type, plus the honesty flags (`hasUnparseableFiles`, `hasUnresolvedDispatches`). |
+| Config | `richter://config` | The effective analysis configuration: base ref, root namespace, entry-point roots, dispatch helpers, feature-gate wrappers, payload-parity settings, the frontend bridge, cache and parallel switches. |
+
+A coding agent can then triage changes without shelling out to Artisan. Because the MCP session holds the graph cache in memory, repeated tool calls in one review don't rebuild the graph. Every tool returns MCP structured content in the same shape as the CLI `--json` output, so an agent can branch on fields instead of parsing prose. The supported range is `laravel/mcp` `^0.8||^0.9`; `composer.json` carries a matching `conflict` entry so an unvalidated release fails at resolution time rather than at boot.
 
 Point Claude Code, Cursor, or any MCP client at the Artisan entry point, e.g. in `.mcp.json`:
 

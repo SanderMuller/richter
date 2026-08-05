@@ -19,23 +19,62 @@ final class ImpactFormatter
      */
     private const int LIST_CAP = 15;
 
-    /** @param  array{target: string, callers: list<array{depth: int, node: string, via: string, file?: string, line?: int}>, dependencies: list<array{depth: int, node: string, via: string, file?: string, line?: int}>, suggestions?: list<string>, graphNodeCount?: int}  $result */
-    public static function impact(array $result): string
+    /**
+     * @param  array{target: string, callers: list<array{depth: int, node: string, via: string, file?: string, line?: int}>, dependencies: list<array{depth: int, node: string, via: string, file?: string, line?: int}>, entryPoints?: list<string>, entryPointPaths?: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations?: array<string, array{file: string, line?: int}>, entryPointSecurity?: array<string, SecurityShape>, entryPointGates?: array<string, list<string>>, entryPointAuthGates?: array<string, list<string>>, suggestions?: list<string>, graphNodeCount?: int}  $result
+     * @param  bool  $explain  render the call chain from each reached entry surface down to the symbol
+     */
+    public static function impact(array $result, ?TestReferenceIndex $tests = null, bool $explain = false): string
     {
         if ($result['callers'] === [] && $result['dependencies'] === []) {
             return "No graph nodes matched \"{$result['target']}\". It may not be reachable from a traced entry point yet (queue/console coverage is being widened)."
                 . self::missDiagnostic($result['suggestions'] ?? [], $result['graphNodeCount'] ?? null);
         }
 
+        $entryPoints = $result['entryPoints'] ?? [];
+
         $lines = [
             "Callers (what breaks if you change \"{$result['target']}\"):",
             ...self::hops($result['callers']),
+            '',
+            'Entry surfaces reached (' . count($entryPoints) . '):',
+            ...($entryPoints === [] ? ['  (none)'] : self::entryPointList(
+                $entryPoints,
+                $explain ? ($result['entryPointPaths'] ?? []) : [],
+                $result['entryPointLocations'] ?? [],
+                $result['entryPointSecurity'] ?? [],
+                $result['entryPointGates'] ?? [],
+                $result['entryPointAuthGates'] ?? [],
+                $tests,
+            )),
             '',
             "Dependencies (what \"{$result['target']}\" reaches):",
             ...self::hops($result['dependencies']),
         ];
 
         return implode("\n", $lines);
+    }
+
+    /** @param  array{from: string, to: string, resolvedFrom: list<string>, resolvedTo: list<string>, found: bool, path: list<array{node: string, via: string, file?: string, line?: int}>, furthestReached?: array{node: string, depth: int, file?: string, line?: int}}  $result */
+    public static function trace(array $result): string
+    {
+        if ($result['found']) {
+            $hops = count($result['path']) - 1;
+
+            return implode("\n", [
+                "Path from \"{$result['from']}\" to \"{$result['to']}\" (call direction, {$hops} hop(s)):",
+                '  ↳ ' . self::pathChain($result['path'][0]['node'], $result['path']),
+            ]);
+        }
+
+        $furthest = $result['furthestReached'] ?? null;
+
+        return implode("\n", [
+            "No path from \"{$result['from']}\" to \"{$result['to']}\" in call direction.",
+            $furthest === null
+                ? "  \"{$result['to']}\" has no callers in the graph."
+                : "  Upstream walk from \"{$result['to']}\" reached {$furthest['node']} (d{$furthest['depth']}) — the deepest caller within the depth limit, not a pointer toward \"{$result['from']}\".",
+            '  Swap the arguments to query the reverse direction.',
+        ]);
     }
 
     /**

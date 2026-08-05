@@ -15,10 +15,10 @@ use SanderMuller\Richter\Graph\NodeMetadata;
 final class JsonPresenter
 {
     /**
-     * @param  array{target: string, callers: list<array{depth: int, node: string, via: string, file?: string, line?: int}>, dependencies: list<array{depth: int, node: string, via: string, file?: string, line?: int}>, ...}  $result
-     * @return array{target: string, callers: list<array{depth: int, node: string, via: string, file?: string, line?: int}>, dependencies: list<array{depth: int, node: string, via: string, file?: string, line?: int}>}
+     * @param  array{target: string, callers: list<array{depth: int, node: string, via: string, file?: string, line?: int}>, dependencies: list<array{depth: int, node: string, via: string, file?: string, line?: int}>, entryPoints: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, SecurityShape>, entryPointGates: array<string, list<string>>, entryPointAuthGates: array<string, list<string>>, ...}  $result
+     * @return array{target: string, callers: list<array{depth: int, node: string, via: string, file?: string, line?: int}>, dependencies: list<array{depth: int, node: string, via: string, file?: string, line?: int}>, entryPoints: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, SecurityShape>, entryPointGates: array<string, list<string>>, entryPointAuthGates: array<string, list<string>>, entryPointTestReferences: array<string, 'referenced'|'referenced-no-behavioural-assertion'|'unreferenced'>}
      */
-    public static function impact(array $result): array
+    public static function impact(array $result, ?TestReferenceIndex $tests = null): array
     {
         // Picked key by key, not passed through: the analyzer result also carries the miss diagnostics
         // (`suggestions`, `graphNodeCount`) the text report renders, and this document is a declared
@@ -29,7 +29,38 @@ final class JsonPresenter
             'target' => $result['target'],
             'callers' => $result['callers'],
             'dependencies' => $result['dependencies'],
+            'entryPoints' => $result['entryPoints'],
+            'entryPointPaths' => $result['entryPointPaths'],
+            'entryPointLocations' => $result['entryPointLocations'],
+            'entryPointSecurity' => $result['entryPointSecurity'],
+            'entryPointGates' => $result['entryPointGates'],
+            'entryPointAuthGates' => $result['entryPointAuthGates'],
+            'entryPointTestReferences' => self::entryPointTestReferences($result['entryPoints'], $tests),
         ];
+    }
+
+    /**
+     * @param  array{from: string, to: string, resolvedFrom: list<string>, resolvedTo: list<string>, found: bool, path: list<array{node: string, via: string, file?: string, line?: int}>, furthestReached?: array{node: string, depth: int, file?: string, line?: int}}  $result
+     * @return array{from: string, to: string, resolvedFrom: list<string>, resolvedTo: list<string>, found: bool, path: list<array{node: string, via: string, file?: string, line?: int}>, furthestReached?: array{node: string, depth: int, file?: string, line?: int}}
+     */
+    public static function trace(array $result): array
+    {
+        // Picked key by key like impact(): the document is a declared contract the MCP
+        // tool validates against its output schema — widening it is a deliberate change.
+        $document = [
+            'from' => $result['from'],
+            'to' => $result['to'],
+            'resolvedFrom' => $result['resolvedFrom'],
+            'resolvedTo' => $result['resolvedTo'],
+            'found' => $result['found'],
+            'path' => $result['path'],
+        ];
+
+        if (isset($result['furthestReached'])) {
+            $document['furthestReached'] = $result['furthestReached'];
+        }
+
+        return $document;
     }
 
     /**

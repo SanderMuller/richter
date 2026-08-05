@@ -1,6 +1,6 @@
 ---
 name: richter-setup
-description: "Invoke-only — run with `/richter-setup` or when asked to set up/configure richter; never activates on its own. Inspects a Laravel project and proposes config/richter.php (entry-point roots, dispatch helpers, base branch, frontend, Brain security), and optionally scaffolds a CI advisory-comment workflow. Proposes and confirms every write; never writes unasked."
+description: "Invoke-only — run with `/richter-setup` or when asked to set up/configure richter; never activates on its own. Inspects a Laravel project and proposes config/richter.php (entry-point roots, dispatch helpers, base branch, frontend, Brain security), and optionally scaffolds a CI advisory-comment workflow and registers richter's MCP server in .mcp.json. Proposes and confirms every write; never writes unasked."
 disable-model-invocation: true
 metadata:
   schema-required: "^1"
@@ -25,7 +25,8 @@ auto-activates.
 - **Propose, then confirm.** Show each proposed edit (a diff or the exact block) and get an explicit
   yes before writing `config/richter.php`. Reading the config must never publish or create it as a
   side effect.
-- **CI is opt-in.** Never scaffold or edit a workflow unless the user explicitly says yes to Step 3.
+- **CI and MCP registration are opt-in.** Never scaffold or edit a workflow (Step 3) or touch
+  `.mcp.json` / `composer.json` (Step 4) unless the user explicitly says yes to that step.
 - **Idempotent.** Read existing config first; propose only additions/adjustments, never a blind
   overwrite.
 - **Hedge — these are heuristics.** Propose the narrowest change, state the why and the false-positive
@@ -106,6 +107,36 @@ The template is advisory-by-contract: the whole job is non-blocking, it declares
 `permissions`, and it triggers on `pull_request` (never `pull_request_target` with a privileged token).
 Note that a fork PR may lack comment-write permission depending on repo settings — the job stays
 non-blocking regardless.
+
+## Step 4 — MCP registration (opt-in)
+
+**Ask first:** "Register richter's MCP server in `.mcp.json`, so coding agents can query impact and
+triage the branch diff without shelling out?" Do nothing here unless the user says yes.
+
+On yes:
+
+1. **Check whether `laravel/mcp` is installed** (`composer show laravel/mcp`, or the `require-dev`
+   block). richter only suggests it; the server registers itself automatically once the package is
+   present. If it is absent, the proposal starts with `composer require --dev laravel/mcp` (richter's
+   supported range is `^0.8||^0.9` — an unvalidated release fails at resolution time by design).
+2. **Propose the `.mcp.json` entry — merge, never overwrite.** Read any existing `.mcp.json` first: if
+   other servers are registered, propose adding the `richter` key beside them; if a `richter` entry
+   already exists, say so and change nothing (idempotent). Only when no file exists, propose creating:
+
+   ```json
+   {
+       "mcpServers": {
+           "richter": {
+               "command": "php",
+               "args": ["artisan", "mcp:start", "richter"]
+           }
+       }
+   }
+   ```
+
+3. **Confirm before writing**, as with every step. The server exposes read-only analysis only
+   (impact, trace, detect-changes, affected-tests, plus orientation resources) — registering it
+   changes no application behaviour.
 
 ## After setup
 

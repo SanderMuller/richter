@@ -2,10 +2,15 @@
 
 namespace SanderMuller\Richter\Analysis;
 
+use InvalidArgumentException;
+use RuntimeException;
 use SanderMuller\Richter\Changes\ChangedFileSymbols;
+use SanderMuller\Richter\Changes\ChangedSymbols;
 use SanderMuller\Richter\Graph\CodeGraph;
+use SanderMuller\Richter\Graph\GraphCache;
 use SanderMuller\Richter\Support\AppNamespace;
 use SanderMuller\Richter\Support\DispatchTarget;
+use SanderMuller\Richter\Support\RichterConfig;
 
 /**
  * Inverts the test-reference mapping into a test selection: which test files exercise the surface
@@ -19,6 +24,82 @@ use SanderMuller\Richter\Support\DispatchTarget;
  */
 final class AffectedTests
 {
+    /**
+     * The full selection assembly for the current branch diff — one shared implementation
+     * of the fail-safe contract for the CLI and MCP: untracked-file short-circuit,
+     * base/diff-resolution failures as undetermined-with-reason, the empty-diff fast
+     * path, then {@see select()} over a fresh {@see ImpactAnalyzer::detectChanges()} run.
+     * `untrackedFiles` rides along for the CLI's stderr note and is stripped from every
+     * stdout/structured document by the callers. Unexpected `Throwable`s escape.
+     *
+     * @return array{base: string, determinable: bool, reasons: list<string>, tests: list<string>, frontendTests: list<string>, unreferencedEntryPoints: int, untrackedFiles: list<string>}
+     */
+    public static function selectForCurrentDiff(GraphCache $graphs, ?string $requestedBase, bool $fresh = false): array
+    {
+        $untracked = ChangedSymbols::untrackedRelevantFiles();
+
+        try {
+            $base = RichterConfig::baseRef($requestedBase);
+
+            if ($untracked !== []) {
+                // An untracked (never `git add`-ed) file is invisible to every diff form — the
+                // one gap the analysis can never close, so the selection is undetermined,
+                // never silently narrowed.
+                return self::undeterminedForCurrentDiff($base, [sprintf(
+                    '%d untracked file(s) under app/, resources/views/, or a configured frontend root can\'t be analysed — `git add` them or run the full suite: %s',
+                    count($untracked),
+                    implode(', ', $untracked),
+                )], $untracked);
+            }
+
+            $changed = ChangedSymbols::resolve($base);
+        } catch (InvalidArgumentException|RuntimeException $exception) {
+            // A diff that can't be taken means the selection can't be determined — fail
+            // toward the full suite.
+            return self::undeterminedForCurrentDiff(is_string($requestedBase) ? $requestedBase : '', [$exception->getMessage()], $untracked);
+        }
+
+        if ($changed === []) {
+            return ['base' => $base, 'determinable' => true, 'reasons' => [], 'tests' => [], 'frontendTests' => [], 'unreferencedEntryPoints' => 0, 'untrackedFiles' => $untracked];
+        }
+
+        $graph = $graphs->graph(fresh: $fresh);
+        $selection = self::select(
+            new ImpactAnalyzer($graph)->detectChanges($changed),
+            $changed,
+            TestReferenceIndex::fromTests(base_path('tests'), base_path()),
+            $graph->hasUnresolvedDispatches(),
+            $graph,
+            self::configuredFrontendTestIndex(),
+            $graph->hasUnparseableFiles(),
+        );
+
+        return ['base' => $base] + $selection + ['untrackedFiles' => $untracked];
+    }
+
+    /**
+     * @param  list<string>  $reasons
+     * @param  list<string>  $untracked
+     * @return array{base: string, determinable: bool, reasons: list<string>, tests: list<string>, frontendTests: list<string>, unreferencedEntryPoints: int, untrackedFiles: list<string>}
+     */
+    private static function undeterminedForCurrentDiff(string $base, array $reasons, array $untracked): array
+    {
+        return ['base' => $base, 'determinable' => false, 'reasons' => $reasons, 'tests' => [], 'frontendTests' => [], 'unreferencedEntryPoints' => 0, 'untrackedFiles' => $untracked];
+    }
+
+    /**
+     * Only when the bridge (or an explicit test path) is configured — an unconfigured
+     * project must not pay a directory scan per run.
+     */
+    private static function configuredFrontendTestIndex(): ?FrontendTestIndex
+    {
+        if (RichterConfig::frontendRoots() === [] && RichterConfig::frontendTestPaths() === []) {
+            return null;
+        }
+
+        return FrontendTestIndex::fromConfiguredPaths(base_path());
+    }
+
     /**
      * @param  array{coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, lowConfidence: bool, callers?: list<array{depth: int, node: string, via: string, file?: string, line?: int}>, dependencies?: list<array{depth: int, node: string, via: string, file?: string, line?: int}>, ...}  $result  an {@see ImpactAnalyzer::detectChanges()} result
      * @param  list<ChangedFileSymbols>  $changed

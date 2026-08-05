@@ -12,6 +12,7 @@ use Override;
 use SanderMuller\Richter\Analysis\ImpactAnalyzer;
 use SanderMuller\Richter\Analysis\ImpactFormatter;
 use SanderMuller\Richter\Analysis\JsonPresenter;
+use SanderMuller\Richter\Analysis\TestReferenceIndex;
 use SanderMuller\Richter\Graph\GraphCache;
 
 #[IsReadOnly]
@@ -19,7 +20,7 @@ final class ImpactTool extends Tool
 {
     protected string $name = 'impact';
 
-    protected string $description = 'Static blast radius of a PHP symbol in this Laravel app: its callers (what breaks if you change it) and its dependencies (what it reaches). Advisory; request-path and Eloquent-relationship coverage. Pass an FQCN or substring, e.g. App\\Models\\User.';
+    protected string $description = 'Static blast radius of a PHP symbol in this Laravel app: its callers (what breaks if you change it), its dependencies (what it reaches), and the entry surfaces the callers walk reaches — routes, commands, schedules, and Livewire/Filament components — annotated with locations, security exposure (advisory, routes only; absence means NOT CLASSIFIED, never "public"), feature gates, and test references. Annotations are advisory orientation, never a risk verdict. Pass an FQCN or substring, e.g. App\\Models\\User.';
 
     public function __construct(private readonly GraphCache $graphs) {}
 
@@ -43,9 +44,11 @@ final class ImpactTool extends Tool
         }
 
         $result = new ImpactAnalyzer($this->graphs->graph())->impact($symbol);
+        // Lazy: the tests/ scan only runs when the walk actually reached an entry surface.
+        $tests = $result['entryPoints'] === [] ? null : TestReferenceIndex::fromTests(base_path('tests'), base_path());
 
-        return new ResponseFactory(Response::text(ImpactFormatter::impact($result)))
-            ->withStructuredContent(JsonPresenter::impact($result));
+        return new ResponseFactory(Response::text(ImpactFormatter::impact($result, $tests)))
+            ->withStructuredContent(JsonPresenter::impact($result, $tests));
     }
 
     /** @return array<string, mixed> */
@@ -64,6 +67,22 @@ final class ImpactTool extends Tool
             'target' => $schema->string()->description('The symbol as analysed.'),
             'callers' => $schema->array()->items($edge)->description('What breaks if the target changes; depth 1 is a direct caller.'),
             'dependencies' => $schema->array()->items($edge)->description('What the target reaches.'),
+            // The map-shaped fields are plain object() rather than an object|array anyOf:
+            // anyOf() is missing from Illuminate\JsonSchema on this package's framework floor, and
+            // an empty PHP map JSON-encodes as [] — the description carries that caveat instead.
+            'entryPoints' => $schema->array()->items($schema->string())->description('Entry surfaces among the callers: route::/command::/schedule:: nodes and Livewire/Filament component classes.'),
+            'entryPointPaths' => $schema->object()
+                ->description('Entry-point node => shortest call chain down to the symbol; each hop may carry a project-relative file/line. Empty map serializes as [].'),
+            'entryPointLocations' => $schema->object()
+                ->description('Entry-point node => {file, line?} defining location, when known. Empty map serializes as [].'),
+            'entryPointSecurity' => $schema->object()
+                ->description('Entry-point route => Brain security surface {exposure, riskLevel, issues[]}. Advisory annotation, routes only — a missing key means NOT CLASSIFIED, never "public". Empty map serializes as [].'),
+            'entryPointGates' => $schema->object()
+                ->description('Entry-point route => Pennant feature flags gating it. Advisory annotation. Empty map serializes as [].'),
+            'entryPointAuthGates' => $schema->object()
+                ->description('Entry-point route => policy gates in its reach that contradict a PUBLIC_WRITE finding — evidence to verify, never a suppression. Empty map serializes as [].'),
+            'entryPointTestReferences' => $schema->object()
+                ->description('Entry-point node => "referenced" | "referenced-no-behavioural-assertion" | "unreferenced". Advisory annotation. Empty map serializes as [].'),
         ];
     }
 }

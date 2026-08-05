@@ -11,15 +11,40 @@ use SanderMuller\Richter\Tests\TestCase;
 final class JsonPresenterTest extends TestCase
 {
     #[Test]
-    public function impact_passes_the_analyzer_shape_through_unchanged(): void
+    public function impact_picks_the_contract_keys_and_adds_test_references(): void
     {
         $result = [
             'target' => 'App\\Models\\User',
             'callers' => [['depth' => 1, 'node' => 'route::GET /users', 'via' => 'controller']],
             'dependencies' => [['depth' => 2, 'node' => 'App\\Models\\Team', 'via' => 'relation']],
+            'entryPoints' => ['route::GET /users'],
+            'entryPointPaths' => [],
+            'entryPointLocations' => [],
+            'entryPointSecurity' => [],
+            'entryPointGates' => [],
+            'entryPointAuthGates' => [],
+            // Miss diagnostics stay out of the document — the contract is picked, not passed through.
+            'suggestions' => ['should-not-appear'],
+            'graphNodeCount' => 42,
         ];
 
-        $this->assertSame($result, JsonPresenter::impact($result));
+        $json = JsonPresenter::impact($result);
+
+        $this->assertSame([
+            'target',
+            'callers',
+            'dependencies',
+            'entryPoints',
+            'entryPointPaths',
+            'entryPointLocations',
+            'entryPointSecurity',
+            'entryPointGates',
+            'entryPointAuthGates',
+            'entryPointTestReferences',
+        ], array_keys($json));
+        $this->assertSame(['route::GET /users'], $json['entryPoints']);
+        // No index given: every entry point is omitted from the map, never guessed at.
+        $this->assertSame([], $json['entryPointTestReferences']);
     }
 
     #[Test]
@@ -29,11 +54,18 @@ final class JsonPresenterTest extends TestCase
             'target' => 'Zzz\\Nonexistent\\Symbol',
             'callers' => [],
             'dependencies' => [],
+            'entryPoints' => [],
+            'entryPointPaths' => [],
+            'entryPointLocations' => [],
+            'entryPointSecurity' => [],
+            'entryPointGates' => [],
+            'entryPointAuthGates' => [],
         ]);
 
         $this->assertSame('Zzz\\Nonexistent\\Symbol', $json['target']);
         $this->assertSame([], $json['callers']);
         $this->assertSame([], $json['dependencies']);
+        $this->assertSame([], $json['entryPoints']);
     }
 
     #[Test]

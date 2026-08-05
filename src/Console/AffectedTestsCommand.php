@@ -3,17 +3,10 @@
 namespace SanderMuller\Richter\Console;
 
 use Illuminate\Console\Command;
-use InvalidArgumentException;
-use RuntimeException;
 use SanderMuller\Richter\Analysis\AffectedTests;
-use SanderMuller\Richter\Analysis\FrontendTestIndex;
-use SanderMuller\Richter\Analysis\ImpactAnalyzer;
 use SanderMuller\Richter\Analysis\JsonPresenter;
-use SanderMuller\Richter\Analysis\TestReferenceIndex;
-use SanderMuller\Richter\Changes\ChangedSymbols;
 use SanderMuller\Richter\Console\Concerns\WarnsAboutRootNamespace;
 use SanderMuller\Richter\Graph\GraphCache;
-use SanderMuller\Richter\Support\RichterConfig;
 use Throwable;
 
 /**
@@ -56,59 +49,17 @@ final class AffectedTestsCommand extends Command
         }
 
         $this->warnAboutRootNamespace();
-        $untracked = ChangedSymbols::untrackedRelevantFiles();
-        $this->warnAboutUntrackedFiles($untracked);
-
-        $requestedBase = $this->option('base');
-
         try {
-            try {
-                $base = RichterConfig::baseRef($requestedBase);
-
-                if ($untracked !== []) {
-                    // An untracked (never `git add`-ed) file under app/, resources/views/, or a
-                    // frontend root is invisible to every diff form — the one gap this command's
-                    // analysis can never close. The cardinal rule is never under-selecting, so a
-                    // tracked change existing alongside it does not save the selection: narrowing
-                    // to what the diff alone can see would silently drop the untracked surface.
-                    // Fail toward the full suite instead, on whichever surface the mode allows.
-                    return $this->emitUndetermined($json, $plain, $base, [sprintf(
-                        '%d untracked file(s) under app/, resources/views/, or a configured frontend root can\'t be analysed — `git add` them or run the full suite: %s',
-                        count($untracked),
-                        implode(', ', $untracked),
-                    )]);
-                }
-
-                $changed = ChangedSymbols::resolve($base);
-            } catch (InvalidArgumentException|RuntimeException $exception) {
-                // A diff that can't be taken means the selection can't be determined — fail toward
-                // the full suite, with the reason on the surface the mode allows.
-                return $this->emitUndetermined($json, $plain, is_string($requestedBase) ? $requestedBase : '', [$exception->getMessage()]);
-            }
-
-            if ($changed === []) {
-                return $this->emit($json, $plain, $base, [
-                    'determinable' => true,
-                    'reasons' => [],
-                    'tests' => [],
-                    'frontendTests' => [],
-                    'unreferencedEntryPoints' => 0,
-                ]);
-            }
-
-            $graph = $graphs->graph(fresh: (bool) $this->option('no-cache'));
-            $result = new ImpactAnalyzer($graph)->detectChanges($changed);
-            $selection = AffectedTests::select(
-                $result,
-                $changed,
-                TestReferenceIndex::fromTests(base_path('tests'), base_path()),
-                $graph->hasUnresolvedDispatches(),
-                $graph,
-                $this->frontendTestIndex(),
-                $graph->hasUnparseableFiles(),
+            $base = $this->option('base');
+            $selection = AffectedTests::selectForCurrentDiff(
+                $graphs,
+                is_string($base) ? $base : null,
+                (bool) $this->option('no-cache'),
             );
 
-            return $this->emit($json, $plain, $base, $selection);
+            $this->warnAboutUntrackedFiles($selection['untrackedFiles']);
+
+            return $this->emit($json, $plain, $selection);
         } catch (Throwable $throwable) {
             // Backstop: an unexpected failure is not "no affected tests" — in JSON stdout stays a
             // single parseable document, in plain stdout stays empty (= run everything).
@@ -130,9 +81,9 @@ final class AffectedTestsCommand extends Command
      * `git diff` never shows an untracked (never `git add`-ed) file, HEAD-mode or otherwise — the one
      * gap the diff-form fix can't close. Stderr only, so `--json`/`--plain` stdout stays a single
      * parseable document or contract-clean output (a bare `--plain` selection, or nothing at all).
-     * Below this, `handle()` additionally forces the selection itself undetermined — this command's
-     * one-line note is not enough on its own, since a silently narrowed selection is exactly the
-     * under-selection this tool exists to prevent.
+     * {@see AffectedTests::selectForCurrentDiff()} additionally forces the selection itself
+     * undetermined — this one-line note is not enough on its own, since a silently narrowed
+     * selection is exactly the under-selection this tool exists to prevent.
      *
      * @param  list<string>  $untracked
      */
@@ -149,26 +100,17 @@ final class AffectedTestsCommand extends Command
         ));
     }
 
-    /**
-     * The frontend spec index, only when the bridge (or an explicit test path) is configured —
-     * an unconfigured project must not pay a directory scan per run.
-     */
-    private function frontendTestIndex(): ?FrontendTestIndex
-    {
-        if (RichterConfig::frontendRoots() === [] && RichterConfig::frontendTestPaths() === []) {
-            return null;
-        }
-
-        return FrontendTestIndex::fromConfiguredPaths(base_path());
-    }
-
-    /** @param  array{determinable: bool, reasons: list<string>, tests: list<string>, frontendTests: list<string>, unreferencedEntryPoints: int}  $selection */
-    private function emit(bool $json, bool $plain, string $base, array $selection): int
+    /** @param  array{base: string, determinable: bool, reasons: list<string>, tests: list<string>, frontendTests: list<string>, unreferencedEntryPoints: int, untrackedFiles: list<string>}  $selection */
+    private function emit(bool $json, bool $plain, array $selection): int
     {
         $exit = $selection['determinable'] ? self::SUCCESS : self::UNDETERMINED;
 
+        // `untrackedFiles` feeds the stderr note only — every stdout document keeps the
+        // declared shape.
+        unset($selection['untrackedFiles']);
+
         if ($json) {
-            $this->line(JsonPresenter::encode(['base' => $base] + $selection));
+            $this->line(JsonPresenter::encode($selection));
 
             return $exit;
         }
@@ -215,17 +157,5 @@ final class AffectedTestsCommand extends Command
         }
 
         return $exit;
-    }
-
-    /** @param  list<string>  $reasons */
-    private function emitUndetermined(bool $json, bool $plain, string $base, array $reasons): int
-    {
-        return $this->emit($json, $plain, $base, [
-            'determinable' => false,
-            'reasons' => $reasons,
-            'tests' => [],
-            'frontendTests' => [],
-            'unreferencedEntryPoints' => 0,
-        ]);
     }
 }

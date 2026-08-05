@@ -190,6 +190,20 @@ final class CodeGraph
     }
 
     /**
+     * Every distinct node id, sorted for stable output. A read-only enumeration — nothing
+     * about the built or serialized graph shape changes.
+     *
+     * @return list<string>
+     */
+    public function nodes(): array
+    {
+        $nodes = array_keys($this->nodes);
+        sort($nodes);
+
+        return $nodes;
+    }
+
+    /**
      * The node ids a missed lookup most likely meant, best first — the lead that "no graph nodes
      * matched" otherwise withholds. Ranked by how many identifier tokens the node shares with the
      * needle, then by edit distance on the needle's LAST token (the class basename, where a typo or a

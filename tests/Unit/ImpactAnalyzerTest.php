@@ -355,6 +355,26 @@ final class ImpactAnalyzerTest extends TestCase
     }
 
     #[Test]
+    public function impact_normalises_ui_component_callers_onto_the_class_entry_surface(): void
+    {
+        // impact() reuses detectChanges' composition: two Livewire members among the
+        // callers are ONE class-normalised entry surface, and the shallowest member's
+        // chain stands in for the class node the walk never visited.
+        $analyzer = new ImpactAnalyzer(new CodeGraph([
+            ['source' => 'App\Livewire\Settings::save', 'target' => 'App\Services\PostPublisher::publish', 'type' => 'call'],
+            ['source' => 'App\Livewire\Settings::render', 'target' => 'App\Services\PostPublisher::publish', 'type' => 'call'],
+        ], hasUnparseableFiles: false));
+
+        $result = $analyzer->impact('App\Services\PostPublisher::publish');
+
+        $this->assertSame(['App\Livewire\Settings'], $result['entryPoints']);
+        $this->assertSame([
+            ['node' => 'App\Livewire\Settings::render', 'via' => 'call'],
+            ['node' => 'App\Services\PostPublisher::publish', 'via' => ''],
+        ], $result['entryPointPaths']['App\Livewire\Settings']);
+    }
+
+    #[Test]
     public function a_class_merely_named_after_a_ui_framework_is_not_an_entry_surface(): void
     {
         // `Filament`/`Livewire` must match as a namespace segment, never as a name substring, and

@@ -3,6 +3,7 @@
 namespace SanderMuller\Richter\Analysis;
 
 use Illuminate\Support\Str;
+use InvalidArgumentException;
 use SanderMuller\Richter\Changes\ChangedFileSymbols;
 use SanderMuller\Richter\Graph\CodeGraph;
 use SanderMuller\Richter\Graph\NodeMetadata;
@@ -19,7 +20,8 @@ use SanderMuller\Richter\Support\RichterConfig;
  */
 final readonly class ImpactAnalyzer
 {
-    private const array ENTRY_POINT_PREFIXES = ['route::', 'command::', 'schedule::'];
+    /** @internal the prefix vocabulary {@see isEntryPointNode()} matches — shared with richter's own composition (e.g. the MCP entry-points resource's kind labels), not a consumer API */
+    public const array ENTRY_POINT_PREFIXES = ['route::', 'command::', 'schedule::'];
 
     private const array ENTRY_POINT_NAMESPACES = ['\\Jobs\\', '\\Console\\Commands\\', '\\Listeners\\', '\\Livewire\\', '\\Filament\\', '\\Observers\\', '\\Http\\Middleware\\'];
 
@@ -47,10 +49,20 @@ final readonly class ImpactAnalyzer
     public function __construct(private CodeGraph $graph) {}
 
     /**
+     * The entry-point annotations reuse {@see detectChanges()}'s own composition — same
+     * definition, same advisory framing (security is routes-only annotation, never a risk
+     * input; `impact()` reports no risk at all).
+     *
      * @return array{
      *     target: string,
      *     callers: list<array{depth: int, node: string, via: string, file?: string, line?: int}>,
      *     dependencies: list<array{depth: int, node: string, via: string, file?: string, line?: int}>,
+     *     entryPoints: list<string>,
+     *     entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>,
+     *     entryPointLocations: array<string, array{file: string, line?: int}>,
+     *     entryPointSecurity: array<string, SecurityShape>,
+     *     entryPointGates: array<string, list<string>>,
+     *     entryPointAuthGates: array<string, list<string>>,
      *     suggestions: list<string>,
      *     graphNodeCount: int,
      * }
@@ -58,15 +70,39 @@ final readonly class ImpactAnalyzer
     public function impact(string $symbol, int $maxDepth = 6): array
     {
         $seeds = $this->seedsFor($symbol);
+        $callers = $this->withHopLocations($this->graph->callersOf($seeds, $maxDepth));
+        $entryPoints = $this->entryPointsAmong($callers);
+        [$entryPointLocations, $entryPointSecurity, $entryPointGates] = $this->entryPointAnnotations($entryPoints);
 
         return [
             'target' => $symbol,
-            'callers' => $this->withHopLocations($this->graph->callersOf($seeds, $maxDepth)),
+            'callers' => $callers,
             'dependencies' => $this->withHopLocations($this->graph->dependenciesOf($seeds, $maxDepth)),
+            'entryPoints' => $entryPoints,
+            'entryPointPaths' => $this->entryPointPathsFor($entryPoints, $callers, $seeds, $maxDepth),
+            'entryPointLocations' => $entryPointLocations,
+            'entryPointSecurity' => $entryPointSecurity,
+            'entryPointGates' => $entryPointGates,
+            'entryPointAuthGates' => new PublicWriteAuthCrossCheck($this->graph)->gatesByEntryPoint($entryPointSecurity, $maxDepth),
             // Only on a miss: a hit needs no lead, and the token scan is not free.
             'suggestions' => $seeds === [] ? $this->graph->nearestNodes($symbol) : [],
             'graphNodeCount' => $this->graph->nodeCount(),
         ];
+    }
+
+    /**
+     * Shortest directed path from `$from` to `$to` in call direction — "does FROM reach
+     * TO, and through which chain?". Delegates to the {@see SymbolTracer} beside-class
+     * (complexity budget); see there for the strict-direction and `furthestReached`
+     * semantics.
+     *
+     * @return array{from: string, to: string, resolvedFrom: list<string>, resolvedTo: list<string>, found: bool, path: list<array{node: string, via: string, file?: string, line?: int}>, furthestReached?: array{node: string, depth: int, file?: string, line?: int}}
+     *
+     * @throws InvalidArgumentException when either symbol matches no graph node
+     */
+    public function trace(string $from, string $to, int $maxDepth = 6): array
+    {
+        return new SymbolTracer($this->graph)->trace($from, $to, $maxDepth);
     }
 
     /**
@@ -579,7 +615,7 @@ final readonly class ImpactAnalyzer
     }
 
     /**
-     * @param  list<array{depth: int, node: string, via: string}>  $callers
+     * @param  list<array{depth: int, node: string, via: string, file?: string, line?: int}>  $callers
      * @return list<string>
      */
     private function entryPointsAmong(array $callers): array
@@ -609,7 +645,7 @@ final readonly class ImpactAnalyzer
      * itself has none.
      *
      * @param  list<string>  $entryPoints
-     * @param  list<array{depth: int, node: string, via: string}>  $callers
+     * @param  list<array{depth: int, node: string, via: string, file?: string, line?: int}>  $callers
      * @param  list<string>  $seeds
      * @return array<string, list<array{node: string, via: string, file?: string, line?: int}>>
      */
@@ -638,7 +674,7 @@ final readonly class ImpactAnalyzer
      * The first (shallowest, BFS order) reached member per UI-component class — the chain donor
      * for a class-normalised entry point whose class node the walk never visited directly.
      *
-     * @param  list<array{depth: int, node: string, via: string}>  $callers
+     * @param  list<array{depth: int, node: string, via: string, file?: string, line?: int}>  $callers
      * @return array<string, string>
      */
     private function uiMembersAmong(array $callers): array
@@ -660,8 +696,10 @@ final readonly class ImpactAnalyzer
      * The class of a caller inside a UI-component namespace ({@see UI_COMPONENT_NAMESPACES}), or
      * null. Represented class-level — `App\Livewire\Settings::save` and `::render` are one entry
      * surface, so members collapse onto the class and never double-count toward risk.
+     *
+     * @internal see {@see isEntryPointNode()} — the same shared vocabulary
      */
-    private function uiComponentClassOf(string $node): ?string
+    public function uiComponentClassOf(string $node): ?string
     {
         $class = explode('::', $node, 2)[0];
 
@@ -783,7 +821,13 @@ final readonly class ImpactAnalyzer
         return $this->graph->nodesContaining($fqcn);
     }
 
-    private function isEntryPointNode(string $node): bool
+    /**
+     * Whether the node id is an entry-point node by prefix (`route::`/`command::`/`schedule::`).
+     *
+     * @internal the entry-surface vocabulary richter's own composition shares (e.g. the MCP
+     *   entry-points resource) — not a consumer API
+     */
+    public function isEntryPointNode(string $node): bool
     {
         return Str::startsWith($node, self::ENTRY_POINT_PREFIXES);
     }

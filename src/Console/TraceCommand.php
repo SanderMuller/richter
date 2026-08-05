@@ -3,34 +3,42 @@
 namespace SanderMuller\Richter\Console;
 
 use Illuminate\Console\Command;
+use InvalidArgumentException;
 use SanderMuller\Richter\Analysis\ImpactAnalyzer;
 use SanderMuller\Richter\Analysis\ImpactFormatter;
 use SanderMuller\Richter\Analysis\JsonPresenter;
 use SanderMuller\Richter\Analysis\MarkdownFormatter;
-use SanderMuller\Richter\Analysis\TestReferenceIndex;
 use SanderMuller\Richter\Console\Concerns\WarnsAboutRootNamespace;
 use SanderMuller\Richter\Graph\CodeGraph;
 use SanderMuller\Richter\Graph\GraphCache;
 use Throwable;
 
-final class ImpactCommand extends Command
+/**
+ * Shortest directed path between two symbols, in call direction — "does FROM reach TO,
+ * and through which chain?". Strictly directional: swapping the arguments queries the
+ * reverse. A no-path result is data, not an error (exit 0); an unresolvable symbol is an
+ * error — an empty trace would read as "no path", the one misleading answer this command
+ * must never give.
+ */
+final class TraceCommand extends Command
 {
     use WarnsAboutRootNamespace;
 
     /** @var string */
-    protected $signature = 'richter:impact
-        {symbol : An FQCN or substring to analyse, e.g. "App\\Models\\User"}
-        {--explain : Show the call chain from each reached entry surface down to the symbol}
-        {--json : Emit the blast radius as JSON on stdout}
-        {--markdown : Emit the blast radius as GitHub-flavoured markdown, for PR descriptions and comments}
+    protected $signature = 'richter:trace
+        {from : Symbol the path starts at — an FQCN or substring, e.g. "App\\Http\\Controllers\\PostController"}
+        {to : Symbol the path must reach, in call direction}
+        {--json : Emit the trace as JSON on stdout}
+        {--markdown : Emit the trace as GitHub-flavoured markdown, for PR descriptions and comments}
         {--no-cache : Build the code graph fresh, bypassing the graph cache}';
 
     /** @var string */
-    protected $description = 'Show the static blast radius (callers and dependencies) of a code symbol';
+    protected $description = 'Show the shortest call-direction path from one symbol to another';
 
     public function handle(GraphCache $graphs): int
     {
-        $symbol = (string) $this->argument('symbol');
+        $from = (string) $this->argument('from');
+        $to = (string) $this->argument('to');
         $markdown = (bool) $this->option('markdown');
 
         $this->warnAboutRootNamespace();
@@ -43,7 +51,7 @@ final class ImpactCommand extends Command
                 return self::FAILURE;
             }
 
-            return $this->handleJson($graphs, $symbol);
+            return $this->handleJson($graphs, $from, $to);
         }
 
         if (! $markdown) {
@@ -51,36 +59,29 @@ final class ImpactCommand extends Command
             $this->info('Resolving code graph…');
         }
 
-        $result = new ImpactAnalyzer($this->graph($graphs))->impact($symbol);
-        $explain = (bool) $this->option('explain');
-        $tests = $this->testIndexFor($result);
+        try {
+            $result = new ImpactAnalyzer($this->graph($graphs))->trace($from, $to);
+        } catch (InvalidArgumentException $invalidArgumentException) {
+            $this->error($invalidArgumentException->getMessage());
 
-        $this->line($markdown ? MarkdownFormatter::impact($result, $tests, $explain) : ImpactFormatter::impact($result, $tests, $explain));
+            return self::FAILURE;
+        }
+
+        $this->line($markdown ? MarkdownFormatter::trace($result) : ImpactFormatter::trace($result));
 
         return self::SUCCESS;
-    }
-
-    /**
-     * Lazy: the tests/ scan only runs when the walk actually reached an entry surface,
-     * so the common no-entry-surface call pays nothing new.
-     *
-     * @param  array{entryPoints: list<string>, ...}  $result
-     */
-    private function testIndexFor(array $result): ?TestReferenceIndex
-    {
-        return $result['entryPoints'] === [] ? null : TestReferenceIndex::fromTests(base_path('tests'), base_path());
     }
 
     /**
      * JSON mode emits nothing but the JSON document on stdout (no progress line), so the output is a
      * single parseable value. Any error becomes `{"error": …}` rather than a leaked stack trace.
      */
-    private function handleJson(GraphCache $graphs, string $symbol): int
+    private function handleJson(GraphCache $graphs, string $from, string $to): int
     {
         try {
-            $result = new ImpactAnalyzer($this->graph($graphs))->impact($symbol);
+            $result = new ImpactAnalyzer($this->graph($graphs))->trace($from, $to);
 
-            $this->line(JsonPresenter::encode(JsonPresenter::impact($result, $this->testIndexFor($result))));
+            $this->line(JsonPresenter::encode(JsonPresenter::trace($result)));
 
             return self::SUCCESS;
         } catch (Throwable $throwable) {

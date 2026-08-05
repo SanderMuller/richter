@@ -628,6 +628,159 @@ final class CommandsTest extends TestCase
     }
 
     #[Test]
+    public function impact_reports_the_reached_entry_surfaces_with_annotations(): void
+    {
+        // The job's callers walk reaches the route through the controller; the fixture
+        // has no tests/ dir, so the surface carries the unreferenced tag.
+        $this->useFixtureProject();
+
+        $this->withoutMockingConsoleOutput();
+        $exitCode = Artisan::call('richter:impact', ['symbol' => 'App\\Jobs\\ProcessPostJob']);
+        $output = Artisan::output();
+
+        $this->assertSame(0, $exitCode);
+        $this->assertStringContainsString('Entry surfaces reached (', $output);
+        $this->assertStringContainsString('route::GET::/posts/{post}/reviews', $output);
+        $this->assertStringContainsString('no test references this', $output);
+    }
+
+    #[Test]
+    public function impact_explain_renders_the_chain_to_the_entry_surface(): void
+    {
+        $this->useFixtureProject();
+
+        $this->withoutMockingConsoleOutput();
+        Artisan::call('richter:impact', ['symbol' => 'App\\Jobs\\ProcessPostJob', '--explain' => true]);
+
+        $this->assertStringContainsString('↳', Artisan::output());
+    }
+
+    #[Test]
+    public function impact_renders_zero_reached_entry_surfaces_as_none(): void
+    {
+        // Routes are graph roots — nothing calls one, so its impact reaches no entry
+        // surface and the section must say so rather than disappear.
+        $this->useFixtureProject();
+
+        $this->withoutMockingConsoleOutput();
+        Artisan::call('richter:impact', ['symbol' => 'dashboard/search']);
+        $output = Artisan::output();
+
+        $this->assertStringContainsString('Entry surfaces reached (0):', $output);
+        $this->assertStringContainsString('(none)', $output);
+    }
+
+    #[Test]
+    public function impact_json_carries_the_annotation_keys_in_the_declared_order(): void
+    {
+        $this->useFixtureProject();
+
+        $this->withoutMockingConsoleOutput();
+        Artisan::call('richter:impact', ['symbol' => 'App\\Jobs\\ProcessPostJob', '--json' => true]);
+
+        $document = json_decode(Artisan::output(), true, flags: JSON_THROW_ON_ERROR);
+
+        $this->assertIsArray($document);
+        $this->assertSame([
+            'target',
+            'callers',
+            'dependencies',
+            'entryPoints',
+            'entryPointPaths',
+            'entryPointLocations',
+            'entryPointSecurity',
+            'entryPointGates',
+            'entryPointAuthGates',
+            'entryPointTestReferences',
+        ], array_keys($document));
+        $entryPoints = $document['entryPoints'] ?? null;
+        $this->assertIsArray($entryPoints);
+        $this->assertContains('route::GET::/posts/{post}/reviews', $entryPoints);
+
+        $references = $document['entryPointTestReferences'] ?? null;
+        $this->assertIsArray($references);
+        $this->assertSame('unreferenced', $references['route::GET::/posts/{post}/reviews'] ?? null);
+    }
+
+    private function useFixtureProject(): void
+    {
+        $app = $this->app;
+        $this->assertInstanceOf(Application::class, $app);
+        $app->setBasePath(self::fixtureProjectPath());
+    }
+
+    #[Test]
+    public function affected_tests_untracked_file_wins_the_reason_over_an_unresolvable_base(): void
+    {
+        // Characterization for the assembly extraction (spec: agent-surface-expansion,
+        // Phase 2). baseRef() validates only the argument SHAPE (a "-" prefix) — a
+        // well-formed but unresolvable ref fails later, in ChangedSymbols::resolve(),
+        // which the untracked short-circuit precedes. So with both present, the
+        // untracked reason wins and the emitted base stays the requested ref.
+        Process::fake([
+            '*rev-parse*' => Process::result(errorOutput: 'fatal: bad revision', exitCode: 128),
+            '*merge-base*' => Process::result(errorOutput: 'fatal: bad revision', exitCode: 128),
+            '*status*' => Process::result("?? app/Models/Report.php\n"),
+        ]);
+
+        $this->withoutMockingConsoleOutput();
+        $exitCode = Artisan::call('richter:affected-tests', ['--base' => 'nonsense-ref', '--json' => true]);
+        $output = Artisan::output();
+
+        // The stderr untracked-files note precedes the JSON document in the combined
+        // buffer; the document starts at the first brace.
+        $braceAt = strpos($output, '{');
+        $this->assertIsInt($braceAt);
+        $document = json_decode(substr($output, $braceAt), true, flags: JSON_THROW_ON_ERROR);
+
+        $this->assertSame(2, $exitCode);
+        $this->assertIsArray($document);
+        $this->assertFalse($document['determinable']);
+        $this->assertSame('nonsense-ref', $document['base']);
+        // The stderr note's data source never leaks into the document — the key set IS
+        // the declared --json contract.
+        $this->assertSame(['base', 'determinable', 'reasons', 'tests', 'frontendTests', 'unreferencedEntryPoints'], array_keys($document));
+
+        $reasons = $document['reasons'] ?? null;
+        $this->assertIsArray($reasons);
+        $this->assertCount(1, $reasons);
+        $reason = $reasons[0] ?? null;
+        $this->assertIsString($reason);
+        $this->assertStringContainsString('untracked', strtolower($reason));
+    }
+
+    #[Test]
+    public function affected_tests_a_malformed_base_wins_the_reason_over_an_untracked_file(): void
+    {
+        // The one base failure that DOES precede the untracked check: baseRef() rejects
+        // a "-"-prefixed ref at argument-validation time, so its reason wins and the
+        // emitted base degrades to the requested string.
+        Process::fake([
+            '*status*' => Process::result("?? app/Models/Report.php\n"),
+        ]);
+
+        $this->withoutMockingConsoleOutput();
+        $exitCode = Artisan::call('richter:affected-tests', ['--base' => '-bad', '--json' => true]);
+        $output = Artisan::output();
+
+        $braceAt = strpos($output, '{');
+        $this->assertIsInt($braceAt);
+        $document = json_decode(substr($output, $braceAt), true, flags: JSON_THROW_ON_ERROR);
+
+        $this->assertSame(2, $exitCode);
+        $this->assertIsArray($document);
+        $this->assertFalse($document['determinable']);
+        $this->assertSame('-bad', $document['base']);
+
+        $reasons = $document['reasons'] ?? null;
+        $this->assertIsArray($reasons);
+        $this->assertCount(1, $reasons);
+        $reason = $reasons[0] ?? null;
+        $this->assertIsString($reason);
+        $this->assertStringContainsString('may not start with', $reason);
+    }
+
+    #[Test]
     public function affected_tests_plain_exits_undetermined_with_an_untracked_file_present(): void
     {
         // An untracked file is invisible to every diff form, so the selection can never vouch for

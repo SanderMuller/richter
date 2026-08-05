@@ -122,6 +122,6 @@
     "minimum-stability": "stable",
     "prefer-stable": true,
     "suggest": {
-        "laravel/mcp": "Exposes the impact and detect-changes tools over MCP — supported range ^0.8||^0.9; richter registers a local MCP server when installed."
+        "laravel/mcp": "Exposes the impact, trace, detect-changes and affected-tests tools plus orientation resources over MCP — supported range ^0.8||^0.9; richter registers a local MCP server when installed."
     }
 }
