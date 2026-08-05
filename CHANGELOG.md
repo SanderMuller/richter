@@ -5,6 +5,26 @@ All notable changes to `sandermuller/richter` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.19.0 - 2026-08-05
+
+Two themes. First, the analysis a coding agent can *reach* now matches the analysis richter computes: tracing, test selection, and orientation data were CLI-only or nowhere — they are now first-class over MCP, and `richter:impact` reports the entry surfaces a symbol reaches instead of leaving them buried in the callers list. Second, payload parity learned the consumer direction: removing a resource key now warns when a frontend file that consumes the affected routes still reads it.
+
+### Added
+
+- **`richter:trace` and a `trace` MCP tool.** The shortest call-direction path between two symbols — "does FROM reach TO, and through which chain?" — strictly directional (swap the arguments to query the reverse; a reversed answer you might misread is never returned silently). A miss is data, not an error (exit 0) and reports the deepest caller reached from the target within the depth limit — how far upstream connectivity extends — while an unresolvable symbol *is* an error, deliberately stricter than `richter:impact`'s empty result: an empty trace would read as "no path".
+- **An `affected-tests` MCP tool.** The same fail-safe selection the CLI computes, over MCP: every non-determinable cause — an untracked relevant file, an unresolvable base, UNRESOLVED coverage — returns `determinable: false` with its reasons, never a tool error, because "run the full suite" must stay the visible, actionable answer. The selection assembly now lives in one shared implementation for both surfaces.
+- **Three read-only MCP resources** for orientation without a tool call: `richter://graph/entry-points` (every statically-known entry surface with kind and location), `richter://graph/stats` (node/edge counts plus the honesty flags), and `richter://config` (the effective analysis configuration).
+- **Entry surfaces on `richter:impact`.** The report names the routes, commands, schedules, and Livewire/Filament components the callers walk reaches — with the same location, security-exposure, feature-gate, and test-reference annotations `detect-changes` carries, and the same advisory limits (routes-only classification; absence means *not classified*). `--explain` renders the chain from each surface down to the symbol; the JSON and MCP structured content gain the `detect-changes` vocabulary verbatim (`entryPoints`, `entryPointPaths`, `entryPointLocations`, `entryPointSecurity`, `entryPointGates`, `entryPointAuthGates`, `entryPointTestReferences`), so a consumer parses both reports identically. Additive keys; existing fields are unchanged.
+- **Consumer-direction payload parity.** A `toArray()` key a diff removes from an API resource is flagged when a frontend file consuming one of the routes the resource reaches still reads it — with a deterministic rename hint when exactly one key was removed and one added. Consumers are the configured `frontend.roots` JS/TS files plus every Blade view's inline `<script>` blocks, so the lane works for pure-Blade apps too; matching is access-shaped only, and the key diff is stricter than the model→resource side (a `mergeWhen` or constant-keyed entry makes the side unenumerable — silence, never a guessed removal). Shares the `payload_parity.enabled` switch and `--no-payload-parity` flag; the `ignore` list gains a per-key form (`App\Http\Resources\XResource::key`).
+- **Two agent-skill additions.** `/richter-review` reviews the current branch graph-first (report → entry-point triage → findings → test selection → advisory verdict; it recommends, never gates), and `/richter-setup` gains an opt-in step that registers the MCP server in `.mcp.json` (merge, never overwrite; proposes `composer require --dev laravel/mcp` when absent).
+
+### Changed
+
+- **`richter:affected-tests` no longer runs the payload-parity lanes.** Findings were never an input to the selection, and the consumer lane's frontend-tree scan has no place on a CI hot path whose output discards them. Selection output is byte-identical.
+- The `impact` MCP tool's output schema widened with the entry-point keys above, and both new tools advertise full output schemas; `composer.json`'s `laravel/mcp` suggest text now names the four tools and the resources.
+
+**Full Changelog**: https://github.com/SanderMuller/richter/compare/v0.18.0...v0.19.0
+
 ## v0.18.0 - 2026-08-05
 
 Three fixes from real-world adoption feedback, all of them cases where the report was quieter than the truth. An application whose classes are not under `App\` had every reachability check miss; a brand-new file read as "no impact" even when its class was in the graph and was itself an entry surface; and a result of zero gave no thread to pull. A silently thin report is the one failure mode this package exists to prevent, so all three are treated as correctness bugs rather than polish.
