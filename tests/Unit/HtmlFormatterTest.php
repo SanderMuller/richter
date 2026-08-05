@@ -79,6 +79,9 @@ final class HtmlFormatterTest extends TestCase
             ], cosmeticOnly: false),
             new ChangedFileSymbols('app/Services/Lost.php', 'App\Services\Lost', [], cosmeticOnly: true),
             new ChangedFileSymbols('resources/js/app.ts', '', [], cosmeticOnly: false, findings: ['unmatched Wayfinder import'], unresolvedFrontendReferences: true),
+            new ChangedFileSymbols('app/Jobs/NewJob.php', 'App\\Jobs\\NewJob', [
+                new MemberChange('handle', MemberChange::KIND_METHOD, MemberChange::CHANGE_ADDED, resolvable: true),
+            ], cosmeticOnly: false, isNewFile: true),
         ];
     }
 
@@ -192,6 +195,8 @@ final class HtmlFormatterTest extends TestCase
         $this->assertStringContainsString('<td>modified</td>', $html);
         $this->assertStringContainsString('<td>enum_case</td>', $html);
         $this->assertStringContainsString('cosmetic only', $html);
+        // A whole-class seed reads differently from a member-level one; the badge says which it was.
+        $this->assertStringContainsString('new file', $html);
         $this->assertStringContainsString('unresolved frontend references', $html);
         $this->assertStringContainsString('unmatched Wayfinder import', $html);
     }

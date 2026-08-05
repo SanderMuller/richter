@@ -3,6 +3,7 @@
 namespace SanderMuller\Richter\Graph;
 
 use Closure;
+use SanderMuller\Richter\Support\AppNamespace;
 use Throwable;
 
 /**
@@ -194,12 +195,12 @@ final class NodeMetadata
 
                 $class = explode('::', $node, 2)[0];
 
-                if (preg_match('/^App\\\\[\w\\\\]+$/', $class) !== 1) {
+                if (! AppNamespace::isAppClass($class)) {
                     continue;
                 }
 
                 if (! isset($fileByClass[$class])) {
-                    $relative = 'app/' . str_replace('\\', '/', substr($class, strlen('App\\'))) . '.php';
+                    $relative = 'app/' . AppNamespace::relativePath($class) . '.php';
                     $fileByClass[$class] = is_file("{$projectRoot}/{$relative}") ? $relative : '';
                 }
 

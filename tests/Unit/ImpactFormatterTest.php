@@ -29,7 +29,7 @@ final class ImpactFormatterTest extends TestCase
     /**
      * @param  list<string>  $entryPoints
      * @param  list<string>  $relatedModels
-     * @return array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied: bool}
+     * @return array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, newFiles?: list<string>, fqcns?: array<string, string>, entryPoints: list<string>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied: bool}
      */
     private function summary(array $entryPoints, array $relatedModels = [], bool $lowConfidence = false, RiskLevel $risk = RiskLevel::Low, bool $coarseCapApplied = false): array
     {
@@ -55,6 +55,23 @@ final class ImpactFormatterTest extends TestCase
     {
         yield 'API resource' => ['app/Http/Resources/Api/v2/Post/ReviewPlayerResource.php', ReviewPlayerResource::class];
         yield 'plain service' => ['app/Services/Lonely.php', 'App\Services\Lonely'];
+    }
+
+    #[Test]
+    public function a_new_file_is_marked_as_such_in_the_changed_files_list(): void
+    {
+        // A new file's node count comes from a whole-class seed, not from a changed member — and it is
+        // why an added-files-only diff can carry a risk level at all.
+        $result = $this->summary(['route::GET::/posts']);
+        $result['newFiles'] = ['app/Models/Post.php'];
+
+        $this->assertStringContainsString('app/Models/Post.php (1 graph nodes) [new file]', ImpactFormatter::detectChanges($result));
+    }
+
+    #[Test]
+    public function a_changed_existing_file_carries_no_new_file_marker(): void
+    {
+        $this->assertStringNotContainsString('[new file]', ImpactFormatter::detectChanges($this->summary(['route::GET::/posts'])));
     }
 
     #[Test]
@@ -258,6 +275,103 @@ final class ImpactFormatterTest extends TestCase
         $this->assertStringContainsString("- route::GET::/posts\n", $output);
         $this->assertStringNotContainsString('(routes/', $output);
         $this->assertStringNotContainsString('⚠ ', $output);
+    }
+
+    #[Test]
+    public function impact_no_match_offers_the_nearest_graph_nodes(): void
+    {
+        // The dead end the consumer report called out: a miss gave no thread to pull. The nearest ids
+        // are the thread — on a wrong-root-namespace lookup they differ from the target in exactly the
+        // segment that is wrong.
+        $output = ImpactFormatter::impact([
+            'target' => 'App\\Services\\Inspector',
+            'callers' => [],
+            'dependencies' => [],
+            'suggestions' => ['Acme\\Services\\Inspector', 'Acme\\Services\\Inspector::run'],
+            'graphNodeCount' => 42,
+        ]);
+
+        $this->assertStringContainsString('No graph nodes matched "App\\Services\\Inspector"', $output);
+        $this->assertStringContainsString("\nNearest graph nodes: Acme\\Services\\Inspector, Acme\\Services\\Inspector::run", $output);
+    }
+
+    #[Test]
+    public function impact_no_match_reports_the_scanned_node_count_when_nothing_resembles_the_symbol(): void
+    {
+        // No suggestion is itself information — it separates "wrong name" from "the graph is tiny".
+        $output = ImpactFormatter::impact([
+            'target' => 'Zzz\\Nonexistent',
+            'callers' => [],
+            'dependencies' => [],
+            'suggestions' => [],
+            'graphNodeCount' => 42,
+        ]);
+
+        $this->assertStringContainsString('Scanned 42 graph nodes; none share an identifier with it.', $output);
+    }
+
+    #[Test]
+    public function impact_no_match_without_diagnostics_keeps_its_bare_message(): void
+    {
+        // A caller that predates the diagnostic keys must still get a clean message, not a dangling line.
+        $output = ImpactFormatter::impact([
+            'target' => 'Zzz\\Nonexistent',
+            'callers' => [],
+            'dependencies' => [],
+        ]);
+
+        $this->assertStringEndsWith('(queue/console coverage is being widened).', $output);
+    }
+
+    #[Test]
+    public function a_changed_file_that_resolved_to_no_node_echoes_its_derived_fqcn(): void
+    {
+        // The single check the consumer report said would have collapsed its whole investigation: seeing
+        // `App\…` echoed for a file in an `Acme\`-rooted app is self-explanatory.
+        $result = $this->summary([]);
+        $result['changed'] = ['app/Services/Inspector.php' => 0];
+        $result['coverage'] = ['app/Services/Inspector.php' => 'unresolved'];
+        $result['fqcns'] = ['app/Services/Inspector.php' => 'App\\Services\\Inspector'];
+
+        $this->assertStringContainsString('app/Services/Inspector.php → App\\Services\\Inspector (0 graph nodes)', ImpactFormatter::detectChanges($result));
+    }
+
+    #[Test]
+    public function an_additive_only_change_echoes_no_fqcn(): void
+    {
+        // An additive change reports 0 nodes BY DESIGN (a new member has no existing callers) and reads
+        // `analyzed`. Echoing there would imply a placement failure that did not happen.
+        $result = $this->summary([]);
+        $result['changed'] = ['app/Models/Post.php' => 0];
+        $result['coverage'] = ['app/Models/Post.php' => 'analyzed'];
+        $result['fqcns'] = ['app/Models/Post.php' => 'App\\Models\\Post'];
+
+        $this->assertStringNotContainsString('→ App\\Models\\Post', ImpactFormatter::detectChanges($result));
+    }
+
+    #[Test]
+    public function a_resolved_changed_file_echoes_its_fqcn_only_under_explain(): void
+    {
+        $result = $this->summary(['route::GET::/posts']);
+        $result['fqcns'] = ['app/Models/Post.php' => 'App\\Models\\Post'];
+
+        // Placed, so the normal report stays uncluttered…
+        $this->assertStringNotContainsString('→ App\\Models\\Post', ImpactFormatter::detectChanges($result));
+        // …but --explain is a request to show the working.
+        $this->assertStringContainsString('app/Models/Post.php → App\\Models\\Post (1 graph nodes)', ImpactFormatter::detectChanges($result, explain: true));
+    }
+
+    #[Test]
+    public function a_changed_file_with_no_class_echoes_nothing(): void
+    {
+        // A Blade view or frontend file carries no FQCN; an empty arrow would be noise.
+        $result = $this->summary([]);
+        $result['changed'] = ['resources/views/posts/index.blade.php' => 0];
+        $result['coverage'] = ['resources/views/posts/index.blade.php' => 'unresolved'];
+        $result['fqcns'] = ['resources/views/posts/index.blade.php' => ''];
+
+        $this->assertStringContainsString('resources/views/posts/index.blade.php (0 graph nodes)', ImpactFormatter::detectChanges($result));
+        $this->assertStringNotContainsString(' → ', ImpactFormatter::detectChanges($result));
     }
 
     #[Test]

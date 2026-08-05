@@ -7,12 +7,15 @@ use SanderMuller\Richter\Analysis\ImpactAnalyzer;
 use SanderMuller\Richter\Analysis\ImpactFormatter;
 use SanderMuller\Richter\Analysis\JsonPresenter;
 use SanderMuller\Richter\Analysis\MarkdownFormatter;
+use SanderMuller\Richter\Console\Concerns\WarnsAboutRootNamespace;
 use SanderMuller\Richter\Graph\CodeGraph;
 use SanderMuller\Richter\Graph\GraphCache;
 use Throwable;
 
 final class ImpactCommand extends Command
 {
+    use WarnsAboutRootNamespace;
+
     /** @var string */
     protected $signature = 'richter:impact
         {symbol : An FQCN or substring to analyse, e.g. "App\\Models\\User"}
@@ -27,6 +30,8 @@ final class ImpactCommand extends Command
     {
         $symbol = (string) $this->argument('symbol');
         $markdown = (bool) $this->option('markdown');
+
+        $this->warnAboutRootNamespace();
 
         if ($this->option('json')) {
             if ($markdown) {

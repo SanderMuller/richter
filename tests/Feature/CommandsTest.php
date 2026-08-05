@@ -67,6 +67,47 @@ final class CommandsTest extends TestCase
     }
 
     #[Test]
+    public function detect_changes_notes_a_root_namespace_composer_json_does_not_corroborate(): void
+    {
+        // The skeleton maps `App\` to app/, so a configured `Wrong\` root can only under-report —
+        // every app class sits outside it. That is the one check that explains an empty report.
+        config()->set('richter.root_namespace', 'Wrong\\');
+
+        $this->runArtisan('richter:detect-changes', ['--base' => 'HEAD'])
+            ->expectsOutputToContain('richter traced the root namespace "Wrong\\", which composer.json does not map to app/')
+            ->assertSuccessful();
+    }
+
+    #[Test]
+    public function detect_changes_markdown_carries_the_root_namespace_note_in_the_document(): void
+    {
+        // Stderr does not reach a posted PR comment, so the caveat has to be inside the markdown.
+        config()->set('richter.root_namespace', 'Wrong\\');
+
+        $diff = "diff --git a/app/Models/User.php b/app/Models/User.php\n--- a/app/Models/User.php\n+++ b/app/Models/User.php\n@@ -0,0 +1,1 @@\n+    public function added(): void {}\n";
+
+        Process::fake([
+            '*merge-base*' => Process::result("abc123\n"),
+            '*show*' => Process::result(errorOutput: 'bad object', exitCode: 128),
+            '*diff*' => Process::result($diff),
+        ]);
+
+        $this->withoutMockingConsoleOutput();
+        Artisan::call('richter:detect-changes', ['--base' => 'some-base', '--markdown' => true]);
+
+        $this->assertStringContainsString('> ⚠️ Note: richter traced the root namespace "Wrong\\"', Artisan::output());
+    }
+
+    #[Test]
+    public function impact_stays_silent_about_the_root_namespace_on_a_conventional_app(): void
+    {
+        $this->withoutMockingConsoleOutput();
+        Artisan::call('richter:impact', ['symbol' => User::class]);
+
+        $this->assertStringNotContainsString('root namespace', Artisan::output());
+    }
+
+    #[Test]
     public function impact_reports_the_blast_radius_of_a_symbol(): void
     {
         // Builds the real graph of the testbench skeleton. Both formatter branches (matched and
@@ -249,7 +290,9 @@ final class CommandsTest extends TestCase
         $this->assertSame(0, $exitCode);
         $this->assertStringContainsString('## Richter change impact', $output);
         $this->assertStringContainsString('**Risk:**', $output);
-        $this->assertStringContainsString('| `app/Models/User.php` |', $output);
+        // The file resolved to no graph node, so the row echoes the FQCN the path derived to — the one
+        // fact that tells a reader whether the miss is a coverage gap or a wrong root namespace.
+        $this->assertStringContainsString('| `app/Models/User.php`<br>→ `App\Models\User` |', $output);
         $this->assertStringContainsString('UNRESOLVED', $output);
     }
 

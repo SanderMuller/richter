@@ -15,13 +15,21 @@ use SanderMuller\Richter\Graph\NodeMetadata;
 final class JsonPresenter
 {
     /**
-     * @param  array{target: string, callers: list<array{depth: int, node: string, via: string, file?: string, line?: int}>, dependencies: list<array{depth: int, node: string, via: string, file?: string, line?: int}>}  $result
+     * @param  array{target: string, callers: list<array{depth: int, node: string, via: string, file?: string, line?: int}>, dependencies: list<array{depth: int, node: string, via: string, file?: string, line?: int}>, ...}  $result
      * @return array{target: string, callers: list<array{depth: int, node: string, via: string, file?: string, line?: int}>, dependencies: list<array{depth: int, node: string, via: string, file?: string, line?: int}>}
      */
     public static function impact(array $result): array
     {
-        // Already JSON-ready: a no-match result is target + empty callers/dependencies, never prose.
-        return $result;
+        // Picked key by key, not passed through: the analyzer result also carries the miss diagnostics
+        // (`suggestions`, `graphNodeCount`) the text report renders, and this document is a declared
+        // contract — the MCP tool validates it against its own output schema, so an extra key here is
+        // a schema violation, not a bonus. Widening the contract is a deliberate change, not a
+        // side effect of adding a field for the human-readable report.
+        return [
+            'target' => $result['target'],
+            'callers' => $result['callers'],
+            'dependencies' => $result['dependencies'],
+        ];
     }
 
     /**

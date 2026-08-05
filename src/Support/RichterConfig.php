@@ -53,6 +53,27 @@ final class RichterConfig
         return $value;
     }
 
+    /**
+     * The configured application root namespace, normalised to a single trailing backslash; null when
+     * not set, which leaves {@see AppNamespace::root()} to derive it from `composer.json`. An unusable
+     * value throws rather than silently reverting to `App\`: a wrong root makes every app class read
+     * as absent from the graph, the falsely-empty report this package exists to prevent.
+     */
+    public static function rootNamespace(): ?string
+    {
+        $value = config('richter.root_namespace');
+
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        if (! is_string($value)) {
+            throw new InvalidArgumentException('The richter.root_namespace config value must be a namespace prefix string (e.g. "App\\\\") or null.');
+        }
+
+        return AppNamespace::normalize($value);
+    }
+
     /** @return list<string>|null null when not configured — callers fall back to their own default */
     public static function entryPointRoots(): ?array
     {

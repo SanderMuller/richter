@@ -4,6 +4,7 @@ namespace SanderMuller\Richter\Analysis;
 
 use SanderMuller\Richter\Changes\ChangedFileSymbols;
 use SanderMuller\Richter\Graph\CodeGraph;
+use SanderMuller\Richter\Support\AppNamespace;
 use SanderMuller\Richter\Support\DispatchTarget;
 
 /**
@@ -167,7 +168,7 @@ final class AffectedTests
             }
 
             foreach ($file->directSeeds as $seed) {
-                if (preg_match('/^App\\\\[\w\\\\]+$/', $seed) === 1) {
+                if (AppNamespace::isAppClass($seed)) {
                     $classes[$seed] = true;
                 }
             }
@@ -176,7 +177,7 @@ final class AffectedTests
         foreach ([...$result['callers'] ?? [], ...$result['dependencies'] ?? []] as $hop) {
             $class = explode('::', $hop['node'], 2)[0];
 
-            if (preg_match('/^App\\\\[\w\\\\]+$/', $class) === 1) {
+            if (AppNamespace::isAppClass($class)) {
                 $classes[$class] = true;
             }
         }

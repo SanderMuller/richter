@@ -11,6 +11,7 @@ use SanderMuller\Richter\Analysis\ImpactAnalyzer;
 use SanderMuller\Richter\Analysis\JsonPresenter;
 use SanderMuller\Richter\Analysis\TestReferenceIndex;
 use SanderMuller\Richter\Changes\ChangedSymbols;
+use SanderMuller\Richter\Console\Concerns\WarnsAboutRootNamespace;
 use SanderMuller\Richter\Graph\GraphCache;
 use SanderMuller\Richter\Support\RichterConfig;
 use Throwable;
@@ -27,6 +28,8 @@ use Throwable;
  */
 final class AffectedTestsCommand extends Command
 {
+    use WarnsAboutRootNamespace;
+
     /** The selection could not be determined — the caller must run the full suite. */
     public const int UNDETERMINED = 2;
 
@@ -52,6 +55,7 @@ final class AffectedTestsCommand extends Command
             return self::FAILURE;
         }
 
+        $this->warnAboutRootNamespace();
         $untracked = ChangedSymbols::untrackedRelevantFiles();
         $this->warnAboutUntrackedFiles($untracked);
 

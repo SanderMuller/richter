@@ -47,6 +47,12 @@ Work through these; propose only what applies, each with a one-line why; then on
 - **`default_base`** — the repo's real default branch (`git symbolic-ref --short refs/remotes/origin/HEAD`,
   e.g. `origin/main` or `origin/development`). *Why:* the report diffs against this; a wrong base
   silently mis-scopes every run, and a non-`main` default is common.
+- **`root_namespace`** — leave it `null` on a conventional app: richter derives the root from the
+  PSR-4 entry in `composer.json` that maps to `app/`. Propose it only when **two or more** PSR-4 roots
+  map to `app/` (a partially-migrated codebase), where the derivation prefers `App\` and so traces
+  only that half — name the root the app's classes actually use. *Evidence:* the commands print a
+  stderr note when the root they used matches no `app/` mapping in `composer.json`; that note appearing
+  is the signal this key is needed.
 - **`entry_point_roots`** — `app/` subdirs whose classes are reached only through runtime/vendor
   dispatch and would otherwise read `UNRESOLVED`: a form-builder Form dir (classes with a `buildForm()`
   the library invokes), a registry-/factory-dispatched calculator dir. *Prefer evidence:* run

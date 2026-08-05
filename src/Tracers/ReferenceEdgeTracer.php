@@ -15,6 +15,7 @@ use PhpParser\Node\Stmt\TraitUse;
 use PhpParser\NodeFinder;
 use SanderMuller\Richter\Graph\CodeGraphBuilder;
 use SanderMuller\Richter\Support\AppFiles;
+use SanderMuller\Richter\Support\AppNamespace;
 
 /**
  * Brain has no notion of API resources, transformers, or custom validation rules:
@@ -40,19 +41,20 @@ final class ReferenceEdgeTracer
     private const array RELATION_CALL_METHODS = [...EagerLoadStringChecker::LOAD_METHODS, 'has', 'doesntHave'];
 
     /**
-     * Namespace prefix → emitted edge type. Deliberately a targeted list, not a catch-all over
-     * `App\` — class-level reference edges on hub models would light every caller of the class for
-     * any method change, an over-reporting shape that trains readers to ignore the check. Each family
-     * here is one where the class is a sensible reach unit (renderers, validators, handlers, single-purpose actions).
+     * Namespace fragment (relative to the app root, {@see AppNamespace::qualify()}) → emitted edge
+     * type. Deliberately a targeted list, not a catch-all over the whole root namespace — class-level
+     * reference edges on hub models would light every caller of the class for any method change, an
+     * over-reporting shape that trains readers to ignore the check. Each family here is one where the
+     * class is a sensible reach unit (renderers, validators, handlers, single-purpose actions).
      *
      * @var array<string, string>
      */
     private const array NAMESPACE_TYPES = [
-        'App\\Http\\Resources\\' => 'resource',
-        'App\\Transformers\\' => 'resource',
-        'App\\Rules\\' => 'validates-with',
-        'App\\Handlers\\' => 'references',
-        'App\\Actions\\' => 'references',
+        'Http\\Resources\\' => 'resource',
+        'Transformers\\' => 'resource',
+        'Rules\\' => 'validates-with',
+        'Handlers\\' => 'references',
+        'Actions\\' => 'references',
     ];
 
     /** @return list<array{source: string, target: string, type: string}> */
@@ -114,7 +116,7 @@ final class ReferenceEdgeTracer
             foreach ($traitUse->traits as $trait) {
                 $traitFqcn = AppFiles::resolveName($trait);
 
-                if (str_starts_with($traitFqcn, 'App\\')) {
+                if (AppNamespace::isInApp($traitFqcn)) {
                     $edges[] = ['source' => $classFqcn, 'target' => $traitFqcn, 'type' => 'uses-trait'];
                 }
             }
@@ -178,7 +180,7 @@ final class ReferenceEdgeTracer
 
                 $model = AppFiles::resolveName($constant->class);
 
-                if (! str_starts_with($model, 'App\\Models\\')) {
+                if (! str_starts_with($model, AppNamespace::qualify('Models\\'))) {
                     continue;
                 }
 
@@ -205,15 +207,15 @@ final class ReferenceEdgeTracer
         foreach (new NodeFinder()->findInstanceOf($node, Name::class) as $name) {
             $fqcn = AppFiles::resolveName($name);
 
-            foreach (self::NAMESPACE_TYPES as $prefix => $type) {
-                if (str_starts_with($fqcn, $prefix)) {
+            foreach (self::NAMESPACE_TYPES as $relative => $type) {
+                if (str_starts_with($fqcn, AppNamespace::qualify($relative))) {
                     $references[$fqcn] = $type;
                 }
             }
 
             // Custom validator classes live in per-domain `Validators` sub-namespaces under
             // Http\Requests (`App\Http\Requests\Post\Validators\…`) — a segment match, not a prefix.
-            if (str_starts_with($fqcn, 'App\\') && str_contains($fqcn, '\\Validators\\')) {
+            if (AppNamespace::isInApp($fqcn) && str_contains($fqcn, '\\Validators\\')) {
                 $references[$fqcn] = 'validates-with';
             }
         }

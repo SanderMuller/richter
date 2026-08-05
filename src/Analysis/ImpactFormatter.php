@@ -19,11 +19,12 @@ final class ImpactFormatter
      */
     private const int LIST_CAP = 15;
 
-    /** @param  array{target: string, callers: list<array{depth: int, node: string, via: string, file?: string, line?: int}>, dependencies: list<array{depth: int, node: string, via: string, file?: string, line?: int}>}  $result */
+    /** @param  array{target: string, callers: list<array{depth: int, node: string, via: string, file?: string, line?: int}>, dependencies: list<array{depth: int, node: string, via: string, file?: string, line?: int}>, suggestions?: list<string>, graphNodeCount?: int}  $result */
     public static function impact(array $result): string
     {
         if ($result['callers'] === [] && $result['dependencies'] === []) {
-            return "No graph nodes matched \"{$result['target']}\". It may not be reachable from a traced entry point yet (queue/console coverage is being widened).";
+            return "No graph nodes matched \"{$result['target']}\". It may not be reachable from a traced entry point yet (queue/console coverage is being widened)."
+                . self::missDiagnostic($result['suggestions'] ?? [], $result['graphNodeCount'] ?? null);
         }
 
         $lines = [
@@ -38,7 +39,7 @@ final class ImpactFormatter
     }
 
     /**
-     * @param  array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, entryPointPaths?: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations?: array<string, array{file: string, line?: int}>, entryPointSecurity?: array<string, SecurityShape>, entryPointGates?: array<string, list<string>>, entryPointAuthGates?: array<string, list<string>>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied?: bool, findings?: list<string>, ...}  $result
+     * @param  array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, newFiles?: list<string>, fqcns?: array<string, string>, entryPoints: list<string>, entryPointPaths?: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations?: array<string, array{file: string, line?: int}>, entryPointSecurity?: array<string, SecurityShape>, entryPointGates?: array<string, list<string>>, entryPointAuthGates?: array<string, list<string>>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied?: bool, findings?: list<string>, ...}  $result
      * @param  bool  $gateActive  when a `--fail-on*` gate is active the command prints its own verdict, so the advisory suffix is dropped to avoid contradicting it
      * @param  bool  $explain  render the call chain from each reached entry point down to the changed symbol
      */
@@ -46,11 +47,15 @@ final class ImpactFormatter
     {
         $lines = ['Changed files:'];
 
+        $newFiles = $result['newFiles'] ?? [];
+
         foreach ($result['changed'] as $file => $nodeCount) {
             $note = ($result['coverage'][$file] ?? 'analyzed') === 'unresolved'
                 ? '  (UNRESOLVED: coverage incomplete for this area)'
                 : '';
-            $lines[] = "  {$file} ({$nodeCount} graph nodes){$note}";
+            // Says why the node count is a whole-class seed, and why an adds-only diff can carry risk.
+            $marker = in_array($file, $newFiles, strict: true) ? ' [new file]' : '';
+            $lines[] = "  {$file}" . self::derivedFqcn($result, $file, $note !== '', $explain) . " ({$nodeCount} graph nodes){$marker}{$note}";
         }
 
         $unresolved = in_array('unresolved', $result['coverage'], strict: true);
@@ -101,6 +106,45 @@ final class ImpactFormatter
         }
 
         return implode("\n", $lines);
+    }
+
+    /**
+     * The FQCN a changed path resolved to, as ` → App\Models\Post`, or '' when there is nothing worth
+     * saying. Shown for an UNRESOLVED file, where the derived name is the whole diagnosis (a wrong root
+     * namespace, a class outside `app/`, a typo'd path) and a reader has no other way to see it, and
+     * under `--explain`, where the ask is to show the working.
+     *
+     * Deliberately NOT keyed on a zero node count: an additive-only change reports zero by design (a
+     * new member has no existing callers), and echoing there would imply a placement failure that did
+     * not happen. Empty for a file with no class at all (a Blade view, a frontend file).
+     *
+     * @param  array{fqcns?: array<string, string>, ...}  $result
+     */
+    private static function derivedFqcn(array $result, string $file, bool $unresolved, bool $explain): string
+    {
+        if (! $unresolved && ! $explain) {
+            return '';
+        }
+
+        $fqcn = ($result['fqcns'] ?? [])[$file] ?? '';
+
+        return $fqcn === '' ? '' : " → {$fqcn}";
+    }
+
+    /**
+     * What to add to a "no graph nodes matched" message so it is a lead rather than a dead end: the
+     * nearest node ids, or — when nothing in the graph even resembles the symbol — how many nodes were
+     * scanned, which distinguishes "wrong name" from "the graph is empty/tiny".
+     *
+     * @param  list<string>  $suggestions
+     */
+    private static function missDiagnostic(array $suggestions, ?int $graphNodeCount): string
+    {
+        if ($suggestions !== []) {
+            return "\nNearest graph nodes: " . implode(', ', $suggestions);
+        }
+
+        return $graphNodeCount === null ? '' : "\nScanned {$graphNodeCount} graph nodes; none share an identifier with it.";
     }
 
     /**

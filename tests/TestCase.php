@@ -7,6 +7,7 @@ use Illuminate\Foundation\Application;
 use Orchestra\Testbench\TestCase as OrchestraTestCase;
 use Override;
 use SanderMuller\Richter\RichterServiceProvider;
+use SanderMuller\Richter\Support\AppNamespace;
 
 abstract class TestCase extends OrchestraTestCase
 {
@@ -27,6 +28,10 @@ abstract class TestCase extends OrchestraTestCase
     #[Override]
     protected function defineEnvironment($app): void
     {
+        // The derived root namespace is memoised per (project root, config override) for the process;
+        // a test that rewrites either under one path would otherwise inherit the previous test's value.
+        AppNamespace::flush();
+
         // Every test builds the graph fresh so no state leaks between tests through the on-disk
         // cache; cache behaviour itself is exercised explicitly in GraphCacheTest.
         $app->make(Repository::class)->set('richter.cache.enabled', false);

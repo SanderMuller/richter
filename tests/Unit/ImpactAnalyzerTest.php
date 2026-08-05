@@ -76,6 +76,17 @@ final class ImpactAnalyzerTest extends TestCase
         ], cosmeticOnly: false);
     }
 
+    /**
+     * A brand-new file: every member reads CHANGE_ADDED because there is no base side to diff against,
+     * so only `isNewFile` distinguishes it from a member added to an existing class.
+     */
+    private function changedNewFile(string $file, string $fqcn): ChangedFileSymbols
+    {
+        return new ChangedFileSymbols($file, $fqcn, [
+            new MemberChange('handle', MemberChange::KIND_METHOD, MemberChange::CHANGE_ADDED, resolvable: true),
+        ], cosmeticOnly: false, isNewFile: true);
+    }
+
     #[Test]
     public function impact_reports_callers_up_to_the_entry_point_and_dependencies(): void
     {
@@ -514,6 +525,82 @@ final class ImpactAnalyzerTest extends TestCase
     }
 
     #[Test]
+    public function a_new_file_seeds_its_class_node_and_reports_its_reach(): void
+    {
+        // The reported false negative: a brand-new class whose nodes ARE in the graph used to report
+        // 0 nodes and LOW, because every member of a new file classifies as added.
+        $result = $this->analyzer()->detectChanges([
+            $this->changedNewFile('app/Services/PostPublisher.php', 'App\Services\PostPublisher'),
+        ]);
+
+        $this->assertGreaterThan(0, $result['changed']['app/Services/PostPublisher.php']);
+        $this->assertSame('analyzed', $result['coverage']['app/Services/PostPublisher.php']);
+        $this->assertSame([self::ROUTE], $result['entryPoints']);
+        // Its reach into existing code counts toward the impacted total.
+        $this->assertGreaterThan(0, $result['impacted']);
+        // Precise, not coarse: no low-confidence flag and no capped HIGH.
+        $this->assertFalse($result['lowConfidence']);
+        $this->assertFalse($result['coarseCapApplied']);
+    }
+
+    #[Test]
+    public function a_new_command_file_classified_from_a_real_diff_reaches_its_entry_point(): void
+    {
+        // End to end over the reported reproduction: a brand-new console command, classified by the
+        // real classifier from an all-added hunk, used to report 0 nodes / LOW while richter:impact on
+        // the same class in the same graph returned a populated result.
+        $head = "<?php\nnamespace App\\Console\\Commands;\nclass ImportCommand\n{\n    public function handle(): void\n    {\n        run();\n    }\n}\n";
+        $added = [];
+
+        foreach (explode("\n", $head) as $index => $text) {
+            $added[] = ['line' => $index + 1, 'text' => $text];
+        }
+
+        $graph = new CodeGraph([
+            ['source' => 'command::app:import', 'target' => 'App\\Console\\Commands\\ImportCommand::handle', 'type' => 'command-to-action'],
+            ['source' => 'App\\Console\\Commands\\ImportCommand::handle', 'target' => 'App\\Services\\Importer::run', 'type' => 'action-to-service'],
+        ], hasUnparseableFiles: false);
+
+        $result = new ImpactAnalyzer($graph)->detectChanges([
+            ChangedSymbols::classifyFile('app/Console/Commands/ImportCommand.php', $head, baseSrc: null, hunk: ['added' => $added, 'removed' => []], isNew: true),
+        ]);
+
+        $this->assertGreaterThan(0, $result['changed']['app/Console/Commands/ImportCommand.php']);
+        $this->assertSame('analyzed', $result['coverage']['app/Console/Commands/ImportCommand.php']);
+        $this->assertSame(['command::app:import'], $result['entryPoints']);
+        $this->assertSame(['app/Console/Commands/ImportCommand.php'], $result['newFiles']);
+    }
+
+    #[Test]
+    public function a_new_entry_point_class_file_is_at_least_medium_and_self_lists(): void
+    {
+        // A new job has no caller in the graph, so it is its own entry surface — and the entry-class
+        // floor applies, which the additive short-circuit used to skip entirely.
+        $result = $this->analyzer()->detectChanges([
+            $this->changedNewFile('app/Jobs/Post/SomeImportJob.php', 'App\Jobs\Post\SomeImportJob'),
+        ]);
+
+        $this->assertSame(['App\Jobs\Post\SomeImportJob'], $result['entryPoints']);
+        $this->assertSame(RiskLevel::Medium, $result['risk']);
+    }
+
+    #[Test]
+    public function a_new_file_no_graph_node_references_stays_analyzed_with_a_finding(): void
+    {
+        // Nothing references the class yet — a determined answer, not an unknown, and a new class
+        // cannot break an existing caller. UNRESOLVED here would fail every --fail-on-unresolved
+        // build that adds a not-yet-wired class.
+        $result = $this->analyzer()->detectChanges([
+            $this->changedNewFile('app/Enums/NewStatus.php', 'App\Enums\NewStatus'),
+        ]);
+
+        $this->assertSame(0, $result['changed']['app/Enums/NewStatus.php']);
+        $this->assertSame('analyzed', $result['coverage']['app/Enums/NewStatus.php']);
+        $this->assertContains('app/Enums/NewStatus.php is new and nothing in the graph references it yet', $result['findings']);
+        $this->assertSame(RiskLevel::Low, $result['risk']);
+    }
+
+    #[Test]
     public function an_additive_only_change_to_a_job_is_low_not_medium(): void
     {
         // A new method on a job has no callers; the entry-class floor must not fire.
@@ -804,6 +891,23 @@ final class ImpactAnalyzerTest extends TestCase
         ]);
 
         $this->assertSame('analyzed', $result['coverage']['app/Jobs/ImportJob.php']);
+    }
+
+    #[Test]
+    public function a_new_job_file_reads_unresolved_when_dispatches_are_unfollowable(): void
+    {
+        // A new job IS seeded now, so the unfollowable-dispatch flip applies to it: its dispatchers
+        // are genuinely unknown, which is the honest answer, not "analyzed".
+        $graph = new CodeGraph([
+            ['source' => 'App\Jobs\ImportJob::handle', 'target' => 'App\Services\X::run', 'type' => 'job'],
+        ], hasUnparseableFiles: false, hasUnresolvedDispatches: true);
+
+        $result = new ImpactAnalyzer($graph)->detectChanges([
+            $this->changedNewFile('app/Jobs/ImportJob.php', 'App\Jobs\ImportJob'),
+        ]);
+
+        $this->assertSame(['App\Jobs\ImportJob'], $result['entryPoints']);
+        $this->assertSame('unresolved', $result['coverage']['app/Jobs/ImportJob.php']);
     }
 
     #[Test]

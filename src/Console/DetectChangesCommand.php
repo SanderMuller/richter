@@ -17,8 +17,10 @@ use SanderMuller\Richter\Analysis\RiskLevel;
 use SanderMuller\Richter\Analysis\TestReferenceIndex;
 use SanderMuller\Richter\Changes\ChangedFileSymbols;
 use SanderMuller\Richter\Changes\ChangedSymbols;
+use SanderMuller\Richter\Console\Concerns\WarnsAboutRootNamespace;
 use SanderMuller\Richter\Graph\CodeGraph;
 use SanderMuller\Richter\Graph\GraphCache;
+use SanderMuller\Richter\Support\AppNamespace;
 use SanderMuller\Richter\Support\RichterConfig;
 use Throwable;
 
@@ -31,6 +33,8 @@ use Throwable;
  */
 final class DetectChangesCommand extends Command
 {
+    use WarnsAboutRootNamespace;
+
     /** @var string */
     protected $signature = 'richter:detect-changes
         {--base= : Git ref to diff the current branch against (defaults to the richter.default_base config value)}
@@ -93,6 +97,7 @@ final class DetectChangesCommand extends Command
         $failOnUnresolved = (bool) $this->option('fail-on-unresolved');
         $gateActive = $failOn instanceof RiskLevel || $failOnUnresolved;
 
+        $this->warnAboutRootNamespace();
         $this->warnAboutUntrackedFiles();
 
         return $json
@@ -162,7 +167,7 @@ final class DetectChangesCommand extends Command
             }
         } else {
             $this->line($markdown
-                ? MarkdownFormatter::detectChanges($result, $tests, $gateActive, $explain)
+                ? MarkdownFormatter::detectChanges($result, $tests, $gateActive, $explain, AppNamespace::unmatchedRootNote())
                 : ImpactFormatter::detectChanges($result, $tests, $gateActive, $explain));
         }
 

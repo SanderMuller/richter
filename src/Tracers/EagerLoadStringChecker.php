@@ -15,6 +15,7 @@ use PhpParser\Node\Name;
 use PhpParser\Node\Scalar\String_;
 use PhpParser\NodeFinder;
 use SanderMuller\Richter\Support\AppFiles;
+use SanderMuller\Richter\Support\AppNamespace;
 use SanderMuller\Richter\Support\Fqcn;
 use Symfony\Component\Finder\Finder;
 use Throwable;
@@ -41,7 +42,11 @@ final class EagerLoadStringChecker
      */
     public const array LOAD_METHODS = ['load', 'loadMissing', 'loadCount', 'with', 'withOnly', 'withCount', 'withWhereHas', 'whereHas', 'orWhereHas', 'whereDoesntHave', 'orWhereDoesntHave'];
 
-    private const string MODEL_NAMESPACE = 'App\\Models\\';
+    /** `{root}Models\` — derived, so a non-`App\`-rooted app's models still gate through. */
+    private function modelNamespace(): string
+    {
+        return AppNamespace::qualify('Models\\');
+    }
 
     /**
      * Per-instance cache so the model scan runs once per instance, not once per expression.
@@ -189,7 +194,7 @@ final class EagerLoadStringChecker
             $class = AppFiles::resolveName($expression->class);
             $value = AppFiles::stringConstantValue($class, $expression->name->toString());
 
-            if ($value !== null && str_starts_with($class, self::MODEL_NAMESPACE)) {
+            if ($value !== null && str_starts_with($class, $this->modelNamespace())) {
                 $usesModelConstant = true;
             }
 

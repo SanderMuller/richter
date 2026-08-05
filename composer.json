@@ -63,7 +63,8 @@
         "psr-4": {
             "SanderMuller\\Richter\\Tests\\": "tests/",
             "Workbench\\App\\": "workbench/app/",
-            "App\\": "tests/Fixtures/project/app/"
+            "App\\": "tests/Fixtures/project/app/",
+            "Acme\\": "tests/Fixtures/acme-project/app/"
         }
     },
     "scripts": {

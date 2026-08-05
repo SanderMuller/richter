@@ -9,6 +9,7 @@ use PhpParser\NodeFinder;
 use SanderMuller\Richter\Graph\BladeViews;
 use SanderMuller\Richter\Graph\CodeGraphBuilder;
 use SanderMuller\Richter\Support\AppFiles;
+use SanderMuller\Richter\Support\AppNamespace;
 use Symfony\Component\Finder\Finder;
 
 /**
@@ -26,12 +27,19 @@ use Symfony\Component\Finder\Finder;
  */
 final class PolicyEdgeTracer
 {
-    private const string POLICY_NAMESPACE = 'App\\Policies\\';
-
     private const string VIEWS_DIR = '/resources/views';
 
+    /** `{root}Policies\` — derived, so an app that maps another PSR-4 root to app/ still matches. */
+    private static function policyNamespace(): string
+    {
+        return AppNamespace::qualify('Policies\\');
+    }
+
     /** Matches a `App\Policies\Foo` (or nested `…\Foo\Bar`) reference in Blade source, optionally root-qualified. */
-    private const string BLADE_POLICY_PATTERN = '/\\\\?App\\\\Policies\\\\([\w\\\\]+)/';
+    private function bladePolicyPattern(): string
+    {
+        return '/\\\\?' . preg_quote(self::policyNamespace(), '/') . '([\w\\\\]+)/';
+    }
 
     /** @return list<array{source: string, target: string, type: string}> */
     public function edgesForSource(string $source, string $classFqcn): array
@@ -118,7 +126,7 @@ final class PolicyEdgeTracer
         foreach (new NodeFinder()->findInstanceOf($node, Name::class) as $name) {
             $fqcn = AppFiles::resolveName($name);
 
-            if (str_starts_with($fqcn, self::POLICY_NAMESPACE)) {
+            if (str_starts_with($fqcn, self::policyNamespace())) {
                 $policies[] = $fqcn;
             }
         }
@@ -129,12 +137,12 @@ final class PolicyEdgeTracer
     /** @return list<string> */
     public function policiesReferencedInBlade(string $content): array
     {
-        if (preg_match_all(self::BLADE_POLICY_PATTERN, $content, $matches) < 1) {
+        if (preg_match_all($this->bladePolicyPattern(), $content, $matches) < 1) {
             return [];
         }
 
         return array_values(array_unique(array_map(
-            static fn (string $class): string => self::POLICY_NAMESPACE . $class,
+            static fn (string $class): string => self::policyNamespace() . $class,
             $matches[1],
         )));
     }

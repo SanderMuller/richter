@@ -183,6 +183,70 @@ final class CodeGraph
         ));
     }
 
+    /** How many distinct node ids the graph holds — the "scanned N nodes" denominator behind a miss. */
+    public function nodeCount(): int
+    {
+        return count($this->nodes);
+    }
+
+    /**
+     * The node ids a missed lookup most likely meant, best first — the lead that "no graph nodes
+     * matched" otherwise withholds. Ranked by how many identifier tokens the node shares with the
+     * needle, then by edit distance on the needle's LAST token (the class basename, where a typo or a
+     * wrong sub-namespace lands), then by id so the order is stable.
+     *
+     * Only nodes sharing at least one identifier token are candidates. That is what makes the
+     * wrong-root-namespace case land first — `App\Services\Inspector` looked up in an `Acme\`-rooted
+     * app shares every token but the first — while an unrelated node shares nothing and is never
+     * offered as a guess. An empty result is itself information: nothing in the graph resembles the
+     * symbol, so the caller falls back to reporting {@see nodeCount()}.
+     *
+     * @return list<string>
+     */
+    public function nearestNodes(string $needle, int $limit = 5): array
+    {
+        $tokens = $this->tokensOf($needle);
+
+        if ($tokens === []) {
+            return [];
+        }
+
+        // Read before deduping: `array_unique` keeps the FIRST occurrence, so on a needle whose basename
+        // repeats an earlier segment (`App\Models\App`) the last unique token is not the basename.
+        $term = end($tokens);
+        $needleTokens = array_unique($tokens);
+        $index = $this->nodesByToken();
+        $candidates = [];
+
+        foreach ($needleTokens as $token) {
+            foreach ($index[$token] ?? [] as $node) {
+                $candidates[$node] = true;
+            }
+        }
+
+        $scored = [];
+
+        foreach (array_keys($candidates) as $node) {
+            $nodeTokens = $this->tokensOf($node);
+
+            // Unreachable via the token index, but an id with nothing to compare must not be guessed at.
+            if ($nodeTokens === []) {
+                continue;
+            }
+
+            $scored[] = [
+                'node' => $node,
+                // Negated so a plain ascending sort puts the most-shared first.
+                'rank' => -count(array_intersect($needleTokens, $nodeTokens)),
+                'distance' => min(array_map(static fn (string $token): int => levenshtein($term, $token), $nodeTokens)),
+            ];
+        }
+
+        usort($scored, static fn (array $a, array $b): int => [$a['rank'], $a['distance'], $a['node']] <=> [$b['rank'], $b['distance'], $b['node']]);
+
+        return array_slice(array_column($scored, 'node'), 0, $limit);
+    }
+
     /**
      * Nodes worth running the boundary regex over: every node sharing an identifier token with the
      * needle, via the shortest of the needle's token posting lists. Any node genuinely matching the

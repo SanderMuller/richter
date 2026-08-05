@@ -7,6 +7,15 @@ return [
     'default_base' => 'origin/main',
 
     /*
+     * The root namespace of the classes under app/ — the prefix richter maps a changed file path to
+     * and gates every "is this an app class?" check on. Null derives it from the PSR-4 entry in
+     * composer.json that maps to app/ ('App\\' on a conventional Laravel app, and the fallback when
+     * composer.json names no single unambiguous root). Set it explicitly when app/ is mapped by two
+     * or more PSR-4 roots, e.g. 'Acme\\'.
+     */
+    'root_namespace' => null,
+
+    /*
      * Editor for the clickable file:line links in the `--html` report. Reuses debugbar's/Ignition's
      * env chain and defaults to phpstorm exactly as debugbar does, so an existing setup needs no new
      * variable. Supported: phpstorm, idea, vscode, vscode-insiders, vscode-remote, vscodium, sublime,

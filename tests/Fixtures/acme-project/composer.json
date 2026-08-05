@@ -1,0 +1,9 @@
+{
+    "name": "acme/fixture-app",
+    "description": "Fixture app whose PSR-4 root for app/ is not App\\ — richter must trace it all the same.",
+    "autoload": {
+        "psr-4": {
+            "Acme\\": "app/"
+        }
+    }
+}

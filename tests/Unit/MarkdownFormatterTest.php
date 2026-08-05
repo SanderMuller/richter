@@ -14,7 +14,7 @@ final class MarkdownFormatterTest extends TestCase
      * @param  list<string>  $entryPoints
      * @param  array<string, 'analyzed'|'unresolved'>  $coverage
      * @param  list<string>  $relatedModels
-     * @return array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied: bool}
+     * @return array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, newFiles?: list<string>, entryPoints: list<string>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied: bool}
      */
     private function summary(
         array $entryPoints,
@@ -34,6 +34,43 @@ final class MarkdownFormatterTest extends TestCase
             'lowConfidence' => $lowConfidence,
             'coarseCapApplied' => $coarseCapApplied,
         ];
+    }
+
+    #[Test]
+    public function a_new_file_is_marked_in_the_changed_files_table(): void
+    {
+        // Same fact the text and HTML reports carry: this row's node count is a whole-class seed.
+        $result = $this->summary(['route::GET::/posts']);
+        $result['newFiles'] = ['app/Models/Post.php'];
+
+        $output = MarkdownFormatter::detectChanges($result);
+
+        $this->assertStringContainsString('analyzed · new file', $output);
+        $this->assertStringNotContainsString('new file', MarkdownFormatter::detectChanges($this->summary(['route::GET::/posts'])));
+    }
+
+    #[Test]
+    public function a_notice_rides_along_inside_the_document(): void
+    {
+        // The markdown report travels to a PR comment where the command's stderr notes do not, so a
+        // caveat about the analysis itself has to be part of the document.
+        $output = MarkdownFormatter::detectChanges($this->summary([]), notice: 'Note: richter traced the root namespace "Wrong\\".');
+
+        $this->assertStringContainsString('> ⚠️ Note: richter traced the root namespace "Wrong\\".', $output);
+        $this->assertStringNotContainsString('⚠️ Note: richter traced', MarkdownFormatter::detectChanges($this->summary([])));
+    }
+
+    #[Test]
+    public function an_unresolved_changed_file_echoes_its_derived_fqcn(): void
+    {
+        $result = $this->summary([], coverage: ['app/Services/Inspector.php' => 'unresolved']);
+        $result['fqcns'] = ['app/Services/Inspector.php' => 'App\\Services\\Inspector'];
+
+        $output = MarkdownFormatter::detectChanges($result);
+
+        $this->assertStringContainsString('<br>→ `App\\Services\\Inspector`', $output);
+        // An analyzed file (additive or placed) stays uncluttered.
+        $this->assertStringNotContainsString('<br>→', MarkdownFormatter::detectChanges($this->summary([])));
     }
 
     #[Test]
@@ -345,6 +382,34 @@ final class MarkdownFormatterTest extends TestCase
         ]);
 
         $this->assertStringContainsString('No graph nodes matched', $output);
+    }
+
+    #[Test]
+    public function impact_no_match_offers_the_nearest_graph_nodes(): void
+    {
+        $output = MarkdownFormatter::impact([
+            'target' => 'App\\Services\\Inspector',
+            'callers' => [],
+            'dependencies' => [],
+            'suggestions' => ['Acme\\Services\\Inspector', 'Acme\\Services\\Inspector::run'],
+            'graphNodeCount' => 42,
+        ]);
+
+        $this->assertStringContainsString('Nearest graph nodes: `Acme\\Services\\Inspector`, `Acme\\Services\\Inspector::run`.', $output);
+    }
+
+    #[Test]
+    public function impact_no_match_reports_the_scanned_node_count_when_nothing_resembles_the_symbol(): void
+    {
+        $output = MarkdownFormatter::impact([
+            'target' => 'Zzz\\Nonexistent',
+            'callers' => [],
+            'dependencies' => [],
+            'suggestions' => [],
+            'graphNodeCount' => 42,
+        ]);
+
+        $this->assertStringContainsString('Scanned 42 graph nodes; none share an identifier with it.', $output);
         $this->assertStringContainsString('may not be reachable from a traced entry point yet', $output);
     }
 }

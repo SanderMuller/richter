@@ -6,6 +6,7 @@ use Illuminate\Routing\Route as RoutingRoute;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Str;
+use SanderMuller\Richter\Support\AppNamespace;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Finder\Finder;
 use Throwable;
@@ -121,19 +122,19 @@ final class TestReferenceIndex
      */
     private function recordClassReferences(string $source, ?string $file): void
     {
-        if (preg_match_all('/^use\s+(App\\\\[^;\s{]+)(?:\s+as\s+\w+)?\s*;/mi', $source, $matches) > 0) {
+        if (preg_match_all('/^use\s+(' . AppNamespace::quotedRoot() . '[^;\s{]+)(?:\s+as\s+\w+)?\s*;/mi', $source, $matches) > 0) {
             foreach ($matches[1] as $class) {
                 $this->record($this->classes, $class, $file);
             }
         }
 
-        if (preg_match_all('/(?<![\w$\\\\])\\\\?(App\\\\(?:[A-Za-z_]\w*\\\\)*[A-Za-z_]\w*)/', $source, $matches) > 0) {
+        if (preg_match_all('/(?<![\w$\\\\])\\\\?(' . AppNamespace::quotedRoot() . '(?:[A-Za-z_]\w*\\\\)*[A-Za-z_]\w*)/', $source, $matches) > 0) {
             foreach ($matches[1] as $class) {
                 $this->record($this->classes, $class, $file);
             }
         }
 
-        if (preg_match_all('/^use\s+(App\\\\[^;{]*)\{([^}]+)}\s*;/m', $source, $matches, PREG_SET_ORDER) > 0) {
+        if (preg_match_all('/^use\s+(' . AppNamespace::quotedRoot() . '[^;{]*)\{([^}]+)}\s*;/m', $source, $matches, PREG_SET_ORDER) > 0) {
             foreach ($matches as $group) {
                 foreach (explode(',', $group[2]) as $member) {
                     $parts = preg_split('/\s+as\s+/i', trim($member));
@@ -164,7 +165,7 @@ final class TestReferenceIndex
     {
         $segments = array_map(Str::studly(...), explode('.', $name));
 
-        return 'App\\Livewire\\' . implode('\\', $segments);
+        return AppNamespace::qualify('Livewire\\') . implode('\\', $segments);
     }
 
     /**
@@ -241,7 +242,7 @@ final class TestReferenceIndex
 
         // A self-listed entry-point class (a changed listener/job with no app-side caller) — a test
         // referencing the class by import counts.
-        if (preg_match('/^App\\\\[\w\\\\]+$/', $entryPointNode) === 1) {
+        if (AppNamespace::isAppClass($entryPointNode)) {
             return [
                 'referenced' => isset($this->classes[$entryPointNode]),
                 'tests' => $this->classes[$entryPointNode] ?? [],

@@ -16,6 +16,7 @@ use SanderMuller\Richter\Changes\MemberChange;
 use SanderMuller\Richter\Changes\MemberResolver;
 use SanderMuller\Richter\Console\InternalTracerBranchCommand;
 use SanderMuller\Richter\Support\AppFiles;
+use SanderMuller\Richter\Support\AppNamespace;
 use SanderMuller\Richter\Support\RichterConfig;
 use SanderMuller\Richter\Tracers\BladeViewTracer;
 use SanderMuller\Richter\Tracers\ClassHierarchyTracer;
@@ -429,7 +430,7 @@ final class CodeGraphBuilder
 
         foreach ($edges as $edge) {
             foreach ([$edge['source'], $edge['target']] as $node) {
-                if (preg_match('/^App\\\\[\w\\\\]+$/', $node) !== 1) {
+                if (! AppNamespace::isAppClass($node)) {
                     continue;
                 }
 
@@ -437,7 +438,7 @@ final class CodeGraphBuilder
                     continue;
                 }
 
-                $file = $projectRoot . '/app/' . str_replace('\\', '/', substr($node, strlen('App\\'))) . '.php';
+                $file = $projectRoot . '/app/' . AppNamespace::relativePath($node) . '.php';
                 $declares[$node] = is_file($file)
                     ? self::declaredMemberEdges((string) file_get_contents($file), $node)
                     : [];
@@ -547,8 +548,10 @@ final class CodeGraphBuilder
 
         foreach ($edges as $edge) {
             foreach ([$edge['source'], $edge['target']] as $node) {
-                if (preg_match('/^(App\\\\[\w\\\\]+)::\w+$/', $node, $matches) === 1) {
-                    $declares[$node] = ['source' => $matches[1], 'target' => $node, 'type' => 'declares'];
+                $declaringClass = AppNamespace::declaringClassOf($node);
+
+                if ($declaringClass !== null) {
+                    $declares[$node] = ['source' => $declaringClass, 'target' => $node, 'type' => 'declares'];
                 }
             }
         }

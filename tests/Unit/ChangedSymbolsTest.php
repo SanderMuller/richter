@@ -182,12 +182,13 @@ final class ChangedSymbolsTest extends TestCase
     }
 
     #[Test]
-    public function a_newly_added_file_is_additive_not_a_class_level_change(): void
+    public function a_newly_added_file_is_a_real_change_but_needs_no_coarse_seed(): void
     {
-        // A brand-new file has no base side; every line is added. The class header / braces are
-        // "outer" lines, but with nothing to diff against they are part of the additive whole and
-        // must not register as a non-additive class-level change — that would wrongly trip the
-        // coarse seed and entry-point floor for e.g. a newly added job.
+        // A brand-new file has no base side; every line is added. Two things follow, and they pull in
+        // opposite directions: the class header / braces are "outer" lines that must NOT register as a
+        // class-level change (nothing to diff them against, so no coarse low-confidence seed), while
+        // the file as a whole is still a real change — the class is new, so it seeds on its class node
+        // and an added command/job reaches its own entry surface.
         $head = "<?php\nfinal class NewJob\n{\n    public function handle(): void\n    {\n        run();\n    }\n}\n";
         $hunk = $this->hunk([
             [1, '<?php'],
@@ -201,11 +202,55 @@ final class ChangedSymbolsTest extends TestCase
         ], []);
 
         // isNew: true — the diff's `--- /dev/null` marks a genuine new file (no base to read), so the
-        // null base is legitimately additive, not an unreadable-base I/O failure.
+        // null base is legitimate, not an unreadable-base I/O failure.
         $result = ChangedSymbols::classifyFile('app/Jobs/NewJob.php', $head, baseSrc: null, hunk: $hunk, isNew: true);
 
-        $this->assertTrue($result->hasOnlyAdditiveOrCosmeticChanges());
+        $this->assertTrue($result->isNewFile);
+        $this->assertFalse($result->hasOnlyAdditiveOrCosmeticChanges());
         $this->assertFalse($result->needsCoarseSeed());
+        // Every member still classifies as added — the class seed, not a member seed, is what places it.
+        $this->assertSame([], $result->resolvableMembers());
+    }
+
+    #[Test]
+    public function a_newly_added_file_with_no_members_is_still_a_real_change(): void
+    {
+        // A marker interface / empty class has no members at all, which classifies `cosmeticOnly` —
+        // the new-file signal has to win, or adding an interface reads as "no impact" while every
+        // implementor of it is part of the change.
+        $head = "<?php\ninterface Marker\n{\n}\n";
+        $hunk = $this->hunk([
+            [1, '<?php'],
+            [2, 'interface Marker'],
+            [3, '{'],
+            [4, '}'],
+        ], []);
+
+        $result = ChangedSymbols::classifyFile('app/Contracts/Marker.php', $head, baseSrc: null, hunk: $hunk, isNew: true);
+
+        $this->assertTrue($result->cosmeticOnly);
+        $this->assertFalse($result->hasOnlyAdditiveOrCosmeticChanges());
+    }
+
+    #[Test]
+    public function a_member_added_to_an_existing_file_is_not_a_new_file(): void
+    {
+        // The additive rule this spec narrows must keep holding for its original case: a new method on
+        // an existing class has no existing callers, so it seeds nothing and raises no risk floor.
+        $base = "<?php\nclass Foo\n{\n    public function bar(): int\n    {\n        return 1;\n    }\n}\n";
+        $head = "<?php\nclass Foo\n{\n    public function bar(): int\n    {\n        return 1;\n    }\n\n    public function added(): int\n    {\n        return 2;\n    }\n}\n";
+        $hunk = $this->hunk([
+            [8, ''],
+            [9, '    public function added(): int'],
+            [10, '    {'],
+            [11, '        return 2;'],
+            [12, '    }'],
+        ], []);
+
+        $result = ChangedSymbols::classifyFile('app/Foo.php', $head, $base, $hunk);
+
+        $this->assertFalse($result->isNewFile);
+        $this->assertTrue($result->hasOnlyAdditiveOrCosmeticChanges());
     }
 
     #[Test]

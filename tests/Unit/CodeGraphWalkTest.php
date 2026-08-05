@@ -231,6 +231,63 @@ final class CodeGraphWalkTest extends TestCase
     }
 
     #[Test]
+    public function nearest_nodes_ranks_a_wrong_root_namespace_first(): void
+    {
+        // The reported dead end: a lookup under the wrong root namespace matched nothing and said only
+        // that. Every token but the first is shared, so the real node must rank above a same-namespace
+        // neighbour that shares fewer.
+        $graph = new CodeGraph([
+            ['source' => 'Acme\\Services\\Inspector::run', 'target' => 'Acme\\Models\\Token', 'type' => 'action-to-model'],
+            ['source' => 'Acme\\Services\\Auditor::run', 'target' => 'Acme\\Models\\Token', 'type' => 'action-to-model'],
+        ], hasUnparseableFiles: false);
+
+        $nearest = $graph->nearestNodes('App\\Services\\Inspector');
+
+        $this->assertSame('Acme\\Services\\Inspector::run', $nearest[0]);
+        $this->assertContains('Acme\\Services\\Auditor::run', $nearest);
+    }
+
+    #[Test]
+    public function nearest_nodes_ranks_a_near_miss_on_the_last_token_above_a_distant_one(): void
+    {
+        $graph = new CodeGraph([
+            ['source' => 'App\\Services\\Inspector', 'target' => 'App\\Services\\Auditor', 'type' => 'references'],
+        ], hasUnparseableFiles: false);
+
+        // Both share the `services` token; `Inspector` is one edit from `Inspecter`, `Auditor` is far.
+        $this->assertSame('App\\Services\\Inspector', $graph->nearestNodes('App\\Services\\Inspecter')[0]);
+    }
+
+    #[Test]
+    public function nearest_nodes_offers_nothing_when_no_identifier_is_shared(): void
+    {
+        $graph = new CodeGraph([
+            ['source' => 'App\\Models\\Post', 'target' => 'App\\Models\\Comment', 'type' => 'model-relationship'],
+        ], hasUnparseableFiles: false);
+
+        // A guess with nothing in common would be worse than none — the caller reports the scanned
+        // count instead.
+        $this->assertSame([], $graph->nearestNodes('Zzz\\Nonexistent'));
+        $this->assertSame([], $graph->nearestNodes('::'));
+        $this->assertSame(2, $graph->nodeCount());
+    }
+
+    #[Test]
+    public function nearest_nodes_caps_its_list(): void
+    {
+        $edges = [];
+
+        for ($i = 0; $i < 12; ++$i) {
+            $edges[] = ['source' => "App\\Services\\Inspector{$i}", 'target' => 'App\\Models\\Token', 'type' => 'action-to-model'];
+        }
+
+        $graph = new CodeGraph($edges, hasUnparseableFiles: false);
+
+        $this->assertCount(5, $graph->nearestNodes('App\\Services\\Inspector'));
+        $this->assertCount(2, $graph->nearestNodes('App\\Services\\Inspector', limit: 2));
+    }
+
+    #[Test]
     public function nodes_containing_returns_nothing_for_an_empty_needle(): void
     {
         $graph = new CodeGraph([

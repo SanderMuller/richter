@@ -337,6 +337,11 @@ final class HtmlFormatter
             ? '<span class="badge warn">UNRESOLVED (not placed in the graph)</span>'
             : '<span class="badge">analyzed</span>';
 
+        // Read off the change record; the text/markdown reports get the same fact via `newFiles`.
+        if ($file->isNewFile) {
+            $badges .= '<span class="badge">new file</span>';
+        }
+
         if ($file->cosmeticOnly) {
             $badges .= '<span class="badge">cosmetic only</span>';
         }

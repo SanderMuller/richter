@@ -21,13 +21,23 @@ final class MarkdownFormatter
     /** Entries rendered before the remainder collapses into a `<details>` block. */
     private const int LIST_CAP = 15;
 
-    /** @param  array{target: string, callers: list<array{depth: int, node: string, via: string, file?: string, line?: int}>, dependencies: list<array{depth: int, node: string, via: string, file?: string, line?: int}>}  $result */
+    /** @param  array{target: string, callers: list<array{depth: int, node: string, via: string, file?: string, line?: int}>, dependencies: list<array{depth: int, node: string, via: string, file?: string, line?: int}>, suggestions?: list<string>, graphNodeCount?: int}  $result */
     public static function impact(array $result): string
     {
         $lines = ["## Richter blast radius: `{$result['target']}`", ''];
 
         if ($result['callers'] === [] && $result['dependencies'] === []) {
             $lines[] = '_No graph nodes matched. The change may not be reachable from a traced entry point yet._';
+
+            // Same lead the text report gives on a miss: the nearest ids, or how many were scanned.
+            $suggestions = $result['suggestions'] ?? [];
+            $nodeCount = $result['graphNodeCount'] ?? null;
+
+            if ($suggestions !== []) {
+                $lines = [...$lines, '', '_Nearest graph nodes: ' . implode(', ', array_map(static fn (string $node): string => "`{$node}`", $suggestions)) . '._'];
+            } elseif ($nodeCount !== null) {
+                $lines = [...$lines, '', "_Scanned {$nodeCount} graph nodes; none share an identifier with it._"];
+            }
 
             return implode("\n", $lines);
         }
@@ -43,11 +53,13 @@ final class MarkdownFormatter
     }
 
     /**
-     * @param  array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, entryPointPaths?: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations?: array<string, array{file: string, line?: int}>, entryPointSecurity?: array<string, SecurityShape>, entryPointGates?: array<string, list<string>>, entryPointAuthGates?: array<string, list<string>>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied?: bool, findings?: list<string>, ...}  $result
+     * @param  array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, newFiles?: list<string>, fqcns?: array<string, string>, entryPoints: list<string>, entryPointPaths?: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations?: array<string, array{file: string, line?: int}>, entryPointSecurity?: array<string, SecurityShape>, entryPointGates?: array<string, list<string>>, entryPointAuthGates?: array<string, list<string>>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied?: bool, findings?: list<string>, ...}  $result
      * @param  bool  $gateActive  when a `--fail-on*` gate is active the command appends its own verdict, so the advisory suffix is dropped to avoid contradicting it
      * @param  bool  $explain  render the call chain from each reached entry point down to the changed symbol
+     * @param  string|null  $notice  a caveat about the analysis to render inside the document (the
+     *   command's stderr notes never reach a posted comment)
      */
-    public static function detectChanges(array $result, ?TestReferenceIndex $tests = null, bool $gateActive = false, bool $explain = false): string
+    public static function detectChanges(array $result, ?TestReferenceIndex $tests = null, bool $gateActive = false, bool $explain = false, ?string $notice = null): string
     {
         $unresolved = in_array('unresolved', $result['coverage'], strict: true);
 
@@ -59,6 +71,14 @@ final class MarkdownFormatter
             count($result['entryPoints']),
             $result['impacted'],
         );
+
+        // This document travels — a PR comment, a CI artifact — where the command's stderr notes do not.
+        // A caveat about the analysis itself (an unmatched root namespace) has to ride along, or the
+        // reader of the comment sees a confident report and no reason to doubt its scope.
+        if ($notice !== null) {
+            $lines[] = '';
+            $lines[] = "> ⚠️ {$notice}";
+        }
 
         if ($result['lowConfidence']) {
             $cap = ($result['coarseCapApplied'] ?? false) ? ' (risk capped at MEDIUM)' : '';
@@ -75,11 +95,16 @@ final class MarkdownFormatter
         $lines[] = '| File | Graph nodes | Coverage |';
         $lines[] = '|---|---:|---|';
 
+        $newFiles = $result['newFiles'] ?? [];
+
         foreach ($result['changed'] as $file => $nodeCount) {
-            $coverage = ($result['coverage'][$file] ?? 'analyzed') === 'unresolved'
+            $isUnresolved = ($result['coverage'][$file] ?? 'analyzed') === 'unresolved';
+            $coverage = $isUnresolved
                 ? '⚠️ **UNRESOLVED** (not placed in the graph)'
                 : 'analyzed';
-            $lines[] = '| ' . self::pathCell($file) . " | {$nodeCount} | {$coverage} |";
+            // Says why the node count is a whole-class seed, and why an adds-only diff can carry risk.
+            $coverage .= in_array($file, $newFiles, strict: true) ? ' · new file' : '';
+            $lines[] = '| ' . self::pathCell($file) . self::derivedFqcnCell($result, $file, $isUnresolved, $explain) . " | {$nodeCount} | {$coverage} |";
         }
 
         $lines = [...$lines, '', sprintf('### Entry points reached (%d)', count($result['entryPoints'])), ''];
@@ -115,6 +140,25 @@ final class MarkdownFormatter
         }
 
         return implode("\n", $lines);
+    }
+
+    /**
+     * The FQCN the path resolved to, appended to the File cell (`<br>` renders inside a GitHub table
+     * cell). Shown on the same terms as the text report's echo — see
+     * {@see ImpactFormatter::derivedFqcn()} for why an UNRESOLVED file and `--explain`, and not a zero
+     * node count.
+     *
+     * @param  array{fqcns?: array<string, string>, ...}  $result
+     */
+    private static function derivedFqcnCell(array $result, string $file, bool $unresolved, bool $explain): string
+    {
+        if (! $unresolved && ! $explain) {
+            return '';
+        }
+
+        $fqcn = ($result['fqcns'] ?? [])[$file] ?? '';
+
+        return $fqcn === '' ? '' : '<br>→ ' . self::pathCell($fqcn);
     }
 
     /** A diff-derived file path may contain `|` or backticks — the one repo-derived value the

@@ -58,7 +58,18 @@ Richter adds two things over Laravel Brain alone: the tooling above (CLI, MCP, a
 composer require --dev sandermuller/richter
 ```
 
-Requires PHP 8.4+ and Laravel 12 or 13. Optionally publish the config:
+Requires PHP 8.4+ and Laravel 12 or 13.
+
+Richter needs `laravel/mcp` `>= 0.8` (see [MCP server](#mcp-server)), which `laravel/boost` only
+pulls from v2. Composer won't upgrade a package Richter doesn't depend on, so an existing
+`laravel/boost` v1 install has to take that major in the same command — otherwise the install fails
+on the `laravel/mcp` conflict:
+
+```bash
+composer require --dev sandermuller/richter laravel/boost:* -W
+```
+
+Optionally publish the config:
 
 ```bash
 php artisan vendor:publish --tag=richter-config
@@ -111,6 +122,13 @@ Dependencies (what "App\Services\PostPublisher" reaches):
 
 Every hop carries its defining file (and line, when known), project-relative — no grepping to find what a report names.
 
+A symbol that matches nothing is a lead rather than a dead end: the report names the nearest graph nodes (ranked by shared identifiers, so a lookup under the wrong root namespace surfaces the real node), or — when nothing in the graph resembles it — how many nodes were scanned.
+
+```text
+No graph nodes matched "App\Services\TokenInspector". It may not be reachable from a traced entry point yet (queue/console coverage is being widened).
+Nearest graph nodes: Acme\Services\TokenInspector, Acme\Services\TokenInspector::inspect
+```
+
 With `--json`, stdout is a single document (`{target, callers, dependencies}`, each hop `{depth, node, via, file?, line?}`), or `{"error": "…"}` on failure.
 
 ### Advisory change impact of the current diff
@@ -131,7 +149,9 @@ Resolves which class members the branch changed (member-level, not file-level: a
 - the entry points the change can reach — routes, commands, jobs, listeners, middleware, and Livewire/Filament component classes (a Blade-mounted component or Filament resource/page/widget is a user-facing surface even without a `route::` node) — each tagged `[test-referenced]` or `[⚠ no test references this]`;
 - findings in the changed source itself, such as an eager-load or relation string that names no relation on any model. A missing comma between two relation constants is the classic case: `Post::OWNER . User::PROFILE` concatenates to `ownerprofile`, a name Eloquent silently never resolves;
 - a coarse risk level (`low` / `medium` / `high`);
-- honest degradation: a change that cannot be placed in the graph reads **UNRESOLVED**, never as a falsely reassuring "no impact", and an unfollowable dispatch makes a queue job read "unknown", not "none".
+- honest degradation: a change that cannot be placed in the graph reads **UNRESOLVED**, never as a falsely reassuring "no impact", and an unfollowable dispatch makes a queue job read "unknown", not "none". A file that resolved to no graph node also echoes the FQCN its path derived to (`app/Services/Inspector.php → App\Services\Inspector`), which is what separates a coverage gap from a wrong root namespace; `--explain` echoes it for every changed file.
+
+A member *added* to an existing class seeds nothing — nothing called it before, so it can break nothing. A brand-new **file** is different: the class itself is new, so it seeds on its class node and reports its reach, its own entry surface (a new command, job or listener), and a risk level accordingly — marked `[new file]` in the report. A diff that only adds files can therefore report `medium`/`high` and trip `--fail-on`.
 
 ```text
 Changed files:
@@ -447,6 +467,7 @@ Point Claude Code, Cursor, or any MCP client at the Artisan entry point, e.g. in
 | Key | Default | Purpose |
 |---|---|---|
 | `default_base` | `origin/main` | Git ref `richter:detect-changes` diffs against when `--base` is omitted. |
+| `root_namespace` | `null` (derived) | The root namespace of the classes under `app/`. `null` reads it from the PSR-4 entry in your `composer.json` that maps to `app/` — `App\` on a conventional app, and the fallback when no single entry does. Set it explicitly (e.g. `'Acme\\'`) when two or more PSR-4 roots map to `app/`; every command warns on stderr when the root it used matches no `app/` mapping in `composer.json`. |
 | `editor` | `phpstorm` (via `CODE_EDITOR` / `DEBUGBAR_EDITOR` / `IGNITION_EDITOR`) | Editor for the clickable `file:line` links in the `--html` report — reuses debugbar's/Ignition's env chain. One of `phpstorm`, `idea`, `vscode`(+`-insiders`/`-remote`/`ium`), `sublime`, `textmate`, `emacs`, `macvim`, `atom`, `nova`, `netbeans`, `xdebug`, or `null` to keep the references plain text. |
 | `dispatch_helpers` | `[]` | Project-custom global job-dispatch helper functions (e.g. `dispatch_with_retries`) the dispatch tracer should follow. |
 | `feature_gate_methods` | `[]` | `FQCN::method` allowlist of project wrappers around Pennant (e.g. `App\Enums\FeatureToggle::isActive`) — an `EnumCase->method()` call then annotates the change as flag-gated, alongside the built-in `Feature` facade / `@feature` support. |
@@ -466,7 +487,9 @@ Filament coverage is class-level: resources, pages and widgets surface as entry 
 computed HTTP routes come in through Laravel Brain when Filament is installed), but individual
 table/bulk actions are not modelled as separate entry points.
 
-Richter assumes standard Laravel conventions: the `App\` root namespace, `app/Models`, `app/Policies`, `resources/views`, and `tests/`.
+Richter assumes standard Laravel conventions: `app/Models`, `app/Policies`, `resources/views`, and
+`tests/`. The root namespace itself needn't be `App\` — it is derived from `composer.json` (see
+`root_namespace` above) — but the sub-namespaces under it are read as conventional.
 
 ## Testing
 

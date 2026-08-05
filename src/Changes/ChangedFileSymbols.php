@@ -28,6 +28,8 @@ final readonly class ChangedFileSymbols
      * @param  list<string>  $addedModelFields  the subset of `$modelFieldSet` added by this diff (present
      *   at head, absent at base) — the check's trigger; empty unless the file is an existing model
      *   whose base source was readable
+     * @param  bool  $isNewFile  the diff's old side was `/dev/null` — a genuinely new file, which is a
+     *   real change even though every member of it reads as added ({@see hasOnlyAdditiveOrCosmeticChanges()})
      */
     public function __construct(
         public string $file,
@@ -39,6 +41,7 @@ final readonly class ChangedFileSymbols
         public bool $unresolvedFrontendReferences = false,
         public array $modelFieldSet = [],
         public array $addedModelFields = [],
+        public bool $isNewFile = false,
     ) {}
 
     /** @return list<MemberChange> */
@@ -65,6 +68,15 @@ final readonly class ChangedFileSymbols
 
     public function hasOnlyAdditiveOrCosmeticChanges(): bool
     {
+        // A genuinely new file is never "additive with no impact". Its members all read CHANGE_ADDED
+        // for one reason only — there is no base side to diff them against — but the class itself is
+        // new: it can be an entry surface (a command, job, listener) and it can reach existing code.
+        // Checked first, so a new file with no members at all (a marker interface, an empty class),
+        // which classifies `cosmeticOnly`, is covered too.
+        if ($this->isNewFile) {
+            return false;
+        }
+
         if ($this->directSeeds !== [] || $this->unresolvedFrontendReferences) {
             return false;
         }

@@ -257,7 +257,7 @@ final class ChangedSymbols
 
         [$modelFieldSet, $addedModelFields] = self::modelFields($file, $isNew, $headSrc, $baseSrc);
 
-        return new ChangedFileSymbols($file, Fqcn::fromPath($file), $members, $members === [], findings: self::sourceFindings($members, $head['members'], $headSrc, $eagerLoadChecker, $featureGateChecker, $inertiaPageChecker), modelFieldSet: $modelFieldSet, addedModelFields: $addedModelFields);
+        return new ChangedFileSymbols($file, Fqcn::fromPath($file), $members, $members === [], findings: self::sourceFindings($members, $head['members'], $headSrc, $eagerLoadChecker, $featureGateChecker, $inertiaPageChecker), modelFieldSet: $modelFieldSet, addedModelFields: $addedModelFields, isNewFile: $isNew);
     }
 
     /**

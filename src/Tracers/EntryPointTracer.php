@@ -24,6 +24,7 @@ use PhpParser\Node\Stmt\Property;
 use PhpParser\NodeFinder;
 use SanderMuller\Richter\Graph\CodeGraphBuilder;
 use SanderMuller\Richter\Support\AppFiles;
+use SanderMuller\Richter\Support\AppNamespace;
 use SanderMuller\Richter\Support\EntryPointMethodFilter;
 use Throwable;
 
@@ -86,7 +87,7 @@ final readonly class EntryPointTracer
     {
         $parser = new PhpFileParser();
         $tracer = new MethodTracer();
-        $psr4 = ['App\\' => [$projectRoot . '/app']];
+        $psr4 = [AppNamespace::root() => [$projectRoot . '/app']];
 
         $edges = [];
 
@@ -159,7 +160,7 @@ final readonly class EntryPointTracer
      */
     private function methodsOf(PhpFileParser $parser, string $fqcn, string $projectRoot, array $resolvedAstsByPath): array
     {
-        $file = $projectRoot . '/app/' . str_replace('\\', '/', substr($fqcn, strlen('App\\'))) . '.php';
+        $file = $projectRoot . '/app/' . AppNamespace::relativePath($fqcn) . '.php';
 
         // A retained AST from the consolidated pass lists the same method names a fresh parse would
         // (name resolution is irrelevant to method names). The parse fallback stays: a root outside
@@ -473,7 +474,7 @@ final readonly class EntryPointTracer
 
                 // App interfaces only — vendor contracts (ShouldQueue, Arrayable, …) are implemented
                 // by hundreds of classes with no app-side reach and would swamp the graph.
-                if (str_starts_with($interface, 'App\\')) {
+                if (AppNamespace::isInApp($interface)) {
                     $edges[] = ['source' => ltrim($classFqcn, '\\'), 'target' => $interface, 'type' => 'implements'];
                 }
             }

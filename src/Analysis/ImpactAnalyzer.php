@@ -6,6 +6,7 @@ use Illuminate\Support\Str;
 use SanderMuller\Richter\Changes\ChangedFileSymbols;
 use SanderMuller\Richter\Graph\CodeGraph;
 use SanderMuller\Richter\Graph\NodeMetadata;
+use SanderMuller\Richter\Support\AppNamespace;
 use SanderMuller\Richter\Support\Fqcn;
 use SanderMuller\Richter\Support\RichterConfig;
 
@@ -50,6 +51,8 @@ final readonly class ImpactAnalyzer
      *     target: string,
      *     callers: list<array{depth: int, node: string, via: string, file?: string, line?: int}>,
      *     dependencies: list<array{depth: int, node: string, via: string, file?: string, line?: int}>,
+     *     suggestions: list<string>,
+     *     graphNodeCount: int,
      * }
      */
     public function impact(string $symbol, int $maxDepth = 6): array
@@ -60,6 +63,9 @@ final readonly class ImpactAnalyzer
             'target' => $symbol,
             'callers' => $this->withHopLocations($this->graph->callersOf($seeds, $maxDepth)),
             'dependencies' => $this->withHopLocations($this->graph->dependenciesOf($seeds, $maxDepth)),
+            // Only on a miss: a hit needs no lead, and the token scan is not free.
+            'suggestions' => $seeds === [] ? $this->graph->nearestNodes($symbol) : [],
+            'graphNodeCount' => $this->graph->nodeCount(),
         ];
     }
 
@@ -68,12 +74,12 @@ final readonly class ImpactAnalyzer
      * draw "nothing changed" without a graph build. {@see JsonPresenter::emptyDetectChanges()} is
      * the separate JSON-shaped equivalent; the two differ in `risk` (enum here, string there).
      *
-     * @return array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, callers: list<array{depth: int, node: string, via: string}>, dependencies: list<array{depth: int, node: string, via: string}>, seeds: list<string>, reach: array<string, array<string, true>>, edges: list<array{source: string, target: string, via: string, depth: int}>, entryPoints: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, SecurityShape>, entryPointGates: array<string, list<string>>, entryPointAuthGates: array<string, list<string>>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied: bool, findings: list<string>}
+     * @return array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, newFiles: list<string>, fqcns: array<string, string>, callers: list<array{depth: int, node: string, via: string}>, dependencies: list<array{depth: int, node: string, via: string}>, seeds: list<string>, reach: array<string, array<string, true>>, edges: list<array{source: string, target: string, via: string, depth: int}>, entryPoints: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, SecurityShape>, entryPointGates: array<string, list<string>>, entryPointAuthGates: array<string, list<string>>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied: bool, findings: list<string>}
      */
     public static function emptyDetectChanges(): array
     {
         return [
-            'changed' => [], 'coverage' => [], 'callers' => [], 'dependencies' => [],
+            'changed' => [], 'coverage' => [], 'newFiles' => [], 'fqcns' => [], 'callers' => [], 'dependencies' => [],
             'seeds' => [], 'reach' => [], 'edges' => [], 'entryPoints' => [], 'entryPointPaths' => [],
             'entryPointLocations' => [], 'entryPointSecurity' => [], 'entryPointGates' => [],
             'entryPointAuthGates' => [],
@@ -90,6 +96,8 @@ final readonly class ImpactAnalyzer
      * @return array{
      *     changed: array<string, int>,
      *     coverage: array<string, 'analyzed'|'unresolved'>,
+     *     newFiles: list<string>,
+     *     fqcns: array<string, string>,
      *     callers: list<array{depth: int, node: string, via: string}>,
      *     dependencies: list<array{depth: int, node: string, via: string}>,
      *     seeds: list<string>,
@@ -117,9 +125,24 @@ final readonly class ImpactAnalyzer
         $frontendSeeds = [];
         $summary = [];
         $coverage = [];
+        /** @var list<string> $newFileFindings */
+        $newFileFindings = [];
         $touchesEntryClass = false;
         // Scoped to this single detectChanges() run — see riskInputs()'s docblock.
         $riskInputsMemo = [];
+
+        // Derived up front, not accumulated in the loop below: the loop returns early for the additive
+        // and frontend lanes, which would silently drop those files from both maps.
+        $fqcns = array_column(
+            array_map(static fn (ChangedFileSymbols $file): array => ['file' => $file->file, 'fqcn' => $file->fqcn], $changed),
+            'fqcn',
+            'file',
+        );
+
+        $newFiles = array_values(array_map(
+            static fn (ChangedFileSymbols $file): string => $file->file,
+            array_filter($changed, static fn (ChangedFileSymbols $file): bool => $file->isNewFile),
+        ));
 
         foreach ($changed as $file) {
             // Additive (new member) or cosmetic (whitespace/import-reorder) change has no existing callers — seeds nothing, raises no risk floor (even on jobs).
@@ -138,27 +161,11 @@ final readonly class ImpactAnalyzer
                 continue;
             }
 
-            $fileSeeds = [];
+            ['precise' => $precise, 'coarse' => $coarse] = $this->seedsForChangedFile($file, $frontendSeeds);
 
-            foreach ($file->resolvableMembers() as $member) {
-                $fileSeeds = [...$fileSeeds, ...$this->memberSeeds($file->fqcn, $member->name)];
-            }
-
-            // A changed Blade view seeds its own node directly (no members to pin) — a precise seed,
-            // so it raises no low-confidence flag; it resolves to nothing only when the view is
-            // unreachable, which then reads as UNRESOLVED below, not "no impact". An entry-prefixed
-            // direct seed (a route an inline `fetch()` calls) instead takes the same annotation
-            // lane as frontend files: a touched surface, never a walk seed.
-            $fileSeeds = [...$fileSeeds, ...$this->directWalkSeeds($file, $frontendSeeds)];
-
-            $preciseSeeds = [...$preciseSeeds, ...$fileSeeds];
-
-            // A non-resolvable change (enum case body, constant value, $fillable/casts(), class modifier) can't pin to a member — coarse class seed instead; its HIGH is untrustworthy (cap catches it), so track apart from precise seeds.
-            if ($file->needsCoarseSeed()) {
-                $coarse = $this->seedsFor($file->fqcn);
-                $coarseSeeds = [...$coarseSeeds, ...$coarse];
-                $fileSeeds = [...$fileSeeds, ...$coarse];
-            }
+            $preciseSeeds = [...$preciseSeeds, ...$precise];
+            $coarseSeeds = [...$coarseSeeds, ...$coarse];
+            $fileSeeds = [...$precise, ...$coarse];
 
             // Only a real change to an uncharted entry-point class keeps the MEDIUM floor; the additive/cosmetic case returned LOW above.
             if ($this->isEntryPointClass($file->file)) {
@@ -170,8 +177,15 @@ final readonly class ImpactAnalyzer
             $summary[$file->file] = count($fileSeeds);
             // A non-additive change that resolves to no graph node at all can't be placed — that reads
             // "couldn't determine", never a falsely-reassuring "no impact". A change that does resolve
-            // to a node but reaches nothing is a real leaf and stays "analyzed".
-            $coverage[$file->file] = $fileSeeds === [] ? 'unresolved' : 'analyzed';
+            // to a node but reaches nothing is a real leaf and stays "analyzed". A NEW file is the one
+            // exception: no node means nothing references the class yet, which is a determined answer
+            // (and a new class cannot break an existing caller), so it stays "analyzed" with a finding
+            // rather than failing every --fail-on-unresolved build that adds a not-yet-wired class.
+            $coverage[$file->file] = $fileSeeds === [] && ! $file->isNewFile ? 'unresolved' : 'analyzed';
+
+            if ($fileSeeds === [] && $file->isNewFile) {
+                $newFileFindings[] = "{$file->file} is new and nothing in the graph references it yet";
+            }
         }
 
         $preciseSeeds = array_values(array_unique($preciseSeeds));
@@ -211,7 +225,7 @@ final readonly class ImpactAnalyzer
 
         [$risk, $coarseCapApplied] = $this->riskWithCoarseCap($impacted, $riskEntryPointCount, $touchesEntryClass, $preciseSeeds, $lowConfidence, $maxDepth, $riskInputsMemo);
 
-        $findings = [];
+        $findings = $newFileFindings;
         $payloadParityChecker = ($payloadParityEnabled ?? RichterConfig::payloadParityEnabled())
             ? new PayloadParityChecker($this->graph, RichterConfig::payloadParityMirrorThreshold(), RichterConfig::payloadParityIgnore())
             : null;
@@ -234,6 +248,8 @@ final readonly class ImpactAnalyzer
         return [
             'changed' => $summary,
             'coverage' => $coverage,
+            'newFiles' => $newFiles,
+            'fqcns' => $fqcns,
             'callers' => $callers,
             'dependencies' => $dependencies,
             // Internal, like callers/dependencies above: consumed by renderers, never by
@@ -253,6 +269,49 @@ final readonly class ImpactAnalyzer
             'lowConfidence' => $lowConfidence,
             'coarseCapApplied' => $coarseCapApplied,
             'findings' => $findings,
+        ];
+    }
+
+    /**
+     * One changed PHP file's walk seeds, split by confidence — the whole per-file seeding decision, so
+     * {@see detectChanges()} reads as bookkeeping around it rather than carrying four nested branches.
+     *
+     * `precise` pins the change as exactly as the graph allows: the changed members, a changed Blade
+     * view's own node, and — for a brand-new file — its class node. A new file's members all read
+     * CHANGE_ADDED (there is no base side to diff them against), so `memberSeeds()` yields nothing, yet
+     * the changed unit is the whole class, which can be an entry surface itself and can reach existing
+     * code. Class-level there is the exact granularity of a new class, not a fallback for a member the
+     * graph couldn't resolve — hence precise, raising no low-confidence flag and never arming the
+     * coarse HIGH cap.
+     *
+     * `coarse` is the fallback for a non-resolvable change (enum case body, constant value,
+     * `$fillable`/`casts()`, a class modifier) that cannot pin to a member node: the class stands in,
+     * its HIGH is untrustworthy (the cap catches it), so it is tracked apart. It can never coincide
+     * with the new-file seed — that requires a non-additive member a new file cannot have.
+     *
+     * `$frontendSeeds` is threaded by reference for the annotation lane: an entry-prefixed direct seed
+     * (a route an inline `fetch()` calls) is a touched surface, never a walk seed.
+     *
+     * @param  array<string, list<string>>  $frontendSeeds
+     * @return array{precise: list<string>, coarse: list<string>}
+     */
+    private function seedsForChangedFile(ChangedFileSymbols $file, array &$frontendSeeds): array
+    {
+        $precise = [];
+
+        foreach ($file->resolvableMembers() as $member) {
+            $precise = [...$precise, ...$this->memberSeeds($file->fqcn, $member->name)];
+        }
+
+        $precise = [...$precise, ...$this->directWalkSeeds($file, $frontendSeeds)];
+
+        if ($file->isNewFile) {
+            $precise = [...$precise, ...$this->seedsFor($file->fqcn)];
+        }
+
+        return [
+            'precise' => $precise,
+            'coarse' => $file->needsCoarseSeed() ? $this->seedsFor($file->fqcn) : [],
         ];
     }
 
@@ -420,26 +479,36 @@ final readonly class ImpactAnalyzer
         }
 
         foreach ($changed as $file) {
-            if ($file->hasOnlyAdditiveOrCosmeticChanges()) {
-                continue;
-            }
-
-            if (($coverage[$file->file] ?? null) !== 'analyzed') {
-                continue;
-            }
-
-            if (! Str::contains($file->fqcn, '\\Jobs\\')) {
-                continue;
-            }
-
-            [$jobEntryPoints] = $this->riskInputs($perFileSeeds[$file->file] ?? [], $maxDepth, $riskInputsMemo);
-
-            if ($jobEntryPoints === 0) {
+            if ($this->jobCoverageIsUnresolvable($file, $coverage[$file->file] ?? null, $perFileSeeds[$file->file] ?? [], $maxDepth, $riskInputsMemo)) {
                 $coverage[$file->file] = 'unresolved';
             }
         }
 
         return $coverage;
+    }
+
+    /**
+     * Whether one changed file is the shape {@see withUnresolvedJobFlips()} flips: a real (non-additive)
+     * change to a job that currently reads `analyzed` yet reaches no entry point of its own. Its own
+     * seeds decide, so a sibling change's reach can never mask it.
+     *
+     * @param  'analyzed'|'unresolved'|null  $coverage
+     * @param  list<string>  $fileSeeds
+     * @param  array<string, array{0: int, 1: int}>  $riskInputsMemo
+     */
+    private function jobCoverageIsUnresolvable(ChangedFileSymbols $file, ?string $coverage, array $fileSeeds, int $maxDepth, array &$riskInputsMemo): bool
+    {
+        if ($file->hasOnlyAdditiveOrCosmeticChanges() || $coverage !== 'analyzed') {
+            return false;
+        }
+
+        if (! Str::contains($file->fqcn, '\\Jobs\\')) {
+            return false;
+        }
+
+        [$jobEntryPoints] = $this->riskInputs($fileSeeds, $maxDepth, $riskInputsMemo);
+
+        return $jobEntryPoints === 0;
     }
 
     /**
@@ -596,7 +665,7 @@ final readonly class ImpactAnalyzer
     {
         $class = explode('::', $node, 2)[0];
 
-        if (preg_match('/^App\\\\[\w\\\\]+$/', $class) !== 1) {
+        if (! AppNamespace::isAppClass($class)) {
             return null;
         }
 

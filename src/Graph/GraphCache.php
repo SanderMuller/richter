@@ -4,6 +4,7 @@ namespace SanderMuller\Richter\Graph;
 
 use Composer\InstalledVersions;
 use OutOfBoundsException;
+use SanderMuller\Richter\Support\AppNamespace;
 use SanderMuller\Richter\Support\RichterConfig;
 use Symfony\Component\Finder\Finder;
 use Throwable;
@@ -111,6 +112,10 @@ final class GraphCache
         hash_update($context, '|richter:' . $this->packageVersion('sandermuller/richter'));
         hash_update($context, '|brain:' . $this->packageVersion('laramint/laravel-brain'));
         hash_update($context, '|config:' . json_encode([
+            // The effective root namespace, not the raw config value: it also derives from
+            // composer.json, which the input-file hashes below don't cover. Every node id in the
+            // graph carries it, so a change here invalidates the whole graph.
+            'root_namespace' => AppNamespace::root(),
             'entry_point_roots' => RichterConfig::entryPointRoots(),
             'dispatch_helpers' => RichterConfig::dispatchHelpers(),
             'laravel-brain' => $this->brainConfigInput(),
