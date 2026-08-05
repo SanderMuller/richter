@@ -11,15 +11,16 @@
 
 Measures the magnitude of impact of code changes in a Laravel codebase. Like the Richter scale, but for your PHP.
 
-Built on [Laravel Brain](https://github.com/laramint/laravel-brain)'s static analysis, Richter constructs a directed code graph of your application (routes, controllers, jobs, listeners, policies, resources, Blade views, Eloquent relations). It reads two things off that graph:
+Built on [Laravel Brain](https://github.com/laramint/laravel-brain)'s static analysis, Richter constructs a directed code graph of your application (routes, controllers, jobs, listeners, policies, resources, Blade views, Eloquent relations). It reads three things off that graph:
 
-- **The blast radius of a symbol:** its callers (what breaks if you change it) and its dependencies (what it reaches).
-- **What the current branch diff touches:** the HTTP/CLI entry points and flows the changed files reach, plus a coarse risk level.
+- **The blast radius of a symbol:** its callers (what breaks if you change it), its dependencies (what it reaches), and the entry surfaces its callers lead back to.
+- **The path between two symbols:** the shortest call-direction chain from one to the other.
+- **What the current branch diff touches:** the HTTP/CLI entry points and flows the changed files reach, plus a coarse risk level and a set of source-level findings.
 
 You can use those results three ways:
 
 - **CLI:** a self-review aid before you push.
-- **MCP:** Richter registers a local `richter` server exposing both analyses read-only, so a coding agent can check a symbol's blast radius or triage the branch diff mid-review without shelling out.
+- **MCP:** Richter registers a local `richter` server exposing every analysis read-only — `impact`, `trace`, `detect-changes`, `affected-tests`, plus orientation resources — so a coding agent can work with the graph mid-review without shelling out.
 - **CI and PR review:** run `richter:detect-changes` against the pull request's base ref and post the report for the reviewer, human or agent.
 
 Richter is advisory by default: `richter:detect-changes` exits 0, and a low or empty result is a signal, not a guarantee of no impact. Opt into a CI gate with `--fail-on` / `--fail-on-unresolved` when you want a non-zero exit (see [Gating in CI](#gating-in-ci)).
@@ -31,7 +32,8 @@ Richter shows what a change reaches, before you or your reviewer have to guess.
 - **Catch what you missed, before review.** Run `richter:detect-changes` on your branch and read the entry points and flows the diff reaches. Anything you didn't expect it to touch is worth a look before you open the PR.
 - **Turn reach into a test-coverage prompt.** Every reached entry point is tagged `[test-referenced]` or `[⚠ no test references this]`, and a referenced entry point whose referencing tests contain no behavioural assertion the scan recognises is tagged `[test-referenced — no behavioural assertion found]` — a heuristic prompt, not a coverage verdict. An entry point whose behaviour you changed with nothing referencing it is a place to add a test; the tag flags a missing reference, not proof the code is untested.
 - **Hand the reviewer your blast radius.** Drop the report into the pull request description, or let a coding agent read it over MCP, so review starts from what the change reaches instead of a cold diff.
-- **Size a refactor first.** Before you rename or rework a symbol, `richter:impact "App\Models\User"` lists its callers (what breaks if you change it) and its dependencies (what it reaches).
+- **Size a refactor first.** Before you rename or rework a symbol, `richter:impact "App\Models\User"` lists its callers (what breaks if you change it), its dependencies (what it reaches), and the entry surfaces behind those callers.
+- **Answer "how does this even reach that?"** `richter:trace From To` prints the shortest call chain between two symbols — or, when there is none, how far upstream connectivity actually extends.
 
 The analysis never executes your application's routes, jobs, or commands. It is static analysis over a code graph, fast enough to run on every branch. It does, however, autoload classes from the analyzed checkout (to resolve constants, relation names, and queue interfaces), and autoloading runs a file's top-level code. Treat a checkout you would not `composer install` on as one you should not analyze either.
 
@@ -60,10 +62,12 @@ composer require --dev sandermuller/richter
 
 Requires PHP 8.4+ and Laravel 12 or 13.
 
-Richter needs `laravel/mcp` `>= 0.8` (see [MCP server](#mcp-server)), which `laravel/boost` only
-pulls from v2. Composer won't upgrade a package Richter doesn't depend on, so an existing
-`laravel/boost` v1 install has to take that major in the same command — otherwise the install fails
-on the `laravel/mcp` conflict:
+`laravel/mcp` is optional (it lights up the [MCP server](#mcp-server)), but when present it must
+fall in the supported `^0.8||^0.9` range — Richter declares a conflict with anything outside it.
+`laravel/boost` only pulls a compatible
+`laravel/mcp` from v2, and Composer won't upgrade a package Richter doesn't depend on, so an
+existing `laravel/boost` v1 install has to take that major in the same command — otherwise the
+install fails on the `laravel/mcp` conflict:
 
 ```bash
 composer require --dev sandermuller/richter laravel/boost:* -W
@@ -166,12 +170,12 @@ Path from "PostController" to "App\Services\PostPublisher" (call direction, 1 ho
   ↳ App\Http\Controllers\PostController::publish →(action-to-service) App\Services\PostPublisher
 ```
 
-No path is a result, not an error (exit 0): the report names the deepest caller reached from the
-TO side within the depth limit — how far upstream connectivity extends, not a pointer toward
-FROM — or says plainly that the target has no callers, and reminds you that swapping the
-arguments queries the reverse. An unresolvable symbol *is* an error, deliberately stricter than
-`richter:impact`'s empty result: an empty trace would read as "no path", the one misleading
-answer the command must never give.
+No path is a result, not an error (exit 0). The report then names the deepest caller reached
+from the TO side within the depth limit, which tells you how far upstream connectivity extends
+(it is not a pointer toward FROM), or says plainly that the target has no callers. An
+unresolvable symbol *is* an error. That is stricter than `richter:impact`, which returns an
+empty result for an unknown symbol, but an empty trace would read as "no path" — a wrong answer,
+not an empty one.
 
 With `--json`, stdout is `{from, to, resolvedFrom, resolvedTo, found, path}` — plus
 `furthestReached` (`{node, depth, file?, line?}`) on a miss whose target has callers — or
@@ -262,19 +266,25 @@ spread, an unparseable resource) is silently skipped rather than guessed at. On 
 it for one run with `--no-payload-parity` or globally via `payload_parity.enabled` (see
 [Configuration](#configuration)).
 
-The same lane runs in the **consumer direction**: a `toArray()` key the diff *removes* from a
+The same lane runs in the consumer direction: a `toArray()` key the diff *removes* from a
 resource is flagged when a frontend file that consumes one of the routes the resource reaches
-still reads it (`resources/js/Pages/Posts/Show.vue references GET /posts/{post} and reads
-'published_at', which this diff removes from App\Http\Resources\PostResource (renamed to
-'publishedAt'?)` — the rename hint appears only when exactly one key was removed and one added,
-never from a similarity guess). Consumers are the configured `frontend.roots` JS/TS files plus
-every Blade view's inline `<script>` blocks (server-side Blade PHP never counts as a read), matched
-access-shaped only (`.key`, `['key']`, destructuring) so a translation key or unrelated variable
-can't trigger it. The key diff is stricter than the model→resource side: a conditional
-(`mergeWhen`) or constant-keyed entry makes the whole side unenumerable — silence, never a guessed
-removal. The consumer scan only runs on a diff that actually removed a key, shares the
-`payload_parity.enabled` switch and `--no-payload-parity` flag, and a false positive is suppressed
-per key with an `ignore` entry (`App\Http\Resources\PostResource::published_at`).
+still reads it.
+
+```text
+  ! resources/js/Pages/Posts/Show.vue references GET /posts/{post} and reads 'published_at', which this diff removes from App\Http\Resources\PostResource (renamed to 'publishedAt'?)
+```
+
+The rename hint appears only when exactly one key was removed and one added, never from a
+similarity guess. Consumers are the configured `frontend.roots` JS/TS files plus every Blade
+view's inline `<script>` blocks; server-side Blade PHP never counts as a read. Matching is
+access-shaped only (`.key`, `['key']`, destructuring), so a translation key or an unrelated
+variable can't trigger it — though an object-literal *write* (`{ published_at: date }` in a
+request body) can, since the destructuring pattern cannot tell the two apart. Suppress a known
+false positive per key with an `ignore` entry (`App\Http\Resources\PostResource::published_at`).
+The key diff itself is stricter than the model→resource side: a conditional (`mergeWhen`) or
+constant-keyed entry makes the whole side unenumerable, and the lane stays silent rather than
+guess at a removal. The scan only runs on a diff that actually removed a key, and it shares the
+`payload_parity.enabled` switch and `--no-payload-parity` flag.
 
 With `--markdown`, the report renders as GitHub-flavoured markdown: a risk badge up front, changed files as a table, entry points as a review checklist with their file:line, test tags and exposure badges, and long lists collapsed into `<details>` instead of truncated. The result is ready to paste into (or post onto) a pull request. `--markdown --explain` composes.
 
@@ -505,7 +515,7 @@ Building the code graph is the dominant cost of every command. Richter caches th
 
 ### MCP server
 
-When [`laravel/mcp`](https://github.com/laravel/mcp) is installed, Richter registers a local MCP server named `richter` exposing four read-only tools — `impact` (blast radius plus reached entry surfaces of a symbol), `trace` (shortest call-direction path between two symbols), `detect-changes` (advisory impact of the current branch diff), and `affected-tests` (the test selection the diff warrants; **`determinable: false` means run the full suite** — every non-determinable cause returns that shape with its reasons, never a tool error) — plus three read-only resources for orientation without a tool call:
+When [`laravel/mcp`](https://github.com/laravel/mcp) is installed, Richter registers a local MCP server named `richter` with four read-only tools: `impact` (blast radius plus reached entry surfaces of a symbol), `trace` (shortest call-direction path between two symbols), `detect-changes` (advisory impact of the current branch diff), and `affected-tests` (the test selection the diff warrants). For `affected-tests`, `determinable: false` means run the full suite — every non-determinable cause returns that shape with its reasons, never a tool error. Three read-only resources cover orientation without a tool call:
 
 | Resource | URI | Content |
 |---|---|---|
