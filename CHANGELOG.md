@@ -5,6 +5,35 @@ All notable changes to `sandermuller/richter` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.18.0 - 2026-08-05
+
+Three fixes from real-world adoption feedback, all of them cases where the report was quieter than the truth. An application whose classes are not under `App\` had every reachability check miss; a brand-new file read as "no impact" even when its class was in the graph and was itself an entry surface; and a result of zero gave no thread to pull. A silently thin report is the one failure mode this package exists to prevent, so all three are treated as correctness bugs rather than polish.
+
+### Changed
+
+- **A diff that only adds files can now report `medium`/`high` and trip `--fail-on`.** Previously any brand-new file was classified additive and contributed nothing to risk (see Fixed below). If your CI gate is tuned against the old behaviour, expect adds-only branches — a new command, job, listener, or an added class reached from existing code — to report a real risk level for the first time. There is no config flag to opt out: the old result was a false negative, not a quieter setting.
+
+### Added
+
+- **`root_namespace` config key.** Left `null` (the default), richter derives the application root namespace from the PSR-4 entry in your `composer.json` that maps to `app/` — so a conventional app still resolves `App\` and needs no change. Set it explicitly (e.g. `'Acme\\'`) when two or more PSR-4 roots map to `app/`, which the derivation cannot disambiguate.
+- **A root-namespace sanity note.** Every command warns on stderr when the root it traced matches no `app/` mapping in `composer.json`, and when `composer.json` maps `app/` under two-plus roots (only one is traced). The `--markdown` report carries the same note inside the document, since stderr never reaches a posted pull-request comment.
+- **Nearest-node suggestions on a miss.** `richter:impact` on a symbol that matches nothing now names the closest node ids — ranked by shared identifiers, then by edit distance on the class basename — or reports how many nodes were scanned when nothing in the graph resembles the symbol. A lookup under the wrong root namespace surfaces the real node first.
+- **The derived FQCN in the changed-files list.** `richter:detect-changes` echoes the fully-qualified name a changed path resolved to (`app/Services/Inspector.php → App\Services\Inspector`) for any file that reads UNRESOLVED, and for every changed file under `--explain`. That one line separates a coverage gap from a wrong root namespace.
+- **A `[new file]` marker** in the text, markdown, and HTML reports, so a whole-class seed reads differently from a member-level one.
+
+### Fixed
+
+- **A non-`App\` root namespace made the analysis miss almost everything.** Path → FQCN, the FQCN → path inverse, every "is this an app class?" gate, the `Policies\` / `Models\` / `Http\Resources\` / `Rules\` / `Actions\` prefixes, and the test-reference index's source scan all compared against the `App\` literal. On an application mapping another PSR-4 root to `app/`, no changed file resolved to a node, the source tracer traced nothing, and the `[test-referenced]` coverage tags could only under-report. All of them now derive from the resolved root. `App\` still wins when an application maps both it and another root to `app/`, so a partially-migrated codebase keeps tracing the half it traced before.
+- **A brand-new file reported `0 graph nodes` and `LOW`, even when its class was in the graph.** A new file has no base side to diff against, so every member of it classified as *added* — which made the whole file read as additive, seeding nothing, skipping the entry-point risk floor, and never self-listing as its own entry surface. A new console command whose node `richter:impact` found happily came back as no impact. A genuinely new file now seeds its class node as a precise seed (no low-confidence flag, no capped risk), so its reach, its own entry surface, and its risk level all report. A new file that resolves to no node reads `analyzed` with a finding rather than UNRESOLVED, so `--fail-on-unresolved` does not fail on a class nothing references yet. Adding a member to an *existing* class is unchanged — nothing called it before, so it still seeds nothing.
+- **The `--json` impact document could have gained report-only fields.** `JsonPresenter::impact()` passed the analyzer result straight through; it now selects its three keys, so a field added for the human-readable reports can never widen the machine contract (the MCP tool validates its structured content against a declared schema).
+
+### Notes
+
+- The graph cache invalidates itself: the fingerprint now includes the effective root namespace, so the first run after upgrading rebuilds and every later run is served normally. No `--no-cache` needed.
+- Installation gained a note: richter requires `laravel/mcp >= 0.8`, which `laravel/boost` only pulls from v2. Composer will not upgrade a package richter does not depend on, so an existing `laravel/boost` v1 install must take that major in the same `composer require`.
+
+**Full Changelog**: https://github.com/SanderMuller/richter/compare/v0.17.5...v0.18.0
+
 ## v0.17.5 - 2026-08-02
 
 A setup release: richter now ships a guided way to configure itself for a new project, so a fresh install stops reading `UNRESOLVED` on subsystems the defaults can't see (runtime-dispatched Forms, registry-dispatched calculators) and stops scoping the report against the wrong base branch. No analysis behaviour changed — the engine is byte-identical to 0.17.4.
