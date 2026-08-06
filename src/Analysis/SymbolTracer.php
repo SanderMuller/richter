@@ -53,13 +53,22 @@ final readonly class SymbolTracer
         return $result;
     }
 
-    /** @return list<string> */
+    /**
+     * On a miss the message carries the same lead {@see ImpactFormatter::impact()} renders — a
+     * trace failing on a typo is the surface where a nearest-node hint pays off most, because
+     * both arguments have to resolve before any path can be reported.
+     *
+     * @return list<string>
+     */
     private function resolveOrFail(string $symbol): array
     {
         $nodes = $this->graph->nodesContaining(ltrim($symbol, '\\'));
 
         if ($nodes === []) {
-            throw new InvalidArgumentException("No graph nodes matched \"{$symbol}\".");
+            throw new InvalidArgumentException(
+                "No graph nodes matched \"{$symbol}\"."
+                . ImpactFormatter::missDiagnostic($this->graph->nearestNodes($symbol), $this->graph->nodeCount())
+            );
         }
 
         return $nodes;

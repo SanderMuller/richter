@@ -435,4 +435,37 @@ final class CodeGraphWalkTest extends TestCase
             $graph->dependencyEdgesOf(['S']),
         );
     }
+
+    #[Test]
+    public function nodes_defined_in_a_file_are_returned_sorted_and_edge_backed(): void
+    {
+        $graph = new CodeGraph([
+            ['source' => 'schedule::7b1c', 'target' => 'command::reports:sync', 'type' => 'schedule-to-command'],
+            ['source' => 'route::GET::/posts', 'target' => 'App\\Http\\Controllers\\PostController', 'type' => 'route-to-controller'],
+        ], hasUnparseableFiles: false, nodeMetadata: [
+            'schedule::7b1c' => ['file' => 'app/Console/Kernel.php'],
+            'schedule::0a0a' => ['file' => 'app/Console/Kernel.php'],
+            'route::GET::/posts' => ['file' => 'routes/web.php'],
+        ]);
+
+        // 'schedule::0a0a' would sort first but appears in no edge, so the graph cannot traverse
+        // it and it is not offered as a seed.
+        $this->assertSame(['schedule::7b1c'], $graph->nodesDefinedIn('app/Console/Kernel.php'));
+        $this->assertSame(['route::GET::/posts'], $graph->nodesDefinedIn('routes/web.php'));
+    }
+
+    #[Test]
+    public function nodes_defined_in_an_unknown_file_are_empty(): void
+    {
+        // Exact match only: a path is an identity here, never a prefix or a substring.
+        $graph = new CodeGraph([
+            ['source' => 'route::GET::/posts', 'target' => 'App\\Http\\Controllers\\PostController', 'type' => 'route-to-controller'],
+        ], hasUnparseableFiles: false, nodeMetadata: [
+            'route::GET::/posts' => ['file' => 'routes/web.php'],
+        ]);
+
+        $this->assertSame([], $graph->nodesDefinedIn('web.php'));
+        $this->assertSame([], $graph->nodesDefinedIn('routes/'));
+        $this->assertSame([], $graph->nodesDefinedIn('routes/api.php'));
+    }
 }

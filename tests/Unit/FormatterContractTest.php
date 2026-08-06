@@ -32,7 +32,7 @@ final class FormatterContractTest extends TestCase
      * unresolved changed file, related models, source findings, and a coarse-capped low-confidence
      * risk — every field either formatter can render, on at once.
      *
-     * @return array{seeds: list<string>, reach: array<string, array<string, true>>, edges: list<array{source: string, target: string, via: string, depth: int}>, changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, array{exposure: string, riskLevel: string, issues: list<array{type: string, severity: string, message: string, file?: string, line?: int}>}>, entryPointGates: array<string, list<string>>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied: bool, findings: list<string>}
+     * @return array{seeds: list<string>, reach: array<string, array<string, true>>, edges: list<array{source: string, target: string, via: string, depth: int}>, changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, array{exposure: string, riskLevel: string, issues: list<array{type: string, severity: string, message: string, file?: string, line?: int}>}>, entryPointGates: array<string, list<string>>, entryPointAuthMiddleware: array<string, list<string>>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied: bool, findings: list<string>}
      */
     private function richFixture(): array
     {
@@ -63,6 +63,7 @@ final class FormatterContractTest extends TestCase
                     ['type' => 'PUBLIC_WRITE', 'severity' => 'high', 'message' => 'POST route with no auth middleware', 'file' => 'app/Http/Controllers/AnnotatedController.php', 'line' => 31],
                 ]],
             ],
+            'entryPointAuthMiddleware' => [self::ANNOTATED_ENTRY => ['Acme\\Http\\Middleware\\AuthenticateUser']],
             'entryPointGates' => [self::ANNOTATED_ENTRY => ['beta-feature']],
             // The graph payload plan 036 added: HTML-only, ignored by the other three surfaces.
             'seeds' => ['App\Services\AnnotatedService::run'],
@@ -108,6 +109,8 @@ final class FormatterContractTest extends TestCase
         $this->assertStringContainsString('test-referenced', $output);
         $this->assertStringContainsString('route::GET::/r01  [test-referenced — no behavioural assertion found]', $output);
         $this->assertStringContainsString('PUBLIC_WRITE (high): POST route with no auth middleware', $output);
+        // Beside the finding, never instead of it: the subclassed auth middleware Brain's name match missed.
+        $this->assertStringContainsString('Acme\\Http\\Middleware\\AuthenticateUser is applied to this route and extends a framework authentication middleware', $output);
         $this->assertStringContainsString('app/Http/Controllers/AnnotatedController.php:31', $output);
         $this->assertStringContainsString('App\Http\Controllers\AnnotatedController::show', $output);
         $this->assertStringContainsString('App\Services\AnnotatedService::run', $output);
@@ -131,6 +134,7 @@ final class FormatterContractTest extends TestCase
         $this->assertStringContainsString('test-referenced', $output);
         $this->assertStringContainsString('`route::GET::/r01` — 🟡 test-referenced, no behavioural assertion found', $output);
         $this->assertStringContainsString('PUBLIC_WRITE** (high): POST route with no auth middleware', $output);
+        $this->assertStringContainsString('`Acme\\Http\\Middleware\\AuthenticateUser` is applied to this route and extends a framework authentication middleware', $output);
         $this->assertStringContainsString('app/Http/Controllers/AnnotatedController.php:31', $output);
         $this->assertStringContainsString('App\Http\Controllers\AnnotatedController::show', $output);
         $this->assertStringContainsString('App\Services\AnnotatedService::run', $output);
@@ -209,6 +213,8 @@ final class FormatterContractTest extends TestCase
             'GET /annotated',
             'routes/web.php:9',
             'public',
+            // The auth-middleware contradiction, escaped like every other project-derived value.
+            'extends a framework authentication middleware',
             'PUBLIC_WRITE',
             'POST route with no auth middleware',
             'beta-feature',

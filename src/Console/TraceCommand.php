@@ -8,6 +8,7 @@ use SanderMuller\Richter\Analysis\ImpactAnalyzer;
 use SanderMuller\Richter\Analysis\ImpactFormatter;
 use SanderMuller\Richter\Analysis\JsonPresenter;
 use SanderMuller\Richter\Analysis\MarkdownFormatter;
+use SanderMuller\Richter\Console\Concerns\WarnsAboutEntryPointCoverage;
 use SanderMuller\Richter\Console\Concerns\WarnsAboutRootNamespace;
 use SanderMuller\Richter\Graph\CodeGraph;
 use SanderMuller\Richter\Graph\GraphCache;
@@ -22,6 +23,7 @@ use Throwable;
  */
 final class TraceCommand extends Command
 {
+    use WarnsAboutEntryPointCoverage;
     use WarnsAboutRootNamespace;
 
     /** @var string */
@@ -93,6 +95,10 @@ final class TraceCommand extends Command
 
     private function graph(GraphCache $graphs): CodeGraph
     {
-        return $graphs->graph(fresh: (bool) $this->option('no-cache'));
+        $graph = $graphs->graph(fresh: (bool) $this->option('no-cache'));
+
+        $this->warnAboutEntryPointCoverage($graph);
+
+        return $graph;
     }
 }

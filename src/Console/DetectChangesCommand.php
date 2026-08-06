@@ -17,6 +17,7 @@ use SanderMuller\Richter\Analysis\RiskLevel;
 use SanderMuller\Richter\Analysis\TestReferenceIndex;
 use SanderMuller\Richter\Changes\ChangedFileSymbols;
 use SanderMuller\Richter\Changes\ChangedSymbols;
+use SanderMuller\Richter\Console\Concerns\WarnsAboutEntryPointCoverage;
 use SanderMuller\Richter\Console\Concerns\WarnsAboutRootNamespace;
 use SanderMuller\Richter\Graph\CodeGraph;
 use SanderMuller\Richter\Graph\GraphCache;
@@ -33,6 +34,7 @@ use Throwable;
  */
 final class DetectChangesCommand extends Command
 {
+    use WarnsAboutEntryPointCoverage;
     use WarnsAboutRootNamespace;
 
     /** @var string */
@@ -329,7 +331,11 @@ final class DetectChangesCommand extends Command
     private function graph(GraphCache $graphs): CodeGraph
     {
         if (! (bool) $this->option('profile')) {
-            return $graphs->graph(fresh: (bool) $this->option('no-cache'));
+            $graph = $graphs->graph(fresh: (bool) $this->option('no-cache'));
+
+            $this->warnAboutEntryPointCoverage($graph);
+
+            return $graph;
         }
 
         /** @var array<string, float> $phases */
@@ -345,6 +351,7 @@ final class DetectChangesCommand extends Command
         );
 
         $this->printProfile($phases);
+        $this->warnAboutEntryPointCoverage($graph);
 
         return $graph;
     }

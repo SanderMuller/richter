@@ -62,6 +62,7 @@ final readonly class ImpactAnalyzer
      *     entryPointSecurity: array<string, SecurityShape>,
      *     entryPointGates: array<string, list<string>>,
      *     entryPointAuthGates: array<string, list<string>>,
+     *     entryPointAuthMiddleware: array<string, list<string>>,
      *     suggestions: list<string>,
      *     graphNodeCount: int,
      * }
@@ -72,6 +73,7 @@ final readonly class ImpactAnalyzer
         $callers = $this->withHopLocations($this->graph->callersOf($seeds, $maxDepth));
         $entryPoints = $this->entryPointsAmong($callers);
         [$entryPointLocations, $entryPointSecurity, $entryPointGates] = $this->entryPointAnnotations($entryPoints);
+        $crossCheck = new PublicWriteAuthCrossCheck($this->graph);
 
         return [
             'target' => $symbol,
@@ -82,7 +84,8 @@ final readonly class ImpactAnalyzer
             'entryPointLocations' => $entryPointLocations,
             'entryPointSecurity' => $entryPointSecurity,
             'entryPointGates' => $entryPointGates,
-            'entryPointAuthGates' => new PublicWriteAuthCrossCheck($this->graph)->gatesByEntryPoint($entryPointSecurity, $maxDepth),
+            'entryPointAuthGates' => $crossCheck->gatesByEntryPoint($entryPointSecurity, $maxDepth),
+            'entryPointAuthMiddleware' => $crossCheck->authMiddlewareByEntryPoint($entryPointSecurity),
             // Only on a miss: a hit needs no lead, and the token scan is not free.
             'suggestions' => $seeds === [] ? $this->graph->nearestNodes($symbol) : [],
             'graphNodeCount' => $this->graph->nodeCount(),
@@ -109,7 +112,7 @@ final readonly class ImpactAnalyzer
      * draw "nothing changed" without a graph build. {@see JsonPresenter::emptyDetectChanges()} is
      * the separate JSON-shaped equivalent; the two differ in `risk` (enum here, string there).
      *
-     * @return array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, newFiles: list<string>, fqcns: array<string, string>, callers: list<array{depth: int, node: string, via: string}>, dependencies: list<array{depth: int, node: string, via: string}>, seeds: list<string>, reach: array<string, array<string, true>>, edges: list<array{source: string, target: string, via: string, depth: int}>, entryPoints: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, SecurityShape>, entryPointGates: array<string, list<string>>, entryPointAuthGates: array<string, list<string>>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied: bool, findings: list<string>}
+     * @return array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, newFiles: list<string>, fqcns: array<string, string>, callers: list<array{depth: int, node: string, via: string}>, dependencies: list<array{depth: int, node: string, via: string}>, seeds: list<string>, reach: array<string, array<string, true>>, edges: list<array{source: string, target: string, via: string, depth: int}>, entryPoints: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, SecurityShape>, entryPointGates: array<string, list<string>>, entryPointAuthGates: array<string, list<string>>, entryPointAuthMiddleware: array<string, list<string>>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied: bool, findings: list<string>}
      */
     public static function emptyDetectChanges(): array
     {
@@ -117,7 +120,7 @@ final readonly class ImpactAnalyzer
             'changed' => [], 'coverage' => [], 'newFiles' => [], 'fqcns' => [], 'callers' => [], 'dependencies' => [],
             'seeds' => [], 'reach' => [], 'edges' => [], 'entryPoints' => [], 'entryPointPaths' => [],
             'entryPointLocations' => [], 'entryPointSecurity' => [], 'entryPointGates' => [],
-            'entryPointAuthGates' => [],
+            'entryPointAuthGates' => [], 'entryPointAuthMiddleware' => [],
             'impacted' => 0, 'relatedModels' => [], 'risk' => RiskLevel::Low,
             'lowConfidence' => false, 'coarseCapApplied' => false, 'findings' => [],
         ];
@@ -144,6 +147,7 @@ final readonly class ImpactAnalyzer
      *     entryPointSecurity: array<string, SecurityShape>,
      *     entryPointGates: array<string, list<string>>,
      *     entryPointAuthGates: array<string, list<string>>,
+     *     entryPointAuthMiddleware: array<string, list<string>>,
      *     impacted: int,
      *     relatedModels: list<string>,
      *     risk: RiskLevel,
@@ -219,7 +223,7 @@ final readonly class ImpactAnalyzer
             $coverage[$file->file] = $fileSeeds === [] && ! $file->isNewFile ? 'unresolved' : 'analyzed';
 
             if ($fileSeeds === [] && $file->isNewFile) {
-                $newFileFindings[] = "{$file->file} is new and nothing in the graph references it yet";
+                $newFileFindings[] = "{$file->file} is new and no traced edge reaches it — either nothing calls it yet, or the call shape is one richter does not trace";
             }
         }
 
@@ -272,7 +276,9 @@ final readonly class ImpactAnalyzer
         }
 
         [$entryPointLocations, $entryPointSecurity, $entryPointGates] = $this->entryPointAnnotations($entryPoints);
-        $entryPointAuthGates = new PublicWriteAuthCrossCheck($this->graph)->gatesByEntryPoint($entryPointSecurity, $maxDepth);
+        $crossCheck = new PublicWriteAuthCrossCheck($this->graph);
+        $entryPointAuthGates = $crossCheck->gatesByEntryPoint($entryPointSecurity, $maxDepth);
+        $entryPointAuthMiddleware = $crossCheck->authMiddlewareByEntryPoint($entryPointSecurity);
 
         return [
             'changed' => $summary,
@@ -292,6 +298,7 @@ final readonly class ImpactAnalyzer
             'entryPointSecurity' => $entryPointSecurity,
             'entryPointGates' => $entryPointGates,
             'entryPointAuthGates' => $entryPointAuthGates,
+            'entryPointAuthMiddleware' => $entryPointAuthMiddleware,
             'impacted' => $impacted,
             'relatedModels' => $this->readableModelLabels($relatedModels),
             'risk' => $risk,
@@ -338,10 +345,41 @@ final readonly class ImpactAnalyzer
             $precise = [...$precise, ...$this->seedsFor($file->fqcn)];
         }
 
-        return [
-            'precise' => $precise,
-            'coarse' => $file->needsCoarseSeed() ? $this->seedsFor($file->fqcn) : [],
-        ];
+        $coarse = $file->needsCoarseSeed() ? $this->seedsFor($file->fqcn) : [];
+
+        if ($precise === [] && $coarse === []) {
+            $precise = $this->definedNodeSeeds($file, $frontendSeeds);
+        }
+
+        return ['precise' => $precise, 'coarse' => $coarse];
+    }
+
+    /**
+     * Last resort before a file reads UNRESOLVED: the nodes the graph says this very file defines
+     * ({@see CodeGraph::nodesDefinedIn()}).
+     *
+     * Gated on every other lane coming up empty, deliberately. A controller's class file defines its
+     * `controller::`/`action::` nodes too, so running this lane unconditionally would re-seed the
+     * whole class on a one-method change and undo the member-level precision the lanes above exist
+     * for. Behind the gate it can only add reach to a file that currently resolves to nothing at all.
+     *
+     * The entry-prefixed nodes among them are annotated exactly like a frontend-referenced route:
+     * appended as touched surfaces after the risk inputs freeze. A routes file or a Console Kernel
+     * *declares* those surfaces rather than calling into them, so they belong in the entry-point
+     * list — but letting a declaration move `risk` would rate any edit to a routes file by how many
+     * routes happen to live in it.
+     *
+     * @param  array<string, list<string>>  $frontendSeeds
+     * @return list<string>
+     */
+    private function definedNodeSeeds(ChangedFileSymbols $file, array &$frontendSeeds): array
+    {
+        $defined = $this->graph->nodesDefinedIn($file->file);
+        $surfaces = array_filter($defined, static fn (string $node): bool => Str::startsWith($node, self::ENTRY_POINT_PREFIXES));
+
+        $frontendSeeds[$file->file] = [...$frontendSeeds[$file->file] ?? [], ...array_values($surfaces)];
+
+        return $defined;
     }
 
     /**

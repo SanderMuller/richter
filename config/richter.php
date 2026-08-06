@@ -43,6 +43,9 @@ return [
      * graph misses. Missing directories are skipped, so unused defaults are harmless.
      * Affects graph tracing only — the risk-floor namespace heuristics (Jobs, Listeners, …)
      * in the analyzer are fixed.
+     *
+     * A directory that belongs here but is absent gets a stderr note: the commands report an
+     * app/ directory holding classes of which none reach the graph at all.
      */
     'entry_point_roots' => ['Jobs', 'Listeners', 'Console/Commands', 'Filament', 'Helpers', 'Http/Middleware', 'Livewire', 'Observers'],
 

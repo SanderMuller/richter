@@ -40,4 +40,25 @@ abstract class TestCase extends OrchestraTestCase
         // the parallel path is exercised explicitly in ParallelGraphBuildTest.
         $app->make(Repository::class)->set('richter.parallel', false);
     }
+
+    /** Recursively remove a throwaway directory tree built by a test. */
+    protected function deleteTree(string $dir): void
+    {
+        $entries = scandir($dir);
+
+        foreach ($entries === false ? [] : $entries as $entry) {
+            if ($entry === '.') {
+                continue;
+            }
+
+            if ($entry === '..') {
+                continue;
+            }
+
+            $path = $dir . '/' . $entry;
+            is_dir($path) ? $this->deleteTree($path) : @unlink($path);
+        }
+
+        @rmdir($dir);
+    }
 }

@@ -22,8 +22,9 @@ final class Html
 
     /**
      * Node ids are internal addresses — `route::GET::/checkout`, `view::mail.welcome`. Show the form
-     * a reader recognises. Only the HTML surface rewrites them: text, markdown and JSON print ids
-     * verbatim by contract, and the diagram still carries the raw id for anyone who needs it.
+     * a reader recognises. Only the HTML surface rewrites them wholesale: JSON prints ids verbatim by
+     * contract, text and markdown trim nothing but the command signature ({@see NodeLabel}), and the
+     * diagram still carries the raw id for anyone who needs it.
      */
     public static function nodeLabel(string $node): string
     {
@@ -50,9 +51,7 @@ final class Html
         // Only a command node carries a signature; the rest keep whatever follows the prefix, so a
         // view or model whose name contains a space is not silently truncated at it.
         if (str_starts_with($node, 'command::')) {
-            $name = explode(' ', substr($node, 9), 2)[0];
-
-            return $name === '' ? null : $name;
+            return NodeLabel::commandName($node);
         }
 
         foreach (['schedule::', 'view::', 'model::'] as $prefix) {

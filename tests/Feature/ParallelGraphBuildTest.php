@@ -88,6 +88,23 @@ final class ParallelGraphBuildTest extends TestCase
     }
 
     #[Test]
+    public function finish_rejects_a_payload_with_a_mis_shaped_inheritance_map(): void
+    {
+        // Same fail-closed rule as the edges: a wrong inheritance map would draw `inherits` edges to
+        // methods that do not run, so serial-and-correct beats parallel-and-wrong.
+        $out = (string) tempnam(sys_get_temp_dir(), 'richter-test-');
+        file_put_contents($out, (string) json_encode([
+            'edges' => [],
+            'unparseableFiles' => 0,
+            'unresolvedDispatches' => 0,
+            'inheritance' => ['App\\Services\\Child' => ['parent' => 42, 'declared' => ['handle']]],
+        ]));
+        $process = Process::path(base_path())->start([PHP_BINARY, '-r', 'exit(0);']);
+
+        $this->assertNull(TracerBranchRunner::finish(new PendingTracerBranch($process, $out)));
+    }
+
+    #[Test]
     public function finish_returns_the_validated_branch_on_success(): void
     {
         $out = (string) tempnam(sys_get_temp_dir(), 'richter-test-');
@@ -95,6 +112,9 @@ final class ParallelGraphBuildTest extends TestCase
             'edges' => [['source' => 'A::m', 'target' => 'B', 'type' => 'call']],
             'unparseableFiles' => 0,
             'unresolvedDispatches' => 2,
+            // The worker also carries out the inheritance map, which the parent applies to the merged
+            // edge set — a payload without it is not this worker's output.
+            'inheritance' => ['App\\Services\\Child' => ['parent' => 'App\\Services\\Base', 'declared' => ['handle']]],
         ];
         file_put_contents($out, (string) json_encode($branch));
         $process = Process::path(base_path())->start([PHP_BINARY, '-r', 'exit(0);']);

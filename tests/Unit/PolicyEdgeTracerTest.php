@@ -103,24 +103,4 @@ final class PolicyEdgeTracerTest extends TestCase
         @mkdir(dirname($file), 0o777, recursive: true);
         file_put_contents($file, $content);
     }
-
-    private function deleteTree(string $dir): void
-    {
-        $entries = scandir($dir);
-
-        foreach ($entries === false ? [] : $entries as $entry) {
-            if ($entry === '.') {
-                continue;
-            }
-
-            if ($entry === '..') {
-                continue;
-            }
-
-            $path = $dir . '/' . $entry;
-            is_dir($path) ? $this->deleteTree($path) : @unlink($path);
-        }
-
-        @rmdir($dir);
-    }
 }

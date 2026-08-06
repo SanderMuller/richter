@@ -5,6 +5,7 @@ namespace SanderMuller\Richter\Tracers;
 use PhpParser\Node\Name;
 use PhpParser\Node\Stmt\Class_;
 use PhpParser\Node\Stmt\ClassLike;
+use PhpParser\Node\Stmt\ClassMethod;
 use PhpParser\Node\Stmt\Enum_;
 use PhpParser\Node\Stmt\Interface_;
 use PhpParser\Node\Stmt\Trait_;
@@ -40,7 +41,7 @@ use SanderMuller\Richter\Support\AppFiles;
  */
 final class ClassHierarchyTracer
 {
-    /** @var array<string, array{parent: string|null, interfaces: list<string>, methods: list<string>}> keyed by FQCN */
+    /** @var array<string, array{parent: string|null, interfaces: list<string>, methods: list<string>, declared: list<string>}> keyed by FQCN */
     private array $records = [];
 
     /**
@@ -68,6 +69,10 @@ final class ClassHierarchyTracer
                 'parent' => $this->parentOf($node),
                 'interfaces' => $this->interfacesOf($node),
                 'methods' => $this->overridableMethods($node),
+                // Every method name the class writes out, including the private/static/__construct
+                // ones `methods` filters away: "does this class declare m itself?" is a different
+                // question from "can m be overridden?", and inheritedEdges() asks the first.
+                'declared' => $this->declaredMethods($node),
             ];
         }
     }
@@ -88,6 +93,123 @@ final class ClassHierarchyTracer
         }
 
         return $edges;
+    }
+
+    /**
+     * The upward complement of {@see overrideEdges()}: a method a class INHERITS without overriding
+     * runs in the parent, but Brain resolves the call against the receiver's static type, so it lands
+     * on `Subclass::m` while the code lives at `Parent::m` — two unconnected nodes. The parent then
+     * reports no callers even though every real call arrives through the subclass, and the parent's
+     * own outbound work is cut off from everything upstream. Richter already resolves class CONSTANTS
+     * to their declaring class ("an inherited constant still connects"); this is the method lane
+     * catching up.
+     *
+     * Driven by the edge set rather than the records, and therefore emitted after the consolidated
+     * loop the way {@see CodeGraphBuilder::declaresEdges()} is: an edge is drawn only for a member
+     * node something already references. Emitting one per inherited method regardless would fan out
+     * (a base class with 20 methods and 50 subclasses is 1000 edges) and, worse, invent
+     * `Subclass::m` nodes nothing calls — which `seedsFor()`'s substring lookup would still match, so
+     * a changed member could seed against a node no caller reaches.
+     *
+     * Oriented `Subclass::m → Ancestor::m`, so `callersOf(Ancestor::m)` climbs to the subclass's real
+     * callers and `dependenciesOf(Subclass::m)` reaches the parent's outbound work.
+     *
+     * @param  list<array{source: string, target: string, type: string}>  $edges
+     * @return list<array{source: string, target: string, type: string}>
+     */
+    public function inheritedEdges(array $edges): array
+    {
+        return self::inheritedEdgesFor($this->inheritanceMap(), $edges);
+    }
+
+    /**
+     * The parent chain and declared-method names per class — everything {@see inheritedEdgesFor()}
+     * needs, in a JSON-serialisable shape. The tracer runs inside the tracer branch, which may be a
+     * child process, while the edge set it must be applied to only exists in the parent after both
+     * branches merge; carrying the map out is what lets the two meet.
+     *
+     * @return array<string, array{parent: string|null, declared: list<string>}>
+     */
+    public function inheritanceMap(): array
+    {
+        return array_map(
+            static fn (array $record): array => ['parent' => $record['parent'], 'declared' => $record['declared']],
+            $this->records,
+        );
+    }
+
+    /**
+     * @param  array<string, array{parent: string|null, declared: list<string>}>  $inheritance
+     * @param  list<array{source: string, target: string, type: string}>  $edges
+     * @return list<array{source: string, target: string, type: string}>
+     */
+    public static function inheritedEdgesFor(array $inheritance, array $edges): array
+    {
+        $inherited = [];
+
+        foreach ($edges as $edge) {
+            foreach ([$edge['source'], $edge['target']] as $node) {
+                if (preg_match('/^([\\w\\\\]+)::(\\w+)$/', $node, $matches) !== 1) {
+                    continue;
+                }
+
+                [, $class, $method] = $matches;
+                $record = $inheritance[$class] ?? null;
+                if ($record === null) {
+                    continue;
+                }
+
+                if (in_array($method, $record['declared'], true)) {
+                    continue;
+                }
+
+                $ancestor = self::nearestDeclarerIn($inheritance, $class, $method);
+
+                if ($ancestor !== null) {
+                    $inherited["{$class}::{$method}"] = ['source' => "{$class}::{$method}", 'target' => "{$ancestor}::{$method}", 'type' => 'inherits'];
+                }
+            }
+        }
+
+        return array_values($inherited);
+    }
+
+    /**
+     * The closest ancestor CLASS that declares the method — the one that actually runs. Walks the
+     * parent chain only: an interface declares no body, so an edge to it would carry reachability to
+     * code that does not exist, and a trait's methods are copied into the using class (where they read
+     * as declared) rather than inherited. Stops at the first ancestor richter did not scan, matching
+     * {@see ancestorsOf()}'s app-scoped rule.
+     *
+     * @param  array<string, array{parent: string|null, declared: list<string>}>  $inheritance
+     */
+    private static function nearestDeclarerIn(array $inheritance, string $fqcn, string $method): ?string
+    {
+        $seen = [];
+        $parent = $inheritance[$fqcn]['parent'] ?? null;
+
+        while ($parent !== null && ! isset($seen[$parent])) {
+            $seen[$parent] = true;
+            $record = $inheritance[$parent] ?? null;
+
+            if ($record === null) {
+                return null;
+            }
+
+            if (in_array($method, $record['declared'], true)) {
+                return $parent;
+            }
+
+            $parent = $record['parent'];
+        }
+
+        return null;
+    }
+
+    /** @return list<string> */
+    private function declaredMethods(ClassLike $node): array
+    {
+        return array_values(array_map(static fn (ClassMethod $method): string => $method->name->toString(), $node->getMethods()));
     }
 
     private function parentOf(ClassLike $node): ?string

@@ -57,9 +57,13 @@ Work through these; propose only what applies, each with a one-line why; then on
 - **`entry_point_roots`** — `app/` subdirs whose classes are reached only through runtime/vendor
   dispatch and would otherwise read `UNRESOLVED`: a form-builder Form dir (classes with a `buildForm()`
   the library invokes), a registry-/factory-dispatched calculator dir. *Prefer evidence:* run
-  `php artisan richter:detect-changes --no-cache` on a real branch and see which changed files come
-  back `UNRESOLVED` — those dirs are the candidates. (`--no-cache` keeps this exploratory step from
-  writing the graph cache, so Step 1 stays read-only.) *Hedge:* propose the **narrowest** dir; do not add a
+  `php artisan richter:detect-changes --no-cache` on a real branch and read BOTH signals it prints.
+  Changed files coming back `UNRESOLVED` name candidate dirs; the stderr coverage note names one
+  outright ("app/X/ holds N classes and none of them appear in the code graph"). That note is the
+  stronger signal and catches what `UNRESOLVED` structurally cannot — a subsystem missing as a
+  *consumer* of the change, which no diff-scoped signal sees, because those files did not change.
+  (`--no-cache` keeps this exploratory step from writing the graph cache, so Step 1 stays
+  read-only.) *Hedge:* propose the **narrowest** dir; do not add a
   broad root like `app/Actions` unless most classes there are genuinely entry surfaces, or internal
   services get inflated into "entry points."
 - **`dispatch_helpers`** — any project-global function wrapping `dispatch()`/`Bus::dispatch()` (e.g. a
@@ -81,7 +85,12 @@ matching lever in the app's `laravel-brain` config rather than only silencing:
 - **`security.auth_middleware` / `security.throttle_middleware`** — declare the app's auth / throttle
   middleware so Brain classifies group-gated routes correctly. This can fix a false `PUBLIC_WRITE`
   ("no auth") or `MISSING_THROTTLE` **at the source**, when the gate lives in a middleware group Brain
-  didn't recognise.
+  didn't recognise. Brain matches these by NAME, so it misses any middleware whose name is not
+  auth-shaped (`auth`, `sanctum`, `jwt`, `passport`, `verified`, `signed`). richter already covers the
+  common case on its own — it walks the class ancestry, so a subclass of
+  `Illuminate\Auth\Middleware\Authenticate` is recognised without config and its routes get a note
+  contradicting the finding. Propose this key for what ancestry cannot catch: middleware that
+  authenticates without extending a framework class (a hand-rolled token or SSO guard).
 - **`auto_discover_routes` / `route_paths`, `commands.*`, `listeners.paths`** — when route / command /
   listener discovery misses part of the app.
 - **`security.trusted_route_names` / `trusted_route_uris`** — only for a genuinely known-safe public

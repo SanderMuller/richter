@@ -616,8 +616,29 @@ final class ImpactAnalyzerTest extends TestCase
 
         $this->assertSame(0, $result['changed']['app/Enums/NewStatus.php']);
         $this->assertSame('analyzed', $result['coverage']['app/Enums/NewStatus.php']);
-        $this->assertContains('app/Enums/NewStatus.php is new and nothing in the graph references it yet', $result['findings']);
+        // Graph-scoped by construction, and worded so it cannot read as a claim about the codebase:
+        // a consumer hit exactly that misreading when a static call left a called class edgeless.
+        $this->assertContains('app/Enums/NewStatus.php is new and no traced edge reaches it — either nothing calls it yet, or the call shape is one richter does not trace', $result['findings']);
         $this->assertSame(RiskLevel::Low, $result['risk']);
+    }
+
+    #[Test]
+    public function reach_through_the_new_edge_types_counts_toward_risk(): void
+    {
+        // Decided with the spec: a static call is an invocation and an inherited method is the code
+        // that runs, so both count — unlike `override`, which is excluded because an interface with
+        // many implementors fans out widely.
+        $graph = new CodeGraph([
+            ['source' => 'App\\Services\\Caller::run', 'target' => 'App\\Support\\Registry::all', 'type' => 'static-call'],
+            ['source' => 'App\\Services\\Sub::build', 'target' => 'App\\Services\\Base::build', 'type' => 'inherits'],
+        ], hasUnparseableFiles: false);
+
+        $result = new ImpactAnalyzer($graph)->detectChanges([
+            $this->changedMethod('app/Services/Caller.php', 'App\\Services\\Caller', 'run'),
+            $this->changedMethod('app/Services/Sub.php', 'App\\Services\\Sub', 'build'),
+        ]);
+
+        $this->assertSame(2, $result['impacted']);
     }
 
     #[Test]
@@ -1601,5 +1622,95 @@ final class ImpactAnalyzerTest extends TestCase
 
         $this->assertSame(['interactive-post'], $result['entryPointGates'][self::ROUTE] ?? null);
         $this->assertSame(['file' => 'routes/web.php', 'line' => 12], $result['entryPointLocations'][self::ROUTE] ?? null);
+    }
+
+    /**
+     * The graph a legacy Console Kernel produces: Brain ids the schedule entry by a hash of its
+     * target and frequency, so `Acme\Console\Kernel` matches no node and every other seeding lane
+     * comes up empty. Only the file the node is pinned to connects the two.
+     */
+    private function scheduleAnalyzer(): ImpactAnalyzer
+    {
+        return new ImpactAnalyzer(new CodeGraph(
+            [
+                ['source' => 'schedule::7b1c', 'target' => 'command::reports:sync {--force}', 'type' => 'schedule-to-command'],
+                ['source' => self::ROUTE, 'target' => 'App\Http\Controllers\PostController', 'type' => 'route-to-controller'],
+            ],
+            hasUnparseableFiles: false,
+            hasUnresolvedDispatches: false,
+            nodeMetadata: [
+                'schedule::7b1c' => ['file' => 'app/Console/Kernel.php', 'line' => 31],
+                'command::reports:sync {--force}' => ['file' => 'app/Console/Commands/SyncReports.php'],
+                self::ROUTE => ['file' => 'routes/web.php'],
+            ],
+        ));
+    }
+
+    #[Test]
+    public function a_file_matching_no_symbol_seeds_the_nodes_it_defines_instead_of_reading_unresolved(): void
+    {
+        $result = $this->scheduleAnalyzer()->detectChanges([
+            $this->changedCoarse('app/Console/Kernel.php', 'Acme\Console\Kernel'),
+        ]);
+
+        $this->assertSame('analyzed', $result['coverage']['app/Console/Kernel.php']);
+        // The schedule is a graph root, so the reach it adds is downstream: the command it runs.
+        $this->assertContains('command::reports:sync {--force}', $this->nodes($result['dependencies']));
+    }
+
+    #[Test]
+    public function a_defined_entry_surface_is_listed_as_touched(): void
+    {
+        $result = $this->scheduleAnalyzer()->detectChanges([
+            $this->changedCoarse('app/Console/Kernel.php', 'Acme\Console\Kernel'),
+        ]);
+
+        // The Kernel declares the schedule rather than calling into it, so it can never appear
+        // among the callers walked from the seed — it has to be annotated, like a fetched route.
+        $this->assertContains('schedule::7b1c', $result['entryPoints']);
+    }
+
+    #[Test]
+    public function the_defined_node_lane_never_runs_for_a_file_that_already_resolves(): void
+    {
+        // The gate that keeps member-level precision intact: a one-method controller change must
+        // not pick up the controller-level node its own file also defines.
+        $analyzer = new ImpactAnalyzer(new CodeGraph(
+            [
+                ['source' => self::ROUTE, 'target' => 'App\Http\Controllers\PostController', 'type' => 'route-to-controller'],
+                ['source' => 'App\Http\Controllers\PostController', 'target' => 'App\Http\Controllers\PostController::publish', 'type' => 'controller-to-action'],
+                // The sibling method the class node reaches but the changed method does not.
+                ['source' => 'App\Http\Controllers\PostController', 'target' => 'App\Http\Controllers\PostController::draft', 'type' => 'controller-to-action'],
+                ['source' => 'App\Http\Controllers\PostController::draft', 'target' => 'App\Services\Drafts', 'type' => 'action-to-service'],
+            ],
+            hasUnparseableFiles: false,
+            hasUnresolvedDispatches: false,
+            nodeMetadata: ['App\Http\Controllers\PostController' => ['file' => 'app/Http/Controllers/PostController.php']],
+        ));
+
+        $result = $analyzer->detectChanges([
+            $this->changedMethod('app/Http/Controllers/PostController.php', 'App\Http\Controllers\PostController', 'publish'),
+        ]);
+
+        $this->assertNotContains('App\Services\Drafts', $this->nodes($result['dependencies']));
+    }
+
+    #[Test]
+    public function an_edgeless_defined_node_leaves_the_file_unresolved(): void
+    {
+        // Metadata proves Brain saw a definition; it does not prove the graph can traverse it.
+        // Seeding it anyway would turn "couldn't place this" into "placed, reaches nothing".
+        $analyzer = new ImpactAnalyzer(new CodeGraph(
+            [['source' => self::ROUTE, 'target' => 'App\Http\Controllers\PostController', 'type' => 'route-to-controller']],
+            hasUnparseableFiles: false,
+            hasUnresolvedDispatches: false,
+            nodeMetadata: ['schedule::0d0d' => ['file' => 'app/Console/Kernel.php']],
+        ));
+
+        $result = $analyzer->detectChanges([
+            $this->changedCoarse('app/Console/Kernel.php', 'Acme\Console\Kernel'),
+        ]);
+
+        $this->assertSame('unresolved', $result['coverage']['app/Console/Kernel.php']);
     }
 }

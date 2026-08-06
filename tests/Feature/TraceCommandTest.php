@@ -127,6 +127,47 @@ final class TraceCommandTest extends TestCase
     }
 
     #[Test]
+    public function trace_error_names_the_nearest_nodes_on_a_typo(): void
+    {
+        // A trace needs BOTH symbols to resolve, so a typo is the likeliest miss here —
+        // the error has to be a lead, the same one `richter:impact` renders. Asserted on
+        // the JSON error: the console block hard-wraps at terminal width, so a node id
+        // can be split across lines there.
+        $this->useFixtureProject();
+
+        $this->withoutMockingConsoleOutput();
+        $exitCode = Artisan::call('richter:trace', ['from' => 'App\\Http\\Controllers\\ReviewControler', 'to' => 'App\\Models\\Post', '--json' => true]);
+
+        $document = json_decode(Artisan::output(), true, flags: JSON_THROW_ON_ERROR);
+
+        $this->assertSame(1, $exitCode);
+        $this->assertIsArray($document);
+        $error = $document['error'];
+        $this->assertIsString($error);
+        $this->assertStringContainsString('Nearest graph nodes:', $error);
+        $this->assertStringContainsString('ReviewController', $error);
+    }
+
+    #[Test]
+    public function trace_error_reports_the_scanned_node_count_when_nothing_resembles_the_symbol(): void
+    {
+        // Distinguishes "wrong name" from "the graph is empty" — without it, a
+        // misconfigured project reads identically to a typo.
+        $this->useFixtureProject();
+
+        $this->withoutMockingConsoleOutput();
+        Artisan::call('richter:trace', ['from' => 'Zzz\\Nonexistent\\Symbol', 'to' => 'App\\Models\\Post', '--json' => true]);
+
+        $document = json_decode(Artisan::output(), true, flags: JSON_THROW_ON_ERROR);
+
+        $this->assertIsArray($document);
+        $error = $document['error'];
+        $this->assertIsString($error);
+        $this->assertStringContainsString('none share an identifier with it', $error);
+        $this->assertDoesNotMatchRegularExpression('/Scanned 0 graph nodes/', $error);
+    }
+
+    #[Test]
     public function trace_json_error_is_a_single_parseable_document(): void
     {
         $this->useFixtureProject();

@@ -25,6 +25,7 @@ use SanderMuller\Richter\Tracers\DispatchEdgeTracer;
 use SanderMuller\Richter\Tracers\EntryPointTracer;
 use SanderMuller\Richter\Tracers\PolicyEdgeTracer;
 use SanderMuller\Richter\Tracers\ReferenceEdgeTracer;
+use SanderMuller\Richter\Tracers\StaticCallEdgeTracer;
 
 /**
  * Builds a {@see CodeGraph} from the live codebase using Laravel Brain's static analysis. Widens
@@ -153,6 +154,13 @@ final class CodeGraphBuilder
             $edges[] = $declaresEdge;
         }
 
+        // Last, over the whole merged set: a method a class inherits without overriding runs in the
+        // parent, but every call resolves against the receiver's static type and lands on the
+        // subclass node. Drawn only for member nodes something already references.
+        foreach (ClassHierarchyTracer::inheritedEdgesFor($tracerBranch['inheritance'], $edges) as $inheritedEdge) {
+            $edges[] = $inheritedEdge;
+        }
+
         $edges = AppFiles::dedupeEdges($edges, byType: true);
 
         $graph = new CodeGraph(
@@ -176,7 +184,7 @@ final class CodeGraphBuilder
      * order build() appends them serially, keeping the merged graph byte-identical either way.
      *
      * @param  (callable(string, array<string, mixed>): void)|null  $onProgress
-     * @return array{edges: list<array{source: string, target: string, type: string}>, unparseableFiles: int, unresolvedDispatches: int}
+     * @return array{edges: list<array{source: string, target: string, type: string}>, unparseableFiles: int, unresolvedDispatches: int, inheritance: array<string, array{parent: string|null, declared: list<string>}>}
      */
     public function buildTracerBranch(string $projectRoot, ?callable $onProgress = null): array
     {
@@ -218,6 +226,7 @@ final class CodeGraphBuilder
             'edges' => $edges,
             'unparseableFiles' => $consolidated['unparseableFiles'],
             'unresolvedDispatches' => $consolidated['unresolvedDispatches'],
+            'inheritance' => $consolidated['inheritance'],
         ];
     }
 
@@ -256,13 +265,14 @@ final class CodeGraphBuilder
      * Conflating the two (as pre-036 code did) would make an unrelated unparseable file's taint
      * masquerade as a scopeable dispatch signal — see plan 036 "Why v1 was unsound".
      *
-     * @return array{edges: list<array{source: string, target: string, type: string}>, unparseableFiles: int, unresolvedDispatches: int, entryPointAsts: array<string, list<Node\Stmt>>}
+     * @return array{edges: list<array{source: string, target: string, type: string}>, unparseableFiles: int, unresolvedDispatches: int, entryPointAsts: array<string, list<Node\Stmt>>, inheritance: array<string, array{parent: string|null, declared: list<string>}>}
      */
     private function consolidatedTracerEdges(string $projectRoot, EntryPointTracer $entryPointTracer): array
     {
         $dispatchTracer = new DispatchEdgeTracer(RichterConfig::dispatchHelpers());
         $policyTracer = new PolicyEdgeTracer();
         $referenceTracer = new ReferenceEdgeTracer();
+        $staticCallTracer = new StaticCallEdgeTracer();
         // CHA (plan cha-wire): accumulates class-likes across the whole loop below and flushes its
         // ancestor→override edges once after it — the inverse subclass/implementor map spans files.
         $hierarchyTracer = new ClassHierarchyTracer();
@@ -314,6 +324,7 @@ final class CodeGraphBuilder
             array_push($edges, ...$policyTracer->edgesForMethods($nodes['classMethods'], $class['fqcn']));
             array_push($edges, ...$referenceTracer->edgesForNodes($nodes['classMethods'], $nodes['traitUses'], $class['fqcn']));
             array_push($edges, ...$entryPointTracer->interfaceEdgesForClassLikes($nodes['classLikes'], $class['fqcn']));
+            array_push($edges, ...$staticCallTracer->edgesForClassLikes($nodes['classLikes'], $class['fqcn']));
         }
 
         // CHA override edges (ancestor::m → concrete::m). Emitted once here, after every file's
@@ -329,6 +340,10 @@ final class CodeGraphBuilder
             'unparseableFiles' => $unparseableFiles,
             'unresolvedDispatches' => $unresolvedDispatches,
             'entryPointAsts' => $entryPointAsts,
+            // Carried out rather than consumed here: the inherited-method pass is edge-set-driven and
+            // the full set only exists in build(), after Brain's branch merges in — a controller that
+            // INHERITS its action reaches its member node through Brain, not through this branch.
+            'inheritance' => $hierarchyTracer->inheritanceMap(),
         ];
     }
 

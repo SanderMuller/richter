@@ -62,7 +62,7 @@ final class TracerBranchRunner
      * or malformed output) — the caller then rebuilds the branch in-process. The temp file is always
      * cleaned up.
      *
-     * @return array{edges: list<array{source: string, target: string, type: string}>, unparseableFiles: int, unresolvedDispatches: int}|null
+     * @return array{edges: list<array{source: string, target: string, type: string}>, unparseableFiles: int, unresolvedDispatches: int, inheritance: array<string, array{parent: string|null, declared: list<string>}>}|null
      */
     public static function finish(PendingTracerBranch $pending): ?array
     {
@@ -88,13 +88,14 @@ final class TracerBranchRunner
      * rather than risking a wrong graph from a truncated or corrupt file — a slow-but-correct build
      * beats a fast-but-wrong one.
      *
-     * @return array{edges: list<array{source: string, target: string, type: string}>, unparseableFiles: int, unresolvedDispatches: int}|null
+     * @return array{edges: list<array{source: string, target: string, type: string}>, unparseableFiles: int, unresolvedDispatches: int, inheritance: array<string, array{parent: string|null, declared: list<string>}>}|null
      */
     private static function validate(mixed $decoded): ?array
     {
         if (! is_array($decoded)
             || ! is_array($decoded['edges'] ?? null)
             || ! array_is_list($decoded['edges'])
+            || ! is_array($decoded['inheritance'] ?? null)
             || ! is_int($decoded['unparseableFiles'] ?? null)
             || ! is_int($decoded['unresolvedDispatches'] ?? null)
             || $decoded['unparseableFiles'] < 0
@@ -117,10 +118,34 @@ final class TracerBranchRunner
             $edges[] = ['source' => $edge['source'], 'target' => $edge['target'], 'type' => $edge['type']];
         }
 
+        $inheritance = [];
+
+        // Same fail-closed reading as the edges above: a mis-shaped record means the worker's output
+        // cannot be trusted, and a wrong inheritance map would draw edges to methods that do not run.
+        foreach ($decoded['inheritance'] as $class => $record) {
+            if (! is_string($class) || ! is_array($record)) {
+                return null;
+            }
+
+            $parent = $record['parent'] ?? null;
+            $declared = $record['declared'] ?? null;
+
+            if (($parent !== null && ! is_string($parent))
+                || ! is_array($declared)
+                || ! array_is_list($declared)
+                || ! array_all($declared, static fn (mixed $method): bool => is_string($method))) {
+                return null;
+            }
+
+            /** @var list<string> $declared */
+            $inheritance[$class] = ['parent' => $parent, 'declared' => $declared];
+        }
+
         return [
             'edges' => $edges,
             'unparseableFiles' => $decoded['unparseableFiles'],
             'unresolvedDispatches' => $decoded['unresolvedDispatches'],
+            'inheritance' => $inheritance,
         ];
     }
 }

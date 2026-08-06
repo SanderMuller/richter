@@ -21,7 +21,7 @@ use SanderMuller\Richter\Graph\NodeMetadata;
  * @phpstan-import-type SecurityShape from NodeMetadata
  * @phpstan-import-type Layout from RadialLayout
  * @phpstan-type GateVerdict array{failOn: string|null, failOnUnresolved: bool, tripped: bool, reasons: list<string>}
- * @phpstan-type DetectChangesResult array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, SecurityShape>, entryPointGates: array<string, list<string>>, entryPointAuthGates?: array<string, list<string>>, seeds: list<string>, reach: array<string, array<string, true>>, edges: list<array{source: string, target: string, via: string, depth: int}>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied: bool, findings: list<string>, ...}
+ * @phpstan-type DetectChangesResult array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, SecurityShape>, entryPointGates: array<string, list<string>>, entryPointAuthGates?: array<string, list<string>>, entryPointAuthMiddleware?: array<string, list<string>>, seeds: list<string>, reach: array<string, array<string, true>>, edges: list<array{source: string, target: string, via: string, depth: int}>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied: bool, findings: list<string>, ...}
  */
 final class HtmlFormatter
 {
@@ -42,6 +42,7 @@ final class HtmlFormatter
             $result['entryPointSecurity'],
             $result['entryPointGates'],
             $result['entryPointAuthGates'] ?? [],
+            $result['entryPointAuthMiddleware'] ?? [],
             $tests,
         );
 
@@ -169,11 +170,32 @@ final class HtmlFormatter
             $items .= '<li><p class="entry"><code>' . Html::e(Html::nodeLabel($row->node)) . '</code></p>'
                 . ($meta === '' ? '' : '<p class="entry-meta">' . $meta . '</p>')
                 . self::securityIssues($row->security, $editor)
+                . self::authMiddlewareNote($row->authMiddleware)
                 . self::authGatesNote($row->authGates)
                 . '</li>';
         }
 
         return $items;
+    }
+
+    /**
+     * The other half of the same evidence lane: auth middleware whose ANCESTRY makes it authentication,
+     * which Brain's name-based match cannot see. A subclassed `Authenticate` is the common shape, and
+     * it turns every route behind it into a `high` "requires no authentication" finding.
+     *
+     * @param  list<string>  $authMiddleware
+     */
+    private static function authMiddlewareNote(array $authMiddleware): string
+    {
+        if ($authMiddleware === []) {
+            return '';
+        }
+
+        $middleware = implode('</code>, <code>', array_map(Html::e(...), $authMiddleware));
+
+        return '<p class="note">richter: <code>' . $middleware . '</code> is applied to this route and '
+            . 'extends a framework authentication middleware, so the finding above is likely wrong. '
+            . 'Brain matches middleware by name, not by ancestry.</p>';
     }
 
     /**

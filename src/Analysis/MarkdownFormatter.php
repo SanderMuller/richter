@@ -22,7 +22,7 @@ final class MarkdownFormatter
     private const int LIST_CAP = 15;
 
     /**
-     * @param  array{target: string, callers: list<array{depth: int, node: string, via: string, file?: string, line?: int}>, dependencies: list<array{depth: int, node: string, via: string, file?: string, line?: int}>, entryPoints?: list<string>, entryPointPaths?: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations?: array<string, array{file: string, line?: int}>, entryPointSecurity?: array<string, SecurityShape>, entryPointGates?: array<string, list<string>>, entryPointAuthGates?: array<string, list<string>>, suggestions?: list<string>, graphNodeCount?: int}  $result
+     * @param  array{target: string, callers: list<array{depth: int, node: string, via: string, file?: string, line?: int}>, dependencies: list<array{depth: int, node: string, via: string, file?: string, line?: int}>, entryPoints?: list<string>, entryPointPaths?: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations?: array<string, array{file: string, line?: int}>, entryPointSecurity?: array<string, SecurityShape>, entryPointGates?: array<string, list<string>>, entryPointAuthGates?: array<string, list<string>>, entryPointAuthMiddleware?: array<string, list<string>>, suggestions?: list<string>, graphNodeCount?: int}  $result
      * @param  bool  $explain  render the call chain from each reached entry surface down to the symbol
      */
     public static function impact(array $result, ?TestReferenceIndex $tests = null, bool $explain = false): string
@@ -61,6 +61,7 @@ final class MarkdownFormatter
             $result['entryPointSecurity'] ?? [],
             $result['entryPointGates'] ?? [],
             $result['entryPointAuthGates'] ?? [],
+            $result['entryPointAuthMiddleware'] ?? [],
             $tests,
         )), ''];
         $lines[] = sprintf('### Dependencies (what it reaches) (%d)', count($result['dependencies']));
@@ -84,19 +85,19 @@ final class MarkdownFormatter
                 '',
                 $furthest === null
                     ? "_`{$result['to']}` has no callers in the graph._"
-                    : "_Upstream walk from `{$result['to']}` reached `{$furthest['node']}` (d{$furthest['depth']}) — the deepest caller within the depth limit._",
+                    : '_Upstream walk from `' . $result['to'] . '` reached `' . NodeLabel::display($furthest['node']) . "` (d{$furthest['depth']}) — the deepest caller within the depth limit._",
                 '',
                 '_Swap the arguments to query the reverse direction._',
             ]);
         }
 
-        $lines[] = self::pathChain($result['path'][0]['node'], $result['path']);
+        $lines[] = self::pathChain(NodeLabel::display($result['path'][0]['node']), $result['path']);
 
         return implode("\n", $lines);
     }
 
     /**
-     * @param  array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, newFiles?: list<string>, fqcns?: array<string, string>, entryPoints: list<string>, entryPointPaths?: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations?: array<string, array{file: string, line?: int}>, entryPointSecurity?: array<string, SecurityShape>, entryPointGates?: array<string, list<string>>, entryPointAuthGates?: array<string, list<string>>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied?: bool, findings?: list<string>, ...}  $result
+     * @param  array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, newFiles?: list<string>, fqcns?: array<string, string>, entryPoints: list<string>, entryPointPaths?: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations?: array<string, array{file: string, line?: int}>, entryPointSecurity?: array<string, SecurityShape>, entryPointGates?: array<string, list<string>>, entryPointAuthGates?: array<string, list<string>>, entryPointAuthMiddleware?: array<string, list<string>>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied?: bool, findings?: list<string>, ...}  $result
      * @param  bool  $gateActive  when a `--fail-on*` gate is active the command appends its own verdict, so the advisory suffix is dropped to avoid contradicting it
      * @param  bool  $explain  render the call chain from each reached entry point down to the changed symbol
      * @param  string|null  $notice  a caveat about the analysis to render inside the document (the
@@ -164,6 +165,7 @@ final class MarkdownFormatter
             $result['entryPointSecurity'] ?? [],
             $result['entryPointGates'] ?? [],
             $result['entryPointAuthGates'] ?? [],
+            $result['entryPointAuthMiddleware'] ?? [],
             $tests,
         )];
 
@@ -244,15 +246,16 @@ final class MarkdownFormatter
      * @param  array<string, SecurityShape>  $security  keyed by entry-point node; routes only, inherited from Brain as advisory annotation
      * @param  array<string, list<string>>  $gates  keyed by entry-point node; Pennant flags gating the route
      * @param  array<string, list<string>>  $authGates  keyed by entry-point node; policy gates that contradict a PUBLIC_WRITE finding
+     * @param  array<string, list<string>>  $authMiddleware  keyed by entry-point node; auth middleware that contradicts one
      * @return list<string>
      */
-    private static function entryPointChecklist(array $entryPoints, array $paths, array $locations, array $security, array $gates, array $authGates, ?TestReferenceIndex $tests): array
+    private static function entryPointChecklist(array $entryPoints, array $paths, array $locations, array $security, array $gates, array $authGates, array $authMiddleware, ?TestReferenceIndex $tests): array
     {
         if ($entryPoints === []) {
             return ['_None reached from the changed code._'];
         }
 
-        $rows = EntryPointRow::build($entryPoints, $paths, $locations, $security, $gates, $authGates, $tests);
+        $rows = EntryPointRow::build($entryPoints, $paths, $locations, $security, $gates, $authGates, $authMiddleware, $tests);
 
         $lines = self::checklistEntries(array_slice($rows, 0, self::LIST_CAP));
 
@@ -317,6 +320,12 @@ final class MarkdownFormatter
                 $lines[] = "  - ⚠️ **{$issue['type']}** ({$issue['severity']}): {$issue['message']}{$issueLocation}";
             }
 
+            if ($row->authMiddleware !== []) {
+                $lines[] = '  - ℹ️ richter: `' . implode('`, `', $row->authMiddleware)
+                    . '` is applied to this route and extends a framework authentication middleware, so the finding above is likely wrong '
+                    . '(Brain matches middleware by name, not by ancestry).';
+            }
+
             if ($row->authGates !== []) {
                 $lines[] = '  - ℹ️ richter: an authorization policy (`' . implode('`, `', $row->authGates)
                     . '`) is applied in this route\'s reach — verify whether it gates this write '
@@ -339,7 +348,7 @@ final class MarkdownFormatter
         $count = count($path);
 
         for ($i = 1; $i < $count; ++$i) {
-            $chain .= " →({$path[$i - 1]['via']}) `{$path[$i]['node']}`";
+            $chain .= " →({$path[$i - 1]['via']}) `" . NodeLabel::display($path[$i]['node']) . '`';
         }
 
         return $chain;
@@ -383,7 +392,7 @@ final class MarkdownFormatter
                     ? ' — `' . $hop['file'] . (isset($hop['line']) ? ":{$hop['line']}" : '') . '`'
                     : '';
 
-                return "- `{$hop['node']}` _(via {$hop['via']}, depth {$hop['depth']})_{$location}";
+                return '- `' . NodeLabel::display($hop['node']) . "` _(via {$hop['via']}, depth {$hop['depth']})_{$location}";
             },
             $hops,
         );

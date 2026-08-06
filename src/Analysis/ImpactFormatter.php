@@ -20,7 +20,7 @@ final class ImpactFormatter
     private const int LIST_CAP = 15;
 
     /**
-     * @param  array{target: string, callers: list<array{depth: int, node: string, via: string, file?: string, line?: int}>, dependencies: list<array{depth: int, node: string, via: string, file?: string, line?: int}>, entryPoints?: list<string>, entryPointPaths?: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations?: array<string, array{file: string, line?: int}>, entryPointSecurity?: array<string, SecurityShape>, entryPointGates?: array<string, list<string>>, entryPointAuthGates?: array<string, list<string>>, suggestions?: list<string>, graphNodeCount?: int}  $result
+     * @param  array{target: string, callers: list<array{depth: int, node: string, via: string, file?: string, line?: int}>, dependencies: list<array{depth: int, node: string, via: string, file?: string, line?: int}>, entryPoints?: list<string>, entryPointPaths?: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations?: array<string, array{file: string, line?: int}>, entryPointSecurity?: array<string, SecurityShape>, entryPointGates?: array<string, list<string>>, entryPointAuthGates?: array<string, list<string>>, entryPointAuthMiddleware?: array<string, list<string>>, suggestions?: list<string>, graphNodeCount?: int}  $result
      * @param  bool  $explain  render the call chain from each reached entry surface down to the symbol
      */
     public static function impact(array $result, ?TestReferenceIndex $tests = null, bool $explain = false): string
@@ -44,6 +44,7 @@ final class ImpactFormatter
                 $result['entryPointSecurity'] ?? [],
                 $result['entryPointGates'] ?? [],
                 $result['entryPointAuthGates'] ?? [],
+                $result['entryPointAuthMiddleware'] ?? [],
                 $tests,
             )),
             '',
@@ -62,7 +63,7 @@ final class ImpactFormatter
 
             return implode("\n", [
                 "Path from \"{$result['from']}\" to \"{$result['to']}\" (call direction, {$hops} hop(s)):",
-                '  ↳ ' . self::pathChain($result['path'][0]['node'], $result['path']),
+                '  ↳ ' . self::pathChain(NodeLabel::display($result['path'][0]['node']), $result['path']),
             ]);
         }
 
@@ -72,13 +73,13 @@ final class ImpactFormatter
             "No path from \"{$result['from']}\" to \"{$result['to']}\" in call direction.",
             $furthest === null
                 ? "  \"{$result['to']}\" has no callers in the graph."
-                : "  Upstream walk from \"{$result['to']}\" reached {$furthest['node']} (d{$furthest['depth']}) — the deepest caller within the depth limit, not a pointer toward \"{$result['from']}\".",
+                : '  Upstream walk from "' . $result['to'] . '" reached ' . NodeLabel::display($furthest['node']) . " (d{$furthest['depth']}) — the deepest caller within the depth limit, not a pointer toward \"{$result['from']}\".",
             '  Swap the arguments to query the reverse direction.',
         ]);
     }
 
     /**
-     * @param  array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, newFiles?: list<string>, fqcns?: array<string, string>, entryPoints: list<string>, entryPointPaths?: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations?: array<string, array{file: string, line?: int}>, entryPointSecurity?: array<string, SecurityShape>, entryPointGates?: array<string, list<string>>, entryPointAuthGates?: array<string, list<string>>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied?: bool, findings?: list<string>, ...}  $result
+     * @param  array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, newFiles?: list<string>, fqcns?: array<string, string>, entryPoints: list<string>, entryPointPaths?: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations?: array<string, array{file: string, line?: int}>, entryPointSecurity?: array<string, SecurityShape>, entryPointGates?: array<string, list<string>>, entryPointAuthGates?: array<string, list<string>>, entryPointAuthMiddleware?: array<string, list<string>>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied?: bool, findings?: list<string>, ...}  $result
      * @param  bool  $gateActive  when a `--fail-on*` gate is active the command prints its own verdict, so the advisory suffix is dropped to avoid contradicting it
      * @param  bool  $explain  render the call chain from each reached entry point down to the changed symbol
      */
@@ -109,6 +110,7 @@ final class ImpactFormatter
             $result['entryPointSecurity'] ?? [],
             $result['entryPointGates'] ?? [],
             $result['entryPointAuthGates'] ?? [],
+            $result['entryPointAuthMiddleware'] ?? [],
             $tests,
         )];
 
@@ -175,9 +177,12 @@ final class ImpactFormatter
      * nearest node ids, or — when nothing in the graph even resembles the symbol — how many nodes were
      * scanned, which distinguishes "wrong name" from "the graph is empty/tiny".
      *
+     * Public because {@see SymbolTracer} raises the same miss as an exception rather than a rendered
+     * report, and the two surfaces must not drift into two different diagnostics.
+     *
      * @param  list<string>  $suggestions
      */
-    private static function missDiagnostic(array $suggestions, ?int $graphNodeCount): string
+    public static function missDiagnostic(array $suggestions, ?int $graphNodeCount): string
     {
         if ($suggestions !== []) {
             return "\nNearest graph nodes: " . implode(', ', $suggestions);
@@ -210,11 +215,12 @@ final class ImpactFormatter
      * @param  array<string, SecurityShape>  $security  keyed by entry-point node; routes only
      * @param  array<string, list<string>>  $gates  keyed by entry-point node; Pennant flags gating the route
      * @param  array<string, list<string>>  $authGates  keyed by entry-point node; policy gates that contradict a PUBLIC_WRITE finding
+     * @param  array<string, list<string>>  $authMiddleware  keyed by entry-point node; auth middleware that contradicts one
      * @return list<string>
      */
-    private static function entryPointList(array $entryPoints, array $paths, array $locations, array $security, array $gates, array $authGates, ?TestReferenceIndex $tests): array
+    private static function entryPointList(array $entryPoints, array $paths, array $locations, array $security, array $gates, array $authGates, array $authMiddleware, ?TestReferenceIndex $tests): array
     {
-        $rows = EntryPointRow::build($entryPoints, $paths, $locations, $security, $gates, $authGates, $tests);
+        $rows = EntryPointRow::build($entryPoints, $paths, $locations, $security, $gates, $authGates, $authMiddleware, $tests);
 
         $overCap = count($rows) > self::LIST_CAP;
         $shown = $overCap ? array_slice($rows, 0, self::LIST_CAP) : $rows;
@@ -238,6 +244,12 @@ final class ImpactFormatter
                     ? ' — ' . $issue['file'] . (isset($issue['line']) ? ":{$issue['line']}" : '')
                     : '';
                 $lines[] = "      ⚠ {$issue['type']} ({$issue['severity']}): {$issue['message']}{$issueLocation}";
+            }
+
+            if ($row->authMiddleware !== []) {
+                $lines[] = '      richter: ' . implode(', ', $row->authMiddleware)
+                    . ' is applied to this route and extends a framework authentication middleware, '
+                    . 'so the finding above is likely wrong (Brain matches middleware by name, not by ancestry).';
             }
 
             if ($row->authGates !== []) {
@@ -278,7 +290,7 @@ final class ImpactFormatter
         $count = count($path);
 
         for ($i = 1; $i < $count; ++$i) {
-            $chain .= " →({$path[$i - 1]['via']}) {$path[$i]['node']}";
+            $chain .= " →({$path[$i - 1]['via']}) " . NodeLabel::display($path[$i]['node']);
         }
 
         return $chain;
@@ -342,7 +354,7 @@ final class ImpactFormatter
                     ? '  — ' . $hop['file'] . (isset($hop['line']) ? ":{$hop['line']}" : '')
                     : '';
 
-                return "  d{$hop['depth']}  {$hop['node']}  (via {$hop['via']}){$location}";
+                return '  d' . $hop['depth'] . '  ' . NodeLabel::display($hop['node']) . "  (via {$hop['via']}){$location}";
             },
             $hops,
         );

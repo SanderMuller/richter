@@ -22,6 +22,9 @@ final readonly class EntryPointRow
      * @param  bool|null  $testReferenced  {@see TestReferenceIndex::hasReference()}'s tri-state: null means "couldn't check", never rendered as unreferenced
      * @param  SecurityShape|null  $security  Brain's exposure/issues annotation; routes only
      * @param  list<string>  $gates  Pennant flags gating this route; empty when ungated
+     * @param  list<string>  $authMiddleware  auth middleware applied to the route that Brain's
+     *   name-based match missed (a subclass of a framework auth middleware) — evidence against a
+     *   PUBLIC_WRITE finding, from {@see PublicWriteAuthCrossCheck::authMiddlewareByEntryPoint()}
      * @param  list<string>  $authGates  `App\Policies\*` classes richter's own `authorizes` edges show
      *   this route's reach gates on — evidence that contradicts a Brain `PUBLIC_WRITE` finding; empty
      *   unless the route carries a `PUBLIC_WRITE` issue and a gate is found in reach
@@ -36,6 +39,7 @@ final readonly class EntryPointRow
         public ?array $security,
         public array $gates,
         public array $authGates,
+        public array $authMiddleware,
         public bool $assertionWeak,
     ) {}
 
@@ -51,33 +55,26 @@ final readonly class EntryPointRow
      * @param  array<string, SecurityShape>  $security  keyed by entry-point node; routes only
      * @param  array<string, list<string>>  $gates  keyed by entry-point node
      * @param  array<string, list<string>>  $authGates  keyed by entry-point node; contradicting policy gates
+     * @param  array<string, list<string>>  $authMiddleware  keyed by entry-point node; contradicting auth middleware
      * @return list<self>
      */
-    public static function build(array $entryPoints, array $paths, array $locations, array $security, array $gates, array $authGates, ?TestReferenceIndex $tests): array
+    public static function build(array $entryPoints, array $paths, array $locations, array $security, array $gates, array $authGates, array $authMiddleware, ?TestReferenceIndex $tests): array
     {
         $rows = array_map(static fn (string $node): self => new self(
             node: $node,
-            label: self::label($node),
+            label: NodeLabel::display($node),
             path: $paths[$node] ?? [],
             location: $locations[$node] ?? null,
             testReferenced: $tests?->hasReference($node),
             security: $security[$node] ?? null,
             gates: $gates[$node] ?? [],
             authGates: $authGates[$node] ?? [],
+            authMiddleware: $authMiddleware[$node] ?? [],
             assertionWeak: $tests?->referencedWithoutBehaviouralAssertion($node) ?? false,
         ), $entryPoints);
 
         usort($rows, static fn (self $a, self $b): int => $a->label <=> $b->label);
 
         return $rows;
-    }
-
-    /**
-     * A console-command entry-point node carries its whole `$signature`
-     * (`command::foo {--opt : desc}`); show just the command name. Routes/schedules are unaffected.
-     */
-    private static function label(string $node): string
-    {
-        return str_starts_with($node, 'command::') ? explode(' ', $node, 2)[0] : $node;
     }
 }

@@ -38,8 +38,12 @@ final class GraphCache
      * class that matches the dispatch predicate only via handle()/__invoke() (a plain value object) —
      * the edge set shrinks for identical file inputs, so a stale pre-fix entry would serve those
      * phantom edges (over-selection) to the fixed code.
+     * 7 → 8: the graph gained `static-call` edges (a class reached only through `Foo::bar()` had no
+     * node at all) and `inherits` edges (a method inherited without overriding was disconnected from
+     * the subclass its callers go through). Both grow the edge set for identical file inputs, so a
+     * stale pre-change entry would be served to the new code and miss the added reach — under-selection.
      */
-    private const int FORMAT_VERSION = 7;
+    private const int FORMAT_VERSION = 8;
 
     private ?CodeGraph $memoized = null;
 

@@ -340,6 +340,17 @@ final class MarkdownFormatterTest extends TestCase
     }
 
     #[Test]
+    public function a_console_command_entry_point_renders_without_a_signature_that_spans_lines(): void
+    {
+        // Worse in markdown than in text: a newline inside the backticks splits the checklist item
+        // across two list lines, so the rendered document is malformed, not merely wrapped.
+        $output = MarkdownFormatter::detectChanges($this->summary(["command::vector-store:cleanup\n    {--days=7 : Days to keep}"]));
+
+        $this->assertStringContainsString('- [ ] `command::vector-store:cleanup`', $output);
+        $this->assertStringNotContainsString('{--days', $output);
+    }
+
+    #[Test]
     public function impact_renders_callers_and_dependencies_with_hop_context(): void
     {
         $output = MarkdownFormatter::impact([

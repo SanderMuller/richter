@@ -2,6 +2,7 @@
 
 namespace Acme\Http\Middleware;
 
+use Acme\Services\ReportMappingService;
 use Acme\Services\TokenInspector;
 
 final class EnsureTokenIsValid
@@ -10,6 +11,9 @@ final class EnsureTokenIsValid
     {
         $inspector = new TokenInspector();
         $inspector->inspect('token');
+
+        $mapper = new ReportMappingService();
+        $mapper->build();
 
         return $next($request);
     }

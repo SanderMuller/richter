@@ -17,6 +17,10 @@ final class HtmlTest extends TestCase
         yield 'route keeps a multibyte uri intact' => ["route::GET::/caf\u{00e9}", "GET /caf\u{00e9}"];
         yield 'route with no uri shows the method' => ['route::GET', 'GET'];
         yield 'command drops its signature' => ['command::richter:impact {symbol}', 'richter:impact'];
+        yield 'a signature-less command drops only its prefix' => ['command::richter:impact', 'richter:impact'];
+        // A multi-line $signature puts a newline inside the first space-delimited token, so a
+        // space-only split leaves a label that still breaks across lines.
+        yield 'command drops a signature that wraps onto further lines' => ["command::reports:sync\n    {--force : Skip the freshness check}", 'reports:sync'];
         yield 'view drops the prefix' => ['view::mail.welcome', 'mail.welcome'];
         yield 'a view name containing a space is not truncated' => ['view::mail welcome', 'mail welcome'];
         yield 'model drops the prefix' => ['model::App\Models\Post', 'App\Models\Post'];

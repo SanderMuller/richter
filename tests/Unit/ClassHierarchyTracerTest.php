@@ -36,6 +36,40 @@ final class ClassHierarchyTracerTest extends TestCase
         return $tracer->overrideEdges();
     }
 
+    /**
+     * The inherited lane, which is edge-set-driven: the caller supplies the member nodes that already
+     * exist in the graph, so nothing is drawn for a method nothing calls.
+     *
+     * @param  list<array{source: string, target: string, type: string}>  $edges
+     * @param  string  ...$sources  each a full `<?php` file
+     * @return list<array{source: string, target: string, type: string}>
+     */
+    private function inherited(array $edges, string ...$sources): array
+    {
+        $tracer = new ClassHierarchyTracer();
+
+        foreach ($sources as $source) {
+            $ast = AppFiles::parseResolved($source);
+            $this->assertNotNull($ast, 'fixture source failed to parse');
+
+            /** @var list<ClassLike> $classLikes */
+            $classLikes = array_values(new NodeFinder()->findInstanceOf($ast, ClassLike::class));
+            $tracer->collect($classLikes);
+        }
+
+        return $tracer->inheritedEdges($edges);
+    }
+
+    /**
+     * A caller edge onto a member node, the shape Brain produces for `$subclass->method()`.
+     *
+     * @return array{source: string, target: string, type: string}
+     */
+    private function callEdge(string $memberNode): array
+    {
+        return ['source' => 'App\\Console\\Commands\\SendCommand::handle', 'target' => $memberNode, 'type' => 'service'];
+    }
+
     /** @param  list<array{source: string, target: string, type: string}>  $edges */
     private function assertHasOverride(array $edges, string $source, string $target): void
     {
@@ -218,5 +252,94 @@ final class ClassHierarchyTracerTest extends TestCase
             PHP);
 
         $this->assertSame([], $edges);
+    }
+
+    #[Test]
+    public function an_inherited_method_connects_the_subclass_node_to_the_parent_that_declares_it(): void
+    {
+        // The F2 shape: every real call arrives on `MappingService::build` (the receiver's static
+        // type), while the code runs in the parent — two unconnected nodes until this edge.
+        $parent = "<?php\nnamespace App\\Services;\nclass ApiService\n{\n    public function build(): void\n    {\n    }\n}\n";
+        $child = "<?php\nnamespace App\\Services;\nclass MappingService extends ApiService\n{\n}\n";
+
+        $edges = $this->inherited([$this->callEdge('App\\Services\\MappingService::build')], $parent, $child);
+
+        $this->assertSame([[
+            'source' => 'App\\Services\\MappingService::build',
+            'target' => 'App\\Services\\ApiService::build',
+            'type' => 'inherits',
+        ]], $edges);
+    }
+
+    #[Test]
+    public function it_resolves_to_the_nearest_declaring_ancestor(): void
+    {
+        $a = "<?php\nnamespace App\\Services;\nclass A\n{\n    public function build(): void\n    {\n    }\n}\n";
+        $b = "<?php\nnamespace App\\Services;\nclass B extends A\n{\n    public function build(): void\n    {\n    }\n}\n";
+        $c = "<?php\nnamespace App\\Services;\nclass C extends B\n{\n}\n";
+
+        $edges = $this->inherited([$this->callEdge('App\\Services\\C::build')], $a, $b, $c);
+
+        // B, not A — B is the one that actually runs.
+        $this->assertSame([[
+            'source' => 'App\\Services\\C::build',
+            'target' => 'App\\Services\\B::build',
+            'type' => 'inherits',
+        ]], $edges);
+    }
+
+    #[Test]
+    public function an_overridden_method_draws_no_inherits_edge(): void
+    {
+        // overrideEdges() already links these; both would double-link the same pair.
+        $parent = "<?php\nnamespace App\\Services;\nclass ApiService\n{\n    public function build(): void\n    {\n    }\n}\n";
+        $child = "<?php\nnamespace App\\Services;\nclass MappingService extends ApiService\n{\n    public function build(): void\n    {\n    }\n}\n";
+
+        $this->assertSame([], $this->inherited([$this->callEdge('App\\Services\\MappingService::build')], $parent, $child));
+    }
+
+    #[Test]
+    public function a_privately_redeclared_method_draws_no_inherits_edge(): void
+    {
+        // `methods` filters private/static/__construct away, so the declared-name list is what
+        // answers "does this class write the method out itself?" — a private same-name method does.
+        $parent = "<?php\nnamespace App\\Services;\nclass ApiService\n{\n    public function build(): void\n    {\n    }\n}\n";
+        $child = "<?php\nnamespace App\\Services;\nclass MappingService extends ApiService\n{\n    private function build(): void\n    {\n    }\n}\n";
+
+        $this->assertSame([], $this->inherited([$this->callEdge('App\\Services\\MappingService::build')], $parent, $child));
+    }
+
+    #[Test]
+    public function a_vendor_ancestor_draws_nothing(): void
+    {
+        // The parent was never scanned, so its methods are unknown — the walk stops rather than
+        // guessing that the vendor base declares it.
+        $child = "<?php\nnamespace App\\Services;\nuse Illuminate\\Console\\Command;\nclass MappingService extends Command\n{\n}\n";
+
+        $this->assertSame([], $this->inherited([$this->callEdge('App\\Services\\MappingService::handle')], $child));
+    }
+
+    #[Test]
+    public function a_method_nothing_calls_draws_nothing(): void
+    {
+        // Edge-set-driven: no member node in the graph, no edge — and so no phantom node either.
+        $parent = "<?php\nnamespace App\\Services;\nclass ApiService\n{\n    public function build(): void\n    {\n    }\n}\n";
+        $child = "<?php\nnamespace App\\Services;\nclass MappingService extends ApiService\n{\n}\n";
+
+        $this->assertSame([], $this->inherited([], $parent, $child));
+    }
+
+    #[Test]
+    public function it_emits_one_edge_per_member_node_however_many_callers(): void
+    {
+        $parent = "<?php\nnamespace App\\Services;\nclass ApiService\n{\n    public function build(): void\n    {\n    }\n}\n";
+        $child = "<?php\nnamespace App\\Services;\nclass MappingService extends ApiService\n{\n}\n";
+
+        $edges = $this->inherited([
+            $this->callEdge('App\\Services\\MappingService::build'),
+            ['source' => 'App\\Console\\Commands\\OtherCommand::handle', 'target' => 'App\\Services\\MappingService::build', 'type' => 'service'],
+        ], $parent, $child);
+
+        $this->assertCount(1, $edges);
     }
 }

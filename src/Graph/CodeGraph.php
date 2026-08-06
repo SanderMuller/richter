@@ -36,6 +36,13 @@ final class CodeGraph
     private ?array $nodesByToken = null;
 
     /**
+     * Lazily-built defining file → node ids index, used by {@see nodesDefinedIn()}.
+     *
+     * @var array<string, list<string>>|null
+     */
+    private ?array $nodesByFile = null;
+
+    /**
      * @param  list<array{source: string, target: string, type: string}>  $edges
      * @param  bool  $hasUnparseableFiles  an app file could not be parsed at all (S1 — see plan
      *   036). Its content and edges are unknown, so it could reach anything — this is a GLOBAL,
@@ -201,6 +208,55 @@ final class CodeGraph
         sort($nodes);
 
         return $nodes;
+    }
+
+    /**
+     * The node ids the build pinned to this exact project-relative file — the graph's answer to
+     * "what does this file define?", which for prefixed nodes no FQCN lookup can reach.
+     *
+     * `schedule::` is the case that motivates it: Brain ids a schedule entry as
+     * `schedule::md5(type.target.frequency)`, so the Console Kernel that declares it matches no
+     * node by name and its whole file reads UNRESOLVED. Same for a routes file, which defines
+     * `route::` nodes and is not a class at all.
+     *
+     * Restricted to nodes that appear in an edge: metadata alone means Brain saw a definition, not
+     * that the graph can traverse it. Offering an edge-less node as a seed would flip a file from
+     * "couldn't place this" to "placed, reaches nothing" — the same falsely-reassuring answer the
+     * UNRESOLVED state exists to prevent.
+     *
+     * @return list<string>
+     */
+    public function nodesDefinedIn(string $file): array
+    {
+        return $this->nodesByFile()[$file] ?? [];
+    }
+
+    /**
+     * Lazily-built file → node ids index, on the same terms as {@see nodesByToken()}: a caller that
+     * never resolves a changed file must not pay to walk the metadata.
+     *
+     * @return array<string, list<string>>
+     */
+    private function nodesByFile(): array
+    {
+        if ($this->nodesByFile !== null) {
+            return $this->nodesByFile;
+        }
+
+        $index = [];
+
+        foreach ($this->nodeMetadata as $node => $metadata) {
+            if (isset($metadata['file']) && isset($this->nodes[$node])) {
+                $index[$metadata['file']][] = $node;
+            }
+        }
+
+        // Sorted so a seed list — and every report derived from it — is build-order independent.
+        return $this->nodesByFile = array_map(static function (array $nodes): array {
+            sort($nodes);
+
+            return $nodes;
+        }, $index);
     }
 
     /**

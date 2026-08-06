@@ -444,6 +444,19 @@ final class ImpactFormatterTest extends TestCase
     }
 
     #[Test]
+    public function a_console_command_entry_point_renders_without_a_signature_that_spans_lines(): void
+    {
+        // A multi-line `$signature` is the case a space-only split lets through: the label keeps
+        // its newline and the entry-surface column breaks apart in the terminal.
+        $text = ImpactFormatter::detectChanges(
+            $this->summary(["command::vector-store:cleanup\n    {--days=7 : Days to keep}"]),
+        );
+
+        $this->assertStringContainsString('command::vector-store:cleanup', $text);
+        $this->assertStringNotContainsString('{--days', $text);
+    }
+
+    #[Test]
     public function an_entry_point_list_over_the_cap_is_sampled_sorted_with_a_breadth_note(): void
     {
         // 20 entries fed in reverse order — the rendered sample must be the 15 lowest, sorted.
