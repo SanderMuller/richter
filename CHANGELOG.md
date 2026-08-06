@@ -5,6 +5,31 @@ All notable changes to `sandermuller/richter` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.20.0 - 2026-08-06
+
+One theme: a report that is quieter than the truth, with nothing in the output saying so. Two edge types were missing from the graph, one class of file could not be placed in it at all, and three diagnostics stayed silent where they had something to say. Real-world adoption feedback surfaced all of them; the graph work is the substantive half, the diagnostics are what turn the remaining gaps from puzzling into legible.
+
+### Added
+
+- **Static-call edges.** A class reached only through `Foo::bar()` — the shape a static registry, named constructor, or factory is used through — got no node at all, so `detect-changes` did not merely stay quiet about it: it actively reported that nothing referenced a class two graphed callers did reference. The tracer is class-scoped rather than a flat method bucket, so `self`/`static`/`parent` resolve against the right class and a file declaring several classes stays correct. An unqualified plain name is trusted only when it resolves to a loadable class, so an unimported `Carbon::now()` no longer invents an `App\Services\Carbon`.
+- **Inherited-method edges.** A method a class inherits without overriding runs in the parent, so the parent is now connected to the subclass its callers actually go through — the same declaring-class resolution the class-constant lane already applied. Together with the above, a four-link chain (entry point → service → inherited method → static collaborator) that was broken in two places is walkable end to end.
+- **A defined-node seeding lane, as the last resort before UNRESOLVED.** Not every entry surface has a class name to look up: a scheduled task is identified by what it runs and how often, and a routes file is not a class at all. Such a file read UNRESOLVED despite defining surfaces the graph already knew — which also made test selection non-determinable for any change touching a legacy `app/Console/Kernel.php`. It now seeds the nodes the graph pins to that exact file, and lists the entry surfaces among them as touched. Gated on every other lane coming up empty, so member-level precision is untouched: a one-method change to a controller still seeds that method, not the class its file also defines. Restricted to nodes that appear in an edge, so "couldn't place this" never quietly becomes "placed, reaches nothing".
+- **An entry-point coverage note.** When an `app/` directory holds classes and *none* of them reach the graph, `richter:impact`, `richter:trace` and `richter:detect-changes` say so on stderr and name the `richter.entry_point_roots` entry that would fix it. This is the shape a subsystem takes when it is dispatched through a registry or factory richter cannot follow — and it is invisible to the UNRESOLVED signal, which only ever describes a *changed* file, never a subsystem missing as a consumer of the change. Measured against the graph rather than diffed against the configured roots: that diff would fire on `Models`, `Services`, `Http` and most of a conventional app, and a note that fires everywhere is one its reader learns to skip. Only total absence is reported, and only from five classes up.
+- **An auth-middleware cross-check on `PUBLIC_WRITE` findings.** Brain matches auth middleware by name, so an app whose own `Authenticate` subclasses the framework's matches none of the known names — the default skeleton shape — and every route behind it reads `[public]`, with a mutating verb drawing a `high` "requires no authentication". Richter now walks the class ancestry that match cannot and notes the applied middleware beside the finding. Evidence, never a suppression: the finding stays shown, on the same terms as the existing policy-gate cross-check. A route gated only by a member of a *named* middleware group remains out of reach — no lane expands those, deliberately, since mapping a global group onto every class in its stack would flood each of them with every route.
+
+### Fixed
+
+- **`richter:trace` errors are a lead rather than a dead end.** An unresolvable symbol now carries the same nearest-node suggestions `richter:impact` already rendered — or, when nothing in the graph resembles it, how many nodes were scanned. A trace needs *both* arguments to resolve before it can report anything, which makes it the surface where a typo costs the most.
+- **A console command's entry-surface label no longer breaks across lines.** The node id embeds the command's whole `$signature`, and the existing display trim split on a literal space — so a multi-line signature kept its newline inside the first token and wrapped the columnar read anyway, in text and in markdown, where it also split the checklist item into two list lines. One shared helper now splits on any whitespace and is used by every renderer.
+- A new file that no traced edge reaches states which of the two it is — nothing calls it yet, or the call shape is one richter does not trace — instead of asserting the first.
+
+### Internal
+
+- Graph cache `FORMAT_VERSION` 7 → 8. Both new edge types grow the edge set for identical file inputs, so a stale entry would be served to the new code and under-select. Existing caches invalidate on first run; no action required.
+- The parallel tracer branch now carries the class-inheritance map, validated fail-closed like the edge payload — a mis-shaped record falls back to an in-process rebuild rather than drawing edges to methods that do not run.
+
+**Full Changelog**: https://github.com/SanderMuller/richter/compare/v0.19.0...v0.20.0
+
 ## v0.19.0 - 2026-08-05
 
 Two themes. First, the analysis a coding agent can *reach* now matches the analysis richter computes: tracing, test selection, and orientation data were CLI-only or nowhere — they are now first-class over MCP, and `richter:impact` reports the entry surfaces a symbol reaches instead of leaving them buried in the callers list. Second, payload parity learned the consumer direction: removing a resource key now warns when a frontend file that consumes the affected routes still reads it.
