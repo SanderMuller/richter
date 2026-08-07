@@ -5,6 +5,32 @@ All notable changes to `sandermuller/richter` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.21.0 - 2026-08-07
+
+Closes the last reach gap real-world adoption feedback had left open, and it turned out to be one cause behind two symptoms: a `new X` inside a statically-called method drawing no edge, and an inherited method's work never becoming reachable through the subclass.
+
+### Added
+
+- **Statically-called method bodies are now read.** A class reached only through `Foo::bar()` — a static registry, a named constructor, a factory — had its node placed by richter's own static-call edge and nothing more: Laravel Brain's call-chain analysis is anchored on routes and never walks such a class, and the entry-point tracer only walks what `entry_point_roots` names. So everything the class constructed or called was invisible, and `impact` on the constructed class came back empty. Richter now reads the methods those static calls name.
+  
+  The inherited-method gap closes with it, and for a reason worth stating: reading the body puts the subclass member node into the edge set, which is the only condition under which an `inherits` edge to the parent's work is ever drawn. A caller arriving at a subclass now reaches what the inherited method actually does, not just the parent's node.
+  
+  **`richter.second_hop`** (default `true`) turns the walk off, trading that reach for build time — measured at ~4.5s on a 4,000-file application. It participates in the cache fingerprint, so a graph built with the walk on is never served to a run configured with it off.
+  
+  Scope was chosen by measurement. On that same application: walking every app class costs ~78s, adding the class-hierarchy `override` targets ~41s, the static-call target *classes* ~8.0s, and the *called methods* of those classes ~4.5s. Only the last is affordable — and it is also the most precise, since a method nobody calls has no reason to be read.
+  
+
+### Documentation
+
+- The 0.20.1 boundary note "a class placed through richter's own edges is not re-walked for what it constructs" is now narrower and stated as such: the called method is read, the rest of such a class still is not. The relation boundary (declarations, not property-chain traversals) is unchanged.
+
+### Internal
+
+- Graph cache `FORMAT_VERSION` 8 → 9. The walk only ever adds edges, so a stale entry would under-select. Existing caches invalidate on first run; no action required.
+- The build emits a `second-hop-walk` phase under `--profile`, with the edge count and the number of methods that could not be read, so the cost is measurable on a real application rather than estimated.
+
+**Full Changelog**: https://github.com/SanderMuller/richter/compare/v0.20.1...v0.21.0
+
 ## v0.20.1 - 2026-08-07
 
 Fixes an over-report 0.20.0 introduced. The new defined-node lane placed a file by the graph nodes pinned to it — and then walked all of them, which is the wrong reading for a file that merely registers things.
