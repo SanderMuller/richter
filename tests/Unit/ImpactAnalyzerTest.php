@@ -1647,15 +1647,99 @@ final class ImpactAnalyzerTest extends TestCase
     }
 
     #[Test]
-    public function a_file_matching_no_symbol_seeds_the_nodes_it_defines_instead_of_reading_unresolved(): void
+    public function a_file_matching_no_symbol_is_placed_by_the_nodes_it_defines_instead_of_reading_unresolved(): void
     {
         $result = $this->scheduleAnalyzer()->detectChanges([
             $this->changedCoarse('app/Console/Kernel.php', 'Acme\Console\Kernel'),
         ]);
 
         $this->assertSame('analyzed', $result['coverage']['app/Console/Kernel.php']);
-        // The schedule is a graph root, so the reach it adds is downstream: the command it runs.
-        $this->assertContains('command::reports:sync {--force}', $this->nodes($result['dependencies']));
+        $this->assertSame(1, $result['changed']['app/Console/Kernel.php']);
+    }
+
+    #[Test]
+    public function a_declared_surface_is_never_walked(): void
+    {
+        // The registry case: a `$commands` entry or a `schedule()` call declares a surface, it does
+        // not call into it. Walking it rates a one-line registration edit by everything its
+        // neighbours in the file reach — which is how a Console Kernel edit reported HIGH.
+        $result = $this->scheduleAnalyzer()->detectChanges([
+            $this->changedCoarse('app/Console/Kernel.php', 'Acme\Console\Kernel'),
+        ]);
+
+        $this->assertNotContains('command::reports:sync {--force}', $this->nodes($result['dependencies']));
+        $this->assertSame(0, $result['impacted']);
+        $this->assertSame(RiskLevel::Low, $result['risk']);
+    }
+
+    #[Test]
+    public function a_new_file_that_declares_surfaces_does_not_read_as_referenced_by_nothing(): void
+    {
+        // A brand-new routes file declares its routes; saying "no traced edge reaches it" would be
+        // false — the surfaces ARE the placement, they are simply not walked.
+        $analyzer = new ImpactAnalyzer(new CodeGraph(
+            [['source' => 'route::GET::/reports', 'target' => 'Acme\\Http\\Controllers\\ReportController', 'type' => 'route-to-controller']],
+            hasUnparseableFiles: false,
+            hasUnresolvedDispatches: false,
+            nodeMetadata: ['route::GET::/reports' => ['file' => 'routes/reports.php']],
+        ));
+
+        $result = $analyzer->detectChanges([
+            new ChangedFileSymbols('routes/reports.php', '', [], cosmeticOnly: false, isNewFile: true),
+        ]);
+
+        $this->assertSame([], $result['findings']);
+        $this->assertSame('analyzed', $result['coverage']['routes/reports.php']);
+    }
+
+    #[Test]
+    public function a_defined_node_that_is_not_a_surface_stays_a_walk_seed(): void
+    {
+        // The other half of the split, and the one that would regress silently. The changed file is
+        // a legacy HTTP Kernel — its own FQCN matches no node, so the lane runs — and the node it
+        // defines is a `middleware::`, which is code the change touches rather than a surface it
+        // declares. Its reach is real reach and must still be walked.
+        $analyzer = new ImpactAnalyzer(new CodeGraph(
+            [['source' => 'middleware::Acme\\Http\\Middleware\\Throttle', 'target' => 'Acme\\Services\\RateLimiter', 'type' => 'service']],
+            hasUnparseableFiles: false,
+            hasUnresolvedDispatches: false,
+            nodeMetadata: ['middleware::Acme\\Http\\Middleware\\Throttle' => ['file' => 'app/Http/Kernel.php']],
+        ));
+
+        $result = $analyzer->detectChanges([
+            $this->changedCoarse('app/Http/Kernel.php', 'Acme\\Http\\Kernel'),
+        ]);
+
+        $this->assertContains('Acme\\Services\\RateLimiter', $this->nodes($result['dependencies']));
+        $this->assertSame('analyzed', $result['coverage']['app/Http/Kernel.php']);
+    }
+
+    #[Test]
+    public function a_registry_file_declaring_many_surfaces_does_not_reach_high(): void
+    {
+        // The consumer's exact shape at scale: one added line in a Console Kernel's $commands array,
+        // ten commands and six schedules declared in the same file. Three entry points alone push
+        // risk to HIGH, and `--fail-on=high` exits 1 — over an edit that cannot break any of them.
+        $edges = [];
+        $metadata = [];
+
+        for ($i = 1; $i <= 16; ++$i) {
+            $edges[] = ['source' => "command::app:task{$i}", 'target' => "Acme\\Console\\Commands\\Task{$i}::handle", 'type' => 'command-to-service'];
+            $edges[] = ['source' => "Acme\\Console\\Commands\\Task{$i}::handle", 'target' => "Acme\\Services\\Worker{$i}", 'type' => 'service'];
+            $metadata["command::app:task{$i}"] = ['file' => 'app/Console/Kernel.php'];
+        }
+
+        $analyzer = new ImpactAnalyzer(new CodeGraph($edges, hasUnparseableFiles: false, hasUnresolvedDispatches: false, nodeMetadata: $metadata));
+
+        $result = $analyzer->detectChanges([
+            $this->changedCoarse('app/Console/Kernel.php', 'Acme\\Console\\Kernel'),
+        ]);
+
+        $this->assertSame(RiskLevel::Low, $result['risk']);
+        $this->assertSame(0, $result['impacted']);
+        // The breadth is still reported — it is just breadth, not consequence.
+        $this->assertCount(16, $result['entryPoints']);
+        $this->assertSame('analyzed', $result['coverage']['app/Console/Kernel.php']);
     }
 
     #[Test]

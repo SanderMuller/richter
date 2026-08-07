@@ -200,7 +200,7 @@ final readonly class ImpactAnalyzer
                 continue;
             }
 
-            ['precise' => $precise, 'coarse' => $coarse] = $this->seedsForChangedFile($file, $frontendSeeds);
+            ['precise' => $precise, 'coarse' => $coarse, 'declared' => $declared] = $this->seedsForChangedFile($file, $frontendSeeds);
 
             $preciseSeeds = [...$preciseSeeds, ...$precise];
             $coarseSeeds = [...$coarseSeeds, ...$coarse];
@@ -213,16 +213,18 @@ final readonly class ImpactAnalyzer
 
             $fileSeeds = array_values(array_unique($fileSeeds));
             $perFileSeeds[$file->file] = $fileSeeds;
-            $summary[$file->file] = count($fileSeeds);
+            $summary[$file->file] = count($fileSeeds) + count($declared);
             // A non-additive change that resolves to no graph node at all can't be placed — that reads
             // "couldn't determine", never a falsely-reassuring "no impact". A change that does resolve
             // to a node but reaches nothing is a real leaf and stays "analyzed". A NEW file is the one
             // exception: no node means nothing references the class yet, which is a determined answer
             // (and a new class cannot break an existing caller), so it stays "analyzed" with a finding
             // rather than failing every --fail-on-unresolved build that adds a not-yet-wired class.
-            $coverage[$file->file] = $fileSeeds === [] && ! $file->isNewFile ? 'unresolved' : 'analyzed';
+            $coverage[$file->file] = $fileSeeds === [] && $declared === [] && ! $file->isNewFile ? 'unresolved' : 'analyzed';
 
-            if ($fileSeeds === [] && $file->isNewFile) {
+            // `$declared` guards the same way it does for coverage: a new routes file declaring a
+            // dozen routes IS placed, so "no traced edge reaches it" would be a false statement.
+            if ($fileSeeds === [] && $declared === [] && $file->isNewFile) {
                 $newFileFindings[] = "{$file->file} is new and no traced edge reaches it — either nothing calls it yet, or the call shape is one richter does not trace";
             }
         }
@@ -328,8 +330,12 @@ final readonly class ImpactAnalyzer
      * `$frontendSeeds` is threaded by reference for the annotation lane: an entry-prefixed direct seed
      * (a route an inline `fetch()` calls) is a touched surface, never a walk seed.
      *
+     * `declared` is the same idea reached the other way: surfaces the file itself defines, filled
+     * only by the last-resort lane in {@see definedNodes()}. They place the file — so coverage reads
+     * `analyzed` — without ever being walked.
+     *
      * @param  array<string, list<string>>  $frontendSeeds
-     * @return array{precise: list<string>, coarse: list<string>}
+     * @return array{precise: list<string>, coarse: list<string>, declared: list<string>}
      */
     private function seedsForChangedFile(ChangedFileSymbols $file, array &$frontendSeeds): array
     {
@@ -347,39 +353,45 @@ final readonly class ImpactAnalyzer
 
         $coarse = $file->needsCoarseSeed() ? $this->seedsFor($file->fqcn) : [];
 
-        if ($precise === [] && $coarse === []) {
-            $precise = $this->definedNodeSeeds($file, $frontendSeeds);
+        if ($precise !== [] || $coarse !== []) {
+            return ['precise' => $precise, 'coarse' => $coarse, 'declared' => []];
         }
 
-        return ['precise' => $precise, 'coarse' => $coarse];
+        ['seeds' => $seeds, 'declared' => $declared] = $this->definedNodes($file, $frontendSeeds);
+
+        return ['precise' => $seeds, 'coarse' => [], 'declared' => $declared];
     }
 
     /**
      * Last resort before a file reads UNRESOLVED: the nodes the graph says this very file defines
-     * ({@see CodeGraph::nodesDefinedIn()}).
+     * ({@see CodeGraph::nodesDefinedIn()}), split by what they mean for the change.
      *
-     * Gated on every other lane coming up empty, deliberately. A controller's class file defines its
-     * `controller::`/`action::` nodes too, so running this lane unconditionally would re-seed the
-     * whole class on a one-method change and undo the member-level precision the lanes above exist
-     * for. Behind the gate it can only add reach to a file that currently resolves to nothing at all.
+     * Gated by the caller on every other lane coming up empty, deliberately. A controller's class
+     * file defines its `controller::`/`action::` nodes too, so running this lane unconditionally
+     * would re-seed the whole class on a one-method change and undo the member-level precision the
+     * lanes above exist for.
      *
-     * The entry-prefixed nodes among them are annotated exactly like a frontend-referenced route:
-     * appended as touched surfaces after the risk inputs freeze. A routes file or a Console Kernel
-     * *declares* those surfaces rather than calling into them, so they belong in the entry-point
-     * list — but letting a declaration move `risk` would rate any edit to a routes file by how many
-     * routes happen to live in it.
+     * The split is the load-bearing part. An entry-prefixed node is a surface the file *declares* —
+     * a `$commands` entry, a `schedule()` call, a route definition — never something the change
+     * calls into, so it is annotated like a frontend-referenced route: appended to the entry-point
+     * list after the risk inputs freeze, and kept out of the walk entirely. Seeding those would rate
+     * a one-line registry edit by how many surfaces happen to share the file: adding a command to a
+     * legacy Console Kernel walked all ten of its siblings and every schedule, reaching 211 nodes
+     * and reporting HIGH — enough to fail a `--fail-on=high` gate over an edit that cannot break any
+     * of them. Everything else the file defines (a `middleware::` node IS the changed class) stays a
+     * walk seed.
      *
      * @param  array<string, list<string>>  $frontendSeeds
-     * @return list<string>
+     * @return array{seeds: list<string>, declared: list<string>}
      */
-    private function definedNodeSeeds(ChangedFileSymbols $file, array &$frontendSeeds): array
+    private function definedNodes(ChangedFileSymbols $file, array &$frontendSeeds): array
     {
         $defined = $this->graph->nodesDefinedIn($file->file);
-        $surfaces = array_filter($defined, static fn (string $node): bool => Str::startsWith($node, self::ENTRY_POINT_PREFIXES));
+        $declared = array_values(array_filter($defined, static fn (string $node): bool => Str::startsWith($node, self::ENTRY_POINT_PREFIXES)));
 
-        $frontendSeeds[$file->file] = [...$frontendSeeds[$file->file] ?? [], ...array_values($surfaces)];
+        $frontendSeeds[$file->file] = [...$frontendSeeds[$file->file] ?? [], ...$declared];
 
-        return $defined;
+        return ['seeds' => array_values(array_diff($defined, $declared)), 'declared' => $declared];
     }
 
     /**
