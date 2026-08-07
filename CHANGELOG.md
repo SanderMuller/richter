@@ -5,6 +5,27 @@ All notable changes to `sandermuller/richter` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.20.1 - 2026-08-07
+
+Fixes an over-report 0.20.0 introduced. The new defined-node lane placed a file by the graph nodes pinned to it — and then walked all of them, which is the wrong reading for a file that merely registers things.
+
+### Fixed
+
+- **A one-line edit to a registry file no longer reports HIGH.** Adding a command to a legacy `app/Console/Kernel.php`'s `$commands` array walked the ten commands registered beside it and every schedule declared in the same file, reached 211 nodes, and rated the change HIGH — enough to fail a `--fail-on=high` gate over an edit that cannot break any of them. The lane now splits the nodes it finds by what they mean for the change. An entry-prefixed node is a surface the file *declares* — a `$commands` entry, a `schedule()` call, a route definition — so it is treated the way a frontend-referenced route already is: listed as touched, and never walked or counted toward risk. Everything else the file defines stays a walk seed, because a `middleware::` node is the changed class rather than something it declares.
+  
+  This restores a rule the analyzer already had: the risk inputs freeze before self-listed entry classes and frontend routes are appended, precisely so a declaration cannot move the risk level. Coverage, the changed-node count and `richter:affected-tests` are unaffected — a declared surface places the file just as a walk seed does, and the entry-point list test selection reads still carries it. The breadth note that already accompanied a large reach is unchanged.
+  
+- **A new file that declares surfaces no longer reads as referenced by nothing.** The same guard now covers the new-file finding, which would otherwise tell a brand-new routes file that no traced edge reaches it while it declares a dozen routes.
+  
+
+### Documentation
+
+- Two boundaries the coverage list let a reader infer past are now stated. **Relations are traced as declarations, not as traversals** — a method body walking `$this->a->b->c->d` to reach a model is not followed, because resolving it needs the type of every hop. And **a class placed through richter's own edges is not re-walked for what it constructs** — Laravel Brain's call-chain analysis is anchored on routes, so a class reached only through a static call has its method bodies left unread, and a `new SomeDto(...)` inside one draws no edge. Both are gaps in reach, never in honesty: nothing is reported as unaffected on their account.
+
+No graph-format change; existing caches stay valid.
+
+**Full Changelog**: https://github.com/SanderMuller/richter/compare/v0.20.0...v0.20.1
+
 ## v0.20.0 - 2026-08-06
 
 One theme: a report that is quieter than the truth, with nothing in the output saying so. Two edge types were missing from the graph, one class of file could not be placed in it at all, and three diagnostics stayed silent where they had something to say. Real-world adoption feedback surfaced all of them; the graph work is the substantive half, the diagnostics are what turn the remaining gaps from puzzling into legible.
