@@ -4,6 +4,7 @@ namespace Acme\Http\Middleware;
 
 use Acme\Services\ReportMappingService;
 use Acme\Services\TokenInspector;
+use Acme\Support\ReportRegistry;
 
 final class EnsureTokenIsValid
 {
@@ -14,6 +15,8 @@ final class EnsureTokenIsValid
 
         $mapper = new ReportMappingService();
         $mapper->build();
+
+        ReportRegistry::boot();
 
         return $next($request);
     }

@@ -250,6 +250,7 @@ final class CodeGraphBuilderTest extends TestCase
             'consolidated-tracers',
             'entry-point-tracer',
             'blade-tracers',
+            'second-hop-walk',
             'rewrites-and-members',
         ], array_column($events, 'phase'));
 

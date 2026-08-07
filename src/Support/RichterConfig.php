@@ -4,6 +4,7 @@ namespace SanderMuller\Richter\Support;
 
 use InvalidArgumentException;
 use SanderMuller\Richter\Analysis\BenchmarkCase;
+use SanderMuller\Richter\Graph\SecondHopWalk;
 use SanderMuller\Richter\Tracers\FeatureGateChecker;
 
 /**
@@ -145,6 +146,28 @@ final class RichterConfig
 
         if (! is_bool($value)) {
             throw new InvalidArgumentException('The richter.parallel config value must be a boolean.');
+        }
+
+        return $value;
+    }
+
+    /**
+     * Whether to read the bodies of statically-called methods ({@see SecondHopWalk}).
+     *
+     * A boolean, not a depth: the static-call tracer runs per file over the whole app, so every
+     * statically-called method is already known before the walk starts. There is no chain to follow
+     * one hop at a time — one round covers all of them.
+     */
+    public static function secondHopEnabled(): bool
+    {
+        $value = config('richter.second_hop');
+
+        if ($value === null) {
+            return true;
+        }
+
+        if (! is_bool($value)) {
+            throw new InvalidArgumentException('The richter.second_hop config value must be a boolean.');
         }
 
         return $value;

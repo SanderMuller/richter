@@ -99,7 +99,7 @@ final readonly class EntryPointTracer
                 // into a class's own private methods, so the entry method alone misses the
                 // service/model calls those private helpers make.
                 foreach ($this->methodsOf($parser, $fqcn, $projectRoot, $resolvedAstsByPath) as $method) {
-                    foreach ($this->traceMethod($tracer, $fqcn, $method, $psr4, $projectRoot) as $edge) {
+                    foreach ($this->traceMethod($tracer, $fqcn, $method, $psr4, $projectRoot) ?? [] as $edge) {
                         $edges[] = $edge;
                     }
                 }
@@ -129,16 +129,53 @@ final readonly class EntryPointTracer
     }
 
     /**
-     * @param  array<string, list<string>>  $psr4
-     * @return list<array{source: string, target: string, type: string}>
+     * The same body walk {@see trace()} runs, aimed at named methods instead of whole directories —
+     * for {@see SecondHopWalk}, which learns its targets from the graph rather than from config.
+     * Root-agnostic: a method is addressed by FQCN, and the roots this instance carries are never
+     * consulted. The catch-and-skip lives in {@see traceMethod()}, so both callers share it.
+     *
+     * `unread` counts the methods the tracer could not read at all — an unparseable file, a class
+     * that does not resolve. Silence there would be the same falsely-reassuring answer the whole
+     * package exists to avoid, so the count travels out for a caller to report.
+     *
+     * @param  list<string>  $nodes  `FQCN::method` node ids
+     * @return array{edges: list<array{source: string, target: string, type: string}>, unread: int}
      */
-    private function traceMethod(MethodTracer $tracer, string $fqcn, string $method, array $psr4, string $projectRoot): array
+    public function traceMembers(array $nodes, string $projectRoot): array
+    {
+        $tracer = new MethodTracer();
+        $psr4 = [AppNamespace::root() => [$projectRoot . '/app']];
+
+        // No guard on a missing method segment: every caller addresses a member node, and a
+        // malformed id reads as unreadable rather than needing a second check here.
+        $traced = array_map(function (string $node) use ($tracer, $psr4, $projectRoot): ?array {
+            [$fqcn, $method] = array_pad(explode('::', $node, 2), 2, '');
+
+            return $this->traceMethod($tracer, $fqcn, $method, $psr4, $projectRoot);
+        }, $nodes);
+
+        $read = array_filter($traced, static fn (?array $edges): bool => $edges !== null);
+
+        return [
+            'edges' => AppFiles::dedupeEdges(array_merge(...array_values($read)), byType: true),
+            'unread' => count($traced) - count($read),
+        ];
+    }
+
+    /**
+     * Null distinguishes "could not read this method" from "read it, it calls nothing" — the two
+     * look identical in an edge list, and only the first is a gap worth reporting.
+     *
+     * @param  array<string, list<string>>  $psr4
+     * @return list<array{source: string, target: string, type: string}>|null
+     */
+    private function traceMethod(MethodTracer $tracer, string $fqcn, string $method, array $psr4, string $projectRoot): ?array
     {
         try {
             $traced = $tracer->traceMethod($fqcn, $method, $psr4, $projectRoot);
         } catch (Throwable) {
             // A class the tracer can't parse is skipped, not fatal — this is best-effort advisory tooling.
-            return [];
+            return null;
         }
 
         $edges = [];

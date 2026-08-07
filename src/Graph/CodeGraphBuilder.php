@@ -136,6 +136,23 @@ final class CodeGraphBuilder
 
         $phaseStart = $onProgress !== null ? (float) hrtime(true) : 0.0;
 
+        // One hop past what richter's own edges placed. Must run BEFORE the rewrites and the member
+        // passes below: its edges have to reach declaresEdges() and, above all, inheritedEdgesFor(),
+        // which is what turns a newly-read body into a connection to an inherited method's work.
+        // A tracer of its own: `traceMembers()` addresses methods by FQCN and never reads the
+        // configured roots, so the branch's instance has nothing to hand over.
+        $secondHop = new SecondHopWalk(new EntryPointTracer()->traceMembers(...), RichterConfig::secondHopEnabled())
+            ->edgesFor($edges, $projectRoot);
+
+        foreach ($secondHop['edges'] as $secondHopEdge) {
+            $edges[] = $secondHopEdge;
+        }
+
+        $phaseStart = $this->emitPhase($onProgress, 'second-hop-walk', $phaseStart, [
+            'edges' => count($secondHop['edges']),
+            'unread' => $secondHop['unread'],
+        ]);
+
         $controllerBasenames = $this->controllerBasenames($projectRoot);
         $middlewareAliases = MiddlewareAliases::forProject($projectRoot);
         $metadata = NodeMetadata::withRouteGates($routeMiddlewareEdges, $metadata, $middlewareAliases);
@@ -237,13 +254,14 @@ final class CodeGraphBuilder
      *
      * @param  (callable(string, array<string, mixed>): void)|null  $onProgress
      */
-    private function emitPhase(?callable $onProgress, string $phase, float $phaseStart): float
+    /** @param  array<string, int>  $extra  phase-specific counters, for a phase whose seconds alone don't explain it */
+    private function emitPhase(?callable $onProgress, string $phase, float $phaseStart, array $extra = []): float
     {
         if ($onProgress === null) {
             return $phaseStart;
         }
 
-        $onProgress('richter:phase', ['phase' => $phase, 'seconds' => (hrtime(true) - $phaseStart) / 1e9]);
+        $onProgress('richter:phase', ['phase' => $phase, 'seconds' => (hrtime(true) - $phaseStart) / 1e9, ...$extra]);
 
         return (float) hrtime(true);
     }

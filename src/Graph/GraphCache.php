@@ -42,8 +42,11 @@ final class GraphCache
      * node at all) and `inherits` edges (a method inherited without overriding was disconnected from
      * the subclass its callers go through). Both grow the edge set for identical file inputs, so a
      * stale pre-change entry would be served to the new code and miss the added reach — under-selection.
+     * 8 → 9: the second-hop walk reads the bodies of statically-called methods, which only ever ADDS
+     * edges (and, through them, inherited-method edges) for identical file inputs — so a stale
+     * pre-change entry under-selects in exactly the same way.
      */
-    private const int FORMAT_VERSION = 8;
+    private const int FORMAT_VERSION = 9;
 
     private ?CodeGraph $memoized = null;
 
@@ -121,6 +124,9 @@ final class GraphCache
             // graph carries it, so a change here invalidates the whole graph.
             'root_namespace' => AppNamespace::root(),
             'entry_point_roots' => RichterConfig::entryPointRoots(),
+            // Changes which bodies get read, so it changes the edge set — a hit on an entry built
+            // with the walk off would serve a graph the current config would not produce.
+            'second_hop' => RichterConfig::secondHopEnabled(),
             'dispatch_helpers' => RichterConfig::dispatchHelpers(),
             'laravel-brain' => $this->brainConfigInput(),
         ], JSON_THROW_ON_ERROR));

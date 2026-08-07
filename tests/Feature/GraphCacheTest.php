@@ -139,6 +139,18 @@ final class GraphCacheTest extends TestCase
     }
 
     #[Test]
+    public function the_fingerprint_changes_when_the_second_hop_walk_is_switched_off(): void
+    {
+        // The walk decides which bodies are read, so on and off are two different graphs; sharing a
+        // cache entry between them would serve one where the config asks for the other.
+        $before = $this->cache()->fingerprint($this->projectRoot);
+
+        config()->set('richter.second_hop', false);
+
+        $this->assertNotSame($before, $this->cache()->fingerprint($this->projectRoot));
+    }
+
+    #[Test]
     public function a_matching_cache_entry_is_served_without_rebuilding(): void
     {
         // The stored marker edges cannot come from a real build of the tiny project — getting them

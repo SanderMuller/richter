@@ -26,6 +26,12 @@ final class StaticAndInheritedEdgesTest extends TestCase
 
     private const string FACTORY = 'Acme\\Support\\ClientFactory';
 
+    private const string REGISTRY = 'Acme\\Support\\ReportRegistry';
+
+    private const string SETTINGS_PARENT = 'Acme\\Services\\SettingsApiService';
+
+    private const string SETTINGS_SUBCLASS = 'Acme\\Services\\SettingsMappingService';
+
     private static ?CodeGraph $graph = null;
 
     protected function setUp(): void
@@ -77,6 +83,41 @@ final class StaticAndInheritedEdgesTest extends TestCase
         // The inverse of the consumer's complaint: `detect-changes` said nothing referenced a class
         // two graphed callers call. Seeds resolving proves the finding can no longer fire for it.
         $this->assertNotSame([], $this->graph()->nodesContaining(self::FACTORY));
+    }
+
+    #[Test]
+    public function a_statically_reached_body_is_read_for_the_calls_it_makes(): void
+    {
+        // `ReportRegistry` enters the graph only as a static-call target. Before the second-hop walk
+        // its node existed and everything it constructs was invisible — the whole finding.
+        $callers = array_column(new ImpactAnalyzer($this->graph())->impact(self::SETTINGS_PARENT . '::assemble')['callers'], 'node');
+
+        $this->assertContains(self::REGISTRY . '::boot', $callers);
+    }
+
+    #[Test]
+    public function the_inherited_method_behind_a_statically_reached_body_connects_too(): void
+    {
+        // Asserted on the registry, not on the middleware: the middleware reaches the factory
+        // through an older chain too, so it would hold with the walk switched off and prove
+        // nothing. `ReportRegistry::boot` can only reach the factory by way of the body this walk
+        // reads, the subclass member node that reading it creates, and the inherits edge
+        // `inheritedEdgesFor()` then draws to the parent — which is why the walk has to run before it.
+        $callers = array_column(new ImpactAnalyzer($this->graph())->impact(self::FACTORY . '::create')['callers'], 'node');
+
+        $this->assertContains(self::REGISTRY . '::boot', $callers);
+        $this->assertContains(self::SETTINGS_SUBCLASS . '::assemble', $callers);
+    }
+
+    #[Test]
+    public function the_walk_can_be_switched_off(): void
+    {
+        config()->set('richter.second_hop', false);
+
+        $graph = new CodeGraphBuilder()->build($this->acmeProjectPath());
+        $callers = array_column(new ImpactAnalyzer($graph)->impact(self::SETTINGS_PARENT . '::assemble')['callers'], 'node');
+
+        $this->assertNotContains(self::REGISTRY . '::boot', $callers);
     }
 
     /** Built once per process: the build runs Brain plus every tracer over the fixture tree. */

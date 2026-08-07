@@ -50,6 +50,16 @@ return [
     'entry_point_roots' => ['Jobs', 'Listeners', 'Console/Commands', 'Filament', 'Helpers', 'Http/Middleware', 'Livewire', 'Observers'],
 
     /*
+     * Read the bodies of statically-called methods.
+     *
+     * A class reached only through a static call is placed in the graph, but nothing reads its
+     * method bodies, so whatever it constructs or calls stays invisible. This walk reads the methods
+     * those static calls name. Turn it off to trade that reach for build time — measured at ~4.5s on
+     * a 4,000-file application.
+     */
+    'second_hop' => true,
+
+    /*
      * Frontend roots (relative to the project root, e.g. 'resources/js') whose changed
      * .ts/.tsx/.js/.jsx/.vue files are scanned for backend endpoint references — Wayfinder
      * imports and Ziggy route() calls. Off when empty. The routes a changed frontend file
