@@ -26,7 +26,7 @@ final class ImpactFormatter
     public static function impact(array $result, ?TestReferenceIndex $tests = null, bool $explain = false): string
     {
         if ($result['callers'] === [] && $result['dependencies'] === []) {
-            return "No graph nodes matched \"{$result['target']}\". It may not be reachable from a traced entry point yet (queue/console coverage is being widened)."
+            return "No graph nodes matched \"{$result['target']}\". It may be spelled differently, sit under another root namespace, or be reached only through a call shape richter does not trace."
                 . self::missDiagnostic($result['suggestions'] ?? [], $result['graphNodeCount'] ?? null);
         }
 

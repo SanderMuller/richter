@@ -105,7 +105,10 @@ final class CommandsTest extends TestCase
         $this->withoutMockingConsoleOutput();
         Artisan::call('richter:impact', ['symbol' => User::class]);
 
-        $this->assertStringNotContainsString('root namespace', Artisan::output());
+        // Asserted on the note's own opening, not on the phrase "root namespace": the miss
+        // diagnostic mentions the same words as one of its suggestions, and an absence assertion
+        // that broad passes or fails on unrelated copy.
+        $this->assertStringNotContainsString('Note: richter traced the root namespace', Artisan::output());
     }
 
     #[Test]

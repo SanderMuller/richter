@@ -11,7 +11,7 @@
 
 Measures the magnitude of impact of code changes in a Laravel codebase. Like the Richter scale, but for your PHP.
 
-Built on [Laravel Brain](https://github.com/laramint/laravel-brain)'s static analysis, Richter constructs a directed code graph of your application (routes, controllers, jobs, listeners, policies, resources, Blade views, Eloquent relations). It reads three things off that graph:
+Built on [Laravel Brain](https://github.com/laramint/laravel-brain)'s static analysis, Richter constructs a directed code graph of your application (routes, controllers, jobs, listeners, policies, resources, Blade views, Eloquent relations). It reads off that graph:
 
 - **The blast radius of a symbol:** its callers (what breaks if you change it), its dependencies (what it reaches), and the entry surfaces its callers lead back to.
 - **The path between two symbols:** the shortest call-direction chain from one to the other.
@@ -56,7 +56,13 @@ Richter adds two things over Laravel Brain alone: the tooling above (CLI, MCP, a
 - view-to-view includes;
 - frontend endpoint references — Wayfinder imports, Ziggy calls, endpoint literals in changed TS/JS/Vue files and Blade inline scripts (opt-in, see [Frontend changes](#frontend-changes-wayfinder--ziggy)).
 
-Two boundaries worth knowing, because a reader can infer more than the lanes deliver. **Relations are traced as declarations, not as traversals** — richter links `Post` to `Comment` because the relation is declared on the model, but a method body walking `$this->a->b->c->d` to arrive at a model is not followed: resolving it needs the type of every hop. The second is narrower than it was: **a class reached only through a static call has the called method read, but only that one.** Laravel Brain's call-chain analysis is anchored on routes, so such a class used to have every body left unread and a `new SomeDto(...)` inside one drew no edge. Richter now reads the methods those static calls name — enough to connect what they construct, and to connect an inherited method's work through the subclass. What stays unread is the rest of such a class: a method nobody calls statically. Set `richter.second_hop` to `false` to trade that reach back for build time (~4.5s on a 4,000-file app). Both remain gaps in reach, never in honesty: nothing is reported as unaffected on their account.
+Two limits on that list, both easy to infer past.
+
+Relations are traced as declarations, not traversals. Richter links `Post` to `Comment` because the relation is declared on the model, but it does not follow a method body walking `$this->a->b->c->d` to arrive at one; resolving that needs the type of every hop.
+
+The second limit used to be larger. A class reached only through a static call had every method body left unread, because Laravel Brain's call-chain analysis is anchored on routes, so a `new SomeDto(...)` inside such a class drew no edge at all. Richter now reads the methods those static calls name, which is enough to connect what they construct and to connect an inherited method's work through the subclass. What stays unread is the rest of the class: a method nobody calls statically. Set `richter.second_hop` to `false` to trade that reach back for build time (~4.5s on a 4,000-file app).
+
+Both are gaps in reach, never in honesty: nothing is reported as unaffected on their account.
 
 ## Installation
 
@@ -146,7 +152,7 @@ The `tests/` scan behind the test tags only runs when a surface was actually rea
 A symbol that matches nothing is a lead rather than a dead end: the report names the nearest graph nodes (ranked by shared identifiers, so a lookup under the wrong root namespace surfaces the real node), or — when nothing in the graph resembles it — how many nodes were scanned.
 
 ```text
-No graph nodes matched "App\Services\TokenInspector". It may not be reachable from a traced entry point yet (queue/console coverage is being widened).
+No graph nodes matched "App\Services\TokenInspector". It may be spelled differently, sit under another root namespace, or be reached only through a call shape richter does not trace.
 Nearest graph nodes: Acme\Services\TokenInspector, Acme\Services\TokenInspector::inspect
 ```
 
@@ -207,7 +213,9 @@ Resolves which class members the branch changed (member-level, not file-level: a
 - a coarse risk level (`low` / `medium` / `high`);
 - honest degradation: a change that cannot be placed in the graph reads **UNRESOLVED**, never as a falsely reassuring "no impact", and an unfollowable dispatch makes a queue job read "unknown", not "none". A file that resolved to no graph node also echoes the FQCN its path derived to (`app/Services/Inspector.php → App\Services\Inspector`), which is what separates a coverage gap from a wrong root namespace; `--explain` echoes it for every changed file.
 
-  Before a file falls through to UNRESOLVED, richter tries one last lane: the nodes the graph says *that file defines*. Not every entry surface has a class name to look up — a scheduled task is identified by what it runs and how often, and a routes file is not a class at all — so a change to a legacy `app/Console/Kernel.php` or to `routes/api.php` would otherwise be unplaceable despite defining surfaces the graph already knows. Those surfaces list as touched — but they are never walked, and they never move the risk level. A file that *declares* a surface has not called into it: adding one line to a `$commands` array cannot break the ten commands registered beside it, so rating the edit by everything those ten reach would be breadth dressed up as consequence. The lane runs only when every other lane came up empty, so member-level precision elsewhere is unaffected: a one-method change to a controller still seeds that method, not the class its file also defines.
+  Before a file falls through to UNRESOLVED, richter tries one last lane: the nodes the graph says *that file defines*. Not every entry surface has a class name to look up. A scheduled task is identified by what it runs and how often, and a routes file is not a class at all, so a change to a legacy `app/Console/Kernel.php` or to `routes/api.php` would otherwise be unplaceable despite defining surfaces the graph already knows.
+
+  Those surfaces list as touched, but they are never walked and they never move the risk level. A file that *declares* a surface has not called into it: adding one line to a `$commands` array cannot break the ten commands registered beside it, and rating the edit by everything those ten reach would be breadth dressed up as consequence. The lane runs only when every other lane came up empty, so member-level precision elsewhere is unaffected: a one-method change to a controller still seeds that method, not the class its file also defines.
 
 A member *added* to an existing class seeds nothing — nothing called it before, so it can break nothing. A brand-new **file** is different: the class itself is new, so it seeds on its class node and reports its reach, its own entry surface (a new command, job or listener), and a risk level accordingly — marked `[new file]` in the report. A diff that only adds files can therefore report `medium`/`high` and trip `--fail-on`.
 
@@ -249,7 +257,9 @@ Reached routes also inherit [Laravel Brain](https://github.com/laramint/laravel-
 
 This is annotation only — it never feeds the risk level or a `--fail-on` gate, it exists for routes only (Brain classifies nothing else), and false positives are suppressed where Brain's own config says so (`laravel-brain.security.trusted_route_names` / `trusted_route_uris`). A Livewire, Filament, or queue entry point never carries one of these tags at all — that absence means *not classified*, never "public" or "unauthenticated"; its real exposure comes from mount-time `authorize()` calls, middleware, or route placement the graph doesn't model.
 
-Brain classifies exposure from the route's static middleware surface, so it can flag a `PUBLIC_WRITE` on a route that is in fact gated by a policy-constant check (`Gate::authorize(PostPolicy::UPDATE, …)`) it cannot see. Richter cross-checks such a finding against its own `authorizes` edges and, when the route's reach authorizes a policy, adds a note pointing at it — evidence for you to verify, never a suppression (the finding stays shown). Brain also matches auth middleware by NAME (`auth`, `sanctum`, the literal `Illuminate\Auth\Middleware\Authenticate`), so an app that subclasses Laravel's middleware — `App\Http\Middleware\Authenticate extends …\Auth\Middleware\Authenticate`, the default skeleton shape — matches none of them and every route behind it reads `[public]`. Richter walks the class ancestry that match cannot and notes the applied auth middleware beside the finding, on the same evidence-not-verdict terms. Middleware that authenticates without extending a framework class is still invisible to both; list it under `laravel-brain.security.auth_middleware` to teach Brain the name. A `MISSING_THROTTLE` is left to stand.
+Brain classifies exposure from the route's static middleware surface, so it can flag a `PUBLIC_WRITE` on a route that is in fact gated by a policy-constant check (`Gate::authorize(PostPolicy::UPDATE, …)`) it cannot see. Richter cross-checks such a finding against its own `authorizes` edges: when the route's reach authorizes a policy, it adds a note pointing at that policy. The note is evidence for you to verify rather than a suppression, and Brain's finding stays shown.
+
+Brain also matches auth middleware by NAME (`auth`, `sanctum`, the literal `Illuminate\Auth\Middleware\Authenticate`). An app that subclasses Laravel's middleware matches none of those names, and `App\Http\Middleware\Authenticate extends …\Auth\Middleware\Authenticate` is the default skeleton shape, so every route behind it reads `[public]`. Richter walks the class ancestry that a name match cannot and notes the applied auth middleware beside the finding, on the same evidence-not-verdict terms. Middleware that authenticates without extending a framework class is still invisible to both; list it under `laravel-brain.security.auth_middleware` to teach Brain the name. A `MISSING_THROTTLE` is left to stand.
 
 Pennant feature gating is annotated the same way. A route guarded by `EnsureFeaturesAreActive`
 renders its flags inline (`[gated: ai-coach]`, a 🚩 badge in markdown, `entryPointGates` in JSON),
@@ -591,6 +601,10 @@ composer qa-check    # read-only pre-push gate: Rector + Pint dry-runs, PHPStan,
 ## Changelog
 
 See [CHANGELOG](CHANGELOG.md) for what changed per release.
+
+## Security
+
+Found a vulnerability? Don't open an issue — see [SECURITY](SECURITY.md) for where to send it.
 
 ## License
 

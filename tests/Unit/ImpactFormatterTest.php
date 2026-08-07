@@ -320,7 +320,7 @@ final class ImpactFormatterTest extends TestCase
             'dependencies' => [],
         ]);
 
-        $this->assertStringEndsWith('(queue/console coverage is being widened).', $output);
+        $this->assertStringEndsWith('a call shape richter does not trace.', $output);
     }
 
     #[Test]
