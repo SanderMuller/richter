@@ -64,7 +64,7 @@ Relations are traced as declarations, not traversals. Richter links `Post` to `C
 
 The second limit used to be larger. A class reached only through a static call had every method body left unread, because Laravel Brain's call-chain analysis is anchored on routes, so a `new SomeDto(...)` inside such a class drew no edge at all. Richter now reads the methods those static calls name, which is enough to connect what they construct and to connect an inherited method's work through the subclass. What stays unread is the rest of the class: a method nobody calls statically. Set `richter.second_hop` to `false` to trade that reach back for build time (~4.5s on a 4,000-file app).
 
-The third is the facade whose `getFacadeAccessor()` returns a container key rather than a class. `return ReportGenerator::class` names its concrete and is carried over; `return 'reports'` names a binding richter does not keep, and resolving it to the wrong class would send a reviewer to the wrong file, so it draws nothing.
+The third is the facade whose `getFacadeAccessor()` does not name one class. `return ReportGenerator::class` names its concrete and is carried over. `return 'reports'` names a container binding richter does not keep, and an accessor that picks between two classes at runtime names both — in either case the wrong guess sends a reviewer to the wrong file, so richter draws nothing.
 
 All three are gaps in reach, never in honesty: nothing is reported as unaffected on their account.
 
@@ -310,21 +310,23 @@ guess at a removal. The scan only runs on a diff that actually removed a key, an
 
 A third lane covers the request side. A field removed from a form request's `rules()` stops being
 validated and stops appearing in `validated()`, so a frontend that still sends it now sends it into
-nothing — no error anywhere:
+nothing, and nothing anywhere reports an error:
 
 ```text
   ! resources/js/Pages/Posts/Create.vue posts to POST /posts and sends 'subtitle', which this diff removes from App\Http\Requests\StorePostRequest::rules() (renamed to 'sub_title'?)
 ```
 
 Matching here is send-shaped rather than access-shaped: an object-literal key, a `FormData`
-`append`/`set` with a literal name, or an assignment onto a payload. That is the mirror image of the
-response lane's trade — a file that both posts to and reads from the endpoint can match on a field
-it only reads, and the same per-field `ignore` entry
-(`App\Http\Requests\StorePostRequest::subtitle`) suppresses it. The `rules()` parse is as strict as
-the resource one: a method that builds its array up (`$rules = […]; if (…) …; return $rules;`), a
-spread, or a constant key makes the side unenumerable and the lane stays silent. A dotted rule key
-(`items.*.name`) matches nothing on purpose — its segments appear separately in a payload, and
-matching the last one would fire on every unrelated `name` in the file.
+`append`/`set` with a literal name, or an assignment onto a payload by dot or bracket. The false
+positive mirrors the response lane's: a file that both posts to and reads from the endpoint can
+match on a field it only reads, and the same per-field `ignore` entry
+(`App\Http\Requests\StorePostRequest::subtitle`) suppresses it.
+
+The `rules()` parse is as strict as the resource one: a method that builds its array up
+(`$rules = […]; if (…) …; return $rules;`), a spread, or a constant key makes the side
+unenumerable and the lane stays silent. A dotted rule key (`items.*.name`) matches nothing on
+purpose: its segments appear separately in a payload, and matching the last one would fire on every
+unrelated `name` in the file.
 
 With `--markdown`, the report renders as GitHub-flavoured markdown: a risk badge up front, changed files as a table, entry points as a review checklist with their file:line, test tags and exposure badges, and long lists collapsed into `<details>` instead of truncated. The result is ready to paste into (or post onto) a pull request. `--markdown --explain` composes.
 
