@@ -139,7 +139,8 @@ return [
         // check, not a heuristic score.
         'mirror_threshold' => 1.0,
         // Suppress specific model fields ('App\Models\Post::internal_flag'), resource keys
-        // ('App\Http\Resources\PostResource::published_at'), or whole resources by FQCN
+        // ('App\Http\Resources\PostResource::published_at'), form-request fields
+        // ('App\Http\Requests\StorePostRequest::subtitle'), or a whole resource or request by FQCN
         // ('App\Http\Resources\Api\InternalResource' — both directions).
         'ignore' => [],
     ],

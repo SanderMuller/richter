@@ -942,6 +942,19 @@ final class ChangedSymbolsTest extends TestCase
     }
 
     #[Test]
+    public function a_changed_form_request_carries_its_removed_and_added_rule_fields(): void
+    {
+        $base = "<?php\nnamespace App\\Http\\Requests;\nclass StorePostRequest\n{\n    public function rules(): array\n    {\n        return ['title' => [], 'subtitle' => []];\n    }\n}\n";
+        $head = "<?php\nnamespace App\\Http\\Requests;\nclass StorePostRequest\n{\n    public function rules(): array\n    {\n        return ['title' => [], 'sub_title' => []];\n    }\n}\n";
+        $hunk = $this->hunk([[7, "        return ['title' => [], 'sub_title' => []];"]], [[7, "        return ['title' => [], 'subtitle' => []];"]]);
+
+        $result = ChangedSymbols::classifyFile('app/Http/Requests/StorePostRequest.php', $head, $base, $hunk);
+
+        $this->assertSame(['subtitle'], $result->removedRequestFields);
+        $this->assertSame(['sub_title'], $result->addedRequestFields);
+    }
+
+    #[Test]
     public function an_addition_only_resource_edit_yields_an_empty_removed_set(): void
     {
         $base = "<?php\nnamespace App\\Http\\Resources;\nclass PostResource\n{\n    public function toArray(\$request): array\n    {\n        return ['id' => 1];\n    }\n}\n";

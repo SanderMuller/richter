@@ -275,14 +275,14 @@ final readonly class ImpactAnalyzer
         [$risk, $coarseCapApplied] = $this->riskWithCoarseCap($impacted, $riskEntryPointCount, $touchesEntryClass, $preciseSeeds, $lowConfidence, $maxDepth, $riskInputsMemo);
 
         $findings = $newFileFindings;
-        [$modelParityLane, $consumerParityLane] = ParityFindings::checkers($this->graph, $payloadParityEnabled);
+        [$modelParityLane, $consumerParityLane, $requestParityLane] = ParityFindings::checkers($this->graph, $payloadParityEnabled);
 
         foreach ($changed as $file) {
             foreach ($file->findings as $finding) {
                 $findings[] = "{$file->file}: {$finding}";
             }
 
-            $findings = [...$findings, ...ParityFindings::for($file, $modelParityLane, $consumerParityLane)];
+            $findings = [...$findings, ...ParityFindings::for($file, $modelParityLane, $consumerParityLane, $requestParityLane)];
         }
 
         [$entryPointLocations, $entryPointSecurity, $entryPointGates] = $this->entryPointAnnotations($entryPoints);

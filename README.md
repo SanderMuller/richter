@@ -308,6 +308,24 @@ constant-keyed entry makes the whole side unenumerable, and the lane stays silen
 guess at a removal. The scan only runs on a diff that actually removed a key, and it shares the
 `payload_parity.enabled` switch and `--no-payload-parity` flag.
 
+A third lane covers the request side. A field removed from a form request's `rules()` stops being
+validated and stops appearing in `validated()`, so a frontend that still sends it now sends it into
+nothing — no error anywhere:
+
+```text
+  ! resources/js/Pages/Posts/Create.vue posts to POST /posts and sends 'subtitle', which this diff removes from App\Http\Requests\StorePostRequest::rules() (renamed to 'sub_title'?)
+```
+
+Matching here is send-shaped rather than access-shaped: an object-literal key, a `FormData`
+`append`/`set` with a literal name, or an assignment onto a payload. That is the mirror image of the
+response lane's trade — a file that both posts to and reads from the endpoint can match on a field
+it only reads, and the same per-field `ignore` entry
+(`App\Http\Requests\StorePostRequest::subtitle`) suppresses it. The `rules()` parse is as strict as
+the resource one: a method that builds its array up (`$rules = […]; if (…) …; return $rules;`), a
+spread, or a constant key makes the side unenumerable and the lane stays silent. A dotted rule key
+(`items.*.name`) matches nothing on purpose — its segments appear separately in a payload, and
+matching the last one would fire on every unrelated `name` in the file.
+
 With `--markdown`, the report renders as GitHub-flavoured markdown: a risk badge up front, changed files as a table, entry points as a review checklist with their file:line, test tags and exposure badges, and long lists collapsed into `<details>` instead of truncated. The result is ready to paste into (or post onto) a pull request. `--markdown --explain` composes.
 
 With `--html=<path>`, the report is written as ONE self-contained HTML file — every style and script inline, nothing fetched — so it opens offline straight from `file://` and travels as a CI artifact you can link from a pull request. It has five tabs: Overview (a Files / Impacted / Depth / Risk stat row, the reached entry points, and what to focus on), Graph (the blast radius as concentric rings, one per BFS depth), Paths (how each entry point reaches the change), Changes (the member-level diff, naming the member that drove a low-confidence verdict), and Advisory (findings, test references, and the gate). `--open` launches it in the default browser afterwards; a failing opener is a warning, never a failed run.
@@ -571,7 +589,7 @@ Point Claude Code, Cursor, or any MCP client at the Artisan entry point, e.g. in
 | `editor` | `phpstorm` (via `CODE_EDITOR` / `DEBUGBAR_EDITOR` / `IGNITION_EDITOR`) | Editor for the clickable `file:line` links in the `--html` report — reuses debugbar's/Ignition's env chain. One of `phpstorm`, `idea`, `vscode`(+`-insiders`/`-remote`/`ium`), `sublime`, `textmate`, `emacs`, `macvim`, `atom`, `nova`, `netbeans`, `xdebug`, or `null` to keep the references plain text. |
 | `dispatch_helpers` | `[]` | Project-custom global job-dispatch helper functions (e.g. `dispatch_with_retries`) the dispatch tracer should follow. |
 | `feature_gate_methods` | `[]` | `FQCN::method` allowlist of project wrappers around Pennant (e.g. `App\Enums\FeatureToggle::isActive`) — an `EnumCase->method()` call then annotates the change as flag-gated, alongside the built-in `Feature` facade / `@feature` support. |
-| `payload_parity` | `{enabled: true, mirror_threshold: 1.0, ignore: []}` | Advisory lane flagging payload-parity breaks in both directions: a model field added but never mirrored into its resource, and a resource `toArray()` key removed while a frontend consumer of its routes still reads it. `mirror_threshold` is the exact-mirror fraction (`1.0` — no-guess by default); `ignore` suppresses a model field (`App\Models\X::field`), a resource key (`App\Http\Resources\XResource::key`), or a whole resource (its FQCN, both directions). Disable for one run with `--no-payload-parity`, or globally by setting `enabled` to `false`. |
+| `payload_parity` | `{enabled: true, mirror_threshold: 1.0, ignore: []}` | Advisory lanes flagging payload-parity breaks in three directions: a model field added but never mirrored into its resource, a resource `toArray()` key removed while a frontend consumer of its routes still reads it, and a form-request `rules()` field removed while a consumer still sends it. `mirror_threshold` is the exact-mirror fraction (`1.0` — no-guess by default); `ignore` suppresses a model field (`App\Models\X::field`), a resource key (`App\Http\Resources\XResource::key`), a request field (`App\Http\Requests\XRequest::field`), or a whole resource or request (its FQCN, every direction). Disable for one run with `--no-payload-parity`, or globally by setting `enabled` to `false`. |
 | `second_hop` | `true` | Read the bodies of statically-called methods. A class reached only through `Foo::bar()` is placed in the graph but its bodies are never read by Brain's route-anchored analysis, so what it constructs stays invisible — and an inherited method's work never connects through the subclass. Off trades that reach for build time (~4.5s on a 4,000-file app). |
 | `entry_point_roots` | `Jobs`, `Listeners`, `Console/Commands`, `Filament`, `Helpers`, `Http/Middleware`, `Livewire`, `Observers` | Directories under `app/` traced as entry points beyond Brain's route-anchored graph (graph tracing only; the analyzer's risk-floor namespace heuristics are fixed). `richter:impact`, `richter:trace` and `richter:detect-changes` note on stderr when an `app/` directory holds classes and *none* of them reach the graph — the shape a subsystem takes when its dispatch is one richter cannot follow and its directory is not listed here. Measured, not diffed against this list: partial presence is normal, so only total absence is reported, and only from five classes up. |
 | `frontend.roots` | `[]` (off) | Frontend roots whose changed TS/JS/Vue files are scanned for Wayfinder/Ziggy endpoint references (see [Frontend changes](#frontend-changes-wayfinder--ziggy)). |

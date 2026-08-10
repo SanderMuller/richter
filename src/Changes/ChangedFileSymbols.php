@@ -37,6 +37,11 @@ final readonly class ChangedFileSymbols
      *   base, or a `null` strict parse on either side
      * @param  list<string>  $addedResourceKeys  the inverse diff (head − base), feeding the finding's
      *   rename hint; same emptiness rules as `$removedResourceKeys`
+     * @param  list<string>  $removedRequestFields  a changed form-request file's `rules()` field names
+     *   present at base and absent at head ({@see RequestFieldParser}) — the request-parity lane's
+     *   trigger, with the same emptiness rules as `$removedResourceKeys`
+     * @param  list<string>  $addedRequestFields  the inverse diff (head − base), feeding that finding's
+     *   rename hint
      */
     public function __construct(
         public string $file,
@@ -51,6 +56,8 @@ final readonly class ChangedFileSymbols
         public bool $isNewFile = false,
         public array $removedResourceKeys = [],
         public array $addedResourceKeys = [],
+        public array $removedRequestFields = [],
+        public array $addedRequestFields = [],
     ) {}
 
     /** @return list<MemberChange> */
