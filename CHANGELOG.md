@@ -5,6 +5,31 @@ All notable changes to `sandermuller/richter` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.22.0 - 2026-08-10
+
+Raises the Laravel Brain floor to `^2.4.0` and hands one lane back to it. Brain's release fixes the name-resolution bug behind the last reported reach gap, which is what makes this one worth taking rather than deferring.
+
+### Changed
+
+- **`laramint/laravel-brain` now requires `^2.4.0`.** The floor is load-bearing, not housekeeping: a class built by a same-namespace sibling was invisible to the graph until Brain resolved unqualified names against the file's own namespace, so the regression test covering it fails on 2.3.1 and passes on 2.4.0. In practice that shape is a value object or DTO living beside the factory that builds it — constructed several times and reporting that nothing referenced it.
+  
+- **Event → listener links are Brain's now.** Richter carried its own `EventServiceProvider::$listen` reader, with `$subscribe` and `#[AsEventListener]` recorded in its docblock as a known gap. Brain reads all three, so the reader is gone. Reach is preserved and slightly sharper — Brain points the edge at the event's constructor, where the event is actually built, so the event class reaches its listener one hop further out. The `Class@method` form the old reader handled survives too.
+  
+- **`model-to-policy` does not count toward risk.** Brain added the edge in 2.4.0. It says which policy governs a model, which is a governs-relation rather than a call: changing a policy leaves the model working. Counting it would have raised the risk level of every policy edit by the model it governs — a change the version bump would have made silently. It joins `model-relationship`, `declares`, `uses-trait` and `override` as reach that is context, not impact.
+  
+
+### What did not change, and why
+
+Brain 2.4.0 also gained Blade view composition, resource references, queue dispatches and observer links — territory richter already covers. Those lanes stay, because the overlap is narrower than it looks: **Brain's analysis is anchored on routes, richter's tracers scan files.** A class no route reaches yields no Brain edges at all. The Blade case shows the trap: on a route-reachable fixture Brain emitted exactly the same `view-to-view` edges as richter's tracer, same ids and same type, and in a project without routes it emitted none while richter still found every component and include.
+
+The `PUBLIC_WRITE` cross-check stays for the same kind of reason. A route behind an app middleware that extends `Illuminate\Auth\Middleware\Authenticate` is still classified public, because the auth match remains name-based with no ancestry walk — so the note contradicting that finding is still the only thing covering it.
+
+### Internal
+
+- Graph cache `FORMAT_VERSION` 9 → 10. The listener edges left the graph and Brain's took their place. The Brain version in the cache fingerprint already invalidates every entry for this particular change; the bump covers the general case, since a richter-only graph change would not.
+
+**Full Changelog**: https://github.com/SanderMuller/richter/compare/v0.21.0...v0.22.0
+
 ## v0.21.0 - 2026-08-07
 
 Closes the last reach gap real-world adoption feedback had left open, and it turned out to be one cause behind two symptoms: a `new X` inside a statically-called method drawing no edge, and an inherited method's work never becoming reachable through the subclass.
