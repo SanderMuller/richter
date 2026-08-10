@@ -13,8 +13,102 @@
 
 ## Status
 
-- **State**: EVALUATED + PARTIALLY EXECUTED 2026-07-24 — **lever B EXECUTED in its safe form**
-  (commit `bb12564`); A and C deferred to the Brain autoresearch **release**.
+- **State**: CLOSED 2026-08-10. **Lever B EXECUTED** in its safe form (commit `bb12564`).
+  **Lever A REJECTED on measurement** — the release gate lifted and the win did not survive it (see
+  the 2026-08-10 re-evaluation below). **Lever C REJECTED with it**, same cause.
+
+## Re-evaluation after the Brain release (2026-08-10)
+
+Both deferrals were gated on "the Brain autoresearch work releases". It has: `laramint/laravel-brain`
+v2.4.0 ships the shared parse cache (`PhpFileParser::$sharedCache`, keyed on path+mtime+size, with
+eviction). So the stated gate is open. The win is gone anyway, for a reason the plan could not have
+known: **plan 050 moved richter's tracer branch into a child process.**
+
+### The premise that expired
+
+Lever A rests on this sentence: *"Every file `consolidated-tracers` parses was already parsed by
+Brain's `analyze()` earlier in the same build."* Since plan 050 that is false on the default path.
+`TracerBranchRunner::start()` spawns `richter:internal-tracer-branch` as a child `artisan` process
+whenever `richter.parallel` is on (the default), there is an `artisan` entrypoint, and no progress
+listener is attached. Brain's `analyze()` never runs in that child, so its shared cache is cold
+there. The re-parse the lever removes is **cross-process**, and no in-process cache can reach it.
+
+### Measurements
+
+Synthetic Laravel-shaped app, 1,340 files under `app/`, 120 routed controllers, PHP 8.4, warm page
+cache. Serial path (`richter.parallel` false) so the phase events are available:
+
+| phase | seconds |
+|---|---|
+| `brain-analyze` | 0.26 |
+| `consolidated-tracers` | 0.44 |
+| `rewrites-and-members` | 0.03 |
+| TOTAL | 0.73 |
+
+Brain parsed **262 of 1,340** files — the route-reached fraction, ~20%. That is the *ceiling* on
+cache hits the swap could convert, and 20% is the shape richter exists for: if apps were mostly
+route-reachable, most of richter's lanes would be unnecessary.
+
+Parser cost over the same 1,340 files:
+
+| | seconds |
+|---|---|
+| richter `AppFiles::parseResolved` (own `ParserFactory` + NameResolver) | 0.204 |
+| Brain `PhpFileParser::parse`, cold | 0.191 |
+| Brain `PhpFileParser::parse`, all cache hits | 0.003 |
+
+Brain's parser is **6% faster cold**, not slower — the extra useMap visitor does not cost what it
+looks like it should. A cache hit saves ~0.14 ms per file. So the swap is never a regression; it is
+simply not worth much:
+
+| scenario | saving | share of build |
+|---|---|---|
+| default path (child process, 0 hits) | 0.012 s | 2% |
+| serial, 20% route-reached (measured shape) | 0.047 s | 7% |
+| serial, 50% route-reached | 0.100 s | 14% |
+| serial, 80% route-reached | 0.153 s | 21% |
+
+Lever A's other candidate site, `memberDeclarationEdges()` — which does re-parse app files in the
+**parent** process, where Brain's cache is warm — sits inside `rewrites-and-members` at 0.03 s
+total. The parse is a fraction of that. Noise.
+
+### Verdict
+
+Not worth doing. On the default path it buys 2%, which is the cold-parse delta and nothing to do
+with caching; the cache-hit win only exists on a path most users never take, and even there it is
+7% for a richter-shaped app. Against that: it swaps the grammar target (`createForHostVersion` →
+`createForNewestSupportedVersion`, which moves the parseable/unparseable boundary and therefore the
+graph) and couples two packages through shared AST objects.
+
+Two things checked while evaluating, worth recording because they were the plausible blockers and
+neither is one:
+
+- **AST sharing is safe.** Brain's cache hands out the same AST objects to every consumer. All three
+  of richter's visitors are typed `enterNode(Node $node): null` / `leaveNode(Node $node): null`, so
+  none can replace a node; richter reads the tree, exactly as Brain does.
+- **Name resolution is equivalent.** Both run `NameResolver` with `preserveOriginalNames => true,
+  replaceNodes => false`. The one difference was the error handler, and it was a real bug rather
+  than an equivalence risk — see below.
+
+**Lever C falls with A**: its value was gated on "once Brain's wins make `consolidated-tracers` the
+dominant phase". It is already the dominant phase (0.44 s of 0.73 s) and that changes nothing about
+the cross-process problem; a per-file result cache in the child would still start cold every build.
+
+### What the evaluation did produce
+
+A crash, found while comparing the two parsers' configuration. richter passed `null` as the
+`NameResolver` error handler (the throwing one) where Brain passes `Collecting`. A file that parses
+but is semantically invalid — two `use` statements binding one alias — threw out of
+`AppFiles::parseResolved()`, and none of its fourteen call sites catches it: one such file anywhere
+under `app/` aborted the whole graph build, and one inside a diff aborted `detect-changes`. Fixed
+and released in 0.23.0 (`ec2abfb`), with the file deliberately **not** counted unparseable, since
+that flag is a global determinability blocker.
+
+### What would reopen this
+
+Only one thing: the tracer branch running in the same process as `analyze()` again. If plan 050 is
+ever reverted, or if a future build merges the two phases, re-run the numbers above — the cache-hit
+column is the whole case.
 
 ## Evaluation verdict (2026-07-24)
 
