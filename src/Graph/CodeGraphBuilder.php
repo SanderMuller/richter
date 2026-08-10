@@ -23,6 +23,7 @@ use SanderMuller\Richter\Tracers\ClassHierarchyTracer;
 use SanderMuller\Richter\Tracers\ConstantReferenceTracer;
 use SanderMuller\Richter\Tracers\DispatchEdgeTracer;
 use SanderMuller\Richter\Tracers\EntryPointTracer;
+use SanderMuller\Richter\Tracers\FacadeEdgeTracer;
 use SanderMuller\Richter\Tracers\PolicyEdgeTracer;
 use SanderMuller\Richter\Tracers\ReferenceEdgeTracer;
 use SanderMuller\Richter\Tracers\StaticCallEdgeTracer;
@@ -297,6 +298,9 @@ final class CodeGraphBuilder
         // Constant/enum-case member references (plan cref-wire): same accumulate-then-flush shape —
         // reads resolve to the constant's declaring class, which needs the full hierarchy.
         $constantTracer = new ConstantReferenceTracer();
+        // Facade → concrete resolution: likewise cross-file, and it reads the static-call edges the
+        // loop below emits, so it can only run once all of them exist.
+        $facadeTracer = new FacadeEdgeTracer();
 
         // The paths whose ASTs trace() consumes: files under the tracer's own roots.
         $retainPrefixes = array_map(
@@ -328,6 +332,7 @@ final class CodeGraphBuilder
             $nodes = $this->collectTracerNodes($ast);
             $hierarchyTracer->collect($nodes['classLikes']);
             $constantTracer->collect($nodes['classLikes']);
+            $facadeTracer->collect($nodes['classLikes']);
 
             // Dispatchers → jobs incl. configured custom helpers + the unresolved-dispatch signal
             // (a variable dispatch must make a job read "unknown", not "none"). The target is
@@ -349,6 +354,11 @@ final class CodeGraphBuilder
         // Constant/enum-case member nodes + reader edges — likewise flushed after the loop, because
         // declaring-class resolution spans files.
         array_push($edges, ...$constantTracer->edges());
+
+        // Facade members onto the concretes their accessors name. Reads the static-call edges above,
+        // so it goes last: a call through a facade is drawn to the facade, and this is the hop that
+        // carries it to the code that runs.
+        array_push($edges, ...$facadeTracer->resolutionEdges($edges));
 
         return [
             'edges' => AppFiles::dedupeEdges($edges, byType: true),

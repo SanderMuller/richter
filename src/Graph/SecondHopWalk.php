@@ -4,6 +4,7 @@ namespace SanderMuller\Richter\Graph;
 
 use Closure;
 use SanderMuller\Richter\Tracers\EntryPointTracer;
+use SanderMuller\Richter\Tracers\FacadeEdgeTracer;
 use SanderMuller\Richter\Tracers\StaticCallEdgeTracer;
 
 /**
@@ -78,9 +79,12 @@ final readonly class SecondHopWalk
     }
 
     /**
-     * The `static-call` targets in an edge set. Every such target names a member by construction
-     * ({@see StaticCallEdgeTracer} emits `Class::method`), so the
-     * targets are node ids the walk can address directly.
+     * The `static-call` and `facade-resolves-to` targets in an edge set. Every such target names a
+     * member by construction ({@see StaticCallEdgeTracer} emits `Class::method`, and
+     * {@see FacadeEdgeTracer} carries that member over to the concrete), so the targets are node ids
+     * the walk can address directly. A concrete reached only through a facade is the same leaf as a
+     * class reached only through a static call, and the facade targets are a subset of the static-call
+     * ones that already sized this pass.
      *
      * @param  list<array{source: string, target: string, type: string}>  $edges
      * @return list<string>
@@ -90,7 +94,7 @@ final readonly class SecondHopWalk
         $targets = [];
 
         foreach ($edges as $edge) {
-            if ($edge['type'] === 'static-call') {
+            if (in_array($edge['type'], ['static-call', 'facade-resolves-to'], true)) {
                 $targets[$edge['target']] = true;
             }
         }

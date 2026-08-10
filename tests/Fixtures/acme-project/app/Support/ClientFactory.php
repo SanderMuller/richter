@@ -2,11 +2,13 @@
 
 namespace Acme\Support;
 
+use Acme\Facades\Reports;
+
 /** Reached only through a static call — the shape Brain draws no hop for. */
 final class ClientFactory
 {
     public static function create(string $endpoint): string
     {
-        return $endpoint;
+        return $endpoint . Reports::assemble();
     }
 }

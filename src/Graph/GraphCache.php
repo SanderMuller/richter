@@ -50,8 +50,11 @@ final class GraphCache
      * invalidates every entry for THIS change; the bump is for the general case, since a
      * richter-only graph change would not — `InstalledVersions` reports a dev checkout as
      * `dev-main`, unchanged across richter's own edits.
+     * 10 → 11: the graph gained `facade-resolves-to` edges, carrying a call through an application
+     * facade on to the class the accessor names — an addition to the edge set for identical file
+     * inputs, so a stale pre-change entry served to the new code under-selects.
      */
-    private const int FORMAT_VERSION = 10;
+    private const int FORMAT_VERSION = 11;
 
     private ?CodeGraph $memoized = null;
 
