@@ -116,6 +116,14 @@ final class FacadeEdgeTracer
             // A facade method the concrete does not have is `__call`-backed magic, whose real target
             // is not statically known. `method_exists` rather than the declared-method list: a method
             // the concrete picks up from a trait or a parent is just as much the code that runs.
+            //
+            // That admits one imprecise node: a method inherited from a VENDOR parent richter never
+            // scanned lands on `Concrete::method`, which the concrete's own file does not declare
+            // and no `inherits` edge can carry further (ancestors are app-scoped by design).
+            // Deliberate, and the same call {@see StaticCallEdgeTracer} already makes — it checks
+            // only that the receiver loads. Demanding a scanned declaration would drop the edge
+            // entirely for a concrete extending a framework base, which is the reach this lane
+            // exists to add; an approximate node beats none.
             if (! $this->hasMethod($concrete, $method)) {
                 continue;
             }
@@ -169,9 +177,19 @@ final class FacadeEdgeTracer
         return null;
     }
 
-    /** The FQCN this class's `getFacadeAccessor()` returns, or null when it declares none or returns anything else. */
+    /**
+     * The one FQCN this class's `getFacadeAccessor()` returns, or null when it declares none,
+     * returns something else, or returns more than one class.
+     *
+     * A method with two `::class` returns picks its concrete at runtime from state this cannot see.
+     * Taking the first would be a guess dressed as a fact — the reader would be sent to one of two
+     * files with no hint that the other exists — so it draws nothing, the same abort the contract
+     * parsers make on an unenumerable key set.
+     */
     private function accessorIn(Class_ $node): ?string
     {
+        $returned = [];
+
         foreach ($node->getMethods() as $method) {
             if ($method->name->toString() !== self::ACCESSOR_METHOD) {
                 continue;
@@ -180,16 +198,20 @@ final class FacadeEdgeTracer
             foreach (new NodeFinder()->findInstanceOf($method, Return_::class) as $return) {
                 $expr = $return->expr;
 
-                if ($expr instanceof ClassConstFetch
-                    && $expr->name instanceof Identifier
-                    && $expr->name->toString() === 'class'
-                    && $expr->class instanceof Name) {
-                    return AppFiles::resolveName($expr->class);
+                if (! $expr instanceof ClassConstFetch
+                    || ! $expr->name instanceof Identifier
+                    || $expr->name->toString() !== 'class'
+                    || ! $expr->class instanceof Name) {
+                    // A string accessor, a ternary, a match — nothing statically resolvable, and a
+                    // sibling return that IS resolvable must not speak for it either.
+                    return null;
                 }
+
+                $returned[AppFiles::resolveName($expr->class)] = true;
             }
         }
 
-        return null;
+        return count($returned) === 1 ? array_key_first($returned) : null;
     }
 
     /**

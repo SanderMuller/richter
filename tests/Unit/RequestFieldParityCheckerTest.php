@@ -6,6 +6,7 @@ use Illuminate\Filesystem\Filesystem;
 use Illuminate\Support\Facades\Route;
 use PHPUnit\Framework\Attributes\Test;
 use SanderMuller\Richter\Analysis\FrontendConsumerIndex;
+use SanderMuller\Richter\Analysis\FrontendConsumerLane;
 use SanderMuller\Richter\Analysis\RequestFieldParityChecker;
 use SanderMuller\Richter\Graph\CodeGraph;
 use SanderMuller\Richter\Tests\TestCase;
@@ -141,9 +142,7 @@ final class RequestFieldParityCheckerTest extends TestCase
         $this->consumerFile('resources/js/post.ts', "fetch('/posts', { method: 'POST', body: JSON.stringify({ subtitle }) });");
 
         $checker = new RequestFieldParityChecker(
-            new CodeGraph([], hasUnparseableFiles: false),
-            projectRoot: $this->projectRoot,
-            index: $this->index(),
+            new FrontendConsumerLane(new CodeGraph([], hasUnparseableFiles: false), projectRoot: $this->projectRoot, index: $this->index()),
         );
 
         $this->assertSame([], $checker->findingsFor(self::REQUEST, ['subtitle'], []));
@@ -164,7 +163,7 @@ final class RequestFieldParityCheckerTest extends TestCase
             ['source' => self::ACTION, 'target' => self::REQUEST . '::validated', 'type' => 'action-to-form-request'],
         ], hasUnparseableFiles: false);
 
-        return new RequestFieldParityChecker($graph, $ignore, $this->projectRoot, $this->index());
+        return new RequestFieldParityChecker(new FrontendConsumerLane($graph, $ignore, $this->projectRoot, $this->index()));
     }
 
     private function index(): FrontendConsumerIndex

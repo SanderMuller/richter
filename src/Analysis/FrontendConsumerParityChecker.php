@@ -2,8 +2,6 @@
 
 namespace SanderMuller\Richter\Analysis;
 
-use SanderMuller\Richter\Graph\CodeGraph;
-
 /**
  * Advisory: a `toArray()` key this diff removed from a resource, still read by a frontend
  * file that consumes one of the routes the resource reaches — the consumer-side mirror of
@@ -13,17 +11,12 @@ use SanderMuller\Richter\Graph\CodeGraph;
  * `ResourceFqcn::key` ignore form is the escape hatch for a false positive.
  *
  * Everything except the match itself — the routes upstream, the consuming files, the ignore
- * list, the rename hint — is {@see FrontendConsumerLane}, shared with the request-field lane.
+ * list, the rename hint — is {@see FrontendConsumerLane}, which the caller shares with the
+ * request-field lane so one run scans the frontend once rather than once per lane.
  */
 final readonly class FrontendConsumerParityChecker
 {
-    private FrontendConsumerLane $lane;
-
-    /** @param  list<string>  $ignore  resource FQCN or `ResourceFqcn::key` entries, from richter.payload_parity.ignore */
-    public function __construct(CodeGraph $graph, array $ignore = [], ?string $projectRoot = null, ?FrontendConsumerIndex $index = null)
-    {
-        $this->lane = new FrontendConsumerLane($graph, $ignore, $projectRoot, $index);
-    }
+    public function __construct(private FrontendConsumerLane $lane) {}
 
     /**
      * @param  list<string>  $removedKeys
@@ -37,10 +30,10 @@ final readonly class FrontendConsumerParityChecker
         }
 
         $ignoredKeys = $this->lane->ignoredKeysFor($resourceFqcn);
-        $removed = array_values(array_diff($removedKeys, $ignoredKeys));
+        $removed = FrontendConsumerLane::matchable($removedKeys, $ignoredKeys);
         // The rename hint works from the same ignore-filtered view on both sides — an
         // ignored key must neither sharpen the hint's confidence nor be named in it.
-        $added = array_values(array_diff($addedKeys, $ignoredKeys));
+        $added = FrontendConsumerLane::matchable($addedKeys, $ignoredKeys);
 
         if ($removed === []) {
             return [];

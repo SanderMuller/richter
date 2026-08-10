@@ -6,6 +6,7 @@ use Illuminate\Filesystem\Filesystem;
 use Illuminate\Support\Facades\Route;
 use PHPUnit\Framework\Attributes\Test;
 use SanderMuller\Richter\Analysis\FrontendConsumerIndex;
+use SanderMuller\Richter\Analysis\FrontendConsumerLane;
 use SanderMuller\Richter\Analysis\FrontendConsumerParityChecker;
 use SanderMuller\Richter\Graph\CodeGraph;
 use SanderMuller\Richter\Tests\TestCase;
@@ -113,14 +114,22 @@ final class FrontendConsumerParityCheckerTest extends TestCase
     }
 
     #[Test]
+    public function an_empty_removed_key_flags_nothing_rather_than_every_consumer(): void
+    {
+        // `['' => …]` is a legal array key and the parser reports it faithfully, but as a match
+        // pattern it degenerates: `.` followed by a word boundary hits any property read at all.
+        $this->consumerFile('resources/js/post.ts', "fetch('/posts/1').then((r) => r.json()).then((p) => p.title);");
+
+        $this->assertSame([], $this->checker()->findingsFor(self::RESOURCE, [''], []));
+    }
+
+    #[Test]
     public function a_resource_reaching_no_route_stays_silent(): void
     {
         $this->consumerFile('resources/js/post.ts', "fetch('/posts/1').then((r) => r.json()).then((p) => p.published_at);");
 
         $checker = new FrontendConsumerParityChecker(
-            new CodeGraph([], hasUnparseableFiles: false),
-            projectRoot: $this->projectRoot,
-            index: $this->index(),
+            new FrontendConsumerLane(new CodeGraph([], hasUnparseableFiles: false), projectRoot: $this->projectRoot, index: $this->index()),
         );
 
         $this->assertSame([], $checker->findingsFor(self::RESOURCE, ['published_at'], []));
@@ -139,7 +148,7 @@ final class FrontendConsumerParityCheckerTest extends TestCase
             ['source' => self::ROUTE_NODE, 'target' => self::RESOURCE, 'type' => 'resource'],
         ], hasUnparseableFiles: false);
 
-        return new FrontendConsumerParityChecker($graph, $ignore, $this->projectRoot, $this->index());
+        return new FrontendConsumerParityChecker(new FrontendConsumerLane($graph, $ignore, $this->projectRoot, $this->index()));
     }
 
     private function index(): FrontendConsumerIndex

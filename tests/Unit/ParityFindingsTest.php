@@ -6,6 +6,7 @@ use Illuminate\Filesystem\Filesystem;
 use Illuminate\Support\Facades\Route;
 use PHPUnit\Framework\Attributes\Test;
 use SanderMuller\Richter\Analysis\FrontendConsumerIndex;
+use SanderMuller\Richter\Analysis\FrontendConsumerLane;
 use SanderMuller\Richter\Analysis\ParityFindings;
 use SanderMuller\Richter\Analysis\RequestFieldParityChecker;
 use SanderMuller\Richter\Changes\ChangedFileSymbols;
@@ -96,6 +97,6 @@ final class ParityFindingsTest extends TestCase
             ['source' => 'App\Http\Controllers\PostController::store', 'target' => self::REQUEST . '::validated', 'type' => 'action-to-form-request'],
         ], hasUnparseableFiles: false);
 
-        return new RequestFieldParityChecker($graph, [], $this->projectRoot, FrontendConsumerIndex::fromProject($this->projectRoot));
+        return new RequestFieldParityChecker(new FrontendConsumerLane($graph, [], $this->projectRoot, FrontendConsumerIndex::fromProject($this->projectRoot)));
     }
 }

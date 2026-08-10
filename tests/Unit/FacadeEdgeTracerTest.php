@@ -120,6 +120,31 @@ final class FacadeEdgeTracerTest extends TestCase
     }
 
     #[Test]
+    public function it_draws_nothing_when_the_accessor_can_return_two_different_classes(): void
+    {
+        // The concrete is picked at runtime from state this cannot see. Taking the first return
+        // would send the reader to one of two files with no hint the other exists.
+        $edges = $this->resolve(
+            [$this->facade('if ($x) { return \\Acme\\Support\\ReportBuilder::class; } return \\Acme\\Support\\ExportTarget::class;')],
+            [$this->staticCall(self::FACADE . '::assemble')],
+        );
+
+        $this->assertSame([], $edges);
+    }
+
+    #[Test]
+    public function it_draws_nothing_when_one_of_several_returns_is_not_resolvable(): void
+    {
+        // A resolvable sibling return must not speak for the branch that returns a container key.
+        $edges = $this->resolve(
+            [$this->facade("if (\$x) { return 'reports'; } return \\Acme\\Support\\ReportBuilder::class;")],
+            [$this->staticCall(self::FACADE . '::assemble')],
+        );
+
+        $this->assertSame([], $edges);
+    }
+
+    #[Test]
     public function it_draws_nothing_when_the_accessor_names_a_vendor_class(): void
     {
         $edges = $this->resolve(

@@ -57,6 +57,25 @@ final class FrontendConsumerLane
     }
 
     /**
+     * The names a finding may be raised for: the diff's set minus the ignore list, minus any empty
+     * name. An empty key is a legal PHP array key and the contract parsers report it faithfully,
+     * but as a match pattern it degenerates — the response lane's `.<key>` pattern becomes a dot
+     * followed by a word boundary, which hits nearly every consumer file — so one absurd key would
+     * flag the whole frontend. Dropped here, once, for both lanes.
+     *
+     * @param  list<string>  $names
+     * @param  list<string>  $ignored
+     * @return list<string>
+     */
+    public static function matchable(array $names, array $ignored): array
+    {
+        return array_values(array_filter(
+            array_diff($names, $ignored),
+            static fn (string $name): bool => $name !== '',
+        ));
+    }
+
+    /**
      * The `route::` nodes upstream of a class — the endpoints that can reach it (nested
      * composition rides the `resource` edges up through parent resources; a form request rides
      * the action that type-hints it). An upstream match does not prove the route serializes or

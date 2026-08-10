@@ -26,11 +26,16 @@ final readonly class ParityFindings
         }
 
         $ignore = RichterConfig::payloadParityIgnore();
+        // One lane for both consumer-facing checkers: it holds the frontend index and the per-file
+        // scan contents, and a diff that removes both a resource key and a rules() field would
+        // otherwise walk every frontend root and Blade view twice. Still lazy — a run where neither
+        // lane fires builds no index at all.
+        $lane = new FrontendConsumerLane($graph, $ignore);
 
         return [
             new PayloadParityChecker($graph, RichterConfig::payloadParityMirrorThreshold(), $ignore),
-            new FrontendConsumerParityChecker($graph, $ignore),
-            new RequestFieldParityChecker($graph, $ignore),
+            new FrontendConsumerParityChecker($lane),
+            new RequestFieldParityChecker($lane),
         ];
     }
 

@@ -2,8 +2,6 @@
 
 namespace SanderMuller\Richter\Analysis;
 
-use SanderMuller\Richter\Graph\CodeGraph;
-
 /**
  * Advisory: a field this diff removed from a form request's `rules()`, still sent by a frontend
  * file that consumes one of the routes the request validates — the request-side counterpart of
@@ -21,13 +19,7 @@ use SanderMuller\Richter\Graph\CodeGraph;
  */
 final readonly class RequestFieldParityChecker
 {
-    private FrontendConsumerLane $lane;
-
-    /** @param  list<string>  $ignore  request FQCN or `RequestFqcn::field` entries, from richter.payload_parity.ignore */
-    public function __construct(CodeGraph $graph, array $ignore = [], ?string $projectRoot = null, ?FrontendConsumerIndex $index = null)
-    {
-        $this->lane = new FrontendConsumerLane($graph, $ignore, $projectRoot, $index);
-    }
+    public function __construct(private FrontendConsumerLane $lane) {}
 
     /**
      * @param  list<string>  $removedFields
@@ -41,8 +33,8 @@ final readonly class RequestFieldParityChecker
         }
 
         $ignoredFields = $this->lane->ignoredKeysFor($requestFqcn);
-        $removed = array_values(array_diff($removedFields, $ignoredFields));
-        $added = array_values(array_diff($addedFields, $ignoredFields));
+        $removed = FrontendConsumerLane::matchable($removedFields, $ignoredFields);
+        $added = FrontendConsumerLane::matchable($addedFields, $ignoredFields);
 
         if ($removed === []) {
             return [];

@@ -80,6 +80,8 @@ The candidate set stays a subset of the static-call targets already measured.
 | Accessor declared on a vendor base richter never scanned | No edge — the chain stops at the unscanned class. |
 | Accessor names a vendor class | No edge — app-scoped, like every other tracer. |
 | Concrete has no such method (`__call` magic) | No edge — a phantom member node helps nobody. |
+| `getFacadeAccessor()` can return two different classes, or one branch returns a container key | No edge — the concrete is picked at runtime, and naming one of two files would be a guess dressed as a fact. |
+| Concrete inherits the method from a vendor parent richter never scanned | Edge drawn to `Concrete::method`, which the concrete's file does not declare. Deliberate: `StaticCallEdgeTracer` already makes the same call, and demanding a scanned declaration would drop the edge for every concrete extending a framework base — the reach this lane exists to add. |
 | A non-facade class declaring `getFacadeAccessor()` | No edge — the `is_subclass_of` gate decides, not the method name. |
 | Facade called with a variable receiver (`$facade::x()`) | No edge — no `static-call` edge exists to bridge from. |
 | The same facade method called from ten places | One edge — the bridge is per facade member, not per caller. |
