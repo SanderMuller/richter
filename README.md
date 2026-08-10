@@ -14,11 +14,11 @@ Measures the magnitude of impact of code changes in a Laravel codebase. Like the
 Run `php artisan richter:detect-changes` on a branch and Richter reports the HTTP/CLI entry points the diff can reach, flags the ones no test references, and attaches a coarse advisory risk level — so review starts from what the change reaches instead of a cold diff. What makes it worth installing:
 
 - **Member-level change impact.** A one-method change seeds that method in the code graph, not the whole class. The graph covers routes, controllers, jobs, listeners, policies, resources, Blade views, and Eloquent relations, plus [edges a route-anchored analysis misses](docs/coverage.md): static calls, facades, container bindings, constant reads, polymorphic overrides.
-- **Honest degradation.** A change the graph can't place reads **UNRESOLVED**, never a falsely reassuring "no impact". Every gap in coverage is a gap in reach, not in honesty.
+- **Honest degradation.** A change the graph can't place reads **UNRESOLVED**, never a falsely reassuring "no impact". A coverage gap costs reach, but it never causes anything to be reported as unaffected.
 - **Test-coverage prompts.** Every reached entry point is tagged `[test-referenced]` or `[⚠ no test references this]` — a heuristic prompt, not a coverage verdict ([tag details](docs/detect-changes.md#test-reference-tags)). An entry point whose behaviour you changed with nothing referencing it is a place to add a test.
 - **Blast radius and traces on demand.** Before a refactor, `richter:impact` lists a symbol's callers (what breaks if you change it), its dependencies (what it reaches), and the entry surfaces behind those callers. `richter:trace` answers "how does this even reach that?" with the shortest call chain between two symbols.
 - **Affected-test selection.** `richter:affected-tests` turns the diff's reach into a test selection, with an exit-code contract that fails toward running the full suite whenever the selection can't be trusted.
-- **Agent-native.** Richter registers a local MCP server exposing every analysis read-only, so a coding agent can work with the graph mid-review without shelling out. The `--markdown` report is ready to post as a PR comment.
+- **Built for coding agents.** Richter registers a local MCP server exposing every analysis read-only, so an agent can work with the graph mid-review without shelling out. The `--markdown` report is ready to post as a PR comment.
 
 Richter is advisory by default: `richter:detect-changes` exits 0, and a low or empty result is a signal, not a guarantee of no impact. Opt into a CI gate with `--fail-on` / `--fail-on-unresolved` (see [Gating in CI](#gating-in-ci)).
 
@@ -132,7 +132,7 @@ The report carries more advisory annotation, none of which feeds the risk level 
 - **[Payload parity](docs/detect-changes.md#payload-parity)** in three directions: a model field added but never mirrored into its resource, a resource `toArray()` key removed while a frontend consumer still reads it, and a form-request `rules()` field removed while a consumer still sends it. Deliberately no-guess; anything the checker can't statically enumerate is skipped rather than guessed at.
 - **Middleware group membership** — a changed middleware that routes reach through a group rather than an alias is noted with the group and how many routes it guards (`runs in middleware group 'api', which guards 142 routes`). Route middleware resolves by alias upstream, so a group arrives as a bare `middleware::api` node and its members are linked to nothing; expanding the group into edges would make every member report every route in the app as an entry point. The note supplies the size those edges withhold, and like the rest of this list it never moves the risk level.
 
-Three output formats beyond the text report, [documented in full here](docs/detect-changes.md#--markdown-and---html-output): `--markdown` renders a PR-postable report with a risk badge, entry-point checklist, and collapsed long lists; `--html=<path>` writes one self-contained HTML file with tabbed views of the blast radius (a rendering surface, not a contract); `--json` emits the full report as a single semver-governed document ([key reference](docs/detect-changes.md#--json-output)).
+Three output formats beyond the text report, [documented in the detect-changes reference](docs/detect-changes.md#--markdown-and---html-output): `--markdown` renders a PR-postable report with a risk badge, entry-point checklist, and collapsed long lists; `--html=<path>` writes one self-contained HTML file with tabbed views of the blast radius (a rendering surface, not a contract); `--json` emits the full report as a single semver-governed document ([key reference](docs/detect-changes.md#--json-output)).
 
 #### Risk levels
 
@@ -299,8 +299,8 @@ imports, Ziggy `route('name')` calls, endpoint string literals — and those rou
 touched entry points, feeding `richter:affected-tests`, while `risk` and `impacted` stay
 untouched: a frontend edit does not change backend behaviour. The bridge also runs in reverse: a
 changed backend member that renders an Inertia page is noted under Findings with the resolved page
-file. What is matched, what deliberately isn't, and how the scan fails safe:
-[frontend reference](docs/frontend.md).
+file. The [frontend reference](docs/frontend.md) covers what is matched, what deliberately
+isn't, and how the scan fails safe.
 
 ### Graph cache
 

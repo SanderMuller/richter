@@ -156,7 +156,7 @@ final class TestReferenceIndex
 
     /**
      * `admin.dashboard-stats` → `App\Livewire\Admin\DashboardStats` — Livewire's default naming
-     * convention, applied in reverse, mirroring the README's "assumes standard Laravel conventions"
+     * convention, applied in reverse, mirroring the documented "assumes standard Laravel conventions"
      * stance. A custom-namespaced or manually-registered component won't match; over-recording a
      * non-existent class is harmless (nothing imports it), under-recording a real one is the
      * direction this closes.
@@ -364,8 +364,8 @@ final class TestReferenceIndex
      * `assertForbidden`/`assertUnauthorized`/`assertNotFound` are not in the shallow set at all).
      * Anything not provably shallow (a bare `expect(`, `assertJson*`, `assertDatabaseHas`, a
      * custom `assert*`/`expect*`-named helper, ...) disqualifies the whole file; a helper the
-     * scan cannot recognise as assert-ish (`seePostPublished(...)`) is invisible — the README
-     * hedges the tag as "no behavioural assertion the scan recognises" for exactly that reason.
+     * scan cannot recognise as assert-ish (`seePostPublished(...)`) is invisible — the docs
+     * hedge the tag as "no behavioural assertion the scan recognises" for exactly that reason.
      */
     private function sourceLacksBehaviouralAssertions(string $source): bool
     {

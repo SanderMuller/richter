@@ -6,7 +6,7 @@ use SanderMuller\Richter\Graph\NodeMetadata;
 
 /**
  * Renders {@see ImpactAnalyzer} results as GitHub-flavoured markdown for pull-request descriptions
- * and comments — the workflow the README describes ("hand the reviewer your blast radius"). Unlike
+ * and comments — the hand-the-reviewer-your-blast-radius workflow the README describes. Unlike
  * {@see ImpactFormatter}'s capped text lists, nothing is truncated: entries beyond the cap collapse
  * into a `<details>` block, so the PR stays scannable while the full reach remains one click away.
  * Cell and code-span content is repo-derived (FQCNs, route/command ids, node names), so no markdown
