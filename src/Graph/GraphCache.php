@@ -45,8 +45,13 @@ final class GraphCache
      * 8 → 9: the second-hop walk reads the bodies of statically-called methods, which only ever ADDS
      * edges (and, through them, inherited-method edges) for identical file inputs — so a stale
      * pre-change entry under-selects in exactly the same way.
+     * 9 → 10: the `$listen` reader moved upstream, so `event-listener` edges left the graph and
+     * Brain's `action-to-listener` took their place. The brain version in the fingerprint already
+     * invalidates every entry for THIS change; the bump is for the general case, since a
+     * richter-only graph change would not — `InstalledVersions` reports a dev checkout as
+     * `dev-main`, unchanged across richter's own edits.
      */
-    private const int FORMAT_VERSION = 9;
+    private const int FORMAT_VERSION = 10;
 
     private ?CodeGraph $memoized = null;
 

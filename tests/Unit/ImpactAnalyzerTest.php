@@ -24,7 +24,6 @@ use SanderMuller\Richter\Changes\MemberChange;
 use SanderMuller\Richter\Graph\CodeGraph;
 use SanderMuller\Richter\Support\Fqcn;
 use SanderMuller\Richter\Tests\TestCase;
-use SanderMuller\Richter\Tracers\EntryPointTracer;
 
 final class ImpactAnalyzerTest extends TestCase
 {
@@ -1130,13 +1129,6 @@ final class ImpactAnalyzerTest extends TestCase
     }
 
     #[Test]
-    public function event_listener_target_keeps_an_explicit_method(): void
-    {
-        $this->assertSame('App\Listeners\SendNotification::handle', EntryPointTracer::listenerTarget('App\Listeners\SendNotification'));
-        $this->assertSame('App\Listeners\SendNotification::onFoo', EntryPointTracer::listenerTarget('App\Listeners\SendNotification@onFoo'));
-    }
-
-    #[Test]
     public function a_changed_file_matches_its_fqcn_keyed_deep_call_node(): void
     {
         // A job appears as an FQCN-keyed deep-call node; a change to its file must resolve to it.
@@ -1644,6 +1636,43 @@ final class ImpactAnalyzerTest extends TestCase
                 self::ROUTE => ['file' => 'routes/web.php'],
             ],
         ));
+    }
+
+    #[Test]
+    public function a_governed_model_is_reach_but_not_impact_for_a_policy_change(): void
+    {
+        // Brain's `model-to-policy` (v2.4.0) says which policy governs a model. It is a
+        // governs-relation, not a call: changing the policy leaves the model working, so the model
+        // must not count toward the impacted total — the same treatment `model-relationship` gets,
+        // and the reason the v2.4.0 bump does not quietly raise the risk of every policy edit.
+        $analyzer = new ImpactAnalyzer(new CodeGraph([
+            ['source' => 'App\\Models\\Post', 'target' => 'App\\Policies\\PostPolicy', 'type' => 'model-to-policy'],
+        ], hasUnparseableFiles: false));
+
+        $result = $analyzer->detectChanges([
+            $this->changedCoarse('app/Policies/PostPolicy.php', 'App\\Policies\\PostPolicy'),
+        ]);
+
+        $this->assertContains('App\\Models\\Post', $this->nodes($result['callers']));
+        $this->assertSame(0, $result['impacted']);
+    }
+
+    #[Test]
+    public function a_node_behind_a_governed_model_still_counts_on_its_own_edge(): void
+    {
+        // The limit every exclusion shares, pinned so nobody reads the one above as more than it is:
+        // exclusion is judged per reached node from the edge it arrived by, so the controller here
+        // counts through `action-to-model` even though the policy→model hop before it does not.
+        $analyzer = new ImpactAnalyzer(new CodeGraph([
+            ['source' => 'App\\Models\\Post', 'target' => 'App\\Policies\\PostPolicy', 'type' => 'model-to-policy'],
+            ['source' => 'App\\Http\\Controllers\\PostController::show', 'target' => 'App\\Models\\Post', 'type' => 'action-to-model'],
+        ], hasUnparseableFiles: false));
+
+        $result = $analyzer->detectChanges([
+            $this->changedCoarse('app/Policies/PostPolicy.php', 'App\\Policies\\PostPolicy'),
+        ]);
+
+        $this->assertSame(1, $result['impacted']);
     }
 
     #[Test]

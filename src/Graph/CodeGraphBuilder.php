@@ -298,13 +298,11 @@ final class CodeGraphBuilder
         // reads resolve to the constant's declaring class, which needs the full hierarchy.
         $constantTracer = new ConstantReferenceTracer();
 
-        // The paths whose ASTs trace() consumes: files under the tracer's own roots, plus the
-        // EventServiceProvider it reads `$listen` from.
+        // The paths whose ASTs trace() consumes: files under the tracer's own roots.
         $retainPrefixes = array_map(
             static fn (string $root): string => "{$projectRoot}/app/{$root}/",
             $entryPointTracer->roots(),
         );
-        $eventServiceProvider = $projectRoot . '/app/Providers/EventServiceProvider.php';
 
         $edges = [];
         $entryPointAsts = [];
@@ -323,8 +321,7 @@ final class CodeGraphBuilder
                 continue;
             }
 
-            if ($class['path'] === $eventServiceProvider
-                || array_any($retainPrefixes, static fn (string $prefix): bool => str_starts_with($class['path'], $prefix))) {
+            if (array_any($retainPrefixes, static fn (string $prefix): bool => str_starts_with($class['path'], $prefix))) {
                 $entryPointAsts[$class['path']] = $ast;
             }
 

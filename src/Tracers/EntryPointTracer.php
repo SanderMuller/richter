@@ -31,8 +31,8 @@ use Throwable;
 /**
  * Brain anchors its graph on web routes, so code reached only via queues, the console, or helpers is
  * absent and reports a falsely empty blast radius. Traces those entry points (jobs, listeners,
- * commands, helpers) plus the `$listen`-registered event→listener and interface→impl links Brain
- * misses, emitting edges keyed by FQCN so they join the FQCN-normalised graph (see CodeGraphBuilder).
+ * commands, helpers) plus the container bindings Brain misses, emitting edges keyed by FQCN so they
+ * join the FQCN-normalised graph (see CodeGraphBuilder).
  *
  * Dev/CI tooling only.
  */
@@ -108,24 +108,10 @@ final readonly class EntryPointTracer
 
         // Tracing every method of a class re-walks shared downstream paths, so dedupe before returning.
         // Interface→implementor edges are NOT emitted here — they come from the consolidated per-file
-        // AST loop in {@see CodeGraphBuilder} via {@see interfaceEdgesForResolvedAst()}.
-        return AppFiles::dedupeEdges([
-            ...$edges,
-            ...$this->eventListenerEdges($projectRoot, $resolvedAstsByPath),
-            ...$this->bindingEdges($projectRoot),
-        ], byType: true);
-    }
-
-    /** FQCN-keyed node id for a `$listen` listener: `Class@method` keeps its method, a bare class uses handle(). */
-    public static function listenerTarget(string $listener): string
-    {
-        if (str_contains($listener, '@')) {
-            [$class, $method] = explode('@', $listener, 2);
-
-            return ltrim($class, '\\') . '::' . $method;
-        }
-
-        return ltrim($listener, '\\') . '::handle';
+        // AST loop in {@see CodeGraphBuilder} via {@see interfaceEdgesForResolvedAst()}. Nor are
+        // event→listener links: Brain reads `$listen`, `$subscribe` and `#[AsEventListener]` since
+        // v2.4.0, a superset of the `$listen`-only reader this used to carry.
+        return AppFiles::dedupeEdges([...$edges, ...$this->bindingEdges($projectRoot)], byType: true);
     }
 
     /**
@@ -221,82 +207,6 @@ final readonly class EntryPointTracer
         }
 
         return $methods;
-    }
-
-    /**
-     * Parse `EventServiceProvider::$listen` for event → listener links.
-     *
-     * laravel-brain#54 (v2.3.1) added event→listener edges by listener-class convention only — not
-     * `$listen` mappings — so this method stays until Brain reads `EventServiceProvider::$listen`.
-     * (Subscribers in `$subscribe` are wired by neither Brain nor this method: a separate known gap.)
-     *
-     * @param  array<string, list<Stmt>>  $resolvedAstsByPath
-     * @return list<array{source: string, target: string, type: string}>
-     */
-    private function eventListenerEdges(string $projectRoot, array $resolvedAstsByPath): array
-    {
-        $file = $projectRoot . '/app/Providers/EventServiceProvider.php';
-
-        // Same map-first pattern as {@see methodsOf()}: the consolidated pass retains this file's
-        // resolved AST; the parse fallback covers a trace() call without one.
-        $ast = $resolvedAstsByPath[$file]
-            ?? (is_file($file) ? AppFiles::parseResolved((string) file_get_contents($file)) : null);
-
-        if ($ast === null) {
-            return [];
-        }
-
-        $edges = [];
-
-        foreach (new NodeFinder()->findInstanceOf($ast, Property::class) as $property) {
-            foreach ($property->props as $prop) {
-                if ($prop->name->toString() === 'listen' && $prop->default instanceof Array_) {
-                    $edges = [...$edges, ...$this->listenEdges($prop->default)];
-                }
-            }
-        }
-
-        return $edges;
-    }
-
-    /** @return list<array{source: string, target: string, type: string}> */
-    private function listenEdges(Array_ $listen): array
-    {
-        $edges = [];
-
-        foreach ($listen->items as $item) {
-            $event = $this->resolveListenerName($item->key);
-            if ($event === null) {
-                continue;
-            }
-
-            if (! $item->value instanceof Array_) {
-                continue;
-            }
-
-            foreach ($item->value->items as $listenerItem) {
-                $listener = $this->resolveListenerName($listenerItem->value);
-
-                if ($listener !== null) {
-                    $edges[] = [
-                        'source' => ltrim($event, '\\'),
-                        'target' => self::listenerTarget($listener),
-                        'type' => 'event-listener',
-                    ];
-                }
-            }
-        }
-
-        return $edges;
-    }
-
-    private function resolveListenerName(mixed $node): ?string
-    {
-        if ($node instanceof ClassConstFetch && $node->class instanceof Name) {
-            return AppFiles::resolveName($node->class);
-        }
-
-        return $node instanceof String_ ? $node->value : null;
     }
 
     /**

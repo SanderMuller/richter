@@ -17,6 +17,7 @@ final class EnsureTokenIsValid
         $mapper->build();
 
         ReportRegistry::boot();
+        ReportRegistry::targets();
 
         return $next($request);
     }

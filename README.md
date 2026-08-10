@@ -42,7 +42,6 @@ The analysis never executes your application's routes, jobs, or commands. It is 
 Richter adds two things over Laravel Brain alone: the tooling above (CLI, MCP, and CI/PR review) and wider graph coverage. On coverage, it traces the edges a route-anchored analysis misses:
 
 - queue dispatches, including unresolvable ones;
-- `$listen`-registered event listeners;
 - container bindings and interface implementations;
 - polymorphic overrides — a call on an abstract-class or interface method also reaches the concrete overrides in its subclasses/implementors, so a handler chosen at runtime (a config-registry driver, a factory, `app()->make($runtimeClass)`) is not left orphaned;
 - static calls — `Foo::bar()`, the shape a static registry, named constructor or factory is reached through, which a `new`-oriented trace leaves with no node at all;

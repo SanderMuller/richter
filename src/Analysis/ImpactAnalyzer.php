@@ -41,9 +41,17 @@ final readonly class ImpactAnalyzer
      * `override` (CHA, plan cha-risk) is excluded for the same reason: it is an over-approximated
      * ancestor→concrete link (an interface with many implementors fans out widely), so it carries
      * reachability but must not inflate the risk level.
+     * `model-to-policy` (Brain, v2.4.0) says which policy governs a model — a governs-relation, not
+     * a call. Changing a policy does not break the model, so the model must not count; excluding it
+     * also keeps the risk level stable across the v2.4.0 bump, since before it the edge did not
+     * exist. Note the shared limit of every entry here: exclusion is judged per reached node from
+     * the edge it arrived by, so a node BEHIND an excluded one still counts on its own edge type —
+     * a route reaching a governed model by `action-to-model` is impact, even though the policy that
+     * governs the model is not. Propagating association-only status along a whole branch would
+     * change the risk level for every existing app and belongs behind the benchmark corpus.
      * Reach, coverage, and entry-point discovery still flow through these edges.
      */
-    public const array RISK_EXCLUDED_EDGE_TYPES = ['model-relationship', 'declares', 'uses-trait', 'override'];
+    public const array RISK_EXCLUDED_EDGE_TYPES = ['model-relationship', 'declares', 'uses-trait', 'override', 'model-to-policy'];
 
     public function __construct(private CodeGraph $graph) {}
 

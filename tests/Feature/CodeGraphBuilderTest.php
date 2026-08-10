@@ -128,7 +128,13 @@ final class CodeGraphBuilderTest extends TestCase
     #[Test]
     public function a_listen_registered_listener_links_to_its_event(): void
     {
-        $this->assertArrayHasKey(PostPublished::class, $this->directCallersOf(SendPostNotification::class . '::handle'));
+        // Brain owns this link since v2.4.0 and points it at the constructor — where the event is
+        // actually built — so the event CLASS reaches the listener one `declares` hop further out
+        // than richter's own reader used to put it. Asserted on reach, which is the contract.
+        $callers = array_column(new ImpactAnalyzer($this->graph())->impact(SendPostNotification::class . '::handle')['callers'], 'node');
+
+        $this->assertContains(PostPublished::class . '::__construct', $callers);
+        $this->assertContains(PostPublished::class, $callers);
     }
 
     #[Test]
@@ -203,17 +209,13 @@ final class CodeGraphBuilderTest extends TestCase
     #[Test]
     public function the_entry_point_tracer_traces_without_retained_asts(): void
     {
-        // trace() without the builder's retained-AST map — methodsOf() and eventListenerEdges()
-        // must fall back to their own parses, not silently lose edges. Pins the job-method edge
-        // (only reachable when methodsOf() lists handle()) and the `$listen` event→listener edge.
+        // trace() without the builder's retained-AST map — methodsOf() must fall back to its own
+        // parse, not silently lose edges. Pins the job-method edge, which is only reachable when
+        // methodsOf() lists handle().
         $edges = new EntryPointTracer()->trace(self::fixtureProjectPath());
 
         $this->assertContains(
             ['source' => ProcessPostJob::class . '::handle', 'target' => Post::class . '::reviews', 'type' => 'model'],
-            $edges,
-        );
-        $this->assertContains(
-            ['source' => PostPublished::class, 'target' => SendPostNotification::class . '::handle', 'type' => 'event-listener'],
             $edges,
         );
     }

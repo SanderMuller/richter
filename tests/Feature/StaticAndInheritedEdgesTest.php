@@ -32,6 +32,8 @@ final class StaticAndInheritedEdgesTest extends TestCase
 
     private const string SETTINGS_SUBCLASS = 'Acme\\Services\\SettingsMappingService';
 
+    private const string VALUE_OBJECT = 'Acme\\Support\\ExportTarget';
+
     private static ?CodeGraph $graph = null;
 
     protected function setUp(): void
@@ -107,6 +109,19 @@ final class StaticAndInheritedEdgesTest extends TestCase
 
         $this->assertContains(self::REGISTRY . '::boot', $callers);
         $this->assertContains(self::SETTINGS_SUBCLASS . '::assemble', $callers);
+    }
+
+    #[Test]
+    public function a_value_object_built_by_a_same_namespace_sibling_is_reached(): void
+    {
+        // `ReportRegistry::targets()` writes `new ExportTarget(...)` with no import, because the two
+        // sit in one namespace. Brain dropped that shape until v2.4.0 resolved unqualified names
+        // against the file's namespace, so the value object appeared in no graph at all — a class
+        // constructed twice reporting that nothing referenced it.
+        $callers = array_column(new ImpactAnalyzer($this->graph())->impact(self::VALUE_OBJECT)['callers'], 'node');
+
+        $this->assertContains(self::REGISTRY . '::targets', $callers);
+        $this->assertContains(self::MIDDLEWARE . '::handle', $callers);
     }
 
     #[Test]

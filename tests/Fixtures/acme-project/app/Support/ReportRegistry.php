@@ -13,4 +13,10 @@ final class ReportRegistry
 
         return $builder->assemble();
     }
+
+    /** Same namespace, so no import — the shape Brain could not resolve before v2.4.0. */
+    public static function targets(): array
+    {
+        return [new ExportTarget('one'), new ExportTarget('two')];
+    }
 }
