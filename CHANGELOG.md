@@ -5,6 +5,49 @@ All notable changes to `sandermuller/richter` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.23.0 - 2026-08-10
+
+Two silent-failure shapes that richter used to miss: a call through an application facade, and a validation field a frontend still sends after the rule was dropped. Both were found by auditing what Laravel Brain covers that richter does not — and both turned out to be places where the overlap looks like coverage and is not.
+
+### Added
+
+- **A call through an application facade now reaches the class behind it.** A facade is an app class like any other, so `Reports::generate()` drew a static-call edge to `App\Facades\Reports::generate` — a member the facade does not declare — and nothing linked it to the class its accessor names. Changing that class reported no callers at all, while every call site sat in a file richter had parsed. The new `facade-resolves-to` edge carries the facade member over to the concrete's member, and the concrete joins the second-hop walk for the same reason a static-call target does: otherwise its node exists and nothing reads its body.
+  
+  The facade member is bridged, not rewritten away. That is what makes a change to the facade itself — a repointed accessor — reach the callers, and what lets `richter:trace` show that the call goes through a facade.
+  
+  Scope is deliberate. `getFacadeAccessor()` returning `Concrete::class` is carried over; returning a container key (`return 'reports'`) draws nothing, because resolving it would need a string-keyed binding registry richter does not keep, and the wrong concrete sends a reviewer to the wrong file. An accessor naming a vendor class, and a facade method the concrete does not declare (`__call` magic), likewise draw nothing rather than a phantom node — as does an accessor that can return two different classes, where the concrete is chosen at runtime and naming one of the two would be a guess dressed as a fact.
+  
+- **A validation field removed from `rules()` is flagged when a consumer still sends it.** The payload-parity family covered the response side twice — a model field never mirrored into its resource, a resource key removed while a consumer still reads it — and the request side not at all. Dropping a rule silently drops the field: it stops being validated and stops appearing in `validated()`, so the value never arrives and nothing reports an error.
+  
+  ```text
+    ! resources/js/Pages/Posts/Create.vue posts to POST /posts and sends 'subtitle', which this diff removes from App\Http\Requests\StorePostRequest::rules() (renamed to 'sub_title'?)
+  
+  ```
+  Matching is send-shaped where the response lane is access-shaped: an object-literal key, a `FormData`/`URLSearchParams` `append`/`set` with a literal name, a bracket write, a payload assignment. The object-literal pattern is the one the response lane names as its own false-positive class — a destructure of a response and an object literal being built are the same tokens — which is why the two lanes match separately instead of sharing a predicate. The residual cost is the mirror image, and the per-field `ignore` entry (`App\Http\Requests\StorePostRequest::subtitle`) carries it.
+  
+  The `rules()` parse is as strict as the resource one: a method that builds its array up, a spread, or a constant key makes the side unenumerable and the lane stays silent rather than name a field that was never removed. A dotted rule key (`items.*.name`) matches nothing on purpose — its segments appear separately in a payload, and matching the last one would fire on every unrelated `name` in the file. Advisory only, like the rest of the family: never `risk`, `--fail-on`, or `affected-tests`. Shares the `payload_parity.enabled` switch and the `--no-payload-parity` flag.
+  
+
+### Fixed
+
+- **One semantically invalid `use` alias no longer aborts the whole run.** A file can parse and still be invalid — two `use` statements binding the same alias is the common shape — and name resolution ran with the default throwing error handler. The resulting `PhpParser\Error` came out of `AppFiles::parseResolved()`, which no call site catches: one such file anywhere under `app/` took down the entire graph build, and one inside a diff took down `detect-changes`. Errors are collected now, as Laravel Brain's own parser already does, so the rest of the file's names still resolve. The file is not counted unparseable either — that flag is a global determinability blocker, and treating it as one would make a single invalid alias enough for `affected-tests` to refuse to answer.
+
+### Why these lanes stayed richter's
+
+Both edges exist upstream in some form, and neither could be handed over.
+
+Brain emits a `facade-resolves-to` edge, but only for a `CallChainEdge` — a facade call inside a route-reached body. That is precisely the half richter does not need; the gap lives where no route reaches.
+
+Brain's `ValidationRulesExtractor` reads `rules()`, but both of its entry points are gated on a file path, and this lane needs the *base* side of a diff, which exists only as a git blob. Even with a source-string entry point it would not serve: the lane must be able to conclude that a side cannot be enumerated and stay silent, and a `list<RuleRow>` cannot express that — a keyless item comes back as the field `'*'`, a value rather than a signal.
+
+### Internal
+
+- Graph cache `FORMAT_VERSION` 10 → 11, for the facade edges: they grow the edge set for identical file inputs, so a stale entry served to the new code would under-select. The request lane touches no edge and needs no bump.
+- `ArrayReturnKeys` is the key enumeration `ResourceKeyParser` already performed, lifted out with the method name as a parameter — the resource and form-request parsers ask one question of a different method. `ResourceKeyParser` keeps its public API and its behaviour unchanged.
+- `FrontendConsumerLane` holds what the two consumer-facing lanes share: the routes upstream of a class, the files consuming them, their scannable content, the ignore forms, the rename hint. One instance serves both checkers, so a diff that trips both lanes still walks the frontend once.
+
+**Full Changelog**: https://github.com/SanderMuller/richter/compare/v0.22.0...v0.23.0
+
 ## v0.22.0 - 2026-08-10
 
 Raises the Laravel Brain floor to `^2.4.0` and hands one lane back to it. Brain's release fixes the name-resolution bug behind the last reported reach gap, which is what makes this one worth taking rather than deferring.
