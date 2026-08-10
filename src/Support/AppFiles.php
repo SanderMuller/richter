@@ -2,6 +2,7 @@
 
 namespace SanderMuller\Richter\Support;
 
+use PhpParser\ErrorHandler\Collecting;
 use PhpParser\Node\Name;
 use PhpParser\Node\Stmt;
 use PhpParser\NodeTraverser;
@@ -72,7 +73,14 @@ final class AppFiles
 
         // NameResolver attaches a `resolvedName` FQCN to every Name node (imports/aliases applied);
         // replaceNodes=false keeps originals so names read by written form.
-        new NodeTraverser(new NameResolver(null, ['preserveOriginalNames' => true, 'replaceNodes' => false]))->traverse($ast);
+        //
+        // Errors are COLLECTED, not thrown. A file can parse and still be semantically invalid —
+        // two `use` statements binding one alias is the common shape — and the default throwing
+        // handler turned that into a `PhpParser\Error` out of this method, which no call site
+        // catches: one such file anywhere under `app/` aborted the whole graph build, and one in a
+        // diff aborted `detect-changes`. Collecting keeps the rest of the file's names resolved and
+        // lets advisory tooling degrade instead of refusing to run.
+        new NodeTraverser(new NameResolver(new Collecting(), ['preserveOriginalNames' => true, 'replaceNodes' => false]))->traverse($ast);
 
         return $ast;
     }
