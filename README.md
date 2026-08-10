@@ -39,7 +39,9 @@ The analysis never executes your application's routes, jobs, or commands. It is 
 
 ## Coverage beyond Brain
 
-Richter adds two things over Laravel Brain alone: the tooling above (CLI, MCP, and CI/PR review) and wider graph coverage. On coverage, it traces the edges a route-anchored analysis misses:
+Richter adds two things over Laravel Brain alone: the tooling above (CLI, MCP, and CI/PR review) and wider graph coverage. On coverage, it traces the edges a route-anchored analysis misses.
+
+Brain traces some of these too — view composition, resource references, queue dispatches, observers — but the overlap is narrower than it looks. Brain's analysis starts at routes; richter's tracers read files. For a class no route reaches, Brain draws no edges at all. Where the two agree, it is because that code happened to be route-reachable.
 
 - queue dispatches, including unresolvable ones;
 - container bindings and interface implementations;
