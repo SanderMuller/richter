@@ -276,6 +276,7 @@ final readonly class ImpactAnalyzer
 
         $findings = $newFileFindings;
         [$modelParityLane, $consumerParityLane, $requestParityLane] = ParityFindings::checkers($this->graph, $payloadParityEnabled);
+        $groupLane = new MiddlewareGroupFindings($this->graph);
 
         foreach ($changed as $file) {
             foreach ($file->findings as $finding) {
@@ -283,6 +284,7 @@ final readonly class ImpactAnalyzer
             }
 
             $findings = [...$findings, ...ParityFindings::for($file, $modelParityLane, $consumerParityLane, $requestParityLane)];
+            $findings = [...$findings, ...$groupLane->findingsFor($file->fqcn)];
         }
 
         [$entryPointLocations, $entryPointSecurity, $entryPointGates] = $this->entryPointAnnotations($entryPoints);
