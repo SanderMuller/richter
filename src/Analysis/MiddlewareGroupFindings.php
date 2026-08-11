@@ -79,9 +79,10 @@ final class MiddlewareGroupFindings
 
         $root = $this->projectRoot ?? base_path();
         $aliases = MiddlewareAliases::forProject($root);
+        $groups = $this->groups($root);
         $membership = [];
 
-        foreach ($this->groups($root) as $group => $entries) {
+        foreach (array_keys($groups) as $group) {
             $routes = $this->routesGuarding($group);
 
             // A group no route in the graph references sizes nothing, and "guards 0 routes" is a
@@ -90,13 +91,54 @@ final class MiddlewareGroupFindings
                 continue;
             }
 
-            foreach ($entries as $entry) {
-                $fqcn = $this->resolveEntry($entry, $aliases);
+            foreach (self::membersOf($group, $groups, $aliases) as $fqcn) {
                 $membership[$fqcn][] = ['group' => $group, 'routes' => $routes];
             }
         }
 
         return $this->membership = $membership;
+    }
+
+    /**
+     * The classes a group runs, following nested groups. A group may list another group by name, and
+     * Laravel expands it, so a middleware inherited that way runs on the outer group's routes too —
+     * reporting only its own group would undercount exactly the size this note exists to give.
+     *
+     * A name that is both a group and an alias is skipped rather than resolved one way: the reader
+     * cannot be told which without knowing the resolution order, and a wrong attribution here points
+     * at the wrong routes. Cycles terminate on the seen-set.
+     *
+     * @param  array<string, list<string>>  $groups
+     * @param  array<string, string>  $aliases
+     * @param  array<string, true>  $seen
+     * @return list<string>
+     */
+    private static function membersOf(string $group, array $groups, array $aliases, array $seen = []): array
+    {
+        if (isset($seen[$group])) {
+            return [];
+        }
+
+        $seen[$group] = true;
+        $members = [];
+
+        foreach ($groups[$group] ?? [] as $entry) {
+            $name = self::baseName($entry);
+
+            if (isset($groups[$name])) {
+                if (isset($aliases[$name])) {
+                    continue;
+                }
+
+                array_push($members, ...self::membersOf($name, $groups, $aliases, $seen));
+
+                continue;
+            }
+
+            $members[] = $aliases[$name] ?? $name;
+        }
+
+        return array_values(array_unique($members));
     }
 
     /**
@@ -133,16 +175,12 @@ final class MiddlewareGroupFindings
     }
 
     /**
-     * A group entry is written the way the app writes it: an FQCN, or an alias, either one possibly
-     * carrying parameters (`throttle:api`). Parameters are cut before the alias lookup, the same
-     * split the upstream resolver makes.
-     *
-     * @param  array<string, string>  $aliases
+     * A group entry is written the way the app writes it: an FQCN, an alias, or another group's
+     * name, any of them possibly carrying parameters (`throttle:api`). The parameters are cut here,
+     * the same split the upstream resolver makes, before anything is looked up.
      */
-    private function resolveEntry(string $entry, array $aliases): string
+    private static function baseName(string $entry): string
     {
-        $name = ltrim(explode(':', $entry, 2)[0], '\\');
-
-        return $aliases[$name] ?? $name;
+        return ltrim(explode(':', $entry, 2)[0], '\\');
     }
 }

@@ -67,6 +67,9 @@ one file, but a diff that touches no middleware should not pay even that. Per gr
 | Member written with parameters (`'tenant:strict'`) | Split at the first colon before the lookup. |
 | Group no route in the graph references | No note. "Guards 0 routes" sizes nothing and teaches its reader to skip the check. |
 | Middleware in two groups | One note each — one fact per line. |
+| A group that names another group | Expanded: Laravel resolves a nested group, so the inner group's members run on the outer group's routes and get a note for both. |
+| A cycle between two groups | Terminates on a seen-set; each group is expanded once. |
+| A name that is both a group and an alias | Skipped. Resolving it one way needs the resolution order the reader does not have, and the wrong choice points the note at the wrong routes. |
 | A non-route caller of the group node (controller-level attachment) | Not counted. The note sizes endpoints. |
 | No Kernel and no `bootstrap/app.php` | No note. |
 | Upgraded app that kept an empty Kernel stub beside bootstrap groups | No note. Brain's analyzer takes the Kernel when both exist, where richter's alias reader prefers bootstrap; an empty stub therefore yields no groups. A reach limit, never a wrong one. |

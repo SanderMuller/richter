@@ -53,6 +53,22 @@ Matching here is send-shaped rather than access-shaped: an object-literal key, a
 
 The `rules()` parse is as strict as the resource one: a method that builds its array up (`$rules = […]; if (…) …; return $rules;`), a spread, or a constant key makes the side unenumerable and the lane stays silent. A dotted rule key (`items.*.name`) matches nothing on purpose: its segments appear separately in a payload, and matching the last one would fire on every unrelated `name` in the file.
 
+## Middleware group membership
+
+Route middleware is resolved by **alias** and never by group. `->middleware('auth')` reaches the graph as `middleware::auth` and Richter rewrites that onto the FQCN, so an aliased middleware is connected to the routes it guards. `->middleware('api')` reaches it as a bare `middleware::api` node, and the classes inside that group are connected to nothing.
+
+The group is deliberately not expanded into edges: mapping a global group onto every route would make each of its members report every route in the app as an entry point. But the middleware still self-lists as an entry point — it lives under `\Http\Middleware\` — so without help the report reads "one entry point: the middleware itself" for a change that runs on every route in the group. The answer is wrongly *sized* rather than missing, and this note supplies the size:
+
+```text
+  ! App\Http\Middleware\EnsureTenant runs in middleware group 'api', which guards 142 routes; group membership is not drawn as edges, so those routes are not in the reach above
+```
+
+The count comes from the `route:: → middleware::<group>` edges already in the graph, so it counts endpoints only — a controller-level attachment of the same group does not inflate it. Membership is read from `$middlewareGroups` on a Laravel 10 Kernel or the `->web(append: [...])` form in a Laravel 11+ `bootstrap/app.php`. A member written as an alias resolves through the same alias map, and parameters are cut first (`tenant:strict` is one alias with an argument).
+
+Silence is the answer whenever the size cannot be vouched for: a group no route references, a middleware in no group, an unreadable Kernel, or an upgraded app that kept an empty `app/Http/Kernel.php` stub beside its bootstrap groups — that stub wins the lookup and yields no groups, which costs the note and never produces a wrong one.
+
+Advisory, like everything else on this page. Letting a group's routes count toward reach would raise the risk level of every middleware edit in every app at once, which needs its own evidence rather than arriving as a side effect of an annotation.
+
 ## `--markdown` and `--html` output
 
 With `--markdown`, the report renders as GitHub-flavoured markdown: a risk badge up front, changed files as a table, entry points as a review checklist with their file:line, test tags and exposure badges, and long lists collapsed into `<details>` instead of truncated. The result is ready to paste into (or post onto) a pull request. `--markdown --explain` composes.

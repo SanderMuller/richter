@@ -83,6 +83,52 @@ final class MiddlewareGroupFindingsTest extends TestCase
     }
 
     #[Test]
+    public function a_nested_group_carries_its_members_into_the_outer_group(): void
+    {
+        // Laravel expands a group named inside another group, so a member of the inner one also runs
+        // on the outer one's routes. Reporting only the inner group undercounts the size this note
+        // exists to give.
+        $this->kernel(
+            "'api' => [\\App\\Http\\Middleware\\EnsureTenant::class],\n        'admin' => ['api'],",
+        );
+
+        $graph = new CodeGraph([
+            ['source' => 'route::GET::/a', 'target' => 'middleware::api', 'type' => 'route-to-middleware'],
+            ['source' => 'route::GET::/b', 'target' => 'middleware::admin', 'type' => 'route-to-middleware'],
+            ['source' => 'route::GET::/c', 'target' => 'middleware::admin', 'type' => 'route-to-middleware'],
+        ], hasUnparseableFiles: false);
+
+        $findings = $this->lane($graph)->findingsFor(self::TENANT);
+
+        $this->assertCount(2, $findings);
+        $this->assertStringContainsString("group 'api', which guards 1 route;", $findings[0]);
+        $this->assertStringContainsString("group 'admin', which guards 2 routes;", $findings[1]);
+    }
+
+    #[Test]
+    public function a_cycle_between_two_groups_terminates(): void
+    {
+        $this->kernel(
+            "'api' => [\\App\\Http\\Middleware\\EnsureTenant::class, 'admin'],\n        'admin' => ['api'],",
+        );
+
+        $this->assertCount(1, $this->lane($this->graphWithRoutes(2))->findingsFor(self::TENANT));
+    }
+
+    #[Test]
+    public function a_name_that_is_both_a_group_and_an_alias_is_skipped(): void
+    {
+        // Resolving it one way needs knowledge of the resolution order the reader does not have, and
+        // the wrong choice points the note at the wrong routes.
+        $this->kernel(
+            "'api' => ['shared'],\n        'shared' => [\\App\\Http\\Middleware\\EnsureTenant::class],",
+            "'shared' => \\App\\Http\\Middleware\\Other::class,",
+        );
+
+        $this->assertSame([], $this->lane($this->graphWithRoutes(2))->findingsFor(self::TENANT));
+    }
+
+    #[Test]
     public function a_group_no_route_references_stays_silent(): void
     {
         // "guards 0 routes" sizes nothing and teaches its reader to skip the check.
