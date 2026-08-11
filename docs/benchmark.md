@@ -21,6 +21,7 @@ Each case in `config/richter.php`:
         'bug_class' => 'background-job change (data not copied on duplication)',
         'expect_signal' => true,               // bug fixture: must resolve and reach an entry point
         'max_risk' => 'high',                  // caps the risk a control (expect_signal: false) may report
+        'expect_finding' => 'eager-load',      // optional: an advisory finding must contain this substring
     ],
 ],
 ```
