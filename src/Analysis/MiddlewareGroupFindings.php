@@ -2,6 +2,8 @@
 
 namespace SanderMuller\Richter\Analysis;
 
+use Illuminate\Routing\Route as RoutingRoute;
+use Illuminate\Support\Facades\Route;
 use LaraMint\LaravelBrain\Analysis\MiddlewareAnalyzer;
 use SanderMuller\Richter\Graph\CodeGraph;
 use SanderMuller\Richter\Graph\MiddlewareAliases;
@@ -157,8 +159,49 @@ final class MiddlewareGroupFindings
         }
     }
 
-    /** How many routes carry the group, counted off the `route:: → middleware::<group>` edges. */
+    /**
+     * How many routes carry the group.
+     *
+     * The registered route table is asked first, because the graph cannot answer this. A
+     * `route:: → middleware::<group>` edge exists only where the group is applied in a route file's
+     * own `->middleware('web')` call; a provider that loops over route files and groups them there —
+     * the shape Laravel's own `RouteServiceProvider` ships — produces no such edge for any of them.
+     * On one application the graph knew 36 of 420, and a note whose entire job is to stop a reviewer
+     * under-sizing a change would have under-sized it twelvefold, in a number stated as fact.
+     *
+     * The router is only authoritative when the analysed project IS the running application. A run
+     * pointed at another checkout (the tests, and any tooling that analyses a project it did not
+     * boot) would otherwise count a stranger's routes, so that case keeps the graph's subset.
+     */
     private function routesGuarding(string $group): int
+    {
+        $fromRouter = $this->registeredRoutesCarrying($group);
+
+        return $fromRouter ?? $this->graphRoutesCarrying($group);
+    }
+
+    /** Null when the running application is not the project under analysis, so the count would describe the wrong app. */
+    private function registeredRoutesCarrying(string $group): ?int
+    {
+        $root = $this->projectRoot;
+
+        try {
+            if ($root !== null && realpath($root) !== realpath(base_path())) {
+                return null;
+            }
+
+            $carrying = array_filter(
+                Route::getRoutes()->getRoutes(),
+                static fn (RoutingRoute $route): bool => in_array($group, $route->middleware(), true),
+            );
+
+            return count($carrying);
+        } catch (Throwable) {
+            return null;
+        }
+    }
+
+    private function graphRoutesCarrying(string $group): int
     {
         $node = "middleware::{$group}";
 

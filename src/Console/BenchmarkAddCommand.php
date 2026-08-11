@@ -72,11 +72,10 @@ final class BenchmarkAddCommand extends Command
 
         $isControl = (bool) $this->option('control');
 
-        // A control asserts "this harmless change may not report worse than X". Capping at HIGH
-        // asserts nothing — High is the ceiling of the risk enum, so the case can never fail and
-        // sits in the corpus looking like coverage. Refusing beats warning: the stanza is the whole
-        // output, and the person running this is often triaging a control that just went red, where
-        // pasting a green no-op is the tempting move and the one that destroys the fixture.
+        // Refusing beats warning, which is the tempting softening: the stanza is the whole output,
+        // and whoever runs this is usually triaging a control that just went red, where pasting the
+        // green no-op is both the obvious move and the one that destroys the fixture. The messages
+        // below carry why a HIGH cap asserts nothing.
         if ($isControl && $result['risk'] === RiskLevel::High) {
             $this->error('Refusing to scaffold a control for a change that already reports HIGH.');
             $this->line('A control caps the risk a harmless change may report, and HIGH is the top of the scale, so the cap would assert nothing and the case would pass forever.');

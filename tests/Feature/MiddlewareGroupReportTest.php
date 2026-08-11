@@ -4,6 +4,7 @@ namespace SanderMuller\Richter\Tests\Feature;
 
 use Illuminate\Filesystem\Filesystem;
 use Illuminate\Foundation\Application;
+use Illuminate\Support\Facades\Route;
 use PHPUnit\Framework\Attributes\Test;
 use SanderMuller\Richter\Analysis\ImpactAnalyzer;
 use SanderMuller\Richter\Changes\ChangedFileSymbols;
@@ -46,6 +47,13 @@ final class MiddlewareGroupReportTest extends TestCase
         $this->assertInstanceOf(Application::class, $app);
         $app->setBasePath($this->projectRoot);
         AppNamespace::flush();
+
+        // The size comes from the registered route table, not from graph edges: a provider that
+        // loops over route files and groups them there draws no route → middleware edge at all.
+        Route::middleware('api')->group(function (): void {
+            Route::get('/api/a', fn (): string => 'a');
+            Route::get('/api/b', fn (): string => 'b');
+        });
     }
 
     protected function tearDown(): void
@@ -95,9 +103,9 @@ final class MiddlewareGroupReportTest extends TestCase
 
     private function graph(): CodeGraph
     {
+        // Deliberately no route → middleware edge: the graph cannot see a group applied from a
+        // provider, and the note must still be sized correctly.
         return new CodeGraph([
-            ['source' => 'route::GET::/api/a', 'target' => 'middleware::api', 'type' => 'route-to-middleware'],
-            ['source' => 'route::GET::/api/b', 'target' => 'middleware::api', 'type' => 'route-to-middleware'],
             ['source' => self::TENANT, 'target' => self::TENANT . '::handle', 'type' => 'declares'],
         ], hasUnparseableFiles: false);
     }

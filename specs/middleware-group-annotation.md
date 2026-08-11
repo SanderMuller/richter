@@ -51,7 +51,7 @@ one file, but a diff that touches no middleware should not pay even that. Per gr
 1. `new MiddlewareAnalyzer()->analyze($root)->groups` — group name to the entries as written.
 2. Each entry resolved to an FQCN: parameters cut at the first colon (`tenant:strict` is one alias
    with an argument), then through richter's own alias map.
-3. Routes guarding the group counted off `route:: → middleware::<group>` edges already in the graph.
+3. Routes guarding the group counted off the registered route table (`Route::getRoutes()`), falling back to `route:: → middleware::<group>` edges when the analysed project is not the running application.
 
 ```text
 ! App\Http\Middleware\EnsureTenant runs in middleware group 'api', which guards 142 routes;
@@ -71,6 +71,8 @@ one file, but a diff that touches no middleware should not pay even that. Per gr
 | A cycle between two groups | Terminates on a seen-set; each group is expanded once. |
 | A name that is both a group and an alias | Skipped. Resolving it one way needs the resolution order the reader does not have, and the wrong choice points the note at the wrong routes. |
 | A non-route caller of the group node (controller-level attachment) | Not counted. The note sizes endpoints. |
+| The group is applied by a provider looping over route files | Counted. The registered route table is the source, not the graph: those routes draw no `route:: → middleware::<group>` edge, and counting edges under-reported 420 as 36 on a real application. |
+| Richter analyses a checkout other than the running application | Falls back to the graph's edge count, which under-counts. The router describes the booted app, and counting a stranger's routes would be worse than counting too few. |
 | No Kernel and no `bootstrap/app.php` | No note. |
 | Upgraded app that kept an empty Kernel stub beside bootstrap groups | No note. Brain's analyzer takes the Kernel when both exist, where richter's alias reader prefers bootstrap; an empty stub therefore yields no groups. A reach limit, never a wrong one. |
 | Unreadable or exotic Kernel | No note. A missing annotation, never a failed report. |
