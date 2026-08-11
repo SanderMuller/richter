@@ -71,6 +71,20 @@ final class BenchmarkAddCommand extends Command
             . ", impacted: {$result['impacted']}, risk: {$result['risk']->value}, unresolved files: {$unresolved}");
 
         $isControl = (bool) $this->option('control');
+
+        // A control asserts "this harmless change may not report worse than X". Capping at HIGH
+        // asserts nothing — High is the ceiling of the risk enum, so the case can never fail and
+        // sits in the corpus looking like coverage. Refusing beats warning: the stanza is the whole
+        // output, and the person running this is often triaging a control that just went red, where
+        // pasting a green no-op is the tempting move and the one that destroys the fixture.
+        if ($isControl && $result['risk'] === RiskLevel::High) {
+            $this->error('Refusing to scaffold a control for a change that already reports HIGH.');
+            $this->line('A control caps the risk a harmless change may report, and HIGH is the top of the scale, so the cap would assert nothing and the case would pass forever.');
+            $this->line('Either this change is not harmless — capture it as a signal case by dropping --control — or the corpus needs a genuinely low-reach commit for this control.');
+
+            return self::FAILURE;
+        }
+
         $key = $this->deriveKey($commit, $subject);
         $bugClass = $subject === '' ? 'TODO: describe the bug class' : $subject;
         $expectSignal = ! $isControl;

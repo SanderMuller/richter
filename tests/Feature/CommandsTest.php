@@ -1218,6 +1218,33 @@ final class CommandsTest extends TestCase
     }
 
     #[Test]
+    public function benchmark_add_refuses_a_control_for_a_change_that_already_reports_high(): void
+    {
+        // High is the ceiling of the risk enum, so a control capped there can never fail. Scaffolding
+        // one hands back a case that looks like coverage and asserts nothing — and the person running
+        // this is usually triaging a control that just went red, where pasting the green no-op is the
+        // tempting move.
+        $this->fakeBenchmarkReplayReachingHighRisk();
+
+        $this->runArtisan('richter:benchmark:add', ['fix-commit' => 'abc1234', '--control' => true])
+            ->expectsOutputToContain('Refusing to scaffold a control')
+            ->doesntExpectOutputToContain("'max_risk' => 'high'")
+            ->assertFailed();
+    }
+
+    #[Test]
+    public function benchmark_add_still_scaffolds_the_same_high_change_as_a_signal(): void
+    {
+        // The refusal is about the control's cap, not about the commit: dropping --control asks a
+        // question High can answer, so the same replay must still produce a stanza.
+        $this->fakeBenchmarkReplayReachingHighRisk();
+
+        $this->runArtisan('richter:benchmark:add', ['fix-commit' => 'abc1234'])
+            ->expectsOutputToContain("'expect_signal' => true")
+            ->assertSuccessful();
+    }
+
+    #[Test]
     public function benchmark_add_falls_back_to_the_short_sha_key_when_the_subject_has_no_ticket(): void
     {
         $this->fakeBenchmarkReplayReachingRoutes([
@@ -1506,6 +1533,53 @@ final class CommandsTest extends TestCase
      * so the configured case replays a modification inside ReviewController::show() — a member the
      * fixture graph resolves and walks up to its two routes (see CodeGraphBuilderTest). The testbench
      * skeleton's app/ is empty, so its graph could never resolve a seed, let alone reach an entry
+     * point. Both `git show` sides return the real fixture source; the diff's line number is derived
+     * from that exact source so the change lands inside the method's span, not at class level.
+     *
+     * @param  array<string, mixed>  $extraFakes  additional `Process::fake` patterns layered in ahead
+     *   of the four replay patterns — kept in ONE `Process::fake` call, since repeated calls are an
+     *   ordering trap.
+     */
+    /**
+     * A replay whose changed symbol the fixture graph reaches widely enough to score HIGH — the
+     * shape that makes a control's risk cap vacuous.
+     */
+    private function fakeBenchmarkReplayReachingHighRisk(): void
+    {
+        $app = $this->app;
+        $this->assertInstanceOf(Application::class, $app);
+        $app->setBasePath(self::fixtureProjectPath());
+
+        $file = 'app/Http/Controllers/Post/ReviewController.php';
+        $source = (string) file_get_contents(self::fixtureProjectPath() . '/' . $file);
+        $changedLine = array_search('        return ReviewResource::make($post);', explode("\n", $source), true);
+        $this->assertIsInt($changedLine);
+        ++$changedLine;
+
+        // Two reached routes from the modified action, a third from the added controller: three
+        // entry points is the HIGH threshold, and both seeds are precise so the coarse cap (which
+        // holds a class-level change at MEDIUM however wide its reach) cannot mask it.
+        $added = 'app/Http/Controllers/Post/DashboardSearchController.php';
+
+        $diff = "diff --git a/{$file} b/{$file}\n--- a/{$file}\n+++ b/{$file}\n"
+            . "@@ -{$changedLine},1 +{$changedLine},1 @@\n"
+            . "-        return ReviewResource::make(\$post->withoutRelations());\n"
+            . "+        return ReviewResource::make(\$post);\n"
+            . "diff --git a/{$added} b/{$added}\n--- /dev/null\n+++ b/{$added}\n"
+            . "@@ -0,0 +1,1 @@\n"
+            . "+<?php declare(strict_types=1);\n";
+
+        Process::fake([
+            '*cat-file*' => Process::result(),
+            '*log*' => Process::result("Rework the post model\n"),
+            '*merge-base*' => Process::result("base123\n"),
+            '*diff*' => Process::result($diff),
+            '*show*' => Process::result($source),
+        ]);
+    }
+
+    /**
+     * A replay of a real member-level change in the fixture project that reaches a route entry
      * point. Both `git show` sides return the real fixture source; the diff's line number is derived
      * from that exact source so the change lands inside the method's span, not at class level.
      *
