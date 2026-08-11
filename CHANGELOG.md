@@ -5,6 +5,35 @@ All notable changes to `sandermuller/richter` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.24.0 - 2026-08-11
+
+One new advisory lane, and a README that finally leads with what the package is for.
+
+### Added
+
+- **A middleware change that runs through a group is now sized.** Route middleware is resolved by *alias* and never by group. `->middleware('auth')` reaches the graph as `middleware::auth` and Richter rewrites that onto the FQCN, so an aliased middleware is connected to the routes it guards. `->middleware('api')` reaches it as a bare `middleware::api` node, and the classes inside that group are connected to nothing.
+  
+  The group is still not expanded into edges — mapping a global group onto every route would make each of its members report every route in the app as an entry point. But the middleware self-lists as an entry point anyway, so the report read "one entry point: the middleware itself" for a change that runs on every route in the group. The answer was wrongly *sized* rather than missing, and this supplies the size:
+  
+  ```text
+    ! App\Http\Middleware\EnsureTenant runs in middleware group 'api', which guards 142 routes; group membership is not drawn as edges, so those routes are not in the reach above
+  
+  ```
+  The count comes off the `route:: → middleware::<group>` edges already in the graph, so it counts endpoints only: a controller-level attachment of the same group does not inflate it. Membership is read from `$middlewareGroups` on a Laravel 10 Kernel or the `->web(append: [...])` form in a Laravel 11+ `bootstrap/app.php`. A member written as an alias resolves through the same alias map, parameters are cut first (`tenant:strict` is one alias with an argument), and a group that names another group is expanded transitively, since Laravel runs the inner group's middleware on the outer group's routes too.
+  
+  Silence is the answer wherever the size cannot be vouched for: a group no route references, a middleware in no group, a name that is both a group and an alias, an unreadable Kernel, or an upgraded app that kept an empty `app/Http/Kernel.php` stub beside its bootstrap groups. Advisory like the rest of the annotation family — it never moves the risk level, and the test suite pins that risk and entry points are identical with the Kernel present and absent. Full detail in [the detect-changes reference](https://github.com/SanderMuller/richter/blob/main/docs/detect-changes.md#middleware-group-membership).
+  
+
+### Changed
+
+- **The README leads with what Richter does for you, and the reference depth moved to `docs/`.** It had grown to 636 lines, with the pitch buried under an insider comparison of what Richter adds over Laravel Brain, and the install command sitting below seventy lines of prose. It now opens with the six differentiators and puts `detect-changes` first under Usage. The annotation lanes, payload-parity mechanics, frontend scan details, JSON contract, and the full configuration table move verbatim into six files under `docs/`, which ship in the dist archive and are linked from the README. `/docs` was ignored by the original package scaffold's template `.gitignore`; that entry is gone, since nothing had ever lived there and it would have 404'd every one of the new links.
+
+### Internal
+
+- Plan 051 is closed. Levers A and C — routing Richter's parsing through Brain's shared parse cache, and a per-file tracer cache — were deferred until Brain's performance work released. It has, and the win expired anyway for an unrelated reason: the tracer branch now runs in a child process, where Brain's `analyze()` never ran, so the re-parse those levers remove is cross-process and no in-process cache reaches it. Measured on a 1,340-file synthetic application rather than argued: Brain parses 262 of them (the route-reached fraction, and the ceiling on convertible cache hits), its parser is 6% *faster* cold so the swap is never a regression, and the whole change is worth 2% of build time on the default path. The numbers are kept in the plan file for whoever asks again.
+
+**Full Changelog**: https://github.com/SanderMuller/richter/compare/v0.23.0...v0.24.0
+
 ## v0.23.0 - 2026-08-10
 
 Two silent-failure shapes that richter used to miss: a call through an application facade, and a validation field a frontend still sends after the rule was dropped. Both were found by auditing what Laravel Brain covers that richter does not — and both turned out to be places where the overlap looks like coverage and is not.
@@ -21,6 +50,7 @@ Two silent-failure shapes that richter used to miss: a call through an applicati
   
   ```text
     ! resources/js/Pages/Posts/Create.vue posts to POST /posts and sends 'subtitle', which this diff removes from App\Http\Requests\StorePostRequest::rules() (renamed to 'sub_title'?)
+  
   
   ```
   Matching is send-shaped where the response lane is access-shaped: an object-literal key, a `FormData`/`URLSearchParams` `append`/`set` with a literal name, a bracket write, a payload assignment. The object-literal pattern is the one the response lane names as its own false-positive class — a destructure of a response and an object literal being built are the same tokens — which is why the two lanes match separately instead of sharing a predicate. The residual cost is the mirror image, and the per-field `ignore` entry (`App\Http\Requests\StorePostRequest::subtitle`) carries it.
