@@ -2,11 +2,17 @@
 
 namespace SanderMuller\Richter\Support;
 
+use Closure;
 use PhpParser\ErrorHandler\Collecting;
+use PhpParser\Node;
 use PhpParser\Node\Name;
 use PhpParser\Node\Stmt;
+use PhpParser\Node\Stmt\ClassLike;
+use PhpParser\Node\Stmt\ClassMethod;
 use PhpParser\NodeTraverser;
+use PhpParser\NodeVisitor;
 use PhpParser\NodeVisitor\NameResolver;
+use PhpParser\NodeVisitorAbstract;
 use PhpParser\ParserFactory;
 use SanderMuller\Richter\Graph\CodeGraphBuilder;
 use Symfony\Component\Finder\Finder;
@@ -130,5 +136,61 @@ final class AppFiles
         }
 
         return $unique;
+    }
+
+    /**
+     * Every matching node in a method's OWN scope — parameter defaults and attributes included —
+     * skipping anything inside a NAMED class-like nested within it, and descending into anonymous ones.
+     *
+     * The asymmetry is the point, and it follows from who else scans the node. A named inner class is
+     * handed to the caller as a class-like in its own right, so walking into it here would attribute
+     * the same call twice, the second time to a method that never made it. An anonymous class is not:
+     * it has no name to be a source, and the callers skip it for exactly that reason — so its calls
+     * belong to the method that builds it, which is both true (that method's return value renders the
+     * view / reads the config) and the only attribution that names something a reader can open.
+     *
+     * @param  Closure(Node): bool  $matches  a first-class callable, so the predicate can be typed
+     * @return list<Node>
+     */
+    public static function nodesOwnedBy(ClassMethod $method, Closure $matches): array
+    {
+        $visitor = new class ($matches) extends NodeVisitorAbstract {
+            /** @var list<Node> */
+            public array $found = [];
+
+            /** @param  Closure(Node): bool  $matches */
+            public function __construct(private readonly Closure $matches) {}
+
+            public function enterNode(Node $node): ?int
+            {
+                // Named: scanned in its own right, so pruning here is what keeps one call from
+                // becoming two edges. Anonymous: scanned nowhere else, so this is its only chance.
+                if ($node instanceof ClassLike && $node->namespacedName instanceof Name) {
+                    return NodeVisitor::DONT_TRAVERSE_CHILDREN;
+                }
+
+                if (($this->matches)($node)) {
+                    $this->found[] = $node;
+                }
+
+                return null;
+            }
+        };
+
+        $traverser = new NodeTraverser();
+        $traverser->addVisitor($visitor);
+        $traverser->traverse($method->stmts ?? []);
+
+        // Params and attributes are traversed separately because they are not statements: a match in
+        // a parameter default is as real a call as one in the body.
+        foreach ($method->params as $param) {
+            $traverser->traverse([$param]);
+        }
+
+        foreach ($method->attrGroups as $attrGroup) {
+            $traverser->traverse([$attrGroup]);
+        }
+
+        return $visitor->found;
     }
 }

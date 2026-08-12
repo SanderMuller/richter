@@ -12,11 +12,13 @@ This links the lookup to the classes the file names.
 
 ## Assumptions
 
-- **File granularity, not key granularity.** The registry's *keys* are frequently not statically
-  enumerable — the observed file builds them by looping the class list and calling a static method on
-  each — and the call's key is dynamic anyway. Its *values* are enumerable: a `::class` constant
-  resolves through the config file's own `namespace` declaration. So a `config('calculators…')` call
-  reaches every app class `config/calculators.php` names, and the lane does not try to pick one.
+- **Key granularity where the key is knowable, file granularity where it is not.** A fully literal
+  key is looked up in the config file's own returned array, and only the app classes that value names
+  are drawn. An interpolated key (`config("calculators.{$id}")`) names no key to look up, and a file
+  whose array is built by a loop, spread from a default, or keyed by a constant cannot be walked at
+  all — in both of those the whole file's class list is used. A registry's *keys* are frequently not
+  statically enumerable; its *values* are, because a `::class` constant resolves through the config
+  file's own `namespace` declaration.
 - **The fan-out is excluded from risk.** A runtime-chosen target is honestly "any of these", the same
   over-approximation `override` makes for polymorphic dispatch, and `override` is risk-excluded for
   exactly this reason. Reach and entry-point discovery still flow — that is the entire win, since it
@@ -52,9 +54,16 @@ and left the new class reporting no callers — the stale answer the fingerprint
 | Case | Behaviour |
 |---|---|
 | `config("calculators.{$id}")` | Edge to every app class the file names. The key is dynamic; the file is not. |
-| `config('calculators.basic')` | Same. A deeper static key does not narrow the match yet — see below. |
+| `config('settings.handler')` | Edge to the one class that key's value names. The key is literal, so it is looked up rather than approximated. |
+| `config('settings.timezone')` | Nothing. The key resolves to a string; a string names no class. This is the shape that made the first release over-report. |
+| `config('settings.driver')` where the value is `env('X')` | Nothing. The key was found and its value names no class — a determined answer, not an unknown. |
+| `env('X', Basic::class)` as the value | Edge to `Basic`. The default IS what the application uses unless the environment overrides it, so the class is named right there. A value is judged by whether it names a class, not by the expression it is wrapped in. |
+| `config('settings.absent')` in a fully literal array | Nothing. Every key there is a plain literal and nothing is spread in, so a miss is genuinely a miss. |
+| `config('calculators.basic')` where the file returns a variable | Whole class list. The array cannot be walked, and over-approximating is the safe direction for a reach-adding lane. |
+| Two literal keys into one file | Both answered. Reads are deduped on the (file, key) pair; deduping on the file name alone would drop one, source-order dependent. |
 | `Config::get('calculators.x')` | Recognised, same as the helper. Matched case-insensitively, as PHP resolves method names. |
 | Two classes in one file, only the second reads config | Attributed to the second. Class-scoped like `StaticCallEdgeTracer`, so the registry never hangs off a caller that does not read it. |
+| A read inside an anonymous class | Attributed to the method that builds it, never to an invented member on the file's primary class. |
 | `config($key)` | Nothing. Guessing a file would point the reader at an unrelated subsystem. |
 | Config file naming only vendor classes | Not a registry. |
 | Config file naming no class at all | Not a registry. |
@@ -64,9 +73,21 @@ and left the new class reporting no callers — the stale answer the fingerprint
 
 ## Not in scope
 
-Narrowing a fully static deeper key (`config('services.stripe.class')`) to that subtree. It needs the
-array literal evaluated, which the registry shape above defeats anyway — that file's return value is
-built by a loop. Cohesive config files make the file-level match harmless in the meantime.
+Resolving a value the array literal does not state outright: a key merged in from a package's own
+config, a class name assembled from a string, a `::class` reached through a constant. Those read as
+"no class named here", which is the correct answer for the lane even when a runtime value would
+differ — a class this cannot see, it also cannot link.
+
+Narrowing a **numeric** path segment (`config('handlers.0')` into a list). Only string keys are
+matched, so a list index reads as unwalkable and the whole file's class list is used. That is the
+conservative direction and the failure mode of getting it wrong is the expensive one: PHP's implicit
+indexing interacts with explicit integer keys in ways that are easy to model *almost* right, and an
+almost-right answer here is a confidently narrow edge pointing at the wrong class. Worth doing only
+against a real occurrence.
+
+Narrowing an *interpolated* key by its literal prefix (`config("services.{$driver}.class")` → only
+the `class` sub-keys). Possible in principle, and unnecessary so far: the prefix in the observed
+shape is the file itself.
 
 ## Implementation
 

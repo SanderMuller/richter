@@ -25,7 +25,12 @@ final class BladeViews
 
     public static function nodeId(string $viewName): string
     {
-        $slug = strtolower((string) preg_replace('/[^a-zA-Z0-9._]/', '_', self::BLADE_FQCN_PREFIX . $viewName));
+        // Laravel accepts either separator, so `view('posts/show')` and `view('posts.show')` are the
+        // same view. Brain only ever sees the dotted form; without folding it here the slash would
+        // hit the `_` rule below and mint `blade__posts_show`, a node no changed-file seed and no
+        // other lane ever produces — an edge pointing at nothing.
+        $dotted = str_replace('/', '.', $viewName);
+        $slug = strtolower((string) preg_replace('/[^a-zA-Z0-9._]/', '_', self::BLADE_FQCN_PREFIX . $dotted));
 
         return 'view::' . $slug;
     }
@@ -52,5 +57,19 @@ final class BladeViews
         $viewName = self::viewNameFromPath($relativePath);
 
         return $viewName === null ? null : self::nodeId($viewName);
+    }
+
+    /**
+     * Whether a dotted view name has a Blade file behind it in this project.
+     *
+     * Existence is the gate on drawing an edge to a view node: a name Blade resolves from a package
+     * namespace (`mail::message`) or from a runtime-registered path has no file here, and pointing an
+     * edge at it would mint a node nothing else in the graph shares.
+     */
+    public static function existsIn(string $projectRoot, string $viewName): bool
+    {
+        $relative = str_replace('.', '/', $viewName) . self::BLADE_EXT;
+
+        return is_file(rtrim($projectRoot, '/') . '/' . self::VIEWS_DIR . $relative);
     }
 }

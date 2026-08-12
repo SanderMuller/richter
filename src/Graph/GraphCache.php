@@ -58,8 +58,14 @@ final class GraphCache
      * classes `config/x.php` names — the same under-selection if a stale entry were served. That
      * lane also made `config/*.php` a build input, so {@see inputFiles()} now hashes it; before this
      * release nothing the build read lived there.
+     * 12 → 13: two changes to the same entry set. `config-registry` now looks a fully literal key up
+     * in the config file and draws only what that key's value names, instead of the whole file's
+     * class list — this one REMOVES edges, so the staleness direction reverses: a 12 entry served to
+     * this code over-reports, a routine scalar read fanning out into every class its config file
+     * happens to name. The graph also gained `action-to-view` edges from a `view('name')` call in a
+     * class no route reaches, which adds edges and under-selects from a stale entry as usual.
      */
-    private const int FORMAT_VERSION = 12;
+    private const int FORMAT_VERSION = 13;
 
     private ?CodeGraph $memoized = null;
 

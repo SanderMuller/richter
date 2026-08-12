@@ -28,6 +28,7 @@ use SanderMuller\Richter\Tracers\FacadeEdgeTracer;
 use SanderMuller\Richter\Tracers\PolicyEdgeTracer;
 use SanderMuller\Richter\Tracers\ReferenceEdgeTracer;
 use SanderMuller\Richter\Tracers\StaticCallEdgeTracer;
+use SanderMuller\Richter\Tracers\ViewRenderTracer;
 
 /**
  * Builds a {@see CodeGraph} from the live codebase using Laravel Brain's static analysis. Widens
@@ -305,6 +306,9 @@ final class CodeGraphBuilder
         // config/*.php scanned once up front: the registries are the same for every app file, and a
         // per-file rescan of the config directory would be the tracer's whole cost.
         $configTracer = new ConfigRegistryTracer($projectRoot);
+        // Renders a class writes out by name — the lane that places a Livewire/Filament view, whose
+        // component Brain's route-anchored walk never reaches.
+        $viewTracer = new ViewRenderTracer($projectRoot);
 
         // The paths whose ASTs trace() consumes: files under the tracer's own roots.
         $retainPrefixes = array_map(
@@ -349,7 +353,8 @@ final class CodeGraphBuilder
             array_push($edges, ...$referenceTracer->edgesForNodes($nodes['classMethods'], $nodes['traitUses'], $class['fqcn']));
             array_push($edges, ...$entryPointTracer->interfaceEdgesForClassLikes($nodes['classLikes'], $class['fqcn']));
             array_push($edges, ...$staticCallTracer->edgesForClassLikes($nodes['classLikes'], $class['fqcn']));
-            array_push($edges, ...$configTracer->edgesForClassLikes($nodes['classLikes'], $class['fqcn']));
+            array_push($edges, ...$configTracer->edgesForClassLikes($nodes['classLikes']));
+            array_push($edges, ...$viewTracer->edgesForClassLikes($nodes['classLikes']));
         }
 
         // CHA override edges (ancestor::m → concrete::m). Emitted once here, after every file's
