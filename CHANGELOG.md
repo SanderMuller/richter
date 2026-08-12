@@ -5,6 +5,45 @@ All notable changes to `sandermuller/richter` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.29.0 - 2026-08-12
+
+Two ways the report named a surface that does not run the changed code, or failed to name one that does. Both move risk levels, and neither touches the graph. Sourced from a consumer usage audit that put 0.28.0's own new output to work: one of these was found by following up an observation the reporter had filed as "not a defect".
+
+### Fixed
+
+#### The coarse cap no longer rescores against association reach
+
+0.26.0 took association reach out of the entry-point count, on the grounds that a screen sitting beside the changed model is not a caller of it. One path kept walking those edges: `riskInputs()`, which is what the low-confidence cap consults when it decides whether a coarse `high` survives. So the reach that had been removed from the level could still hold a change at `high` through the back door — the same over-reporting that split was for, on the one path it did not cover.
+
+It had a second, visible symptom. `scoredEntryPoints` could come out **above** the printed count, which inverts what the report says that number is: the narrower set the level was measured against. With this fix `scoredEntryPoints <= entryPoints` holds by construction, since the rescore now walks the same excluded set on a subset of the seeds.
+
+The exclusion is fixed rather than a parameter. The memo behind these walks is keyed on depth and the seed set, so two callers asking with different exclusions would alias onto one entry.
+
+If you have tuned `risk_thresholds`, this is worth a look: on a report where the cap binds, the scored counts get smaller, so a change that sat at `high` can now report `medium`.
+
+#### A Nova resource is an entry surface
+
+`\Filament\` was in the entry-surface vocabulary and `\Nova\` was not, though the two are the same shape: an admin panel built from resource classes the framework routes to, with no route in the application's own files. On an application whose admin is Nova, every change to it reported reaching nothing at all.
+
+Added to both vocabularies — the entry-class one, so a changed resource self-lists as its own surface and carries the `medium` floor, and the UI-component one, so a resource *upstream* of a change counts as a surface rather than a plain caller. Same treatment Livewire and Filament already had.
+
+Two deliberate non-changes:
+
+- **Not gated on Nova being installed.** The test is a substring match on the application's own `App\Nova\` namespace, not on the vendor package. Filament is not gated either, and a project that names a namespace after a panel it does not use is not a case worth a runtime check for.
+- **`Nova` is not added to the `entry_point_roots` defaults.** Measured against a real application, adding it changes no report — those classes already arrive through ordinary call edges. Tracing was never what was missing; the vocabulary was. This is now written down in the configuration reference, since it is a reasonable thing to try first.
+
+### Also in this release
+
+The setup skill's replay warning names the config. A tracked `config/richter.php` is reverted by the same checkout that reverts `composer.json` and `composer.lock`, so a tuned `risk_thresholds` silently does not apply during a replay and every level it reports comes from package defaults. Fine when comparing versions against each other; misleading when the calibration is the thing being checked.
+
+### Upgrading
+
+No `GraphCache::FORMAT_VERSION` change — both fixes are analyzer-side, so no rebuild is triggered and no cache is stale.
+
+Risk levels can move in both directions: down where the cap now binds on a low-confidence report, and up where a changed Nova resource picks up the `medium` entry-class floor. Nothing else about how a level is computed changed.
+
+**Full Changelog**: https://github.com/SanderMuller/richter/compare/v0.28.0...v0.29.0
+
 ## v0.28.0 - 2026-08-12
 
 A recall fix for applications that still route through the legacy string action, the second half of the view lane, and the report finally naming the counts its risk level was decided on. Sourced from a consumer usage audit — one of whose findings turned out to be wrong, and the reproduction that disproved it found the real bug beside it.
@@ -200,6 +239,7 @@ Note: 2 changed file(s) are outside the analysed scope (not PHP under app/, a Bl
 
 
 
+
 ```
 Stderr, like the untracked-file note, so `--json` and `--markdown` stdout stay exactly the report. Frontend sources the configuration declines to scan are not counted: generated Wayfinder output under `frontend.generated_paths` and `.d.ts` declarations were silenced on purpose, and a note that fires loudest on regeneration churn is one people stop reading.
 
@@ -266,6 +306,7 @@ One new advisory lane, and a README that finally leads with what the package is 
   
   
   
+  
   ```
   The count comes off the `route:: → middleware::<group>` edges already in the graph, so it counts endpoints only: a controller-level attachment of the same group does not inflate it. Membership is read from `$middlewareGroups` on a Laravel 10 Kernel or the `->web(append: [...])` form in a Laravel 11+ `bootstrap/app.php`. A member written as an alias resolves through the same alias map, parameters are cut first (`tenant:strict` is one alias with an argument), and a group that names another group is expanded transitively, since Laravel runs the inner group's middleware on the outer group's routes too.
   
@@ -298,6 +339,7 @@ Two silent-failure shapes that richter used to miss: a call through an applicati
   
   ```text
     ! resources/js/Pages/Posts/Create.vue posts to POST /posts and sends 'subtitle', which this diff removes from App\Http\Requests\StorePostRequest::rules() (renamed to 'sub_title'?)
+  
   
   
   
