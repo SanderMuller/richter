@@ -682,6 +682,11 @@ final class ImpactAnalyzerTest extends TestCase
         $this->assertSame(RiskLevel::Medium, $result['risk']);
         // The cap genuinely bound the result here (coarse fan-out would otherwise be HIGH).
         $this->assertTrue($result['coarseCapApplied']);
+        // MEDIUM was decided against the precisely-seeded subset, which seeds nothing here — so the
+        // printed impacted count is not the number the level was measured against, and calibrating
+        // `risk_thresholds` on it (as the guidance says) would set the bar against the wrong scale.
+        $this->assertSame(0, $result['scoredImpacted']);
+        $this->assertNotSame($result['impacted'], $result['scoredImpacted']);
     }
 
     #[Test]
@@ -1039,6 +1044,11 @@ final class ImpactAnalyzerTest extends TestCase
 
         // The sibling's route plus the job's self-listing (its own seeds reached nothing).
         $this->assertSame([self::ROUTE, 'App\Jobs\ImportJob'], $result['entryPoints']);
+        // Self-listed surfaces join the list *after* the level is scored, so the printed count is one
+        // higher than the number the thresholds were compared against. Nothing about this report is
+        // low-confidence — the two counts come apart here for a second, independent reason.
+        $this->assertFalse($result['lowConfidence']);
+        $this->assertSame(1, $result['scoredEntryPoints']);
         $this->assertSame('unresolved', $result['coverage']['app/Jobs/ImportJob.php']);
         $this->assertSame('analyzed', $result['coverage']['app/Services/X.php']);
     }

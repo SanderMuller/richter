@@ -28,6 +28,30 @@ in a maintainer interview on 2026-07-23; chiefly, the mirror ratio ships
 configurable but defaulting to **1.0**, an exact predicate that keeps the
 no-guess rule every other checker follows intact. The same dogfood found the
 0.8.0 → 0.12.0 bump itself clean.
+**Unplanned consumer handoff added 2026-08-12** (pinned at commit `e12ec05`,
+v0.27.0) —
+[handoff-route-string-actions-2026-08-12.md](handoff-route-string-actions-2026-08-12.md):
+from a five-round dogfood of 0.20.1 → 0.27.0 on one large consumer application.
+**H1 was reported wrong and is corrected in place** — the claim was "a string-form
+route action draws no `route-to-controller` edge"; the maintainer's fixture proved
+every string form draws one. What that consumer actually has is the
+**partially-qualified phantom id** found beside it, and their graph dump makes it a
+recall bug rather than a cosmetic one: the majority of their `route-to-controller`
+edges point at a phantom, the real class node exists separately and is never
+connected, so those controllers report 0 entry surfaces and the new
+inline-validation lane cannot fire for them. The proposed unique-suffix match
+resolves all but a handful; a file-identity match resolves exactly the same set, and
+the residue has no real class node at all. The handoff also answers the deciding
+datum on the runtime-vs-AST question: their route nodes carry `file`/`line`, so it is
+the AST path. Plus one P2 on the `risk_thresholds` contract (printed counts are not
+the scored counts on a low-confidence report, so any pair that lifts a middling
+change off HIGH inverts the pinned/unpinned ordering — retested against 0.27.0's
+corrected advice, which addresses a different failure mode) and one P3 (the view lane
+misses Filament's `protected static string $view` property form). The same dogfood
+**verified 0.26.0 and 0.27.0 correct**: entry-points-as-callers, the config-registry
+over-report revert, `--depth`, the middleware group count, and the inline-validation
+lane all landed as described, with `benchmark` 7/7 on every version. Includes a
+correction to that consumer's earlier `PUBLIC_WRITE` claim.
 Execute in the order below unless dependencies say otherwise. Each executor:
 read the plan fully before starting, honor its STOP conditions, and update
 your row when done.
@@ -40,8 +64,11 @@ your row when done.
 >
 > **Update (2026-08-10)**: 051 is closed too — B shipped, A and C were rejected
 > on measurement once the Brain release opened their gate. Its spec file is
-> kept for the numbers, not for open work: no plan in this index has work
-> outstanding.
+> kept for the numbers, not for open work.
+>
+> **Update (2026-08-12)**: 052 is the one open plan. H1 and H3 of the same
+> handoff were implemented directly rather than planned — both were small and
+> the reproduction had already settled their design.
 
 > **Integrated (2026-07-17)**: plans 001-006, 010, 011 (minus its binding
 > half) and 012 were cherry-picked onto main via `advisor/integration` and
@@ -152,6 +179,8 @@ Performance round (2026-07-24):
 |------|-------|----------|--------|------------|--------|
 | 049  | Skip call-free methods in `EntryPointTracer` (fewer `MethodTracer` calls) | P3 | S | none | DONE (2026-07-24, commit `9173d10`) — the call-free skip lives in the extracted `Support\EntryPointMethodFilter` (adding it in-class tipped `EntryPointTracer`'s cognitive complexity 79→83). Output-invariant (the full graph-build suite is unchanged); ~8.5% of `traceMethod` calls on the host app, the cheapest ones. The real graph-build lever is upstream Brain — see `an internal performance analysis`. |
 | 051  | richter-side graph-build perf transfers from the Brain autoresearch handoff (A: `AppFiles`→Brain parser; B: `GraphCache` mtime+size fast-path; C: per-file tracer cache) | P2/P3 | S–L | A none; B/C were gated on the upstream Brain performance release | **CLOSED 2026-08-10. B EXECUTED** (safe form, commit `bb12564`) — an in-process stat-cache accelerating the content-hash, fingerprint byte-identical, no FORMAT_VERSION bump. **A and C REJECTED on measurement.** The gate opened (brain v2.4.0 ships the shared parse cache) but the win expired for another reason: plan 050 moved the tracer branch into a CHILD process, where Brain's `analyze()` never ran, so its cache is cold and the re-parse A removes is cross-process. Measured on a 1,340-file synthetic app: Brain parsed 262 of them (the ~20% route-reached fraction — the ceiling on convertible hits), Brain's parser is 6% FASTER cold (0.191s vs 0.204s) so the swap is never a regression, and a hit saves ~0.14ms/file. Net: 2% of build on the default path, 7% serial at the measured shape. `memberDeclarationEdges()` (the one site where the parent's cache IS warm) lives inside a 0.03s phase. Not worth the grammar-target change (`createForHostVersion`→`createForNewestSupportedVersion` moves the parseable boundary, hence the graph). AST sharing and name-resolution equivalence were both checked and are fine. C falls with A — a per-file cache in the child starts cold every build. **Byproduct: a real crash found and fixed in 0.23.0** — richter's NameResolver used the throwing error handler, so one duplicate `use` alias aborted the whole build. Reopen only if the tracer branch returns in-process. |
+| 052  | Make the counts the risk level was decided on visible (handoff H2) | P2 | S (A) / M (B) | none | **A DONE** (2026-08-12) — `scoredEntryPoints`/`scoredImpacted` on every report, named in text/markdown/HTML only where they differ from the printed counts; no `FORMAT_VERSION` bump. Execution found the divergence is **wider than reported**: the entry-point list also gains self-listed and frontend surfaces after scoring, so the two counts come apart on reports that are not low-confidence at all (pinned in `ImpactAnalyzerTest`). **B narrowed, still open** — its entry-point half is REJECTED (that divergence is designed: frontend/self-listed surfaces are appended after the risk inputs freeze precisely so they never move `risk`, and a self-listed entry class is already floored by `touchesEntryClass`). What is left is the impacted axis, and the real question there is what low confidence should do to a level, not which count feeds it. |
+
 | 050  | Build the Brain branch and the tracer branch concurrently | P2 | M–H | none (composes with 049) | DONE (2026-07-24, commit `daaaf17`) — concurrent Brain-branch ‖ tracer-branch build via a hidden `richter:internal-tracer-branch` worker + `illuminate/process` and a serial fallback; `richter.parallel` config (default on; serial in the suite and under `--profile`). Byte-identical to serial — the equality test spawns a **real** child process and asserts the graph matches. 734 tests; phpstan/pint/rector clean. ~40% cold-build wall-time, capped by the serial `brain-analyze` floor. Used the hidden-worker approach, not the `Concurrency` facade (its process driver breaks on `$this`, its fork driver needs `pcntl`). |
 
 ## Dependency notes

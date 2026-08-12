@@ -64,6 +64,8 @@ final class HtmlFormatterTest extends TestCase
             'risk' => RiskLevel::Medium,
             'lowConfidence' => true,
             'coarseCapApplied' => true,
+            'scoredEntryPoints' => 1,
+            'scoredImpacted' => 1,
             'findings' => ['app/Exports/X.php: eager-load string matches no relation'],
         ];
     }
@@ -209,6 +211,20 @@ final class HtmlFormatterTest extends TestCase
         $this->assertStringContainsString('drives the coarse class-level seed', $html);
         $this->assertStringContainsString('coarse class-level estimate', $html);
         $this->assertStringContainsString('risk capped at MEDIUM', $html);
+        // The fixture's level was decided on 1 impacted node while the report prints 2, so the note
+        // that names the difference has to be here — silently printing the wrong calibration input
+        // is the whole failure this line exists to stop.
+        $this->assertStringContainsString('Risk was scored on 1 entry point(s) and 1 impacted node(s)', $html);
+    }
+
+    #[Test]
+    public function a_report_whose_counts_match_carries_no_scored_note(): void
+    {
+        $result = $this->fixture();
+        $result['scoredEntryPoints'] = count($result['entryPoints']);
+        $result['scoredImpacted'] = $result['impacted'];
+
+        $this->assertStringNotContainsString('Risk was scored on', HtmlFormatter::detectChanges($result, $this->changedFiles(), 'origin/main'));
     }
 
     #[Test]
@@ -240,7 +256,8 @@ final class HtmlFormatterTest extends TestCase
             'coverage' => [], 'entryPoints' => [], 'entryPointPaths' => [],
             'entryPointLocations' => [], 'entryPointSecurity' => [], 'entryPointGates' => [],
             'seeds' => [], 'reach' => [], 'edges' => [], 'impacted' => 0, 'relatedModels' => [],
-            'risk' => RiskLevel::Low, 'lowConfidence' => false, 'coarseCapApplied' => false, 'findings' => [],
+            'risk' => RiskLevel::Low, 'lowConfidence' => false, 'coarseCapApplied' => false,
+            'scoredEntryPoints' => 0, 'scoredImpacted' => 0, 'findings' => [],
         ], [], 'origin/main');
 
         $this->assertStringContainsString('<strong>0</strong>', $html);
@@ -278,6 +295,8 @@ final class HtmlFormatterTest extends TestCase
             'risk' => RiskLevel::Low,
             'lowConfidence' => false,
             'coarseCapApplied' => false,
+            'scoredEntryPoints' => 0,
+            'scoredImpacted' => 0,
             'findings' => ['app/X.php: <b>bad</b> & worse'],
         ], [
             new ChangedFileSymbols('app/Weird<name>&"x".php', 'App\Weird<T>', [
@@ -324,6 +343,8 @@ final class HtmlFormatterTest extends TestCase
             'risk' => RiskLevel::Low,
             'lowConfidence' => false,
             'coarseCapApplied' => false,
+            'scoredEntryPoints' => 0,
+            'scoredImpacted' => 0,
             'findings' => [],
         ], [
             new ChangedFileSymbols('app/We"ird<x>&.php', 'App\Weird', [

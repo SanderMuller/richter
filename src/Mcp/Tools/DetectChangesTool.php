@@ -90,6 +90,8 @@ final class DetectChangesTool extends Tool
             'risk' => $schema->string()->description('low, medium or high.'),
             'lowConfidence' => $schema->boolean(),
             'coarseCapApplied' => $schema->boolean(),
+            'scoredEntryPoints' => $schema->integer()->description("Entry points the risk level was decided on. Lower than the entryPoints list wherever a surface joined it after scoring (a self-listed entry class, a frontend file's routes) or a low-confidence high was re-scored on the precise subset. Calibrate risk_thresholds against this, not the printed count."),
+            'scoredImpacted' => $schema->integer()->description('Impacted nodes the risk level was decided on. Differs from impacted when a low-confidence high was re-scored against the precisely-seeded subset.'),
             'findings' => $schema->array()->items($schema->string()),
             'unresolved' => $schema->boolean()->description('True when any changed file could not be placed in the graph.'),
         ];

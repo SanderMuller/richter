@@ -14,7 +14,7 @@ final class MarkdownFormatterTest extends TestCase
      * @param  list<string>  $entryPoints
      * @param  array<string, 'analyzed'|'unresolved'>  $coverage
      * @param  list<string>  $relatedModels
-     * @return array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, newFiles?: list<string>, entryPoints: list<string>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied: bool}
+     * @return array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, newFiles?: list<string>, entryPoints: list<string>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied: bool, scoredEntryPoints: int, scoredImpacted: int}
      */
     private function summary(
         array $entryPoints,
@@ -23,6 +23,8 @@ final class MarkdownFormatterTest extends TestCase
         bool $lowConfidence = false,
         RiskLevel $risk = RiskLevel::Low,
         bool $coarseCapApplied = false,
+        ?int $scoredEntryPoints = null,
+        ?int $scoredImpacted = null,
     ): array {
         return [
             'changed' => array_map(static fn (): int => 1, $coverage),
@@ -33,7 +35,20 @@ final class MarkdownFormatterTest extends TestCase
             'risk' => $risk,
             'lowConfidence' => $lowConfidence,
             'coarseCapApplied' => $coarseCapApplied,
+            'scoredEntryPoints' => $scoredEntryPoints ?? count($entryPoints),
+            'scoredImpacted' => $scoredImpacted ?? count($entryPoints),
         ];
+    }
+
+    #[Test]
+    public function the_scored_counts_are_named_only_when_they_differ_from_the_printed_ones(): void
+    {
+        $diverged = MarkdownFormatter::detectChanges(
+            $this->summary(['route::GET::/r', 'App\\Jobs\\ImportJob'], scoredEntryPoints: 1, scoredImpacted: 1),
+        );
+        $this->assertStringContainsString('Risk was scored on 1 entry point(s) and 1 impacted node(s)', $diverged);
+
+        $this->assertStringNotContainsString('Risk was scored on', MarkdownFormatter::detectChanges($this->summary(['route::GET::/r'])));
     }
 
     #[Test]

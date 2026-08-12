@@ -21,7 +21,7 @@ use SanderMuller\Richter\Graph\NodeMetadata;
  * @phpstan-import-type SecurityShape from NodeMetadata
  * @phpstan-import-type Layout from RadialLayout
  * @phpstan-type GateVerdict array{failOn: string|null, failOnUnresolved: bool, tripped: bool, reasons: list<string>}
- * @phpstan-type DetectChangesResult array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, associationEntryPoints?: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, SecurityShape>, entryPointGates: array<string, list<string>>, entryPointAuthGates?: array<string, list<string>>, entryPointAuthMiddleware?: array<string, list<string>>, seeds: list<string>, reach: array<string, array<string, true>>, edges: list<array{source: string, target: string, via: string, depth: int}>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied: bool, findings: list<string>, ...}
+ * @phpstan-type DetectChangesResult array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, associationEntryPoints?: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, SecurityShape>, entryPointGates: array<string, list<string>>, entryPointAuthGates?: array<string, list<string>>, entryPointAuthMiddleware?: array<string, list<string>>, seeds: list<string>, reach: array<string, array<string, true>>, edges: list<array{source: string, target: string, via: string, depth: int}>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied: bool, scoredEntryPoints: int, scoredImpacted: int, findings: list<string>, ...}
  */
 final class HtmlFormatter
 {
@@ -100,6 +100,7 @@ final class HtmlFormatter
     {
         return self::statRow($result)
             . self::lowConfidenceNote($result)
+            . self::scoredCountsNote($result)
             . '<div class="cards">'
             . self::card('Entry points reached', self::entryPointList($rows, $editor))
             . self::card('What to focus on', self::focusList($result, $rows))
@@ -277,6 +278,14 @@ final class HtmlFormatter
 
         return '<p class="note warn">Low confidence: a changed member could not be pinned to a graph node, so part of this is a coarse class-level estimate'
             . Html::e($cap) . '. The Changes tab names the members.</p>';
+    }
+
+    /** @param  DetectChangesResult  $result */
+    private static function scoredCountsNote(array $result): string
+    {
+        $note = ImpactFormatter::scoredCountsNote($result);
+
+        return $note === '' ? '' : '<p class="note">' . Html::e($note) . '</p>';
     }
 
     // --------------------------------------------------------------- paths

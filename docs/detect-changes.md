@@ -78,10 +78,10 @@ The rename hint appears only when exactly one key was removed and one added, nev
 A third lane covers the request side. A field removed from a form request's `rules()` stops being validated and stops appearing in `validated()`, so a frontend that still sends it now sends it into nothing, and nothing anywhere reports an error:
 
 ```text
-  ! resources/js/Pages/Posts/Create.vue posts to POST /posts and sends 'subtitle', which this diff removes from App\Http\Requests\StorePostRequest::rules() (renamed to 'sub_title'?)
+  ! resources/js/Pages/Posts/Create.vue sends 'subtitle' to POST /posts, which this diff removes from App\Http\Requests\StorePostRequest::rules() (renamed to 'sub_title'?)
 ```
 
-Matching here is send-shaped rather than access-shaped: an object-literal key, a `FormData` `append`/`set` with a literal name, or an assignment onto a payload by dot or bracket. The false positive mirrors the response lane's: a file that both posts to and reads from the endpoint can match on a field it only reads, and the same per-field `ignore` entry (`App\Http\Requests\StorePostRequest::subtitle`) suppresses it.
+Matching here is send-shaped rather than access-shaped: an object-literal key, a `FormData` `append`/`set` with a literal name, or an assignment onto a payload by dot or bracket. The route's own verb is printed rather than assumed, because a sent field is not always a POST body — a query parameter on a `GET` route is matched the same way. The false positive mirrors the response lane's: a file that both posts to and reads from the endpoint can match on a field it only reads, and the same per-field `ignore` entry (`App\Http\Requests\StorePostRequest::subtitle`) suppresses it.
 
 Validation written **inline** is covered by the same lane. A form request is the documented
 convention, not the only place validation lives: an action that validates a handful of fields
@@ -112,6 +112,24 @@ The count comes from the application's registered route table, because the graph
 Silence is the answer whenever the size cannot be vouched for: a group no route references, a middleware in no group, an unreadable Kernel, or an upgraded app that kept an empty `app/Http/Kernel.php` stub beside its bootstrap groups; that stub wins the lookup and yields no groups, which costs the note and never produces a wrong one.
 
 Advisory, like everything else on this page. Letting a group's routes count toward reach would raise the risk level of every middleware edit in every app at once, which needs its own evidence rather than arriving as a side effect of an annotation.
+
+## The counts the risk level was decided on
+
+`risk` is not always decided against the counts printed beside it, and two things pull them apart.
+The entry-point list gains surfaces **after** the level is scored: a changed class that is itself an
+entry surface self-lists, and a changed frontend file contributes the routes it references. And a
+low-confidence `high` is re-scored against the precisely-seeded subset alone, which is what
+`coarseCapApplied` reports.
+
+`scoredEntryPoints` and `scoredImpacted` carry the counts the level was actually measured against.
+They are present on every report and equal the printed counts whenever nothing pulled them apart; the
+text, markdown and HTML reports name them only when they differ, since repeating identical numbers
+teaches a reader to skip the line.
+
+This matters for one thing in particular: **calibrate `risk_thresholds` against these, not against
+the printed counts.** Where the two diverge, the printed ones can be an order of magnitude larger, so
+a threshold pair tuned on them sits far above where the level is actually decided — and since the
+divergence is widest on the broadest diffs, that inverts the ordering rather than merely loosening it.
 
 ## `--markdown` and `--html` output
 
@@ -144,6 +162,8 @@ With `--json`, stdout is a single JSON document (the full, uncapped report) with
 | `risk` | string | `"low"` / `"medium"` / `"high"` |
 | `lowConfidence` | bool | a changed member couldn't be pinned, so part of the estimate is coarse |
 | `coarseCapApplied` | bool | a low-confidence `high` was capped to `medium` |
+| `scoredEntryPoints` | int | entry points the `risk` level was decided on — see below |
+| `scoredImpacted` | int | risk-bearing nodes the `risk` level was decided on — see below |
 | `findings` | string[] | source-level findings |
 | `unresolved` | bool | any changed file is UNRESOLVED |
 | `gate` | object | present only under a `--fail-on*` flag (see [Gating in CI](../README.md#gating-in-ci)) |

@@ -358,6 +358,8 @@ final class McpTest extends TestCase
             'risk',
             'lowConfidence',
             'coarseCapApplied',
+            'scoredEntryPoints',
+            'scoredImpacted',
             'findings',
             'unresolved',
         ], array_keys($detectChangesProperties));

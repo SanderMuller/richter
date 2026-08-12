@@ -32,7 +32,7 @@ final class FormatterContractTest extends TestCase
      * unresolved changed file, related models, source findings, and a coarse-capped low-confidence
      * risk — every field either formatter can render, on at once.
      *
-     * @return array{seeds: list<string>, reach: array<string, array<string, true>>, edges: list<array{source: string, target: string, via: string, depth: int}>, changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, array{exposure: string, riskLevel: string, issues: list<array{type: string, severity: string, message: string, file?: string, line?: int}>}>, entryPointGates: array<string, list<string>>, entryPointAuthMiddleware: array<string, list<string>>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied: bool, findings: list<string>}
+     * @return array{seeds: list<string>, reach: array<string, array<string, true>>, edges: list<array{source: string, target: string, via: string, depth: int}>, changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, array{exposure: string, riskLevel: string, issues: list<array{type: string, severity: string, message: string, file?: string, line?: int}>}>, entryPointGates: array<string, list<string>>, entryPointAuthMiddleware: array<string, list<string>>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied: bool, scoredEntryPoints: int, scoredImpacted: int, findings: list<string>}
      */
     private function richFixture(): array
     {
@@ -80,6 +80,8 @@ final class FormatterContractTest extends TestCase
             'risk' => RiskLevel::Medium,
             'lowConfidence' => true,
             'coarseCapApplied' => true,
+            'scoredEntryPoints' => 1,
+            'scoredImpacted' => 2,
             'findings' => ["app/Exports/X.php: eager-load string 'commentsreviews' matches no relation"],
         ];
     }
@@ -154,7 +156,7 @@ final class FormatterContractTest extends TestCase
         foreach ([
             'base', 'changed', 'coverage', 'entryPoints', 'entryPointPaths', 'entryPointLocations',
             'entryPointSecurity', 'entryPointGates', 'entryPointTestReferences', 'impacted',
-            'relatedModels', 'risk', 'lowConfidence', 'coarseCapApplied', 'findings', 'unresolved',
+            'relatedModels', 'risk', 'lowConfidence', 'coarseCapApplied', 'scoredEntryPoints', 'scoredImpacted', 'findings', 'unresolved',
         ] as $key) {
             $this->assertArrayHasKey($key, $json);
         }

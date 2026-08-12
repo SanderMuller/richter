@@ -118,6 +118,10 @@ return [
      * point; controls (expect_signal: false) cap the risk a harmless change may report via max_risk
      * ('low', 'medium' or 'high'). expect_finding (optional) additionally asserts that one of the
      * report's advisory findings contains the given substring — e.g. a payload-parity note.
+     *
+     * max_risk is checked on every fixture, not only on controls; it just does nothing on a bug
+     * fixture left at the default 'high', which is why `benchmark:add` writes that value there. Only
+     * a control is scaffolded with a cap below it, taken from what the replay actually reported.
      */
     'benchmark_cases' => [
         // [
@@ -148,6 +152,13 @@ return [
      * If you keep a benchmark corpus, run it afterwards: it is the check that a calibration has not
      * quietly demoted the defects it was meant to surface.
      *
+     * Calibrate against `scoredEntryPoints` / `scoredImpacted`, not the counts printed beside them.
+     * They are usually the same number, but the entry-point list gains surfaces after the level is
+     * scored (a changed class that is itself an entry surface, a frontend file's routes) and a
+     * low-confidence `high` is re-scored on the precisely-seeded subset. Where they come apart the
+     * printed count can be an order of magnitude larger, so a threshold set against it sits far above
+     * where the level is actually decided. The report names the scored counts whenever they differ.
+     *
      * Note these interact with coverage: every release that teaches Richter to follow more edges
      * raises the impacted count for an unchanged diff, so a level that shifts right after an upgrade
      * is a coverage change before it is a code change.
@@ -172,7 +183,9 @@ return [
         'mirror_threshold' => 1.0,
         // Suppress specific model fields ('App\Models\Post::internal_flag'), resource keys
         // ('App\Http\Resources\PostResource::published_at'), form-request fields
-        // ('App\Http\Requests\StorePostRequest::subtitle'), or a whole resource or request by FQCN
+        // ('App\Http\Requests\StorePostRequest::subtitle'), or fields validated inline, named
+        // against the member holding the call ('App\Http\Controllers\PostController::store::subtitle').
+        // A whole resource, request or member suppresses all of its fields
         // ('App\Http\Resources\Api\InternalResource' — both directions).
         'ignore' => [],
     ],

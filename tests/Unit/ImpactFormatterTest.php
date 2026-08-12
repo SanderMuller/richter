@@ -29,9 +29,9 @@ final class ImpactFormatterTest extends TestCase
     /**
      * @param  list<string>  $entryPoints
      * @param  list<string>  $relatedModels
-     * @return array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, newFiles?: list<string>, fqcns?: array<string, string>, entryPoints: list<string>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied: bool}
+     * @return array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, newFiles?: list<string>, fqcns?: array<string, string>, entryPoints: list<string>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied: bool, scoredEntryPoints: int, scoredImpacted: int}
      */
-    private function summary(array $entryPoints, array $relatedModels = [], bool $lowConfidence = false, RiskLevel $risk = RiskLevel::Low, bool $coarseCapApplied = false): array
+    private function summary(array $entryPoints, array $relatedModels = [], bool $lowConfidence = false, RiskLevel $risk = RiskLevel::Low, bool $coarseCapApplied = false, ?int $scoredEntryPoints = null, ?int $scoredImpacted = null): array
     {
         return [
             'changed' => ['app/Models/Post.php' => 1],
@@ -42,6 +42,8 @@ final class ImpactFormatterTest extends TestCase
             'risk' => $risk,
             'lowConfidence' => $lowConfidence,
             'coarseCapApplied' => $coarseCapApplied,
+            'scoredEntryPoints' => $scoredEntryPoints ?? count($entryPoints),
+            'scoredImpacted' => $scoredImpacted ?? count($entryPoints),
         ];
     }
 
@@ -207,6 +209,20 @@ final class ImpactFormatterTest extends TestCase
         $this->assertStringContainsString('low confidence', $text);
         $this->assertStringContainsString('Related models', $text);
         $this->assertStringContainsString(Comment::class, $text);
+    }
+
+    #[Test]
+    public function the_scored_counts_are_named_only_when_they_differ_from_the_printed_ones(): void
+    {
+        // The configuration guidance says to calibrate `risk_thresholds` against the report's own
+        // counts. Where the level was decided on a different set, that instruction is false unless
+        // the report says which set — and where it is true, repeating the numbers is noise.
+        $diverged = ImpactFormatter::detectChanges(
+            $this->summary(['route::GET::/r', 'App\Jobs\ImportJob'], scoredEntryPoints: 1, scoredImpacted: 1),
+        );
+        $this->assertStringContainsString('Risk was scored on 1 entry point(s) and 1 impacted node(s)', $diverged);
+
+        $this->assertStringNotContainsString('Risk was scored on', ImpactFormatter::detectChanges($this->summary(['route::GET::/r'])));
     }
 
     #[Test]

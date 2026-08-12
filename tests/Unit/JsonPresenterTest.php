@@ -212,7 +212,7 @@ final class JsonPresenterTest extends TestCase
 
     /**
      * @param  list<string>  $entryPoints
-     * @return array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, array{exposure: string, riskLevel: string, issues: list<array{type: string, severity: string, message: string, file?: string, line?: int}>}>, entryPointGates: array<string, list<string>>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied: bool, findings: list<string>}
+     * @return array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, array{exposure: string, riskLevel: string, issues: list<array{type: string, severity: string, message: string, file?: string, line?: int}>}>, entryPointGates: array<string, list<string>>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied: bool, scoredEntryPoints: int, scoredImpacted: int, findings: list<string>}
      */
     private function detectChangesResult(RiskLevel $risk = RiskLevel::Low, bool $coverageUnresolved = false, array $entryPoints = ['route::GET /a', 'route::GET /b', 'route::GET /c']): array
     {
@@ -240,6 +240,8 @@ final class JsonPresenterTest extends TestCase
             'risk' => $risk,
             'lowConfidence' => false,
             'coarseCapApplied' => false,
+            'scoredEntryPoints' => 0,
+            'scoredImpacted' => 0,
             'findings' => ['app/Jobs/ProcessPostJob.php: touches a queue job'],
         ];
     }

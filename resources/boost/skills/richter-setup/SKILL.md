@@ -156,8 +156,11 @@ On yes:
   spot a still-missing `entry_point_roots` entry.
 - If you calibrate `risk_thresholds`, move the `high` bar before the `medium` one: raising `high` can
   only demote a change to `medium`, while raising `medium` is the only edit that can push one to
-  `low`. Run the benchmark corpus before and after if the project has one; that is the only check
-  that says whether the calibration still surfaces real defects.
+  `low`. Calibrate against the report's `scoredEntryPoints` / `scoredImpacted` rather than the counts
+  printed beside them — those two come apart wherever a surface joined the entry-point list after the
+  level was scored, or a low-confidence `high` was re-scored on the precise subset. Run the benchmark
+  corpus before and after if the project has one; that is the only check that says whether the
+  calibration still surfaces real defects.
 - Testing any config key against historical diffs has a trap: `richter:detect-changes` has no `--head`,
   so a replay checks out each ref, and a tracked `config/richter.php` reverts to that ref's version
   mid-experiment. Verify the value is live before trusting the numbers.
@@ -166,3 +169,7 @@ On yes:
   session — replaying branches, walking commits, bisecting — checks out each one, and the hook then
   installs *that* ref's lockfile, silently swapping the richter version mid-comparison. Checking out
   with `git -c core.hooksPath=/dev/null checkout <ref>` keeps one version across the whole run.
+  Disabling the hook does not make the checkout harmless, though: `composer.json` and `composer.lock`
+  still revert to each replayed ref while `vendor/` keeps the version under test. The measurements
+  stay valid — artisan runs off `vendor/` — but a version bump made on the branch is silently undone.
+  Re-check the manifest, not just the hook, before reading a comparison as a version difference.

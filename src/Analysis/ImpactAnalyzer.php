@@ -147,7 +147,7 @@ final readonly class ImpactAnalyzer
      * draw "nothing changed" without a graph build. {@see JsonPresenter::emptyDetectChanges()} is
      * the separate JSON-shaped equivalent; the two differ in `risk` (enum here, string there).
      *
-     * @return array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, newFiles: list<string>, fqcns: array<string, string>, callers: list<array{depth: int, node: string, via: string}>, dependencies: list<array{depth: int, node: string, via: string}>, seeds: list<string>, reach: array<string, array<string, true>>, edges: list<array{source: string, target: string, via: string, depth: int}>, entryPoints: list<string>, associationEntryPoints: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, SecurityShape>, entryPointGates: array<string, list<string>>, entryPointAuthGates: array<string, list<string>>, entryPointAuthMiddleware: array<string, list<string>>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied: bool, findings: list<string>}
+     * @return array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, newFiles: list<string>, fqcns: array<string, string>, callers: list<array{depth: int, node: string, via: string}>, dependencies: list<array{depth: int, node: string, via: string}>, seeds: list<string>, reach: array<string, array<string, true>>, edges: list<array{source: string, target: string, via: string, depth: int}>, entryPoints: list<string>, associationEntryPoints: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, SecurityShape>, entryPointGates: array<string, list<string>>, entryPointAuthGates: array<string, list<string>>, entryPointAuthMiddleware: array<string, list<string>>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied: bool, scoredEntryPoints: int, scoredImpacted: int, findings: list<string>}
      */
     public static function emptyDetectChanges(): array
     {
@@ -157,7 +157,8 @@ final readonly class ImpactAnalyzer
             'entryPointLocations' => [], 'entryPointSecurity' => [], 'entryPointGates' => [],
             'entryPointAuthGates' => [], 'entryPointAuthMiddleware' => [],
             'impacted' => 0, 'relatedModels' => [], 'risk' => RiskLevel::Low,
-            'lowConfidence' => false, 'coarseCapApplied' => false, 'findings' => [],
+            'lowConfidence' => false, 'coarseCapApplied' => false,
+            'scoredEntryPoints' => 0, 'scoredImpacted' => 0, 'findings' => [],
         ];
     }
 
@@ -189,6 +190,8 @@ final readonly class ImpactAnalyzer
      *     risk: RiskLevel,
      *     lowConfidence: bool,
      *     coarseCapApplied: bool,
+     *     scoredEntryPoints: int,
+     *     scoredImpacted: int,
      *     findings: list<string>,
      * }
      */
@@ -308,7 +311,7 @@ final readonly class ImpactAnalyzer
             fn (array $types): bool => ! $this->isRiskBearing($types) && isset($types['model-relationship']),
         ));
 
-        [$risk, $coarseCapApplied] = $this->riskWithCoarseCap($impacted, $riskEntryPointCount, $touchesEntryClass, $preciseSeeds, $lowConfidence, $maxDepth, $riskInputsMemo);
+        [$risk, $coarseCapApplied, $scoredEntryPoints, $scoredImpacted] = $this->riskWithCoarseCap($impacted, $riskEntryPointCount, $touchesEntryClass, $preciseSeeds, $lowConfidence, $maxDepth, $riskInputsMemo);
 
         $findings = $newFileFindings;
         [$modelParityLane, $consumerParityLane, $requestParityLane] = ParityFindings::checkers($this->graph, $payloadParityEnabled);
@@ -353,6 +356,8 @@ final readonly class ImpactAnalyzer
             'risk' => $risk,
             'lowConfidence' => $lowConfidence,
             'coarseCapApplied' => $coarseCapApplied,
+            'scoredEntryPoints' => $scoredEntryPoints,
+            'scoredImpacted' => $scoredImpacted,
             'findings' => $findings,
         ];
     }
@@ -444,23 +449,28 @@ final readonly class ImpactAnalyzer
     /**
      * Cap a coarse low-confidence HIGH to MEDIUM only when precise seeds alone don't already justify HIGH (so a genuine method change isn't masked by a co-touched $fillable). Second element: whether the cap actually downgraded.
      *
+     * The last two elements are the counts the returned level was actually decided on, which the
+     * report has no other way to name. On the cap path that is a second, narrower set. Off it they are
+     * the arguments as given — and `$entryPoints` is already the pre-augmentation count, since the
+     * caller extends its list with self-listed and frontend surfaces only after scoring.
+     *
      * @param  list<string>  $preciseSeeds
      * @param  array<string, array{0: int, 1: int}>  $riskInputsMemo
-     * @return array{0: RiskLevel, 1: bool}
+     * @return array{0: RiskLevel, 1: bool, 2: int, 3: int}
      */
     private function riskWithCoarseCap(int $impacted, int $entryPoints, bool $touchesEntryClass, array $preciseSeeds, bool $lowConfidence, int $maxDepth, array &$riskInputsMemo): array
     {
         $risk = $this->risk($impacted, $entryPoints, $touchesEntryClass);
 
         if (! $lowConfidence || $risk !== RiskLevel::High) {
-            return [$risk, false];
+            return [$risk, false, $entryPoints, $impacted];
         }
 
         [$preciseEntryPoints, $preciseImpacted] = $this->riskInputs($preciseSeeds, $maxDepth, $riskInputsMemo);
 
         return $this->risk($preciseImpacted, $preciseEntryPoints, $touchesEntryClass) === RiskLevel::High
-            ? [RiskLevel::High, false]
-            : [RiskLevel::Medium, true];
+            ? [RiskLevel::High, false, $preciseEntryPoints, $preciseImpacted]
+            : [RiskLevel::Medium, true, $preciseEntryPoints, $preciseImpacted];
     }
 
     /**

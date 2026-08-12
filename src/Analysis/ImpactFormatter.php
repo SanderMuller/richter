@@ -80,7 +80,7 @@ final class ImpactFormatter
     }
 
     /**
-     * @param  array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, newFiles?: list<string>, fqcns?: array<string, string>, entryPoints: list<string>, associationEntryPoints?: list<string>, entryPointPaths?: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations?: array<string, array{file: string, line?: int}>, entryPointSecurity?: array<string, SecurityShape>, entryPointGates?: array<string, list<string>>, entryPointAuthGates?: array<string, list<string>>, entryPointAuthMiddleware?: array<string, list<string>>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied?: bool, findings?: list<string>, ...}  $result
+     * @param  array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, newFiles?: list<string>, fqcns?: array<string, string>, entryPoints: list<string>, associationEntryPoints?: list<string>, entryPointPaths?: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations?: array<string, array{file: string, line?: int}>, entryPointSecurity?: array<string, SecurityShape>, entryPointGates?: array<string, list<string>>, entryPointAuthGates?: array<string, list<string>>, entryPointAuthMiddleware?: array<string, list<string>>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied?: bool, scoredEntryPoints?: int, scoredImpacted?: int, findings?: list<string>, ...}  $result
      * @param  bool  $gateActive  when a `--fail-on*` gate is active the command prints its own verdict, so the advisory suffix is dropped to avoid contradicting it
      * @param  bool  $explain  render the call chain from each reached entry point down to the changed symbol
      */
@@ -147,6 +147,12 @@ final class ImpactFormatter
             $lines[] = "Note: low confidence — a changed member could not be pinned to a graph node, so part of this is a coarse class-level estimate{$cap}.";
         }
 
+        $scored = self::scoredCountsNote($result);
+
+        if ($scored !== '') {
+            $lines[] = "Note: {$scored}";
+        }
+
         // A LOW on a frontend-heavy diff is easily misread as "nothing to see" — say what the
         // number does and does not measure.
         if (self::hasFrontendFiles($result['changed'])) {
@@ -206,6 +212,31 @@ final class ImpactFormatter
     public static function hasFrontendFiles(array $changed): bool
     {
         return array_any(array_keys($changed), static fn (string $file): bool => ! str_ends_with($file, '.php'));
+    }
+
+    /**
+     * The counts the risk level was decided on, when they are not the ones printed beside it —
+     * otherwise ''. Two things pull them apart: the entry-point list gains self-listed and frontend
+     * surfaces after the level is scored, and a low-confidence HIGH is re-scored on the precisely
+     * seeded subset. Only where they differ, because `risk_thresholds` is calibrated against these
+     * and a report repeating identical numbers teaches its reader to skip the line.
+     *
+     * @param  array{entryPoints: list<string>, impacted: int, scoredEntryPoints?: int, scoredImpacted?: int, ...}  $result
+     */
+    public static function scoredCountsNote(array $result): string
+    {
+        $entryPoints = $result['scoredEntryPoints'] ?? null;
+        $impacted = $result['scoredImpacted'] ?? null;
+
+        if ($entryPoints === null || $impacted === null) {
+            return '';
+        }
+
+        if ($entryPoints === count($result['entryPoints']) && $impacted === $result['impacted']) {
+            return '';
+        }
+
+        return "Risk was scored on {$entryPoints} entry point(s) and {$impacted} impacted node(s), not the counts above — calibrate risk_thresholds against these.";
     }
 
     /**
