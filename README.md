@@ -138,7 +138,7 @@ Three output formats beyond the text report, [documented in the detect-changes r
 
 Risk is a coarse, advisory signal, deliberately simple so `--fail-on` stays predictable:
 
-| Level | Condition |
+| Level | Condition (defaults — see `risk_thresholds`) |
 |---|---|
 | `high` | ≥ 3 entry points reached, **or** ≥ 20 impacted nodes |
 | `medium` | ≥ 1 entry point reached, ≥ 5 impacted nodes, **or** the diff changes an entry-point class (job, listener, command, Livewire, observer, middleware) |
@@ -215,8 +215,9 @@ Every hop carries its defining file (and line, when known), project-relative, so
 Between the callers and dependencies, the report names the **entry surfaces** the callers walk
 reaches (routes, commands, schedules, and Livewire/Filament component classes), with the same
 annotations `detect-changes` carries: defining location, `[test-referenced]` /
-`[⚠ no test references this]` tags, security exposure and Pennant gates. `--explain` adds the shortest call
-chain from each surface down to the symbol. The tags are orientation, not verdicts: `impact`
+`[⚠ no test references this]` tags, security exposure and Pennant gates. A surface connected only by
+a model relation is listed separately here too, as context rather than a caller. `--explain` adds the
+shortest call chain from each surface down to the symbol. The tags are orientation, not verdicts: `impact`
 reports no risk figure at all, and the section reads `(none)` when the walk reaches no surface.
 
 A symbol that matches nothing is a lead rather than a dead end: the report names the nearest graph nodes (ranked by shared identifiers, so a lookup under the wrong root namespace surfaces the real node), or, when nothing in the graph resembles it, how many nodes were scanned.
