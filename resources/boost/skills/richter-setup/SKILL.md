@@ -154,10 +154,10 @@ On yes:
 - Suggest a first run: `php artisan richter:detect-changes` on the current branch, and check the
   reached entry points and any `UNRESOLVED` files against what was expected — that's the fastest way to
   spot a still-missing `entry_point_roots` entry.
-- If you calibrate `risk_thresholds`, move the `high` bar and leave `medium` at its default. Raising
-  both until routine changes read `medium` demotes real defects with them: a bug fix is usually small
-  and surgical, so defects sit at the low end of the impacted range, often below routine changes. Run the benchmark corpus
-  afterwards if the project has one; that is the check that the calibration still surfaces defects.
+- If you calibrate `risk_thresholds`, move the `high` bar before the `medium` one: raising `high` can
+  only demote a change to `medium`, while raising `medium` is the only edit that can push one to
+  `low`. Run the benchmark corpus before and after if the project has one; that is the only check
+  that says whether the calibration still surfaces real defects.
 - Testing any config key against historical diffs has a trap: `richter:detect-changes` has no `--head`,
   so a replay checks out each ref, and a tracked `config/richter.php` reverts to that ref's version
   mid-experiment. Verify the value is live before trusting the numbers.

@@ -238,10 +238,10 @@ final class RichterConfig
      * They stay ABSOLUTE rather than becoming a percentile of the graph — a gate whose meaning shifts
      * with the repo's own distribution is not a gate anyone can reason about in CI.
      *
-     * Calibrating means moving `high`, not both. Raising `medium` too is the obvious move and it
-     * demotes real defects: a bug fix is usually small and surgical, so defects sit at the low end of
-     * the impacted range, and a `medium` bar tuned to routine breadth lands above them. Documented at
-     * the config key, because that is where someone about to get it wrong looks.
+     * Calibrate `high` before `medium`: raising `high` leaves the `medium` arm of {@see
+     * ImpactAnalyzer::risk()} untouched, so it can only demote to `medium`, while raising `medium` is
+     * the only edit that can reach `low`. Documented at the config key, because that is where someone
+     * about to get it wrong looks.
      *
      * @return array{high: array{entry_points: int, impacted: int}, medium: array{entry_points: int, impacted: int}}
      */

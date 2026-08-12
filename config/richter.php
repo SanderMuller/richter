@@ -138,11 +138,13 @@ return [
      * The defaults were calibrated on small-to-mid applications. On a large one they saturate: a
      * codebase where a routine change reaches thousands of nodes will report `high` for everything,
      * and a level that is always `high` carries no signal and trains reviewers to skip the line.
-     * Move the `high` bar; leave `medium` where it is. Raising both until routine changes read
-     * `medium` is the obvious calibration and it demotes real defects along with them: a bug fix is
-     * usually small and surgical, so defects sit at the LOW end of the impacted range — often below
-     * where routine pull requests start — and a `medium` bar tuned to routine breadth lands above
-     * them and reports a genuine defect as `low`.
+     * Move the `high` bar before the `medium` one. Raising `high` leaves the `medium` test untouched,
+     * so the most it can do is move a change from `high` to `medium`; raising `medium` is the only
+     * edit that can push something to `low`, the level a reviewer skips. Whether that costs you a
+     * real defect depends on where your bug fixes land, and these counts measure graph REACH rather
+     * than how big a change is — a one-line fix in a widely called method can outrank a broad but
+     * shallow one, so do not assume defects sit below routine changes. A benchmark corpus run before
+     * and after is the only check that answers it.
      * If you keep a benchmark corpus, run it afterwards: it is the check that a calibration has not
      * quietly demoted the defects it was meant to surface.
      *
