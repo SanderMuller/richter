@@ -5,6 +5,49 @@ All notable changes to `sandermuller/richter` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.27.0 - 2026-08-12
+
+Two coverage gaps closed, and the risk-threshold guidance corrected twice — once for citing evidence it should not have, and once for replacing it with reasoning that did not hold. Sourced from a consumer usage audit, which confirmed 0.26.0's changes measurably and found the advice that needed fixing.
+
+### Added
+
+#### Validation written inline is covered by the payload-parity lane
+
+The request side of payload parity read a form request's `rules()` and nothing else. A form request is the documented convention, not the only place validation lives: an action validating a handful of fields commonly does it in the controller, and dropping a key from that array stops validating the field exactly as dropping it from `rules()` does — silently, with the frontend still sending it into nothing.
+
+Both call forms are read:
+
+- `$request->validate([...])`
+- `$this->validate($request, [...])`, but only where the class pulls in `ValidatesRequests` itself. `validate` is an ordinary method name, and a class with its own would otherwise have an unrelated options array read as request fields.
+
+Findings anchor on the fully qualified member holding the call, not the file, so a controller's other actions are not implicated in a field one of them dropped, and two classes in one file cannot overwrite each other. The `ignore` entry takes the same shape against that member (`App\Http\Controllers\PostController::store`).
+
+Enumeration is as strict as the `rules()` parse. A method passing rules it cannot read is skipped entirely — reporting its base fields as removed would assert something unknowable, since the variable may still hold every one of them. An empty array is the opposite case and counts: it enumerates successfully to nothing, which against a base that validated something is the removal of everything, as is deleting the call outright.
+
+### Fixed
+
+#### Static calls no longer hang off a class that has no name
+
+The last lane using an anonymous class as an edge source. Taking the file's primary class instead invented `Class::method` ids for members that need not exist — a caller a reviewer opens and cannot find. 0.26.0 fixed this for the config-registry and view lanes and left this one; the shared helper introduced there makes the same fix small here.
+
+Calls inside such a class are attributed to the method that builds it, which is the real owner. Scope-relative receivers are dropped rather than carried over: `self::`, `static::` and `parent::` inside an anonymous class name that class, so resolving them against the enclosing one would draw a confidently wrong edge — worse than none, because the target exists and the chain reads as real.
+
+#### The risk-threshold calibration advice was wrong, and its first correction was too
+
+0.26.0 shipped `risk_thresholds` with guidance to raise them until a routine change reports `medium`. Read as "move the `medium` bar", which is the reading it invites, that can demote real defects to `low` — the level a reviewer skips.
+
+The advice now rests on how the levels are actually decided rather than on any claim about where defects land. Raising the `high` thresholds leaves the `medium` test untouched, so the most it can do is move a change from `high` to `medium`. Raising `medium` is the only edit that can push something to `low`. Move `high` first for that reason alone.
+
+Whether moving `medium` would cost you a real defect is not something the package can assert on your behalf: impacted counts measure graph reach, not how large a change is, so a one-line fix in a widely called method can outrank a broad but shallow one. If you keep a benchmark corpus, running it before and after is the only check that answers it. Corrected in the README, the configuration reference, the published config file and the setup skill.
+
+### Upgrading
+
+`GraphCache::FORMAT_VERSION` moves 13 → 14, so the first run after upgrading rebuilds the graph. A stale entry carries edges out of the phantom `Class::method` ids and lacks the same calls under their real owner, so both directions are wrong until it does.
+
+No configuration changes are required. If you set `risk_thresholds` after reading the 0.26.0 guidance, re-read the corrected version — raising `medium` is the case worth revisiting.
+
+**Full Changelog**: https://github.com/SanderMuller/richter/compare/v0.26.0...v0.27.0
+
 ## v0.26.0 - 2026-08-12
 
 A precision release, driven by a consumer usage audit across two production applications. 0.25.0's config-registry lane over-reported; the entry-point list counted things that were not callers; and on a large codebase the risk level had stopped discriminating. All three are addressed, and one new lane closes a recurring class of UNRESOLVED.
@@ -101,6 +144,7 @@ A diff of nothing but a stylesheet, a CI workflow and a lockfile printed `No cha
 Note: 2 changed file(s) are outside the analysed scope (not PHP under app/, a Blade view, or a configured frontend root) and were not analysed: resources/sass/app.scss, vapor.yml
 
 
+
 ```
 Stderr, like the untracked-file note, so `--json` and `--markdown` stdout stay exactly the report. Frontend sources the configuration declines to scan are not counted: generated Wayfinder output under `frontend.generated_paths` and `.d.ts` declarations were silenced on purpose, and a note that fires loudest on regeneration churn is one people stop reading.
 
@@ -165,6 +209,7 @@ One new advisory lane, and a README that finally leads with what the package is 
   
   
   
+  
   ```
   The count comes off the `route:: → middleware::<group>` edges already in the graph, so it counts endpoints only: a controller-level attachment of the same group does not inflate it. Membership is read from `$middlewareGroups` on a Laravel 10 Kernel or the `->web(append: [...])` form in a Laravel 11+ `bootstrap/app.php`. A member written as an alias resolves through the same alias map, parameters are cut first (`tenant:strict` is one alias with an argument), and a group that names another group is expanded transitively, since Laravel runs the inner group's middleware on the outer group's routes too.
   
@@ -197,6 +242,7 @@ Two silent-failure shapes that richter used to miss: a call through an applicati
   
   ```text
     ! resources/js/Pages/Posts/Create.vue posts to POST /posts and sends 'subtitle', which this diff removes from App\Http\Requests\StorePostRequest::rules() (renamed to 'sub_title'?)
+  
   
   
   
