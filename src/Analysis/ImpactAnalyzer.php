@@ -23,17 +23,21 @@ final readonly class ImpactAnalyzer
     /** @internal the prefix vocabulary {@see isEntryPointNode()} matches — shared with richter's own composition (e.g. the MCP entry-points resource's kind labels), not a consumer API */
     public const array ENTRY_POINT_PREFIXES = ['route::', 'command::', 'schedule::'];
 
-    private const array ENTRY_POINT_NAMESPACES = ['\\Jobs\\', '\\Console\\Commands\\', '\\Listeners\\', '\\Livewire\\', '\\Filament\\', '\\Observers\\', '\\Http\\Middleware\\'];
+    private const array ENTRY_POINT_NAMESPACES = ['\\Jobs\\', '\\Console\\Commands\\', '\\Listeners\\', '\\Livewire\\', '\\Filament\\', '\\Nova\\', '\\Observers\\', '\\Http\\Middleware\\'];
 
     /**
-     * Namespaces whose classes are user-facing UI surfaces the way a route is: a Livewire component
-     * or Filament resource/page/widget reached UPSTREAM of a change is an entry point in its own
-     * right — Blade-mounted components and Filament table/bulk actions have no `route::` node, so
-     * without this they would read as plain callers. Deliberately narrower than
-     * {@see ENTRY_POINT_NAMESPACES}: an upstream job or listener is reach toward its own dispatcher,
-     * not a user surface.
+     * Namespaces whose classes are user-facing UI surfaces the way a route is: a Livewire component,
+     * or an admin-panel resource/page/widget, reached UPSTREAM of a change is an entry point in its
+     * own right — a Blade-mounted component, a Filament table action, a Nova resource field all have
+     * no `route::` node of their own, so without this they would read as plain callers. Deliberately
+     * narrower than {@see ENTRY_POINT_NAMESPACES}: an upstream job or listener is reach toward its own
+     * dispatcher, not a user surface.
+     *
+     * Not gated on the panel package being installed, for the same reason Filament is not: this is a
+     * substring test on an application's own `App\\Nova\\` namespace, and a project that names a
+     * namespace after an admin panel it does not use is not a case worth carrying a runtime check for.
      */
-    private const array UI_COMPONENT_NAMESPACES = ['\\Livewire\\', '\\Filament\\'];
+    private const array UI_COMPONENT_NAMESPACES = ['\\Livewire\\', '\\Filament\\', '\\Nova\\'];
 
     /**
      * Edge types that associate rather than invoke — reach through them is not risk. `uses-trait`
@@ -688,6 +692,14 @@ final readonly class ImpactAnalyzer
      * to live in the call stack instead), keyed on maxDepth + the seed set sorted on a COPY so the
      * caller's array order is never disturbed.
      *
+     * The entry-point walk excludes {@see ASSOCIATION_EDGE_TYPES}, exactly as the reported list does.
+     * Every caller here asks a question about callers, and a surface reached only through a model
+     * relation answers none of them: counting it let association reach hold a coarse change at HIGH,
+     * on the one path the split that removed it elsewhere did not cover.
+     *
+     * Fixed rather than a parameter — the memo is keyed on maxDepth and the seed set, so two callers
+     * asking with different exclusions would alias onto one entry.
+     *
      * @param  list<string>  $seeds
      * @param  array<string, array{0: int, 1: int}>  $memo
      * @return array{0: int, 1: int} [entryPointCount, impactedCount]
@@ -708,7 +720,7 @@ final readonly class ImpactAnalyzer
             return $memo[$key];
         }
 
-        $entryPoints = $this->entryPointsAmong($this->graph->callersOf($seeds, $maxDepth));
+        $entryPoints = $this->entryPointsAmong($this->graph->callersOf($seeds, $maxDepth, self::ASSOCIATION_EDGE_TYPES));
         $impacted = count(array_filter($this->graph->reachedViaTypes($seeds, $maxDepth), $this->isRiskBearing(...)));
 
         return $memo[$key] = [count($entryPoints), $impacted];

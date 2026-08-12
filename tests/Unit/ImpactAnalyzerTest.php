@@ -408,6 +408,39 @@ final class ImpactAnalyzerTest extends TestCase
     }
 
     #[Test]
+    public function a_changed_nova_resource_gets_the_entry_class_floor_and_self_lists(): void
+    {
+        // A Nova resource is the same kind of thing as a Filament one: an admin surface the panel
+        // routes to, with no route in the application's own files. Without the namespace in the
+        // vocabulary a change to one reads as reaching nothing at all, which on an app whose whole
+        // admin is Nova means every admin change reports no surface.
+        $analyzer = new ImpactAnalyzer(new CodeGraph([
+            ['source' => 'App\Nova\PostResource::fields', 'target' => 'App\Services\X::run', 'type' => 'call'],
+        ], hasUnparseableFiles: false));
+
+        $result = $analyzer->detectChanges([
+            $this->changedMethod('app/Nova/PostResource.php', 'App\Nova\PostResource', 'fields'),
+        ]);
+
+        $this->assertSame(['App\Nova\PostResource'], $result['entryPoints']);
+        $this->assertSame(RiskLevel::Medium, $result['risk']);
+    }
+
+    #[Test]
+    public function an_upstream_nova_resource_counts_as_an_entry_surface(): void
+    {
+        $analyzer = new ImpactAnalyzer(new CodeGraph([
+            ['source' => 'App\Nova\PostResource::fields', 'target' => 'App\Services\PostPublisher::publish', 'type' => 'call'],
+        ], hasUnparseableFiles: false));
+
+        $result = $analyzer->detectChanges([
+            $this->changedMethod('app/Services/PostPublisher.php', 'App\Services\PostPublisher', 'publish'),
+        ]);
+
+        $this->assertSame(['App\Nova\PostResource'], $result['entryPoints']);
+    }
+
+    #[Test]
     public function a_changed_component_reached_by_a_sibling_change_is_listed_once(): void
     {
         // The component is both a changed entry class AND an upstream caller of the sibling change —
@@ -768,6 +801,41 @@ final class ImpactAnalyzerTest extends TestCase
 
         $this->assertSame(['route::GET::/posts'], $result['entryPoints']);
         $this->assertSame(['App\Filament\Resources\CommentResource'], $result['associationEntryPoints']);
+    }
+
+    #[Test]
+    public function the_coarse_cap_does_not_rescore_against_association_reach(): void
+    {
+        // 0.26.0 took association reach out of the entry-point count and left one path uncovered:
+        // the cap's second scoring pass still walked relations. So screens that merely sit beside the
+        // changed model could hold a coarse change at HIGH — the exact regression that split was for —
+        // and the scored count could come out ABOVE the printed one, inverting what the report says
+        // that number is.
+        $edges = [
+            // Nothing calls the changed method: the three routes reach it through Comment's relation.
+            ['source' => Comment::class, 'target' => Review::class . '::publish', 'type' => 'model-relationship'],
+        ];
+
+        for ($i = 0; $i < 3; ++$i) {
+            $edges[] = ['source' => "route::GET::/c{$i}", 'target' => Comment::class, 'type' => 'route-to-controller'];
+        }
+
+        // The co-touched $fillable is what makes the report coarse, and its downstream fan-out is what
+        // rates the whole diff HIGH — so the cap is armed and its rescore decides the level.
+        for ($i = 0; $i < 25; ++$i) {
+            $edges[] = ['source' => Post::class, 'target' => "App\\Services\\S{$i}::run", 'type' => 'call'];
+        }
+
+        $result = new ImpactAnalyzer(new CodeGraph($edges, hasUnparseableFiles: false))->detectChanges([
+            $this->changedCoarse('app/Models/Post.php', Post::class),
+            $this->changedMethod('app/Models/Review.php', Review::class, 'publish'),
+        ]);
+
+        $this->assertSame([], $result['entryPoints']);
+        $this->assertSame(0, $result['scoredEntryPoints']);
+        // The rescore finds no caller, so the coarse HIGH is capped instead of being propped up.
+        $this->assertSame(RiskLevel::Medium, $result['risk']);
+        $this->assertTrue($result['coarseCapApplied']);
     }
 
     #[Test]

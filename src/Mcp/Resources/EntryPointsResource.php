@@ -15,7 +15,7 @@ final class EntryPointsResource extends Resource
 
     protected string $mimeType = 'application/json';
 
-    protected string $description = 'Every statically-known entry surface of this app — route::/command::/schedule:: nodes plus Livewire/Filament component classes — each with its kind and defining file:line when known. The same definition detect-changes reports; diff-relative self-listed entry classes are not part of a static inventory. The first read in a session builds the code graph (cached afterwards).';
+    protected string $description = 'Every statically-known entry surface of this app — route::/command::/schedule:: nodes plus Livewire/Filament/Nova component classes — each with its kind and defining file:line when known. The same definition detect-changes reports; diff-relative self-listed entry classes are not part of a static inventory. The first read in a session builds the code graph (cached afterwards).';
 
     public function __construct(private readonly GraphCache $graphs) {}
 
@@ -44,7 +44,7 @@ final class EntryPointsResource extends Resource
     /**
      * Every statically-known entry surface — the same definition detect-changes reports,
      * via {@see ImpactAnalyzer}'s own predicates (single source): `route::`/`command::`/
-     * `schedule::` nodes plus Livewire/Filament component classes, member nodes
+     * `schedule::` nodes plus Livewire/Filament/Nova component classes, member nodes
      * normalised onto the class. A self-listed entry class is diff-relative by nature
      * and cannot appear in a static inventory.
      *

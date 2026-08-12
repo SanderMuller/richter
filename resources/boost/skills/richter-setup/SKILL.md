@@ -169,7 +169,9 @@ On yes:
   session — replaying branches, walking commits, bisecting — checks out each one, and the hook then
   installs *that* ref's lockfile, silently swapping the richter version mid-comparison. Checking out
   with `git -c core.hooksPath=/dev/null checkout <ref>` keeps one version across the whole run.
-  Disabling the hook does not make the checkout harmless, though: `composer.json` and `composer.lock`
-  still revert to each replayed ref while `vendor/` keeps the version under test. The measurements
-  stay valid — artisan runs off `vendor/` — but a version bump made on the branch is silently undone.
-  Re-check the manifest, not just the hook, before reading a comparison as a version difference.
+  Disabling the hook does not make the checkout harmless, though: `composer.json`, `composer.lock` and
+  a tracked `config/richter.php` all revert to each replayed ref while `vendor/` keeps the version
+  under test. The measurements stay valid — artisan runs off `vendor/` — but a version bump made on
+  the branch is silently undone, and so is any tuned `risk_thresholds`, so every level in a replay is
+  produced on package defaults. Fine for comparing versions against each other; misleading if what you
+  are checking is your own calibration. Re-check the manifest and the config, not just the hook.

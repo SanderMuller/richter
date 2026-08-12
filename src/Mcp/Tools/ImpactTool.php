@@ -20,7 +20,7 @@ final class ImpactTool extends Tool
 {
     protected string $name = 'impact';
 
-    protected string $description = 'Static blast radius of a PHP symbol in this Laravel app: its callers (what breaks if you change it), its dependencies (what it reaches), and the entry surfaces the callers walk reaches — routes, commands, schedules, and Livewire/Filament components — annotated with locations, security exposure (advisory, routes only; absence means NOT CLASSIFIED, never "public"), feature gates, and test references. Annotations are advisory orientation, never a risk verdict. Pass an FQCN or substring, e.g. App\\Models\\User.';
+    protected string $description = 'Static blast radius of a PHP symbol in this Laravel app: its callers (what breaks if you change it), its dependencies (what it reaches), and the entry surfaces the callers walk reaches — routes, commands, schedules, and Livewire/Filament/Nova components — annotated with locations, security exposure (advisory, routes only; absence means NOT CLASSIFIED, never "public"), feature gates, and test references. Annotations are advisory orientation, never a risk verdict. Pass an FQCN or substring, e.g. App\\Models\\User.';
 
     public function __construct(private readonly GraphCache $graphs) {}
 
@@ -70,7 +70,7 @@ final class ImpactTool extends Tool
             // The map-shaped fields are plain object() rather than an object|array anyOf:
             // anyOf() is missing from Illuminate\JsonSchema on this package's framework floor, and
             // an empty PHP map JSON-encodes as [] — the description carries that caveat instead.
-            'entryPoints' => $schema->array()->items($schema->string())->description('Entry surfaces among the callers: route::/command::/schedule:: nodes and Livewire/Filament component classes.'),
+            'entryPoints' => $schema->array()->items($schema->string())->description('Entry surfaces among the callers: route::/command::/schedule:: nodes and Livewire/Filament/Nova component classes.'),
             'associationEntryPoints' => $schema->array()->items($schema->string())
                 ->description('Entry surfaces connected to the symbol only by a model relation. Associated with it, not callers of it.'),
             'entryPointPaths' => $schema->object()

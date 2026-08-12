@@ -91,7 +91,7 @@ Against the default `HEAD`, the diff is the working tree compared to the merge-b
 
 Resolves which class members the branch changed, walks the graph, and reports:
 
-- the entry points the change can reach, each tagged `[test-referenced]` or `[⚠ no test references this]`: routes, commands, jobs, listeners, middleware, and Livewire/Filament component classes (a Blade-mounted component or Filament resource/page/widget is a user-facing surface even without a `route::` node);
+- the entry points the change can reach, each tagged `[test-referenced]` or `[⚠ no test references this]`: routes, commands, jobs, listeners, middleware, and Livewire/Filament/Nova component classes (a Blade-mounted component, a Filament resource/page/widget, a Nova resource — each is a user-facing surface even without a `route::` node);
 - findings in the changed source itself, such as an eager-load or relation string that names no relation on any model. A missing comma between two relation constants is the classic case: `Post::OWNER . User::PROFILE` concatenates to `ownerprofile`, a name Eloquent silently never resolves;
 - a coarse risk level (`low` / `medium` / `high`);
 - honest degradation: a change that cannot be placed in the graph reads **UNRESOLVED**, never as a falsely reassuring "no impact", and an unfollowable dispatch makes a queue job read "unknown", not "none". A file that resolved to no graph node also echoes the FQCN its path derived to (`app/Services/Inspector.php → App\Services\Inspector`), which is what separates a coverage gap from a wrong root namespace. Before a file falls through to UNRESOLVED, one last lane lists the surfaces that file *defines* (a routes file, a legacy `app/Console/Kernel.php`) as touched, without walking them or moving the risk level ([why](docs/detect-changes.md#unplaceable-files-and-the-defined-node-fallback)).
@@ -215,7 +215,7 @@ Dependencies (what "App\Services\PostPublisher" reaches):
 Every hop carries its defining file (and line, when known), project-relative, so you never have to grep for what a report names.
 
 Between the callers and dependencies, the report names the **entry surfaces** the callers walk
-reaches (routes, commands, schedules, and Livewire/Filament component classes), with the same
+reaches (routes, commands, schedules, and Livewire/Filament/Nova component classes), with the same
 annotations `detect-changes` carries: defining location, `[test-referenced]` /
 `[⚠ no test references this]` tags, security exposure and Pennant gates. A surface connected only by
 a model relation is listed separately here too, as context rather than a caller. `--explain` adds the
@@ -326,7 +326,7 @@ When [`laravel/mcp`](https://github.com/laravel/mcp) is installed, Richter regis
 
 | Resource | URI | Content |
 |---|---|---|
-| Entry points | `richter://graph/entry-points` | Every statically-known entry surface (routes, commands, schedules, Livewire/Filament components) with kind and `file:line` where known. |
+| Entry points | `richter://graph/entry-points` | Every statically-known entry surface (routes, commands, schedules, Livewire/Filament/Nova components) with kind and `file:line` where known. |
 | Graph stats | `richter://graph/stats` | Node and edge counts by edge type, plus the honesty flags (`hasUnparseableFiles`, `hasUnresolvedDispatches`). |
 | Config | `richter://config` | The effective analysis configuration: base ref, root namespace, entry-point roots, dispatch helpers, feature-gate wrappers, payload-parity settings, the frontend bridge, cache and parallel switches. |
 
