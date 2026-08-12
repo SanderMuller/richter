@@ -138,8 +138,13 @@ return [
      * The defaults were calibrated on small-to-mid applications. On a large one they saturate: a
      * codebase where a routine change reaches thousands of nodes will report `high` for everything,
      * and a level that is always `high` carries no signal and trains reviewers to skip the line.
-     * Raise them until a middling change on YOUR repo reports `medium` — the report's own impacted
-     * count, printed on every run, is the calibration data.
+     * Move the `high` bar; leave `medium` where it is. Raising both until routine changes read
+     * `medium` is the obvious calibration and it demotes real defects along with them — the defect
+     * population does not sit above the routine-change population. Measured on one application, four
+     * of five known-bug fixtures landed at 33-48 impacted nodes, BELOW where its routine pull
+     * requests start, so a `medium` bar tuned to routine breadth reported a genuine defect as `low`.
+     * If you keep a benchmark corpus, run it afterwards: it is the check that a calibration has not
+     * quietly demoted the defects it was meant to surface.
      *
      * Note these interact with coverage: every release that teaches Richter to follow more edges
      * raises the impacted count for an unchanged diff, so a level that shifts right after an upgrade

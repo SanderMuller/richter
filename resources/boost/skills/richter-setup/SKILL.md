@@ -154,6 +154,13 @@ On yes:
 - Suggest a first run: `php artisan richter:detect-changes` on the current branch, and check the
   reached entry points and any `UNRESOLVED` files against what was expected — that's the fastest way to
   spot a still-missing `entry_point_roots` entry.
+- If you calibrate `risk_thresholds`, move the `high` bar and leave `medium` at its default. Raising
+  both until routine changes read `medium` demotes real defects with them — on a large application the
+  known-bug population can sit *below* the routine-change population. Run the benchmark corpus
+  afterwards if the project has one; that is the check that the calibration still surfaces defects.
+- Testing any config key against historical diffs has a trap: `richter:detect-changes` has no `--head`,
+  so a replay checks out each ref, and a tracked `config/richter.php` reverts to that ref's version
+  mid-experiment. Verify the value is live before trusting the numbers.
 - If the project has a `post-checkout` hook that reinstalls dependencies (a `composer install` or a
   `composer run <refresh-script>`, common in Laravel repos), say so now. Comparing several refs in one
   session — replaying branches, walking commits, bisecting — checks out each one, and the hook then

@@ -238,6 +238,11 @@ final class RichterConfig
      * They stay ABSOLUTE rather than becoming a percentile of the graph — a gate whose meaning shifts
      * with the repo's own distribution is not a gate anyone can reason about in CI.
      *
+     * Calibrating means moving `high`, not both. Raising `medium` too is the obvious move and it
+     * demotes real defects: measured on one application, its known-bug fixtures sat BELOW where its
+     * routine changes start, so a `medium` bar tuned to routine breadth reported a genuine defect as
+     * `low`. Documented at the config key, because that is where someone about to get it wrong looks.
+     *
      * @return array{high: array{entry_points: int, impacted: int}, medium: array{entry_points: int, impacted: int}}
      */
     public static function riskThresholds(): array
