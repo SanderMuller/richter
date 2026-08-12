@@ -64,8 +64,12 @@ final class GraphCache
      * this code over-reports, a routine scalar read fanning out into every class its config file
      * happens to name. The graph also gained `action-to-view` edges from a `view('name')` call in a
      * class no route reaches, which adds edges and under-selects from a stale entry as usual.
+     * 13 → 14: `static-call` stopped using an anonymous class as an edge source. A stale entry still
+     * carries edges out of `Class::method` ids invented for those classes — members that need not
+     * exist — and does not carry the same calls under the method that actually builds them, so both
+     * directions are wrong until the graph is rebuilt.
      */
-    private const int FORMAT_VERSION = 13;
+    private const int FORMAT_VERSION = 14;
 
     private ?CodeGraph $memoized = null;
 

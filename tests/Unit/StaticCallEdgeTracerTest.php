@@ -23,7 +23,7 @@ final class StaticCallEdgeTracerTest extends TestCase
     {
         $source = "<?php\nnamespace App\\Services;\n{$uses}\nclass Reporter{$extends}\n{\n    public function run(): void\n    {\n        {$body}\n    }\n}\n";
 
-        return new StaticCallEdgeTracer()->edgesForSource($source, self::CALLER);
+        return new StaticCallEdgeTracer()->edgesForSource($source);
     }
 
     #[Test]
@@ -129,7 +129,7 @@ final class StaticCallEdgeTracerTest extends TestCase
         // Two classes in one file: a flat method bucket would credit both calls to the first class.
         $source = "<?php\nnamespace App\\Services;\nuse App\\Services\\PostPublisher;\nclass First\n{\n    public function a(): void\n    {\n        PostPublisher::one();\n    }\n}\nclass Second\n{\n    public function b(): void\n    {\n        PostPublisher::two();\n    }\n}\n";
 
-        $edges = new StaticCallEdgeTracer()->edgesForSource($source, 'App\\Services\\First');
+        $edges = new StaticCallEdgeTracer()->edgesForSource($source);
 
         $this->assertContains(['source' => 'App\\Services\\First::a', 'target' => 'App\\Services\\PostPublisher::one', 'type' => 'static-call'], $edges);
         $this->assertContains(['source' => 'App\\Services\\Second::b', 'target' => 'App\\Services\\PostPublisher::two', 'type' => 'static-call'], $edges);
@@ -139,5 +139,31 @@ final class StaticCallEdgeTracerTest extends TestCase
     public function it_dedupes_the_same_call_made_twice(): void
     {
         $this->assertCount(1, $this->edges('PostPublisher::all(); PostPublisher::all();', 'use App\Services\PostPublisher;'));
+    }
+
+    #[Test]
+    public function a_static_call_inside_an_anonymous_class_is_credited_to_the_method_that_builds_it(): void
+    {
+        // An anonymous class has no name to be an edge source. Taking the file's primary class
+        // instead invented `Registry::run`, a member that need not exist — a caller a reviewer opens
+        // and cannot find. The builder is the real owner.
+        $source = "<?php\nnamespace App\\Services;\n"
+            . "class Registry { public function build(): object { return new class { public function run(): void { \\App\\Services\\PostPublisher::all(); } }; } }\n";
+
+        $edges = new StaticCallEdgeTracer()->edgesForSource($source);
+
+        $this->assertSame(['App\\Services\\Registry::build'], array_column($edges, 'source'));
+    }
+
+    #[Test]
+    public function a_scope_relative_call_inside_an_anonymous_class_draws_nothing(): void
+    {
+        // `self::` there means the ANONYMOUS class, not the one whose method builds it. Resolving it
+        // against the enclosing class would draw a confidently wrong edge — worse than none, since
+        // the target exists and the chain reads as real.
+        $source = "<?php\nnamespace App\\Services;\n"
+            . "class Registry { public function go(): void {} public function build(): object { return new class { public function run(): void { self::go(); } }; } }\n";
+
+        $this->assertSame([], new StaticCallEdgeTracer()->edgesForSource($source));
     }
 }

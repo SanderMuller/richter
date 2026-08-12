@@ -154,9 +154,28 @@ final class AppFiles
      */
     public static function nodesOwnedBy(ClassMethod $method, Closure $matches): array
     {
+        return array_column(self::nodesOwnedByWithNesting($method, $matches), 0);
+    }
+
+    /**
+     * {@see nodesOwnedBy()}, plus whether each node sits inside an ANONYMOUS class nested in the
+     * method rather than in the method's own body.
+     *
+     * The flag exists because scope-relative names do not survive the descent: `self`, `static` and
+     * `parent` inside an anonymous class mean that class, not the one whose method builds it, so a
+     * caller resolving them against the enclosing class would draw a confidently wrong edge. Callers
+     * with no scope-relative names can ignore it and use {@see nodesOwnedBy()}.
+     *
+     * @param  Closure(Node): bool  $matches
+     * @return list<array{0: Node, 1: bool}>
+     */
+    public static function nodesOwnedByWithNesting(ClassMethod $method, Closure $matches): array
+    {
         $visitor = new class ($matches) extends NodeVisitorAbstract {
-            /** @var list<Node> */
+            /** @var list<array{0: Node, 1: bool}> */
             public array $found = [];
+
+            private int $depth = 0;
 
             /** @param  Closure(Node): bool  $matches */
             public function __construct(private readonly Closure $matches) {}
@@ -165,12 +184,27 @@ final class AppFiles
             {
                 // Named: scanned in its own right, so pruning here is what keeps one call from
                 // becoming two edges. Anonymous: scanned nowhere else, so this is its only chance.
-                if ($node instanceof ClassLike && $node->namespacedName instanceof Name) {
-                    return NodeVisitor::DONT_TRAVERSE_CHILDREN;
+                if ($node instanceof ClassLike) {
+                    if ($node->namespacedName instanceof Name) {
+                        return NodeVisitor::DONT_TRAVERSE_CHILDREN;
+                    }
+
+                    ++$this->depth;
+
+                    return null;
                 }
 
                 if (($this->matches)($node)) {
-                    $this->found[] = $node;
+                    $this->found[] = [$node, $this->depth > 0];
+                }
+
+                return null;
+            }
+
+            public function leaveNode(Node $node): null
+            {
+                if ($node instanceof ClassLike && ! $node->namespacedName instanceof Name) {
+                    --$this->depth;
                 }
 
                 return null;

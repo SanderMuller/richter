@@ -352,7 +352,7 @@ final class CodeGraphBuilder
             array_push($edges, ...$policyTracer->edgesForMethods($nodes['classMethods'], $class['fqcn']));
             array_push($edges, ...$referenceTracer->edgesForNodes($nodes['classMethods'], $nodes['traitUses'], $class['fqcn']));
             array_push($edges, ...$entryPointTracer->interfaceEdgesForClassLikes($nodes['classLikes'], $class['fqcn']));
-            array_push($edges, ...$staticCallTracer->edgesForClassLikes($nodes['classLikes'], $class['fqcn']));
+            array_push($edges, ...$staticCallTracer->edgesForClassLikes($nodes['classLikes']));
             array_push($edges, ...$configTracer->edgesForClassLikes($nodes['classLikes']));
             array_push($edges, ...$viewTracer->edgesForClassLikes($nodes['classLikes']));
         }

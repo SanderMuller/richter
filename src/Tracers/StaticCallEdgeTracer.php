@@ -3,6 +3,7 @@
 namespace SanderMuller\Richter\Tracers;
 
 use LaraMint\LaravelBrain\Analysis\MethodTracer;
+use PhpParser\Node;
 use PhpParser\Node\Expr\StaticCall;
 use PhpParser\Node\Identifier;
 use PhpParser\Node\Name;
@@ -41,11 +42,11 @@ final class StaticCallEdgeTracer
     private static array $loadable = [];
 
     /** @return list<array{source: string, target: string, type: string}> */
-    public function edgesForSource(string $source, string $classFqcn): array
+    public function edgesForSource(string $source): array
     {
         $ast = AppFiles::parseResolved($source);
 
-        return $ast === null ? [] : $this->edgesForClassLikes(array_values(new NodeFinder()->findInstanceOf($ast, ClassLike::class)), $classFqcn);
+        return $ast === null ? [] : $this->edgesForClassLikes(array_values(new NodeFinder()->findInstanceOf($ast, ClassLike::class)));
     }
 
     /**
@@ -53,16 +54,28 @@ final class StaticCallEdgeTracer
      * can only be resolved against the class that declares the calling method, and a second class in
      * the same file would otherwise have its calls attributed to the first.
      *
+     * An anonymous class is skipped as a SOURCE: it has no name, and taking the file's primary class
+     * instead mints a member that may not exist — a caller a reviewer opens and cannot find. Its calls
+     * are not lost; {@see AppFiles::nodesOwnedBy()} hands them to the method that builds it, which is
+     * the real owner. Scope-relative receivers inside it are dropped there (see
+     * {@see edgesForMethod()}), because `self`/`static`/`parent` mean the anonymous class, not the
+     * method's own.
+     *
      * @param  list<ClassLike>  $classLikes  every class-like in the file, any depth
-     * @param  string  $fallbackFqcn  used for an anonymous class, which carries no resolved name
      * @return list<array{source: string, target: string, type: string}>
      */
-    public function edgesForClassLikes(array $classLikes, string $fallbackFqcn): array
+    public function edgesForClassLikes(array $classLikes): array
     {
         $edges = [];
 
         foreach ($classLikes as $classLike) {
-            $fqcn = ltrim($classLike->namespacedName?->toString() ?? $fallbackFqcn, '\\');
+            $fqcn = $classLike->namespacedName?->toString();
+
+            if ($fqcn === null) {
+                continue;
+            }
+
+            $fqcn = ltrim($fqcn, '\\');
             $parent = $classLike instanceof Class_ && $classLike->extends instanceof Name
                 ? AppFiles::resolveName($classLike->extends)
                 : null;
@@ -85,12 +98,16 @@ final class StaticCallEdgeTracer
         $source = $fqcn . '::' . $method->name->toString();
         $edges = [];
 
-        foreach (new NodeFinder()->findInstanceOf($method, StaticCall::class) as $call) {
+        foreach (AppFiles::nodesOwnedByWithNesting($method, static fn (Node $n): bool => $n instanceof StaticCall) as [$call, $nested]) {
+            /** @var StaticCall $call */
             if (! $call->name instanceof Identifier) {
                 continue;
             }
 
-            $target = $this->receiverFqcn($call, $fqcn, $parent);
+            // Inside an anonymous class, `self`/`static`/`parent` name THAT class. Resolving them
+            // against the method's own class would draw a confidently wrong edge, so they are
+            // dropped; a fully qualified receiver is unaffected and still links.
+            $target = $this->receiverFqcn($call, $fqcn, $nested ? null : $parent, $nested);
 
             if ($target === null) {
                 continue;
@@ -112,7 +129,7 @@ final class StaticCallEdgeTracer
      * The app FQCN the call's receiver names, or null when there is nothing to draw: a dynamic
      * receiver, `parent::` in a class whose parent richter did not resolve, or a vendor class.
      */
-    private function receiverFqcn(StaticCall $call, string $fqcn, ?string $parent): ?string
+    private function receiverFqcn(StaticCall $call, string $fqcn, ?string $parent, bool $nested = false): ?string
     {
         if (! $call->class instanceof Name) {
             return null;
@@ -124,6 +141,10 @@ final class StaticCallEdgeTracer
         $keyword = strtolower($call->class->toString());
 
         if (in_array($keyword, ['self', 'static', 'parent'], true)) {
+            if ($nested) {
+                return null;
+            }
+
             $resolved = $keyword === 'parent' ? $parent : $fqcn;
 
             return $resolved !== null && AppNamespace::isInApp($resolved) ? $resolved : null;
