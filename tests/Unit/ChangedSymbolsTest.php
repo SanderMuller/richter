@@ -365,7 +365,7 @@ final class ChangedSymbolsTest extends TestCase
     #[Test]
     public function a_modified_property_drives_a_coarse_seed(): void
     {
-        // A non-config property modification — the addition-only config exemption (HPB-5382) does
+        // A non-config property modification — the addition-only config exemption does
         // not apply, so a non-resolvable property change still falls to a coarse class seed.
         $head = "<?php\nclass Foo\n{\n    protected array \$options = ['a', 'b'];\n}\n";
         $base = "<?php\nclass Foo\n{\n    protected array \$options = ['a'];\n}\n";

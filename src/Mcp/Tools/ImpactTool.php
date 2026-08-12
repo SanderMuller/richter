@@ -71,6 +71,8 @@ final class ImpactTool extends Tool
             // anyOf() is missing from Illuminate\JsonSchema on this package's framework floor, and
             // an empty PHP map JSON-encodes as [] — the description carries that caveat instead.
             'entryPoints' => $schema->array()->items($schema->string())->description('Entry surfaces among the callers: route::/command::/schedule:: nodes and Livewire/Filament component classes.'),
+            'associationEntryPoints' => $schema->array()->items($schema->string())
+                ->description('Entry surfaces connected to the symbol only by a model relation. Associated with it, not callers of it.'),
             'entryPointPaths' => $schema->object()
                 ->description('Entry-point node => shortest call chain down to the symbol; each hop may carry a project-relative file/line. Empty map serializes as [].'),
             'entryPointLocations' => $schema->object()

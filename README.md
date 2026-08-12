@@ -144,7 +144,9 @@ Risk is a coarse, advisory signal, deliberately simple so `--fail-on` stays pred
 | `medium` | ≥ 1 entry point reached, ≥ 5 impacted nodes, **or** the diff changes an entry-point class (job, listener, command, Livewire, observer, middleware) |
 | `low` | everything else |
 
-Association edges (model relationships, trait usage, `declares`) are reach and context, not risk. They never count toward the impacted-node total, so touching a hub model or trait can't saturate a change to `high` on breadth alone.
+Association edges (model relationships, trait usage, `declares`) are reach and context, not risk. They never count toward the impacted-node total, so touching a hub model or trait can't saturate a change to `high` on breadth alone. The same rule now applies to the entry-point list: a surface reached *only* through a model relation is not a caller of your change, so it is reported under **Entry surfaces reached only by association** rather than counted as reached. Over-approximated *calls* (`override`, `config-registry`) stay in the main list — the dispatch is real there, only the target is uncertain.
+
+The thresholds are configurable (`risk_thresholds` in `config/richter.php`). The defaults were calibrated on small-to-mid applications; on a large codebase a routine change reaches thousands of nodes, `impacted >= 20` is met by everything, and a level that is always `high` carries no signal. Raise them until a middling change on your repo reports `medium` — the impacted count printed on every run is the calibration data.
 
 A separate guard covers low confidence. When a changed member can't be pinned to a graph node and only a coarse class-level seed is available, a resulting `high` is capped to `medium` (`coarseCapApplied`). A low-confidence estimate shouldn't drive the top level on its own.
 
@@ -220,7 +222,7 @@ reports no risk figure at all, and the section reads `(none)` when the walk reac
 A symbol that matches nothing is a lead rather than a dead end: the report names the nearest graph nodes (ranked by shared identifiers, so a lookup under the wrong root namespace surfaces the real node), or, when nothing in the graph resembles it, how many nodes were scanned.
 
 With `--json`, stdout is a single document (`{target, callers, dependencies, entryPoints,
-entryPointPaths, entryPointLocations, entryPointSecurity, entryPointGates, entryPointAuthGates,
+associationEntryPoints, entryPointPaths, entryPointLocations, entryPointSecurity, entryPointGates, entryPointAuthGates,
 entryPointTestReferences}`; the entry-point keys share `detect-changes`' vocabulary and shapes,
 so a consumer parses both reports identically, and each hop is `{depth, node, via, file?, line?}`),
 or `{"error": "…"}` on failure.
@@ -242,6 +244,8 @@ edge type connecting its two hops:
 Path from "PostController" to "App\Services\PostPublisher" (call direction, 1 hop(s)):
   ↳ App\Http\Controllers\PostController::publish →(action-to-service) App\Services\PostPublisher
 ```
+
+`--depth` sets how many hops the search covers (default 6). Raise it when a miss reports a deepest-caller note: that note means the walk ran out of depth, not that no path exists.
 
 No path is a result, not an error (exit 0). The report then names the deepest caller reached
 from the TO side within the depth limit, which tells you how far upstream connectivity extends

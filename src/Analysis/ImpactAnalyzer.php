@@ -9,6 +9,7 @@ use SanderMuller\Richter\Graph\CodeGraph;
 use SanderMuller\Richter\Graph\NodeMetadata;
 use SanderMuller\Richter\Support\AppNamespace;
 use SanderMuller\Richter\Support\Fqcn;
+use SanderMuller\Richter\Support\RichterConfig;
 
 /**
  * Over a {@see CodeGraph}: impact(symbol) blast radius + detectChanges(files) reached entry points/risk.
@@ -58,6 +59,21 @@ final readonly class ImpactAnalyzer
      */
     public const array RISK_EXCLUDED_EDGE_TYPES = ['model-relationship', 'declares', 'uses-trait', 'override', 'model-to-policy', 'config-registry'];
 
+    /**
+     * Edges that carry CONTEXT rather than a call, for the purpose of finding entry points.
+     *
+     * A strict subset of {@see RISK_EXCLUDED_EDGE_TYPES}, and the difference matters. `override` and
+     * `config-registry` are over-approximated CALLS — the dispatch is real, only the target is
+     * uncertain — so an entry point behind one genuinely runs the changed code and belongs in the
+     * list. A model relation and a model→policy link are not calls in any direction: they say two
+     * things are associated, and walking them to an entry point invents a caller.
+     *
+     * `declares` and `uses-trait` stay traversable here on purpose: `declares` is how a changed
+     * member reaches its own class node (removing it would cut real reach at the first hop), and a
+     * trait's users do run its code.
+     */
+    public const array ASSOCIATION_EDGE_TYPES = ['model-relationship', 'model-to-policy'];
+
     public function __construct(private CodeGraph $graph) {}
 
     /**
@@ -70,6 +86,7 @@ final readonly class ImpactAnalyzer
      *     callers: list<array{depth: int, node: string, via: string, file?: string, line?: int}>,
      *     dependencies: list<array{depth: int, node: string, via: string, file?: string, line?: int}>,
      *     entryPoints: list<string>,
+     *     associationEntryPoints: list<string>,
      *     entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>,
      *     entryPointLocations: array<string, array{file: string, line?: int}>,
      *     entryPointSecurity: array<string, SecurityShape>,
@@ -84,7 +101,11 @@ final readonly class ImpactAnalyzer
     {
         $seeds = $this->seedsFor($symbol);
         $callers = $this->withHopLocations($this->graph->callersOf($seeds, $maxDepth));
-        $entryPoints = $this->entryPointsAmong($callers);
+
+        // Same split as detectChanges(): a surface reached only through a model relation is context,
+        // not something that calls the symbol, and mixing the two makes a long list unreadable.
+        $entryPoints = $this->entryPointsAmong($this->graph->callersOf($seeds, $maxDepth, self::ASSOCIATION_EDGE_TYPES));
+        $associationEntryPoints = array_values(array_diff($this->entryPointsAmong($callers), $entryPoints));
         [$entryPointLocations, $entryPointSecurity, $entryPointGates] = $this->entryPointAnnotations($entryPoints);
         $crossCheck = new PublicWriteAuthCrossCheck($this->graph);
 
@@ -93,6 +114,7 @@ final readonly class ImpactAnalyzer
             'callers' => $callers,
             'dependencies' => $this->withHopLocations($this->graph->dependenciesOf($seeds, $maxDepth)),
             'entryPoints' => $entryPoints,
+            'associationEntryPoints' => $associationEntryPoints,
             'entryPointPaths' => $this->entryPointPathsFor($entryPoints, $callers, $seeds, $maxDepth),
             'entryPointLocations' => $entryPointLocations,
             'entryPointSecurity' => $entryPointSecurity,
@@ -125,13 +147,13 @@ final readonly class ImpactAnalyzer
      * draw "nothing changed" without a graph build. {@see JsonPresenter::emptyDetectChanges()} is
      * the separate JSON-shaped equivalent; the two differ in `risk` (enum here, string there).
      *
-     * @return array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, newFiles: list<string>, fqcns: array<string, string>, callers: list<array{depth: int, node: string, via: string}>, dependencies: list<array{depth: int, node: string, via: string}>, seeds: list<string>, reach: array<string, array<string, true>>, edges: list<array{source: string, target: string, via: string, depth: int}>, entryPoints: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, SecurityShape>, entryPointGates: array<string, list<string>>, entryPointAuthGates: array<string, list<string>>, entryPointAuthMiddleware: array<string, list<string>>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied: bool, findings: list<string>}
+     * @return array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, newFiles: list<string>, fqcns: array<string, string>, callers: list<array{depth: int, node: string, via: string}>, dependencies: list<array{depth: int, node: string, via: string}>, seeds: list<string>, reach: array<string, array<string, true>>, edges: list<array{source: string, target: string, via: string, depth: int}>, entryPoints: list<string>, associationEntryPoints: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, SecurityShape>, entryPointGates: array<string, list<string>>, entryPointAuthGates: array<string, list<string>>, entryPointAuthMiddleware: array<string, list<string>>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied: bool, findings: list<string>}
      */
     public static function emptyDetectChanges(): array
     {
         return [
             'changed' => [], 'coverage' => [], 'newFiles' => [], 'fqcns' => [], 'callers' => [], 'dependencies' => [],
-            'seeds' => [], 'reach' => [], 'edges' => [], 'entryPoints' => [], 'entryPointPaths' => [],
+            'seeds' => [], 'reach' => [], 'edges' => [], 'entryPoints' => [], 'associationEntryPoints' => [], 'entryPointPaths' => [],
             'entryPointLocations' => [], 'entryPointSecurity' => [], 'entryPointGates' => [],
             'entryPointAuthGates' => [], 'entryPointAuthMiddleware' => [],
             'impacted' => 0, 'relatedModels' => [], 'risk' => RiskLevel::Low,
@@ -155,6 +177,7 @@ final readonly class ImpactAnalyzer
      *     reach: array<string, array<string, true>>,
      *     edges: list<array{source: string, target: string, via: string, depth: int}>,
      *     entryPoints: list<string>,
+     *     associationEntryPoints: list<string>,
      *     entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>,
      *     entryPointLocations: array<string, array{file: string, line?: int}>,
      *     entryPointSecurity: array<string, SecurityShape>,
@@ -256,7 +279,15 @@ final readonly class ImpactAnalyzer
         // minimum is a presentation decision, left to the renderer.
         $edges = [...$this->graph->callerEdgesOf($seeds, $maxDepth), ...$this->graph->dependencyEdgesOf($seeds, $maxDepth)];
 
-        $entryPoints = $this->entryPointsAmong($callers);
+        // Two walks, because "reached" is two different things. The full walk answers what the
+        // change touches; the call-only walk answers what CALLS it. An entry point that exists only
+        // because an Eloquent relation happens to chain to it is the first and not the second, and
+        // listing it beside real callers is the most misleading line this report can print — an
+        // admin resource named as a reached surface while the routes that actually run the changed
+        // code report no path at all. The impacted count already draws this distinction (see
+        // `relatedModels` below); the entry-point list now draws it too.
+        $entryPoints = $this->entryPointsAmong($this->graph->callersOf($seeds, $maxDepth, self::ASSOCIATION_EDGE_TYPES));
+        $associationEntryPoints = array_values(array_diff($this->entryPointsAmong($callers), $entryPoints));
         $riskEntryPointCount = count($entryPoints);
 
         // Paths exist only for graph-reached entry points — computed before the self-listing below,
@@ -310,6 +341,7 @@ final readonly class ImpactAnalyzer
             'reach' => $reach,
             'edges' => $edges,
             'entryPoints' => $entryPoints,
+            'associationEntryPoints' => $associationEntryPoints,
             'entryPointPaths' => $entryPointPaths,
             'entryPointLocations' => $entryPointLocations,
             'entryPointSecurity' => $entryPointSecurity,
@@ -710,10 +742,14 @@ final readonly class ImpactAnalyzer
     private function entryPointPathsFor(array $entryPoints, array $callers, array $seeds, int $maxDepth): array
     {
         $uiMemberByClass = $this->uiMembersAmong($callers);
+        // Same exclusions the classification used. An entry point that qualified on a call-only walk
+        // must not be EXPLAINED through a shorter model relation — the chain would then present an
+        // association as the reason it calls the change, contradicting the list it appears in.
         $rawPaths = $this->graph->callerPathsTo(
             $seeds,
             array_values(array_unique([...$entryPoints, ...array_values($uiMemberByClass)])),
             $maxDepth,
+            self::ASSOCIATION_EDGE_TYPES,
         );
         $paths = [];
 
@@ -895,11 +931,19 @@ final readonly class ImpactAnalyzer
         return Str::contains(Fqcn::fromPath($file), self::ENTRY_POINT_NAMESPACES);
     }
 
+    /**
+     * The coarse advisory level. Thresholds come from config ({@see RichterConfig::riskThresholds()})
+     * because the defaults saturate on a large codebase: where a routine change reaches thousands of
+     * nodes, `impacted >= 20` is met by everything and the level stops telling the reader anything.
+     * They stay absolute, so a `--fail-on` verdict keeps one meaning across runs and repos.
+     */
     private function risk(int $impacted, int $entryPoints, bool $touchesEntryClass): RiskLevel
     {
+        $thresholds = RichterConfig::riskThresholds();
+
         return match (true) {
-            $entryPoints >= 3 || $impacted >= 20 => RiskLevel::High,
-            $entryPoints >= 1 || $impacted >= 5 || $touchesEntryClass => RiskLevel::Medium,
+            $entryPoints >= $thresholds['high']['entry_points'] || $impacted >= $thresholds['high']['impacted'] => RiskLevel::High,
+            $entryPoints >= $thresholds['medium']['entry_points'] || $impacted >= $thresholds['medium']['impacted'] || $touchesEntryClass => RiskLevel::Medium,
             default => RiskLevel::Low,
         };
     }

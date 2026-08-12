@@ -30,6 +30,7 @@ final class TraceCommand extends Command
     protected $signature = 'richter:trace
         {from : Symbol the path starts at — an FQCN or substring, e.g. "App\\Http\\Controllers\\PostController"}
         {to : Symbol the path must reach, in call direction}
+        {--depth= : How many hops to search before giving up (default 6). Raise it when a miss reports a deepest-caller note — that note means the walk ran out of depth, not that no path exists}
         {--json : Emit the trace as JSON on stdout}
         {--markdown : Emit the trace as GitHub-flavoured markdown, for PR descriptions and comments}
         {--no-cache : Build the code graph fresh, bypassing the graph cache}';
@@ -37,11 +38,51 @@ final class TraceCommand extends Command
     /** @var string */
     protected $description = 'Show the shortest call-direction path from one symbol to another';
 
+    /**
+     * A miss at the default depth is indistinguishable from no path at all — the report says which
+     * caller it got to and that the limit stopped it, but without this flag there was no way to ask
+     * the follow-up question.
+     */
+    private function maxDepth(): int
+    {
+        $option = $this->option('depth');
+
+        if ($option === null) {
+            return 6;
+        }
+
+        if (! is_string($option) || ! ctype_digit($option) || (int) $option < 1) {
+            throw new InvalidArgumentException('The --depth option must be a whole number of 1 or more.');
+        }
+
+        return (int) $option;
+    }
+
+    /** A usage error reaches stdout as JSON in --json mode, so that contract holds even here. */
+    private function usageError(string $message): int
+    {
+        if ($this->option('json')) {
+            $this->line(JsonPresenter::encode(['error' => $message]));
+        } else {
+            $this->error($message);
+        }
+
+        return self::FAILURE;
+    }
+
     public function handle(GraphCache $graphs): int
     {
         $from = (string) $this->argument('from');
         $to = (string) $this->argument('to');
         $markdown = (bool) $this->option('markdown');
+
+        // Validated before anything expensive: a bad option is a usage error, and building the graph
+        // first would make the user wait to be told they mistyped a flag.
+        try {
+            $maxDepth = $this->maxDepth();
+        } catch (InvalidArgumentException $invalidArgumentException) {
+            return $this->usageError($invalidArgumentException->getMessage());
+        }
 
         $this->warnAboutRootNamespace();
 
@@ -53,7 +94,7 @@ final class TraceCommand extends Command
                 return self::FAILURE;
             }
 
-            return $this->handleJson($graphs, $from, $to);
+            return $this->handleJson($graphs, $from, $to, $maxDepth);
         }
 
         if (! $markdown) {
@@ -62,7 +103,7 @@ final class TraceCommand extends Command
         }
 
         try {
-            $result = new ImpactAnalyzer($this->graph($graphs))->trace($from, $to);
+            $result = new ImpactAnalyzer($this->graph($graphs))->trace($from, $to, $maxDepth);
         } catch (InvalidArgumentException $invalidArgumentException) {
             $this->error($invalidArgumentException->getMessage());
 
@@ -78,10 +119,10 @@ final class TraceCommand extends Command
      * JSON mode emits nothing but the JSON document on stdout (no progress line), so the output is a
      * single parseable value. Any error becomes `{"error": …}` rather than a leaked stack trace.
      */
-    private function handleJson(GraphCache $graphs, string $from, string $to): int
+    private function handleJson(GraphCache $graphs, string $from, string $to, int $maxDepth): int
     {
         try {
-            $result = new ImpactAnalyzer($this->graph($graphs))->trace($from, $to);
+            $result = new ImpactAnalyzer($this->graph($graphs))->trace($from, $to, $maxDepth);
 
             $this->line(JsonPresenter::encode(JsonPresenter::trace($result)));
 

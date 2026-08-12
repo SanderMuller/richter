@@ -778,6 +778,7 @@ final class CommandsTest extends TestCase
             'callers',
             'dependencies',
             'entryPoints',
+            'associationEntryPoints',
             'entryPointPaths',
             'entryPointLocations',
             'entryPointSecurity',

@@ -20,6 +20,26 @@ Before a file falls through to UNRESOLVED, richter tries one last lane: the node
 
 Those surfaces list as touched, but they are never walked and they never move the risk level. A file that *declares* a surface has not called into it: adding one line to a `$commands` array cannot break the ten commands registered beside it, and rating the edit by everything those ten reach would be breadth dressed up as consequence. The lane runs only when every other lane came up empty, so member-level precision elsewhere is unaffected: a one-method change to a controller still seeds that method, not the class its file also defines.
 
+## Entry surfaces reached only by association
+
+An entry point in the main list is something that CALLS the changed code. A surface connected to it
+only through a model relation is not: it is associated with the change, and nothing there runs the
+changed code. Those are reported separately:
+
+```text
+Entry surfaces reached only by association (context, not callers): 6
+```
+
+The distinction matters most on a model change, where an Eloquent chain can walk from the changed
+model to admin screens all over the application. Listing those beside real callers made the reached
+count read far higher than the change warranted and buried the routes that do run the code.
+
+The demoted set is deliberately narrow — `model-relationship` and `model-to-policy`, the two edges
+that associate rather than invoke. `override` and `config-registry` are over-approximated *calls*
+(the dispatch is real, only the target is uncertain), so a surface behind one stays in the main list.
+Association surfaces do not count toward the risk level either, which matches how the impacted total
+has always treated them.
+
 ## Test-reference tags
 
 Every reached entry point is tagged `[test-referenced]` or `[⚠ no test references this]`, and a referenced entry point whose referencing tests contain no behavioural assertion the scan recognises is tagged `[test-referenced — no behavioural assertion found]`, a heuristic prompt rather than a coverage verdict. An entry point whose behaviour you changed with nothing referencing it is a place to add a test; the tag flags a missing reference, not proof the code is untested. The `tests/` scan behind the tags only runs when an entry surface was actually reached.
@@ -100,7 +120,8 @@ With `--json`, stdout is a single JSON document (the full, uncapped report) with
 | `base` | string | the ref the diff was taken against |
 | `changed` | object | `{file: graph-node count}` per changed file |
 | `coverage` | object | `{file: "analyzed" \| "unresolved"}` per changed file |
-| `entryPoints` | string[] | entry-point nodes the change reaches |
+| `entryPoints` | string[] | entry-point nodes the change reaches through calls |
+| `associationEntryPoints` | string[] | entry surfaces connected only by a model relation — associated with the change, not callers of it, and excluded from `risk` |
 | `entryPointPaths` | object | per reached entry point, the shortest call chain down to the changed code as `{node, via, file?, line?}` hops; a self-listed entry class carries no chain |
 | `entryPointLocations` | object | per entry point, its defining `{file, line?}` (project-relative), when known |
 | `entryPointSecurity` | object | per reached route, Brain's security surface `{exposure, riskLevel, issues[]}` (advisory annotation, routes only, never an input to `risk` or the gate); a Livewire/Filament/queue entry point has no key here at all, meaning "not classified," never "public" |

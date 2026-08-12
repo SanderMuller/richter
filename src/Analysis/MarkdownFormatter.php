@@ -22,7 +22,7 @@ final class MarkdownFormatter
     private const int LIST_CAP = 15;
 
     /**
-     * @param  array{target: string, callers: list<array{depth: int, node: string, via: string, file?: string, line?: int}>, dependencies: list<array{depth: int, node: string, via: string, file?: string, line?: int}>, entryPoints?: list<string>, entryPointPaths?: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations?: array<string, array{file: string, line?: int}>, entryPointSecurity?: array<string, SecurityShape>, entryPointGates?: array<string, list<string>>, entryPointAuthGates?: array<string, list<string>>, entryPointAuthMiddleware?: array<string, list<string>>, suggestions?: list<string>, graphNodeCount?: int}  $result
+     * @param  array{target: string, callers: list<array{depth: int, node: string, via: string, file?: string, line?: int}>, dependencies: list<array{depth: int, node: string, via: string, file?: string, line?: int}>, entryPoints?: list<string>, associationEntryPoints?: list<string>, entryPointPaths?: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations?: array<string, array{file: string, line?: int}>, entryPointSecurity?: array<string, SecurityShape>, entryPointGates?: array<string, list<string>>, entryPointAuthGates?: array<string, list<string>>, entryPointAuthMiddleware?: array<string, list<string>>, suggestions?: list<string>, graphNodeCount?: int}  $result
      * @param  bool  $explain  render the call chain from each reached entry surface down to the symbol
      */
     public static function impact(array $result, ?TestReferenceIndex $tests = null, bool $explain = false): string
@@ -63,12 +63,36 @@ final class MarkdownFormatter
             $result['entryPointAuthGates'] ?? [],
             $result['entryPointAuthMiddleware'] ?? [],
             $tests,
-        )), ''];
+        )), '', ...self::associationSection($result['associationEntryPoints'] ?? [])];
         $lines[] = sprintf('### Dependencies (what it reaches) (%d)', count($result['dependencies']));
         $lines[] = '';
         $lines = [...$lines, ...self::hopList($result['dependencies'])];
 
         return implode("\n", $lines);
+    }
+
+    /**
+     * Surfaces a model relation connects to the change rather than a call. Rendered in both
+     * commands: demoting them out of the reached list without printing them anywhere would lose
+     * them outright, which is a worse report than the over-counting this split exists to end.
+     *
+     * @param  list<string>  $association
+     * @return list<string>
+     */
+    private static function associationSection(array $association): array
+    {
+        if ($association === []) {
+            return [];
+        }
+
+        return [
+            sprintf('### Entry surfaces reached only by association (%d)', count($association)),
+            '',
+            '_Connected by a model relation, not a caller — context, not reach._',
+            '',
+            ...array_map(static fn (string $node): string => "- `{$node}`", self::sorted($association)),
+            '',
+        ];
     }
 
     /** @param  array{from: string, to: string, resolvedFrom: list<string>, resolvedTo: list<string>, found: bool, path: list<array{node: string, via: string, file?: string, line?: int}>, furthestReached?: array{node: string, depth: int, file?: string, line?: int}}  $result */
@@ -97,7 +121,7 @@ final class MarkdownFormatter
     }
 
     /**
-     * @param  array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, newFiles?: list<string>, fqcns?: array<string, string>, entryPoints: list<string>, entryPointPaths?: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations?: array<string, array{file: string, line?: int}>, entryPointSecurity?: array<string, SecurityShape>, entryPointGates?: array<string, list<string>>, entryPointAuthGates?: array<string, list<string>>, entryPointAuthMiddleware?: array<string, list<string>>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied?: bool, findings?: list<string>, ...}  $result
+     * @param  array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, newFiles?: list<string>, fqcns?: array<string, string>, entryPoints: list<string>, associationEntryPoints?: list<string>, entryPointPaths?: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations?: array<string, array{file: string, line?: int}>, entryPointSecurity?: array<string, SecurityShape>, entryPointGates?: array<string, list<string>>, entryPointAuthGates?: array<string, list<string>>, entryPointAuthMiddleware?: array<string, list<string>>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied?: bool, findings?: list<string>, ...}  $result
      * @param  bool  $gateActive  when a `--fail-on*` gate is active the command appends its own verdict, so the advisory suffix is dropped to avoid contradicting it
      * @param  bool  $explain  render the call chain from each reached entry point down to the changed symbol
      * @param  string|null  $notice  a caveat about the analysis to render inside the document (the
@@ -168,6 +192,10 @@ final class MarkdownFormatter
             $result['entryPointAuthMiddleware'] ?? [],
             $tests,
         )];
+
+        // Beside the call-reached list, never dropped: demoting a surface out of `entryPoints`
+        // without printing it here would lose it entirely in this format.
+        $lines = [...$lines, ...self::associationSection($result['associationEntryPoints'] ?? [])];
 
         if ($result['relatedModels'] !== []) {
             $lines = [...$lines, '', ...self::collapsed(

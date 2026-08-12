@@ -27,6 +27,37 @@ final class TraceCommandTest extends TestCase
     }
 
     #[Test]
+    public function trace_depth_decides_whether_a_deeper_path_is_found_at_all(): void
+    {
+        // The point of the flag: a miss at one depth is not a miss at another. Without it, "no path"
+        // and "path deeper than the limit" read identically, and the deepest-caller note that hints
+        // at the difference has no follow-up question the tool can answer. This path is three hops.
+        $this->useFixtureProject();
+
+        $this->runArtisan('richter:trace', ['from' => 'route::GET::/posts/{post}/reviews', 'to' => 'App\Jobs\ProcessPostJob', '--depth' => '2'])
+            ->doesntExpectOutputToContain('Path from')
+            ->assertSuccessful();
+
+        $this->runArtisan('richter:trace', ['from' => 'route::GET::/posts/{post}/reviews', 'to' => 'App\Jobs\ProcessPostJob', '--depth' => '3'])
+            ->expectsOutputToContain('Path from')
+            ->assertSuccessful();
+    }
+
+    #[Test]
+    public function trace_rejects_a_depth_that_is_not_a_positive_number(): void
+    {
+        $this->useFixtureProject();
+
+        // Zero would make the walk find nothing at all, and silently: a depth that answers "no path"
+        // to every question is worse than being told the option was wrong. Reported before the graph
+        // is built, so a mistyped flag does not cost a scan first.
+        $this->runArtisan('richter:trace', ['from' => 'ReviewController', 'to' => 'App\Models\Post', '--depth' => '0'])
+            ->expectsOutputToContain('--depth option must be a whole number of 1 or more')
+            ->doesntExpectOutputToContain('Resolving code graph')
+            ->assertFailed();
+    }
+
+    #[Test]
     public function trace_json_carries_the_declared_shape_on_a_found_path(): void
     {
         $this->useFixtureProject();

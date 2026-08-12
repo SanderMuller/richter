@@ -20,7 +20,7 @@ final class ImpactFormatter
     private const int LIST_CAP = 15;
 
     /**
-     * @param  array{target: string, callers: list<array{depth: int, node: string, via: string, file?: string, line?: int}>, dependencies: list<array{depth: int, node: string, via: string, file?: string, line?: int}>, entryPoints?: list<string>, entryPointPaths?: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations?: array<string, array{file: string, line?: int}>, entryPointSecurity?: array<string, SecurityShape>, entryPointGates?: array<string, list<string>>, entryPointAuthGates?: array<string, list<string>>, entryPointAuthMiddleware?: array<string, list<string>>, suggestions?: list<string>, graphNodeCount?: int}  $result
+     * @param  array{target: string, callers: list<array{depth: int, node: string, via: string, file?: string, line?: int}>, dependencies: list<array{depth: int, node: string, via: string, file?: string, line?: int}>, entryPoints?: list<string>, associationEntryPoints?: list<string>, entryPointPaths?: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations?: array<string, array{file: string, line?: int}>, entryPointSecurity?: array<string, SecurityShape>, entryPointGates?: array<string, list<string>>, entryPointAuthGates?: array<string, list<string>>, entryPointAuthMiddleware?: array<string, list<string>>, suggestions?: list<string>, graphNodeCount?: int}  $result
      * @param  bool  $explain  render the call chain from each reached entry surface down to the symbol
      */
     public static function impact(array $result, ?TestReferenceIndex $tests = null, bool $explain = false): string
@@ -47,6 +47,7 @@ final class ImpactFormatter
                 $result['entryPointAuthMiddleware'] ?? [],
                 $tests,
             )),
+            ...self::associationSurfaces($result['associationEntryPoints'] ?? []),
             '',
             "Dependencies (what \"{$result['target']}\" reaches):",
             ...self::hops($result['dependencies']),
@@ -79,7 +80,7 @@ final class ImpactFormatter
     }
 
     /**
-     * @param  array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, newFiles?: list<string>, fqcns?: array<string, string>, entryPoints: list<string>, entryPointPaths?: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations?: array<string, array{file: string, line?: int}>, entryPointSecurity?: array<string, SecurityShape>, entryPointGates?: array<string, list<string>>, entryPointAuthGates?: array<string, list<string>>, entryPointAuthMiddleware?: array<string, list<string>>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied?: bool, findings?: list<string>, ...}  $result
+     * @param  array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, newFiles?: list<string>, fqcns?: array<string, string>, entryPoints: list<string>, associationEntryPoints?: list<string>, entryPointPaths?: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations?: array<string, array{file: string, line?: int}>, entryPointSecurity?: array<string, SecurityShape>, entryPointGates?: array<string, list<string>>, entryPointAuthGates?: array<string, list<string>>, entryPointAuthMiddleware?: array<string, list<string>>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied?: bool, findings?: list<string>, ...}  $result
      * @param  bool  $gateActive  when a `--fail-on*` gate is active the command prints its own verdict, so the advisory suffix is dropped to avoid contradicting it
      * @param  bool  $explain  render the call chain from each reached entry point down to the changed symbol
      */
@@ -113,6 +114,12 @@ final class ImpactFormatter
             $result['entryPointAuthMiddleware'] ?? [],
             $tests,
         )];
+
+        // Beside the call-reached list, never inside it. These surfaces are connected to the change
+        // by a model relation, which associates rather than invokes: nothing here runs the changed
+        // code. Listing them together made a long list unreadable and named admin screens as reached
+        // surfaces while the routes that do run the code sat elsewhere in the report.
+        $lines = [...$lines, ...self::associationSurfaces($result['associationEntryPoints'] ?? [])];
 
         if ($result['relatedModels'] !== []) {
             $lines[] = '';
@@ -199,6 +206,27 @@ final class ImpactFormatter
     public static function hasFrontendFiles(array $changed): bool
     {
         return array_any(array_keys($changed), static fn (string $file): bool => ! str_ends_with($file, '.php'));
+    }
+
+    /**
+     * Surfaces a model relation connects to the change rather than a call. Rendered by both
+     * commands: demoting them out of the reached list without printing them anywhere would lose
+     * them outright, which is a worse report than the over-counting this split exists to end.
+     *
+     * @param  list<string>  $association
+     * @return list<string>
+     */
+    private static function associationSurfaces(array $association): array
+    {
+        if ($association === []) {
+            return [];
+        }
+
+        return [
+            '',
+            'Entry surfaces reached only by association (context, not callers): ' . count($association),
+            ...self::summarisedList($association),
+        ];
     }
 
     /**

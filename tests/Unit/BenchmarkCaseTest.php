@@ -30,7 +30,7 @@ final class BenchmarkCaseTest extends TestCase
 
     private function signalCase(): BenchmarkCase
     {
-        return new BenchmarkCase('HPB-0001', 'abc123', 'a bug class', expectSignal: true);
+        return new BenchmarkCase('BUG-0001', 'abc123', 'a bug class', expectSignal: true);
     }
 
     #[Test]
@@ -140,7 +140,7 @@ final class BenchmarkCaseTest extends TestCase
     public function absent_expect_finding_behaves_exactly_as_before(): void
     {
         $case = BenchmarkCase::fromArray([
-            'key' => 'HPB-0002',
+            'key' => 'BUG-0002',
             'fix_commit' => 'abc123',
             'bug_class' => 'a bug class',
             'expect_signal' => true,
@@ -154,7 +154,7 @@ final class BenchmarkCaseTest extends TestCase
     public function a_matching_finding_passes(): void
     {
         $case = BenchmarkCase::fromArray([
-            'key' => 'HPB-0003',
+            'key' => 'BUG-0003',
             'fix_commit' => 'abc123',
             'bug_class' => 'a bug class',
             'expect_signal' => true,
@@ -175,7 +175,7 @@ final class BenchmarkCaseTest extends TestCase
     public function a_non_matching_finding_fails_with_a_readable_reason(): void
     {
         $case = BenchmarkCase::fromArray([
-            'key' => 'HPB-0004',
+            'key' => 'BUG-0004',
             'fix_commit' => 'abc123',
             'bug_class' => 'a bug class',
             'expect_signal' => true,
@@ -194,10 +194,10 @@ final class BenchmarkCaseTest extends TestCase
     public function a_non_string_expect_finding_throws(): void
     {
         $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage('"HPB-0005"');
+        $this->expectExceptionMessage('"BUG-0005"');
 
         BenchmarkCase::fromArray([
-            'key' => 'HPB-0005',
+            'key' => 'BUG-0005',
             'fix_commit' => 'abc123',
             'bug_class' => 'a bug class',
             'expect_signal' => true,

@@ -388,11 +388,14 @@ final class CodeGraph
      * Breadth-first walk of everything that depends on the given nodes (callers).
      *
      * @param  list<string>  $from
+     * @param  list<string>  $excludeTypes  edge types the walk refuses to traverse. Not a filter on
+     *   the result: a node reachable ONLY through an excluded edge does not appear at all, which is
+     *   the point — the caller asking for this wants to know what survives without them.
      * @return list<array{depth: int, node: string, via: string}>
      */
-    public function callersOf(array $from, int $maxDepth = 6): array
+    public function callersOf(array $from, int $maxDepth = 6, array $excludeTypes = []): array
     {
-        return $this->walk($this->upstream, $from, $maxDepth);
+        return $this->walk($this->upstream, $from, $maxDepth, $excludeTypes);
     }
 
     /**
@@ -498,9 +501,13 @@ final class CodeGraph
      *
      * @param  list<string>  $from
      * @param  list<string>  $targets
+     * @param  list<string>  $excludeTypes  edge types the walk refuses to traverse, so the chain it
+     *   reconstructs is the shortest one that avoids them. Without this a target classified by a
+     *   call-only walk can still be EXPLAINED through a shorter association hop, and the report
+     *   contradicts its own classification.
      * @return array<string, list<array{node: string, via: string}>>
      */
-    public function callerPathsTo(array $from, array $targets, int $maxDepth = 6): array
+    public function callerPathsTo(array $from, array $targets, int $maxDepth = 6, array $excludeTypes = []): array
     {
         if ($from === [] || $targets === []) {
             return [];
@@ -514,7 +521,7 @@ final class CodeGraph
             if ($firstVisit) {
                 $parents[$hop['node']] = ['node' => $fromNode, 'via' => $hop['via']];
             }
-        });
+        }, $excludeTypes);
 
         $seeds = array_flip($from);
         $paths = [];
@@ -542,9 +549,10 @@ final class CodeGraph
     /**
      * @param  array<string, list<array{node: string, via: string}>>  $adjacency
      * @param  list<string>  $from
+     * @param  list<string>  $excludeTypes
      * @return list<array{depth: int, node: string, via: string}>
      */
-    private function walk(array $adjacency, array $from, int $maxDepth): array
+    private function walk(array $adjacency, array $from, int $maxDepth, array $excludeTypes = []): array
     {
         $result = [];
 
@@ -552,7 +560,7 @@ final class CodeGraph
             if ($firstVisit) {
                 $result[] = ['depth' => $depth, 'node' => $hop['node'], 'via' => $hop['via']];
             }
-        });
+        }, $excludeTypes);
 
         // BFS already appends in non-decreasing depth order, so no sort is needed.
         return $result;
@@ -604,8 +612,9 @@ final class CodeGraph
      * @param  array<string, list<array{node: string, via: string}>>  $adjacency
      * @param  list<string>  $from
      * @param  callable(array{node: string, via: string}, int, bool, string): void  $onEdge
+     * @param  list<string>  $excludeTypes  edge types never traversed
      */
-    private function bfs(array $adjacency, array $from, int $maxDepth, callable $onEdge): void
+    private function bfs(array $adjacency, array $from, int $maxDepth, callable $onEdge, array $excludeTypes = []): void
     {
         $seen = [];
         $queue = [];
@@ -623,6 +632,10 @@ final class CodeGraph
             }
 
             foreach ($adjacency[$current['node']] ?? [] as $hop) {
+                if ($excludeTypes !== [] && in_array($hop['via'], $excludeTypes, strict: true)) {
+                    continue;
+                }
+
                 $depth = $current['depth'] + 1;
                 $firstVisit = ! isset($seen[$hop['node']]);
 

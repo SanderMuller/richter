@@ -131,6 +131,26 @@ return [
     ],
 
     /*
+     * The counts at which the advisory risk level steps up. Absolute, never relative to the graph,
+     * so a `--fail-on` verdict means the same thing on every run and across releases — that is the
+     * whole reason they are numbers and not percentiles.
+     *
+     * The defaults were calibrated on small-to-mid applications. On a large one they saturate: a
+     * codebase where a routine change reaches thousands of nodes will report `high` for everything,
+     * and a level that is always `high` carries no signal and trains reviewers to skip the line.
+     * Raise them until a middling change on YOUR repo reports `medium` — the report's own impacted
+     * count, printed on every run, is the calibration data.
+     *
+     * Note these interact with coverage: every release that teaches Richter to follow more edges
+     * raises the impacted count for an unchanged diff, so a level that shifts right after an upgrade
+     * is a coverage change before it is a code change.
+     */
+    'risk_thresholds' => [
+        'high' => ['entry_points' => 3, 'impacted' => 20],
+        'medium' => ['entry_points' => 1, 'impacted' => 5],
+    ],
+
+    /*
      * Advisory-only payload-parity checks, both directions: a model field ($fillable/$casts/
      * casts()) added but never added to a resource that mirrors its other fields, and a resource
      * toArray() key REMOVED while a frontend consumer of the routes it reaches still reads it —

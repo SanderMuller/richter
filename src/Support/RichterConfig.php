@@ -230,6 +230,46 @@ final class RichterConfig
         return self::stringList('richter.payload_parity.ignore') ?? [];
     }
 
+    /**
+     * The counts at which the advisory risk level steps up, defaults applied per key.
+     *
+     * Configurable because the defaults saturate on a large codebase: where a routine change reaches
+     * thousands of nodes, `impacted >= 20` is met by everything and the level stops discriminating.
+     * They stay ABSOLUTE rather than becoming a percentile of the graph — a gate whose meaning shifts
+     * with the repo's own distribution is not a gate anyone can reason about in CI.
+     *
+     * @return array{high: array{entry_points: int, impacted: int}, medium: array{entry_points: int, impacted: int}}
+     */
+    public static function riskThresholds(): array
+    {
+        return [
+            'high' => [
+                'entry_points' => self::positiveThreshold('richter.risk_thresholds.high.entry_points', 3),
+                'impacted' => self::positiveThreshold('richter.risk_thresholds.high.impacted', 20),
+            ],
+            'medium' => [
+                'entry_points' => self::positiveThreshold('richter.risk_thresholds.medium.entry_points', 1),
+                'impacted' => self::positiveThreshold('richter.risk_thresholds.medium.impacted', 5),
+            ],
+        ];
+    }
+
+    /** A threshold must be a positive int: zero would make every diff meet it, including an empty one. */
+    private static function positiveThreshold(string $key, int $default): int
+    {
+        $value = config($key);
+
+        if ($value === null) {
+            return $default;
+        }
+
+        if (! is_int($value) || $value < 1) {
+            throw new InvalidArgumentException("The {$key} config value must be an integer of 1 or more.");
+        }
+
+        return $value;
+    }
+
     /** @return list<BenchmarkCase> */
     public static function benchmarkCases(): array
     {

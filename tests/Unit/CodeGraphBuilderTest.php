@@ -37,7 +37,7 @@ final class CodeGraphBuilderTest extends TestCase
         $edges = [
             ['source' => 'route::GET /posts', 'target' => 'App\Http\Controllers\PostController', 'type' => 'route-to-controller'],
             ['source' => 'command::post:cleanup', 'target' => Post::class, 'type' => 'call'],
-            ['source' => 'view::player.index', 'target' => PostPolicy::class, 'type' => 'authorizes'],
+            ['source' => 'view::posts.index', 'target' => PostPolicy::class, 'type' => 'authorizes'],
         ];
 
         $this->assertSame([], CodeGraphBuilder::declaresEdges($edges));

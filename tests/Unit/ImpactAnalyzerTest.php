@@ -13,6 +13,7 @@ use App\Models\Tag;
 use App\Models\User;
 use App\Policies\PostPolicy;
 use App\Policies\UserPolicy;
+use InvalidArgumentException;
 use PHPUnit\Framework\Attributes\Test;
 use ReflectionMethod;
 use SanderMuller\Richter\Analysis\ImpactAnalyzer;
@@ -687,7 +688,7 @@ final class ImpactAnalyzerTest extends TestCase
     public function an_addition_only_column_config_change_to_a_hub_model_reads_low(): void
     {
         // Same 25-controller hub as the coarse test, but here the $fillable edit only ADDS an element.
-        // ChangedSymbols reclassifies it as additive (HPB-5382), so it seeds nothing and stays LOW
+        // ChangedSymbols reclassifies an addition-only config edit as additive, so it seeds nothing and stays LOW
         // instead of the coarse MEDIUM low-confidence estimate.
         $edges = [];
         for ($i = 0; $i < 25; ++$i) {
@@ -708,6 +709,77 @@ final class ImpactAnalyzerTest extends TestCase
         $this->assertSame(0, $result['changed']['app/Models/Post.php']);
         $this->assertFalse($result['lowConfidence']);
         $this->assertSame(RiskLevel::Low, $result['risk']);
+    }
+
+    #[Test]
+    public function raising_the_risk_thresholds_lets_a_large_repo_get_a_level_that_discriminates(): void
+    {
+        // On a big codebase the defaults report HIGH for everything, and a level that never varies
+        // is one reviewers learn to skip. The same change reads HIGH by default and MEDIUM once the
+        // repo sets a floor that matches its own scale.
+        $edges = [];
+        for ($i = 0; $i < 30; ++$i) {
+            $edges[] = ['source' => "App\\Services\\Caller{$i}::run", 'target' => 'App\\Services\\Big::run', 'type' => 'call'];
+        }
+
+        $analyzer = new ImpactAnalyzer(new CodeGraph($edges, hasUnparseableFiles: false));
+        $changed = [$this->changedMethod('app/Services/Big.php', 'App\\Services\\Big', 'run')];
+
+        $this->assertSame(RiskLevel::High, $analyzer->detectChanges($changed)['risk']);
+
+        config()->set('richter.risk_thresholds.high.impacted', 500);
+        config()->set('richter.risk_thresholds.medium.impacted', 25);
+
+        $this->assertSame(RiskLevel::Medium, $analyzer->detectChanges($changed)['risk']);
+    }
+
+    #[Test]
+    public function a_risk_threshold_below_one_is_rejected_rather_than_making_every_diff_high(): void
+    {
+        config()->set('richter.risk_thresholds.high.impacted', 0);
+
+        $this->expectException(InvalidArgumentException::class);
+
+        new ImpactAnalyzer(new CodeGraph([], hasUnparseableFiles: false))->detectChanges([
+            $this->changedMethod('app/Services/Big.php', 'App\\Services\\Big', 'run'),
+        ]);
+    }
+
+    #[Test]
+    public function an_entry_surface_reached_only_through_a_model_relation_is_not_a_caller(): void
+    {
+        // The shape that made a report name six admin screens as reached surfaces while the routes
+        // that actually run the changed code reported no path at all. A Filament resource that
+        // touches a related model is associated with the change, not a caller of it. It stays in the
+        // report, in its own section, and out of the count that drives risk.
+        $result = new ImpactAnalyzer(new CodeGraph([
+            ['source' => Comment::class, 'target' => Post::class, 'type' => 'model-relationship'],
+            ['source' => 'App\Filament\Resources\CommentResource', 'target' => Comment::class, 'type' => 'call'],
+            ['source' => 'route::GET::/posts', 'target' => 'App\Services\Publisher::run', 'type' => 'route-to-controller'],
+            ['source' => 'App\Services\Publisher::run', 'target' => Post::class, 'type' => 'call'],
+        ], hasUnparseableFiles: false))->detectChanges([
+            $this->changedCoarse('app/Models/Post.php', Post::class),
+        ]);
+
+        $this->assertSame(['route::GET::/posts'], $result['entryPoints']);
+        $this->assertSame(['App\Filament\Resources\CommentResource'], $result['associationEntryPoints']);
+    }
+
+    #[Test]
+    public function an_over_approximated_call_edge_still_yields_a_real_entry_point(): void
+    {
+        // `override` and `config-registry` fan out, but the dispatch behind them is real, so a surface
+        // behind one does run the changed code. Only relations are demoted, not everything that is
+        // excluded from the risk count.
+        $result = new ImpactAnalyzer(new CodeGraph([
+            ['source' => 'App\Services\Base::run', 'target' => 'App\Services\Concrete::run', 'type' => 'override'],
+            ['source' => 'route::GET::/run', 'target' => 'App\Services\Base::run', 'type' => 'route-to-controller'],
+        ], hasUnparseableFiles: false))->detectChanges([
+            $this->changedMethod('app/Services/Concrete.php', 'App\Services\Concrete', 'run'),
+        ]);
+
+        $this->assertSame(['route::GET::/run'], $result['entryPoints']);
+        $this->assertSame([], $result['associationEntryPoints']);
     }
 
     #[Test]
@@ -1147,7 +1219,7 @@ final class ImpactAnalyzerTest extends TestCase
     #[Test]
     public function a_changed_member_reaches_its_class_callers_through_the_declares_edge(): void
     {
-        // The headline HPB-5468 join: callers reference the class node (`$user->can(Policy::X)`),
+        // The join this lane exists for: callers reference the class node (`$user->can(Policy::X)`),
         // the changed method seeds its member node — the declares edge connects the two.
         $analyzer = new ImpactAnalyzer(new CodeGraph([
             ['source' => self::ROUTE, 'target' => 'App\Http\Controllers\UserController::destroy', 'type' => 'route-to-controller'],

@@ -21,7 +21,7 @@ use SanderMuller\Richter\Graph\NodeMetadata;
  * @phpstan-import-type SecurityShape from NodeMetadata
  * @phpstan-import-type Layout from RadialLayout
  * @phpstan-type GateVerdict array{failOn: string|null, failOnUnresolved: bool, tripped: bool, reasons: list<string>}
- * @phpstan-type DetectChangesResult array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, SecurityShape>, entryPointGates: array<string, list<string>>, entryPointAuthGates?: array<string, list<string>>, entryPointAuthMiddleware?: array<string, list<string>>, seeds: list<string>, reach: array<string, array<string, true>>, edges: list<array{source: string, target: string, via: string, depth: int}>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied: bool, findings: list<string>, ...}
+ * @phpstan-type DetectChangesResult array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, associationEntryPoints?: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, SecurityShape>, entryPointGates: array<string, list<string>>, entryPointAuthGates?: array<string, list<string>>, entryPointAuthMiddleware?: array<string, list<string>>, seeds: list<string>, reach: array<string, array<string, true>>, edges: list<array{source: string, target: string, via: string, depth: int}>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied: bool, findings: list<string>, ...}
  */
 final class HtmlFormatter
 {
@@ -421,9 +421,34 @@ final class HtmlFormatter
     private static function advisory(array $result, array $rows, bool $gateActive, ?array $gate): string
     {
         return self::unresolvedNote($result)
+            . self::associationCard($result['associationEntryPoints'] ?? [])
             . self::card('Findings (in the changed source itself)', $result['findings'] === [] ? '<p class="muted">None.</p>' : self::findings($result['findings']))
             . self::card('Test references', self::testReferenceList($rows))
             . ($gateActive && $gate !== null ? self::card('Gate', self::gateBlock($gate)) : '');
+    }
+
+    /**
+     * Surfaces a model relation connects to the change rather than a call. Every format prints this:
+     * demoting them out of the reached list without showing them anywhere loses them outright, which
+     * is a worse report than the over-counting the split exists to end.
+     *
+     * @param  list<string>  $association
+     */
+    private static function associationCard(array $association): string
+    {
+        if ($association === []) {
+            return '';
+        }
+
+        $items = implode('', array_map(
+            static fn (string $node): string => '<li><code>' . Html::e(NodeLabel::display($node)) . '</code></li>',
+            $association,
+        ));
+
+        return self::card(
+            'Entry surfaces reached only by association',
+            '<p class="muted">Connected by a model relation, not a caller — context, not reach.</p><ul role="list">' . $items . '</ul>',
+        );
     }
 
     /** @param  GateVerdict  $gate */

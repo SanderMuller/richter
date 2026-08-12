@@ -73,6 +73,8 @@ final class DetectChangesTool extends Tool
             'coverage' => $schema->object()
                 ->description('Changed file => "analyzed" or "unresolved". Empty map serializes as [].'),
             'entryPoints' => $schema->array()->items($schema->string()),
+            'associationEntryPoints' => $schema->array()->items($schema->string())
+                ->description('Entry surfaces connected to the change only by a model relation. Associated with it, not callers of it — context, and excluded from the risk level.'),
             'entryPointPaths' => $schema->object()
                 ->description('Entry-point node => call chain down to the changed code; each hop may carry a project-relative file/line. Empty map serializes as [].'),
             'entryPointLocations' => $schema->object()

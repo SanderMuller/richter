@@ -83,6 +83,14 @@ final readonly class PublicWriteAuthCrossCheck
      * This walks the class ancestry Brain's name match cannot, over the route's own
      * `route-to-middleware` edges.
      *
+     * Brain 2.4.0 narrowed the gap without closing it, and the difference is worth stating because
+     * this lane otherwise looks like dead compensation for a fixed bug. Brain now also matches a
+     * middleware by class BASENAME, so the default-skeleton `App\Http\Middleware\Authenticate` is
+     * recognised — its own comment calls that "a name match, not a verified subclass check". A
+     * subclass named anything else (`TenantAuthenticate`, `EnsureUserIsAuthenticated`) still matches
+     * nothing there and still draws the false finding. Ancestry is what this reads, so it covers the
+     * remainder rather than the same set.
+     *
      * Those edges carry what the route files themselves declare — including a
      * `Route::middleware([...])->group(...)` wrapper, whose list Brain's route analyzer attaches to
      * every route inside it. They do NOT carry the members of a *named* middleware group: Brain
