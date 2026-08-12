@@ -3,15 +3,19 @@
 namespace SanderMuller\Richter\Analysis;
 
 /**
- * Advisory: a field this diff removed from a form request's `rules()`, still sent by a frontend
- * file that consumes one of the routes the request validates — the request-side counterpart of
- * {@see FrontendConsumerParityChecker}. Dropping a rule silently drops the field: it stops being
- * validated and stops appearing in `validated()`, so the value simply never arrives and nothing
- * anywhere reports an error.
+ * Advisory: a field this diff stopped validating, still sent by a frontend file that consumes one
+ * of the routes behind it — the request-side counterpart of {@see FrontendConsumerParityChecker}.
+ * Dropping a rule silently drops the field: it stops being validated and stops appearing in
+ * `validated()`, so the value simply never arrives and nothing anywhere reports an error.
+ *
+ * The anchor is whatever held the rule, and the caller decides which: a form request's class for a
+ * `rules()` change, the member holding the call for validation written inline. {@see
+ * validationSite()} spells `rules()` out only for the former, since appending it to a member id
+ * would name a symbol that does not exist.
  *
  * Findings only — never `risk`, `--fail-on`, or `affected-tests`. The match is send-shaped and
- * name-based, so a finding is evidence to check, not a verdict; the `RequestFqcn::field` ignore
- * form is the escape hatch for a false positive.
+ * name-based, so a finding is evidence to check, not a verdict; the `Anchor::field` ignore form —
+ * against the request class or the member — is the escape hatch for a false positive.
  *
  * A dotted rule key (`items.*.name`, `address.city`) matches nothing and is silently skipped. Its
  * segments appear separately in a payload, and matching the last one would fire on every unrelated
@@ -20,6 +24,49 @@ namespace SanderMuller\Richter\Analysis;
 final readonly class RequestFieldParityChecker
 {
     public function __construct(private FrontendConsumerLane $lane) {}
+
+    /**
+     * @param  string  $anchor  whatever held the rule: a form request's class, or the member id of
+     *   a method that validates inline. Not always an FQCN, which is why it is not called one.
+     * @param  list<string>  $removedFields
+     * @param  list<string>  $addedFields
+     * @return list<string> advisory findings, consumer-file- and route-named
+     */
+    public function findingsFor(string $anchor, array $removedFields, array $addedFields): array
+    {
+        if ($this->lane->isIgnored($anchor)) {
+            return [];
+        }
+
+        $ignoredFields = $this->lane->ignoredKeysFor($anchor);
+        $removed = FrontendConsumerLane::matchable($removedFields, $ignoredFields);
+        $added = FrontendConsumerLane::matchable($addedFields, $ignoredFields);
+
+        if ($removed === []) {
+            return [];
+        }
+
+        $findings = [];
+
+        foreach ($this->lane->routesUpstreamOf($anchor) as $route) {
+            foreach ($this->lane->filesReferencing($route) as $file) {
+                foreach ($removed as $field) {
+                    if ($this->sendsField($file, $field)) {
+                        $findings[] = sprintf(
+                            "%s sends '%s' to %s, which this diff removes from %s%s",
+                            $file,
+                            $field,
+                            FrontendConsumerLane::routeLabel($route),
+                            $this->validationSite($anchor),
+                            FrontendConsumerLane::renameSuffix($removed, $added),
+                        );
+                    }
+                }
+            }
+        }
+
+        return array_values(array_unique($findings));
+    }
 
     /**
      * Where the rule lived, named so the reader can open it. A form request is anchored on its class,
@@ -33,47 +80,6 @@ final readonly class RequestFieldParityChecker
     }
 
     /**
-     * @param  list<string>  $removedFields
-     * @param  list<string>  $addedFields
-     * @return list<string> advisory findings, consumer-file- and route-named
-     */
-    public function findingsFor(string $requestFqcn, array $removedFields, array $addedFields): array
-    {
-        if ($this->lane->isIgnored($requestFqcn)) {
-            return [];
-        }
-
-        $ignoredFields = $this->lane->ignoredKeysFor($requestFqcn);
-        $removed = FrontendConsumerLane::matchable($removedFields, $ignoredFields);
-        $added = FrontendConsumerLane::matchable($addedFields, $ignoredFields);
-
-        if ($removed === []) {
-            return [];
-        }
-
-        $findings = [];
-
-        foreach ($this->lane->routesUpstreamOf($requestFqcn) as $route) {
-            foreach ($this->lane->filesReferencing($route) as $file) {
-                foreach ($removed as $field) {
-                    if ($this->sendsField($file, $field)) {
-                        $findings[] = sprintf(
-                            "%s posts to %s and sends '%s', which this diff removes from %s%s",
-                            $file,
-                            FrontendConsumerLane::routeLabel($route),
-                            $field,
-                            $this->validationSite($requestFqcn),
-                            FrontendConsumerLane::renameSuffix($removed, $added),
-                        );
-                    }
-                }
-            }
-        }
-
-        return array_values(array_unique($findings));
-    }
-
-    /**
      * Send-shaped only: an object-literal key (`{ title: … }`, `{ 'title': … }`, the `{ title }`
      * shorthand), a `FormData`/`URLSearchParams` `append`/`set` with the name as a string literal,
      * a bracket write (`payload['title'] = …`), and a dotted assignment (`form.title = …`).
@@ -83,7 +89,7 @@ final readonly class RequestFieldParityChecker
      * Here it is the primary signal rather than the accident, which is why the two lanes match
      * separately instead of sharing one predicate. The residual cost is the mirror image: a file
      * that both posts to and reads from the endpoint can match on a field it only reads. The
-     * advisory framing and the `RequestFqcn::field` ignore entry carry it.
+     * advisory framing and the `Anchor::field` ignore entry carry it.
      */
     private function sendsField(string $file, string $field): bool
     {

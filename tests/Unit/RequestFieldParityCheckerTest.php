@@ -30,6 +30,9 @@ final class RequestFieldParityCheckerTest extends TestCase
     {
         parent::setUp();
         Route::post('/posts', ['App\Http\Controllers\PostController', 'store'])->name('posts.store');
+        // A GET twin on the same URI: a validated field is not always a POST body, and the finding
+        // has to name whichever verb the route actually carries.
+        Route::get('/posts', ['App\Http\Controllers\PostController', 'index'])->name('posts.index');
         $this->projectRoot = sys_get_temp_dir() . '/richter-request-parity-' . bin2hex(random_bytes(8));
         mkdir("{$this->projectRoot}/resources/js", recursive: true);
         mkdir("{$this->projectRoot}/resources/views", recursive: true);
@@ -49,7 +52,7 @@ final class RequestFieldParityCheckerTest extends TestCase
         $findings = $this->checker()->findingsFor(self::REQUEST, ['subtitle'], ['sub_title']);
 
         $this->assertSame(
-            ["resources/js/post.ts posts to POST /posts and sends 'subtitle', which this diff removes from App\\Http\\Requests\\StorePostRequest::rules() (renamed to 'sub_title'?)"],
+            ["resources/js/post.ts sends 'subtitle' to POST /posts, which this diff removes from App\\Http\\Requests\\StorePostRequest::rules() (renamed to 'sub_title'?)"],
             $findings,
         );
     }
@@ -168,13 +171,43 @@ final class RequestFieldParityCheckerTest extends TestCase
         $this->assertStringNotContainsString('::rules()', $findings[0]);
     }
 
+    #[Test]
+    public function a_query_parameter_on_a_get_route_is_matched_and_named_with_that_route_verb(): void
+    {
+        // A sent field is not always a POST body. The matcher already handled a `params:` object on a
+        // GET route; the sentence did not, and read "posts to GET /posts" — contradicting itself, in
+        // a report whose whole value is being trusted. The route's own verb is printed, none assumed.
+        $this->consumerFile('resources/js/search.ts', "axios.get('/posts', { params: { subtitle } });");
+
+        $this->assertSame(
+            ["resources/js/search.ts sends 'subtitle' to GET /posts, which this diff removes from App\\Http\\Requests\\StorePostRequest::rules()"],
+            $this->checker(routeNode: 'route::GET::/posts')->findingsFor(self::REQUEST, ['subtitle'], []),
+        );
+    }
+
+    #[Test]
+    public function the_ignore_forms_work_against_an_inline_member_anchor_too(): void
+    {
+        // The published config documents `Controller::method::field`. The lane matches on a plain
+        // `"{$anchor}::"` prefix, so a member anchor gives a three-segment entry — worth pinning
+        // rather than trusting, since the documented form is what a reader will copy.
+        $this->consumerFile('resources/js/post.ts', "fetch('/posts', { method: 'POST', body: JSON.stringify({ subtitle }) });");
+
+        $wholeMember = $this->checker(ignore: [self::ACTION]);
+        $singleField = $this->checker(ignore: [self::ACTION . '::subtitle']);
+
+        $this->assertSame([], $wholeMember->findingsFor(self::ACTION, ['subtitle'], []));
+        $this->assertSame([], $singleField->findingsFor(self::ACTION, ['subtitle'], []));
+        $this->assertCount(1, $this->checker()->findingsFor(self::ACTION, ['subtitle'], []));
+    }
+
     /** @param  list<string>  $ignore */
-    private function checker(array $ignore = []): RequestFieldParityChecker
+    private function checker(array $ignore = [], string $routeNode = self::ROUTE_NODE): RequestFieldParityChecker
     {
         // The shape Brain draws for a type-hinted form request: route → action → `Fqcn::validated`.
         // `callersOf` walks it back up to the route node.
         $graph = new CodeGraph([
-            ['source' => self::ROUTE_NODE, 'target' => self::ACTION, 'type' => 'action'],
+            ['source' => $routeNode, 'target' => self::ACTION, 'type' => 'action'],
             ['source' => self::ACTION, 'target' => self::REQUEST . '::validated', 'type' => 'action-to-form-request'],
         ], hasUnparseableFiles: false);
 
