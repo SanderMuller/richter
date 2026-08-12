@@ -62,7 +62,7 @@ final class TracerBranchRunner
      * or malformed output) — the caller then rebuilds the branch in-process. The temp file is always
      * cleaned up.
      *
-     * @return array{edges: list<array{source: string, target: string, type: string}>, unparseableFiles: int, unresolvedDispatches: int, inheritance: array<string, array{parent: string|null, declared: list<string>}>}|null
+     * @return array{edges: list<array{source: string, target: string, type: string}>, unparseableFiles: int, unresolvedDispatches: int, inheritance: array<string, array{parent: string|null, declared: list<string>}>, declares: array<string, list<array{source: string, target: string, type: string}>>}|null
      */
     public static function finish(PendingTracerBranch $pending): ?array
     {
@@ -88,7 +88,7 @@ final class TracerBranchRunner
      * rather than risking a wrong graph from a truncated or corrupt file — a slow-but-correct build
      * beats a fast-but-wrong one.
      *
-     * @return array{edges: list<array{source: string, target: string, type: string}>, unparseableFiles: int, unresolvedDispatches: int, inheritance: array<string, array{parent: string|null, declared: list<string>}>}|null
+     * @return array{edges: list<array{source: string, target: string, type: string}>, unparseableFiles: int, unresolvedDispatches: int, inheritance: array<string, array{parent: string|null, declared: list<string>}>, declares: array<string, list<array{source: string, target: string, type: string}>>}|null
      */
     private static function validate(mixed $decoded): ?array
     {
@@ -96,6 +96,7 @@ final class TracerBranchRunner
             || ! is_array($decoded['edges'] ?? null)
             || ! array_is_list($decoded['edges'])
             || ! is_array($decoded['inheritance'] ?? null)
+            || ! is_array($decoded['declares'] ?? null)
             || ! is_int($decoded['unparseableFiles'] ?? null)
             || ! is_int($decoded['unresolvedDispatches'] ?? null)
             || $decoded['unparseableFiles'] < 0
@@ -141,11 +142,35 @@ final class TracerBranchRunner
             $inheritance[$class] = ['parent' => $parent, 'declared' => $declared];
         }
 
+        $declares = [];
+
+        // Same fail-closed reading again: these become `declares` edges in the merged graph, so a
+        // mis-shaped entry would put a member node under a class that does not declare it.
+        foreach ($decoded['declares'] as $class => $classEdges) {
+            if (! is_string($class) || ! is_array($classEdges) || ! array_is_list($classEdges)) {
+                return null;
+            }
+
+            $declares[$class] = [];
+
+            foreach ($classEdges as $edge) {
+                if (! is_array($edge)
+                    || ! is_string($edge['source'] ?? null)
+                    || ! is_string($edge['target'] ?? null)
+                    || ! is_string($edge['type'] ?? null)) {
+                    return null;
+                }
+
+                $declares[$class][] = ['source' => $edge['source'], 'target' => $edge['target'], 'type' => $edge['type']];
+            }
+        }
+
         return [
             'edges' => $edges,
             'unparseableFiles' => $decoded['unparseableFiles'],
             'unresolvedDispatches' => $decoded['unresolvedDispatches'],
             'inheritance' => $inheritance,
+            'declares' => $declares,
         ];
     }
 }

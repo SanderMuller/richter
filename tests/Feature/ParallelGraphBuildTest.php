@@ -98,6 +98,25 @@ final class ParallelGraphBuildTest extends TestCase
             'unparseableFiles' => 0,
             'unresolvedDispatches' => 0,
             'inheritance' => ['App\\Services\\Child' => ['parent' => 42, 'declared' => ['handle']]],
+            'declares' => [],
+        ]));
+        $process = Process::path(base_path())->start([PHP_BINARY, '-r', 'exit(0);']);
+
+        $this->assertNull(TracerBranchRunner::finish(new PendingTracerBranch($process, $out)));
+    }
+
+    #[Test]
+    public function finish_rejects_a_payload_with_a_mis_shaped_declares_map(): void
+    {
+        // These become `declares` edges verbatim, so a mis-shaped entry would hang a member node off
+        // a class that does not declare it — the same fail-closed rule the other two maps get.
+        $out = (string) tempnam(sys_get_temp_dir(), 'richter-test-');
+        file_put_contents($out, (string) json_encode([
+            'edges' => [],
+            'unparseableFiles' => 0,
+            'unresolvedDispatches' => 0,
+            'inheritance' => [],
+            'declares' => ['App\\Services\\Child' => [['source' => 'App\\Services\\Child', 'target' => 42, 'type' => 'declares']]],
         ]));
         $process = Process::path(base_path())->start([PHP_BINARY, '-r', 'exit(0);']);
 
@@ -113,8 +132,10 @@ final class ParallelGraphBuildTest extends TestCase
             'unparseableFiles' => 0,
             'unresolvedDispatches' => 2,
             // The worker also carries out the inheritance map, which the parent applies to the merged
-            // edge set — a payload without it is not this worker's output.
+            // edge set — a payload without it is not this worker's output. Same for the declares map:
+            // the parent looks members up there rather than re-parsing every app class file.
             'inheritance' => ['App\\Services\\Child' => ['parent' => 'App\\Services\\Base', 'declared' => ['handle']]],
+            'declares' => ['App\\Services\\Child' => [['source' => 'App\\Services\\Child', 'target' => 'App\\Services\\Child::handle', 'type' => 'declares']]],
         ];
         file_put_contents($out, (string) json_encode($branch));
         $process = Process::path(base_path())->start([PHP_BINARY, '-r', 'exit(0);']);

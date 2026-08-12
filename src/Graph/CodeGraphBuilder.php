@@ -166,7 +166,7 @@ final class CodeGraphBuilder
         $metadata = NodeMetadata::remapKeys($metadata, self::shortControllerIdResolver($controllerBasenames));
         $metadata = NodeMetadata::remapKeys($metadata, self::middlewareAliasResolver($middlewareAliases));
 
-        foreach ($this->memberDeclarationEdges($edges, $projectRoot) as $memberEdge) {
+        foreach ($this->memberDeclarationEdges($edges, $projectRoot, $tracerBranch['declares']) as $memberEdge) {
             $edges[] = $memberEdge;
         }
 
@@ -204,7 +204,7 @@ final class CodeGraphBuilder
      * order build() appends them serially, keeping the merged graph byte-identical either way.
      *
      * @param  (callable(string, array<string, mixed>): void)|null  $onProgress
-     * @return array{edges: list<array{source: string, target: string, type: string}>, unparseableFiles: int, unresolvedDispatches: int, inheritance: array<string, array{parent: string|null, declared: list<string>}>}
+     * @return array{edges: list<array{source: string, target: string, type: string}>, unparseableFiles: int, unresolvedDispatches: int, inheritance: array<string, array{parent: string|null, declared: list<string>}>, declares: array<string, list<array{source: string, target: string, type: string}>>}
      */
     public function buildTracerBranch(string $projectRoot, ?callable $onProgress = null): array
     {
@@ -247,6 +247,7 @@ final class CodeGraphBuilder
             'unparseableFiles' => $consolidated['unparseableFiles'],
             'unresolvedDispatches' => $consolidated['unresolvedDispatches'],
             'inheritance' => $consolidated['inheritance'],
+            'declares' => $consolidated['declares'],
         ];
     }
 
@@ -286,7 +287,7 @@ final class CodeGraphBuilder
      * Conflating the two (as pre-036 code did) would make an unrelated unparseable file's taint
      * masquerade as a scopeable dispatch signal — see plan 036 "Why v1 was unsound".
      *
-     * @return array{edges: list<array{source: string, target: string, type: string}>, unparseableFiles: int, unresolvedDispatches: int, entryPointAsts: array<string, list<Node\Stmt>>, inheritance: array<string, array{parent: string|null, declared: list<string>}>}
+     * @return array{edges: list<array{source: string, target: string, type: string}>, unparseableFiles: int, unresolvedDispatches: int, entryPointAsts: array<string, list<Node\Stmt>>, inheritance: array<string, array{parent: string|null, declared: list<string>}>, declares: array<string, list<array{source: string, target: string, type: string}>>}
      */
     private function consolidatedTracerEdges(string $projectRoot, EntryPointTracer $entryPointTracer): array
     {
@@ -318,6 +319,7 @@ final class CodeGraphBuilder
 
         $edges = [];
         $entryPointAsts = [];
+        $declaresByFqcn = [];
         $unparseableFiles = 0;
         $unresolvedDispatches = 0;
 
@@ -338,6 +340,10 @@ final class CodeGraphBuilder
             }
 
             $nodes = $this->collectTracerNodes($ast);
+            // The declares edges this file's classes contribute, derived from the AST already in
+            // hand. {@see memberDeclarationEdges()} would otherwise re-read and re-parse every one
+            // of these files a second time, after this loop has just parsed them all.
+            $declaresByFqcn[$class['fqcn']] = $this->declaredMemberEdgesFrom($nodes['classLikes'], $class['fqcn']);
             $hierarchyTracer->collect($nodes['classLikes']);
             $constantTracer->collect($nodes['classLikes']);
             $facadeTracer->collect($nodes['classLikes']);
@@ -379,6 +385,7 @@ final class CodeGraphBuilder
             // the full set only exists in build(), after Brain's branch merges in — a controller that
             // INHERITS its action reaches its member node through Brain, not through this branch.
             'inheritance' => $hierarchyTracer->inheritanceMap(),
+            'declares' => $declaresByFqcn,
         ];
     }
 
@@ -472,9 +479,12 @@ final class CodeGraphBuilder
      * class ever being referenced class-level — the overlap between the two is deduped downstream.
      *
      * @param  list<array{source: string, target: string, type: string}>  $edges
+     * @param  array<string, list<array{source: string, target: string, type: string}>>  $parsed  the
+     *   declares edges the tracer branch already derived, keyed by FQCN — a lookup here rather than a
+     *   second parse of every app class file
      * @return list<array{source: string, target: string, type: string}>
      */
-    private function memberDeclarationEdges(array $edges, string $projectRoot): array
+    private function memberDeclarationEdges(array $edges, string $projectRoot, array $parsed): array
     {
         $declares = [];
 
@@ -488,6 +498,15 @@ final class CodeGraphBuilder
                     continue;
                 }
 
+                if (isset($parsed[$node])) {
+                    $declares[$node] = $parsed[$node];
+
+                    continue;
+                }
+
+                // Not a file the tracer branch walked — an app-namespaced id whose file lives outside
+                // `app/`, or one it could not parse. Reading it here keeps the fallback honest rather
+                // than silently dropping a class's members.
                 $file = $projectRoot . '/app/' . AppNamespace::relativePath($node) . '.php';
                 $declares[$node] = is_file($file)
                     ? self::declaredMemberEdges((string) file_get_contents($file), $node)
@@ -498,6 +517,28 @@ final class CodeGraphBuilder
         $memberEdges = array_values($declares);
 
         return $memberEdges === [] ? [] : array_merge(...$memberEdges);
+    }
+
+    /**
+     * {@see declaredMemberEdges()} against class-likes already parsed, instead of source that would
+     * have to be parsed again. Same contract deliberately, including the quirk it inherits from
+     * {@see MemberResolver::resolve()}: every class-like in the file contributes, all attributed to
+     * the file's own FQCN, so a second class in one file lends its methods to the first.
+     *
+     * @param  list<ClassLike>  $classLikes
+     * @return list<array{source: string, target: string, type: string}>
+     */
+    private function declaredMemberEdgesFrom(array $classLikes, string $fqcn): array
+    {
+        $edges = [];
+
+        foreach ($classLikes as $classLike) {
+            foreach ($classLike->getMethods() as $method) {
+                $edges[] = ['source' => $fqcn, 'target' => $fqcn . '::' . $method->name->toString(), 'type' => 'declares'];
+            }
+        }
+
+        return $edges;
     }
 
     /**
