@@ -36,7 +36,8 @@ never auto-activates.
 
 Get the branch report (`detect-changes`, JSON + explain). Note `risk`, `lowConfidence`,
 `coarseCapApplied`, and whether any file is UNRESOLVED — these calibrate how much the rest of the
-report can be trusted.
+report can be trusted. Where `scoredEntryPoints` / `scoredImpacted` differ from the printed counts,
+those are what the level was decided on; the wider list is still reach worth reviewing.
 
 ## Step 2 — Triage the reached entry points
 
