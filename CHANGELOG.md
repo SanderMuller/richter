@@ -5,6 +5,81 @@ All notable changes to `sandermuller/richter` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.25.0 - 2026-08-12
+
+Richter follows config-keyed class registries now, and several places where the report claimed more coverage than it had were corrected. Sourced from a consumer usage audit across two production applications.
+
+### Added
+
+#### Config-registry edges
+
+A subsystem dispatched by looking a class up in `config/x.php` was reachable from nothing. No static call connects `config("x.{$id}")` to that file's array of `::class` constants, so every class in the registry had no caller, and a change to one reported zero entry points however central it was. Richter links the lookup to every app class the config file names.
+
+- Both call forms are recognised, including the interpolated key this shape exists for (`config("calculators.{$id}")`): the key is dynamic, the file is not. A fully dynamic argument (`config($key)`) names no file and draws nothing rather than guessing at one.
+- The match is at file granularity, deliberately. A registry's keys are frequently built at runtime; its class list never is.
+- The fan-out is excluded from the risk count, on the same grounds as `override`. It carries reach and entry-point discovery, which is the whole point, without letting one edit to the resolver saturate the level on breadth alone.
+- Only app classes are linked. A vendor class named in a config file is reached from everywhere, and linking one would attach the framework to any method that reads a config value.
+
+#### `config/*.php` is a graph-build input
+
+Nothing the build read lived under `config/` before this lane, so adding a class to a registry would have served the previous graph and left the new class still reporting no callers. Every config change now costs one graph rebuild. That is the deliberate trade: a false miss costs a rebuild, a false hit would be the falsely reassuring stale report this package exists to prevent.
+
+#### Changed files no lane analyses are named
+
+A diff of nothing but a stylesheet, a CI workflow and a lockfile printed `No changed PHP files under app/`. That is accurate about the analyser and reads as "no impact" to whoever changed those files. The count is now named on stderr beside the report:
+
+```text
+Note: 2 changed file(s) are outside the analysed scope (not PHP under app/, a Blade view, or a configured frontend root) and were not analysed: resources/sass/app.scss, vapor.yml
+
+```
+Stderr, like the untracked-file note, so `--json` and `--markdown` stdout stay exactly the report. Frontend sources the configuration declines to scan are not counted: generated Wayfinder output under `frontend.generated_paths` and `.d.ts` declarations were silenced on purpose, and a note that fires loudest on regeneration churn is one people stop reading.
+
+`ChangedSymbols::resolveWithScope()` and `FrontendChanges::isDeliberatelyIgnored()` are the new public entry points behind it. `ChangedSymbols::resolve()` is unchanged and still returns the changed members alone.
+
+### Changed
+
+#### UNRESOLVED wording, in all three renderers
+
+A changed file could read "in an area not yet graphed" while having a graph node and being listed as an entry point two lines below. That is the job-flip lane, where the file is placed but its dispatchers could not be enumerated. All three renderers now say the reach could not be fully determined, which holds in both lanes. If you match on the report text, these strings moved:
+
+| Renderer | Before | After |
+|---|---|---|
+| text, per file | `(UNRESOLVED: coverage incomplete for this area)` | `(UNRESOLVED: reach for this file could not be fully determined)` |
+| text, summary | `(some changed files are in an area not yet graphed …)` | `(some changed files could not be fully placed …)` |
+| markdown, table cell | `⚠️ **UNRESOLVED** (not placed in the graph)` | `⚠️ **UNRESOLVED** (reach not fully determined)` |
+| markdown / HTML, note | `… could not be placed in the graph` | `… could not be fully placed` |
+| HTML, badge | `UNRESOLVED (not placed in the graph)` | `UNRESOLVED (reach not fully determined)` |
+
+The JSON payload is unchanged: `coverage` still carries `analyzed` or `unresolved`.
+
+#### Risk levels are documented as version-sensitive
+
+The thresholds are absolute, which is what keeps `--fail-on` predictable, and it has a consequence worth knowing before gating CI on it: every release that teaches Richter to follow more edges raises the impacted-node count for the same diff, so a change that sat under a threshold can cross it on an upgrade with nothing in your application having changed. Treat a level shift right after a version bump as a coverage change first. Pin the version in CI if a `--fail-on` verdict has to stay comparable across releases.
+
+### Fixed
+
+#### Middleware group route counts were an order of magnitude low
+
+The note reading `runs in middleware group 'web', which guards N routes` counted purely off graph edges, and a `route:: → middleware::<group>` edge exists only where a route file applies the group in its own `->middleware()` call. A provider that loops over route files and groups them there, the shape Laravel's own `RouteServiceProvider` ships, draws no such edge for any of them. On one application the graph knew 36 of 420. The count now comes from the application's registered route table, and falls back to the graph subset only when the run is pointed at a checkout other than the running application. That whole note exists to stop a reviewer under-sizing a change, so a number that errs downward defeated its purpose.
+
+#### `richter:benchmark:add --control` refuses a change that already reports HIGH
+
+A control caps the risk a harmless change may report. HIGH is the top of the scale, so such a cap asserts nothing and the case passes forever. Whoever runs this command is usually triaging a control that just went red, where pasting the green no-op is both the obvious move and the one that destroys the fixture.
+
+#### `entry_point_roots` was documented as promoting classes
+
+The key was described as making a directory "traced as entry points" and recommended by name for registry-dispatched subsystems. It traces, never promotes: whether a reached class counts as an entry surface of its own is a fixed vocabulary that no config key extends, so listing a directory there makes its classes reachable and countable and never entry points. Corrected in the README, the configuration reference and the shipped config file.
+
+#### The defined-node fallback was documented as covering routes files
+
+It claimed a `routes/api.php` change was placeable through it. Such a file never enters the changed set, so no lane sees it. It is out of scope, and now says so.
+
+### Internal
+
+Setup guidance warns about `post-checkout` hooks that reinstall dependencies. Comparing several refs in one session (replaying branches, walking commits, bisecting) lets such a hook install each ref's own lockfile and swap the Richter version mid-comparison.
+
+**Full Changelog**: https://github.com/SanderMuller/richter/compare/v0.24.0...v0.25.0
+
 ## v0.24.0 - 2026-08-11
 
 One new advisory lane, and a README that finally leads with what the package is for.
@@ -17,6 +92,7 @@ One new advisory lane, and a README that finally leads with what the package is 
   
   ```text
     ! App\Http\Middleware\EnsureTenant runs in middleware group 'api', which guards 142 routes; group membership is not drawn as edges, so those routes are not in the reach above
+  
   
   ```
   The count comes off the `route:: → middleware::<group>` edges already in the graph, so it counts endpoints only: a controller-level attachment of the same group does not inflate it. Membership is read from `$middlewareGroups` on a Laravel 10 Kernel or the `->web(append: [...])` form in a Laravel 11+ `bootstrap/app.php`. A member written as an alias resolves through the same alias map, parameters are cut first (`tenant:strict` is one alias with an argument), and a group that names another group is expanded transitively, since Laravel runs the inner group's middleware on the outer group's routes too.
@@ -50,6 +126,7 @@ Two silent-failure shapes that richter used to miss: a call through an applicati
   
   ```text
     ! resources/js/Pages/Posts/Create.vue posts to POST /posts and sends 'subtitle', which this diff removes from App\Http\Requests\StorePostRequest::rules() (renamed to 'sub_title'?)
+  
   
   
   ```
