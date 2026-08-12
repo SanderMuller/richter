@@ -20,6 +20,7 @@ use SanderMuller\Richter\Support\AppNamespace;
 use SanderMuller\Richter\Support\RichterConfig;
 use SanderMuller\Richter\Tracers\BladeViewTracer;
 use SanderMuller\Richter\Tracers\ClassHierarchyTracer;
+use SanderMuller\Richter\Tracers\ConfigRegistryTracer;
 use SanderMuller\Richter\Tracers\ConstantReferenceTracer;
 use SanderMuller\Richter\Tracers\DispatchEdgeTracer;
 use SanderMuller\Richter\Tracers\EntryPointTracer;
@@ -301,6 +302,9 @@ final class CodeGraphBuilder
         // Facade → concrete resolution: likewise cross-file, and it reads the static-call edges the
         // loop below emits, so it can only run once all of them exist.
         $facadeTracer = new FacadeEdgeTracer();
+        // config/*.php scanned once up front: the registries are the same for every app file, and a
+        // per-file rescan of the config directory would be the tracer's whole cost.
+        $configTracer = new ConfigRegistryTracer($projectRoot);
 
         // The paths whose ASTs trace() consumes: files under the tracer's own roots.
         $retainPrefixes = array_map(
@@ -345,6 +349,7 @@ final class CodeGraphBuilder
             array_push($edges, ...$referenceTracer->edgesForNodes($nodes['classMethods'], $nodes['traitUses'], $class['fqcn']));
             array_push($edges, ...$entryPointTracer->interfaceEdgesForClassLikes($nodes['classLikes'], $class['fqcn']));
             array_push($edges, ...$staticCallTracer->edgesForClassLikes($nodes['classLikes'], $class['fqcn']));
+            array_push($edges, ...$configTracer->edgesForClassLikes($nodes['classLikes'], $class['fqcn']));
         }
 
         // CHA override edges (ancestor::m → concrete::m). Emitted once here, after every file's

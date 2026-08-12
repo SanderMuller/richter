@@ -39,10 +39,15 @@ return [
     'feature_gate_methods' => [],
 
     /*
-     * Directories under app/ whose classes are entry points Laravel Brain's route-anchored
-     * graph misses. Missing directories are skipped, so unused defaults are harmless.
-     * Affects graph tracing only — the risk-floor namespace heuristics (Jobs, Listeners, …)
-     * in the analyzer are fixed.
+     * Directories under app/ whose classes Richter traces beyond Laravel Brain's route-anchored
+     * graph: it walks their methods and draws the edges those bodies imply, so a change in one is
+     * placeable instead of UNRESOLVED. Missing directories are skipped, so unused defaults are
+     * harmless.
+     *
+     * Tracing only. It does not promote anything: which reached classes count as an entry surface
+     * of their own, and which namespaces floor the risk level, are both fixed vocabularies in the
+     * analyzer that no config key extends. Listing a directory here makes its classes reachable
+     * and countable, never entry points.
      *
      * A directory that belongs here but is absent gets a stderr note: the commands report an
      * app/ directory holding classes of which none reach the graph at all.

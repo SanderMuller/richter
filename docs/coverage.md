@@ -6,6 +6,7 @@ Brain traces some of these too (view composition, resource references, queue dis
 
 - queue dispatches, including unresolvable ones;
 - container bindings and interface implementations;
+- config-keyed class registries: a subsystem dispatched by looking a class up in `config/x.php` (`config("calculators.{$id}")`) is reachable from nothing otherwise, so every class in it reports no callers however central it is. The lookup is linked to every app class the file names — the keys are usually built at runtime, the class list is not. That fan-out is an over-approximation like `override`, so it carries reach and entry-point discovery without counting toward the risk level;
 - polymorphic overrides: a call on an abstract-class or interface method also reaches the concrete overrides in its subclasses/implementors, so a handler chosen at runtime (a config-registry driver, a factory, `app()->make($runtimeClass)`) is not left orphaned;
 - static calls: `Foo::bar()`, the shape a static registry, named constructor or factory is reached through, which a `new`-oriented trace leaves with no node at all;
 - inherited methods: a method a class inherits without overriding runs in the parent, so the parent is connected to the subclass its callers actually go through (the same declaring-class resolution the constant lane does);

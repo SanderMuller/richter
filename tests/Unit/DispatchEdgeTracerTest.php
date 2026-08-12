@@ -141,9 +141,9 @@ final class DispatchEdgeTracerTest extends TestCase
         // value objects carry a handle() method; without this, every DTO-constructing method reads as
         // a dispatcher. (An INTRINSIC job/command is still linked from a bare instantiation — see the
         // `dispatch_with_retries helper` case above, which uses a \Jobs\ class.)
-        $source = "<?php\nnamespace App\Formulas;\nuse App\Commands\ArchiveStalePosts;\nclass PriceCalculator\n{\n    public function build(): void\n    {\n        \$pending = new ArchiveStalePosts();\n    }\n}\n";
+        $source = "<?php\nnamespace App\Calculators;\nuse App\Commands\ArchiveStalePosts;\nclass PriceCalculator\n{\n    public function build(): void\n    {\n        \$pending = new ArchiveStalePosts();\n    }\n}\n";
 
-        $this->assertSame([], new DispatchEdgeTracer()->edgesForSource($source, 'App\Formulas\PriceCalculator')['edges']);
+        $this->assertSame([], new DispatchEdgeTracer()->edgesForSource($source, 'App\Calculators\PriceCalculator')['edges']);
     }
 
     #[Test]

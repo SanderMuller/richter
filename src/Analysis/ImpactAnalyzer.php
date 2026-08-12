@@ -49,9 +49,14 @@ final readonly class ImpactAnalyzer
      * a route reaching a governed model by `action-to-model` is impact, even though the policy that
      * governs the model is not. Propagating association-only status along a whole branch would
      * change the risk level for every existing app and belongs behind the benchmark corpus.
+     * `config-registry` (0.25) is the same over-approximation as `override`, in a different shape: a
+     * `config('calculators…')` lookup can return any class the registry names, so the edge fans out to
+     * all of them. Counting that would let one edit to the resolver saturate the level on breadth,
+     * while the reach it carries — which is what gives a registry-dispatched class any caller at all
+     * — is exactly what must keep flowing.
      * Reach, coverage, and entry-point discovery still flow through these edges.
      */
-    public const array RISK_EXCLUDED_EDGE_TYPES = ['model-relationship', 'declares', 'uses-trait', 'override', 'model-to-policy'];
+    public const array RISK_EXCLUDED_EDGE_TYPES = ['model-relationship', 'declares', 'uses-trait', 'override', 'model-to-policy', 'config-registry'];
 
     public function __construct(private CodeGraph $graph) {}
 

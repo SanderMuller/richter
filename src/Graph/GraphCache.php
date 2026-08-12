@@ -6,13 +6,14 @@ use Composer\InstalledVersions;
 use OutOfBoundsException;
 use SanderMuller\Richter\Support\AppNamespace;
 use SanderMuller\Richter\Support\RichterConfig;
+use SanderMuller\Richter\Tracers\ConfigRegistryTracer;
 use Symfony\Component\Finder\Finder;
 use Throwable;
 
 /**
  * Serves the {@see CodeGraph} from a fingerprinted on-disk cache, rebuilding through
  * {@see CodeGraphBuilder} only when an input changed. The fingerprint content-hashes everything the
- * build reads — `app/`, `routes/`, `resources/views`, the richter and laravel-brain config, the
+ * build reads — `app/`, `routes/`, `resources/views`, `config/`, the richter and laravel-brain config, the
  * package versions — so a hit can only serve the graph those exact inputs produce; staleness is
  * designed out rather than expired out. A corrupt or mismatched cache file reads as a miss, and a
  * failed write is ignored: the cache is an optimisation and must never break or pollute a report
@@ -53,8 +54,12 @@ final class GraphCache
      * 10 → 11: the graph gained `facade-resolves-to` edges, carrying a call through an application
      * facade on to the class the accessor names — an addition to the edge set for identical file
      * inputs, so a stale pre-change entry served to the new code under-selects.
+     * 11 → 12: the graph gained `config-registry` edges, linking a `config('x…')` lookup to the app
+     * classes `config/x.php` names — the same under-selection if a stale entry were served. That
+     * lane also made `config/*.php` a build input, so {@see inputFiles()} now hashes it; before this
+     * release nothing the build read lived there.
      */
-    private const int FORMAT_VERSION = 11;
+    private const int FORMAT_VERSION = 12;
 
     private ?CodeGraph $memoized = null;
 
@@ -346,9 +351,13 @@ final class GraphCache
 
     /**
      * Every file the build pipeline reads, project-relative and in one deterministic order:
-     * Brain and the tracers scan `app/` and `routes/` PHP plus the Blade views, and
+     * Brain and the tracers scan `app/` and `routes/` PHP plus the Blade views, `config/*.php` feeds
+     * the config-registry lane ({@see ConfigRegistryTracer} reads the `::class` constants a config
+     * file names, so adding a class to one changes the edge set with no `app/` file touched), and
      * `bootstrap/app.php` feeds middleware-alias resolution (Brain's registry and
-     * {@see MiddlewareAliases}) — never the whole `bootstrap/` dir, whose `cache/` churns.
+     * {@see MiddlewareAliases}) — never the whole `bootstrap/` dir, whose `cache/` churns. `config/`
+     * is taken at depth 0: Laravel keeps no subdirectories there, and the one thing that does appear
+     * is a vendor-published tree nothing here reads.
      *
      * @return list<string>
      */
@@ -360,6 +369,12 @@ final class GraphCache
         ));
 
         $paths = is_file("{$projectRoot}/bootstrap/app.php") ? ['bootstrap/app.php'] : [];
+
+        if (is_dir("{$projectRoot}/config")) {
+            foreach (Finder::create()->files()->in("{$projectRoot}/config")->depth(0)->name('*.php') as $file) {
+                $paths[] = substr($file->getPathname(), strlen($projectRoot) + 1);
+            }
+        }
 
         if ($directories === [] && $paths === []) {
             return [];
