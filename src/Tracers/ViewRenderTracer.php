@@ -23,8 +23,10 @@ use SanderMuller\Richter\Support\AppFiles;
  * nothing points at it, and richter cannot say who is affected by editing it.
  *
  * The mapping is often assumed to need a convention resolver (component FQCN → view name). It does
- * not, for the majority: the call is written out in the source (`return view('livewire.foo');`).
- * This reads the call that is already there.
+ * not, for the majority: the name is written out in the source, either as the call
+ * (`return view('livewire.foo');`) or as a declaration a base class renders
+ * (`protected static string $view = 'pages.settings';`). Both are read — a page component using the
+ * second form renders no view of its own, so reading only calls covers none of them.
  *
  * Literal names only. A computed view name (`view($this->template)`) names nothing, and the view has
  * to exist as a file before an edge is drawn — a package-namespaced name (`mail::message`) resolves
@@ -69,6 +71,10 @@ final readonly class ViewRenderTracer
 
             $fqcn = ltrim($fqcn, '\\');
 
+            foreach ($this->viewsDeclared($classLike) as $view) {
+                $edges[] = ['source' => $fqcn, 'target' => BladeViews::nodeId($view), 'type' => 'action-to-view'];
+            }
+
             foreach ($classLike->getMethods() as $method) {
                 $source = $fqcn . '::' . $method->name->toString();
 
@@ -100,6 +106,46 @@ final readonly class ViewRenderTracer
 
             if (BladeViews::existsIn($this->projectRoot, $argument->value)) {
                 $views[$argument->value] = true;
+            }
+        }
+
+        return array_keys($views);
+    }
+
+    /**
+     * The view names a class declares rather than renders — `protected static string $view = '…';`,
+     * the form a page component uses when its base class does the rendering. No call is written
+     * anywhere in the subclass, so {@see viewsRendered()} sees nothing and the view reads UNRESOLVED.
+     *
+     * The edge hangs off the class, not a member: the declaration belongs to the class as a whole and
+     * naming a method here would name one that need not exist. Class-sourced edges are already the
+     * shape a policy edge takes, and the class is what a reviewer opens.
+     *
+     * Only a property literally named `$view` holding a literal string that resolves to a Blade file
+     * here. No check that the class extends a page base: the call form above draws its edge from any
+     * class too, and the ancestry needed to gate this one is not available to a tracer that sees one
+     * file. The conjunction carries it instead — a property of that exact name whose value names a
+     * Blade file that exists is about rendering that view; anything else never reaches the map.
+     *
+     * @return list<string>
+     */
+    private function viewsDeclared(ClassLike $classLike): array
+    {
+        $views = [];
+
+        foreach ($classLike->getProperties() as $property) {
+            foreach ($property->props as $declaration) {
+                if ($declaration->name->toString() !== 'view') {
+                    continue;
+                }
+
+                if (! $declaration->default instanceof String_) {
+                    continue;
+                }
+
+                if (BladeViews::existsIn($this->projectRoot, $declaration->default->value)) {
+                    $views[$declaration->default->value] = true;
+                }
             }
         }
 

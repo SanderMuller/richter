@@ -3,6 +3,7 @@
 namespace SanderMuller\Richter\Tests\Unit;
 
 use App\Http\Controllers\Auth\SocialAuthController;
+use App\Http\Controllers\Post\ReviewController;
 use App\Http\Middleware\Authenticate;
 use App\Models\Post;
 use App\Models\Review;
@@ -84,6 +85,67 @@ final class CodeGraphBuilderTest extends TestCase
         ]);
 
         $this->assertSame('controller::PostController', $resolved[0]['target']);
+    }
+
+    #[Test]
+    public function a_partially_qualified_controller_id_is_rewritten_onto_the_class_it_names(): void
+    {
+        $edges = [
+            ['source' => 'route::GET::/posts/{post}/edit', 'target' => 'Post\ReviewController', 'type' => 'route-to-controller'],
+            ['source' => 'Post\ReviewController', 'target' => 'Post\ReviewController::edit', 'type' => 'controller-to-action'],
+        ];
+
+        $resolved = CodeGraphBuilder::resolveShortControllerIds($edges, [
+            'ReviewController' => [ReviewController::class],
+        ]);
+
+        $this->assertSame(ReviewController::class, $resolved[0]['target']);
+        $this->assertSame(ReviewController::class . '::edit', $resolved[1]['target']);
+    }
+
+    #[Test]
+    public function a_duplicated_basename_still_resolves_when_the_partial_namespace_picks_one(): void
+    {
+        $edges = [
+            ['source' => 'route::GET::/x', 'target' => 'Api\PostController', 'type' => 'route-to-controller'],
+        ];
+
+        $resolved = CodeGraphBuilder::resolveShortControllerIds($edges, [
+            'PostController' => ['App\Http\Controllers\Post\PostController', 'App\Http\Controllers\Api\PostController'],
+        ]);
+
+        $this->assertSame('App\Http\Controllers\Api\PostController', $resolved[0]['target']);
+    }
+
+    #[Test]
+    public function a_partially_qualified_id_matching_no_candidate_stays_verbatim(): void
+    {
+        $edges = [
+            ['source' => 'route::GET::/x', 'target' => 'App\MissingController', 'type' => 'route-to-controller'],
+        ];
+
+        $resolved = CodeGraphBuilder::resolveShortControllerIds($edges, [
+            'PostController' => ['App\Http\Controllers\Post\PostController'],
+        ]);
+
+        $this->assertSame('App\MissingController', $resolved[0]['target']);
+    }
+
+    #[Test]
+    public function a_fully_qualified_controller_is_never_rewritten_onto_another(): void
+    {
+        // A deeper class can nest a resolved controller's whole path, so the namespace-boundary test
+        // alone would move this route onto it. An id that already names a controller is what stops
+        // that, and this pathological pair is the case that proves the boundary test is not enough.
+        $edges = [
+            ['source' => 'route::GET::/x', 'target' => 'App\Http\Controllers\PostController', 'type' => 'route-to-controller'],
+        ];
+
+        $resolved = CodeGraphBuilder::resolveShortControllerIds($edges, [
+            'PostController' => ['App\Http\Controllers\PostController', 'App\Http\Controllers\Api\App\Http\Controllers\PostController'],
+        ]);
+
+        $this->assertSame('App\Http\Controllers\PostController', $resolved[0]['target']);
     }
 
     #[Test]

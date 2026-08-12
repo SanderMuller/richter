@@ -68,8 +68,13 @@ final class GraphCache
      * carries edges out of `Class::method` ids invented for those classes — members that need not
      * exist — and does not carry the same calls under the method that actually builds them, so both
      * directions are wrong until the graph is rebuilt.
+     * 14 → 15: two additions, both edges a stale entry lacks. A partially qualified controller id —
+     * what a `'FooController@bar'` route action under a `->namespace()` group resolves to — is now
+     * rewritten onto the class it names, joining a route chain that used to end on a phantom beside
+     * the real class. And `action-to-view` is now also drawn from a `protected static string $view`
+     * declaration, for the page components that render through a base class rather than a call.
      */
-    private const int FORMAT_VERSION = 14;
+    private const int FORMAT_VERSION = 15;
 
     private ?CodeGraph $memoized = null;
 

@@ -6,6 +6,7 @@ use App\Contracts\PostPublisher;
 use App\Contracts\PostTranscoder;
 use App\Contracts\ThumbnailRenderer;
 use App\Events\PostPublished;
+use App\Http\Controllers\Auth\SocialAuthController;
 use App\Http\Controllers\Post\ReviewController;
 use App\Http\Middleware\Authenticate;
 use App\Http\Resources\Api\v2\Post\ReviewPlayerResource;
@@ -149,6 +150,23 @@ final class CodeGraphBuilderTest extends TestCase
 
         $this->assertSame('authorizes', $edit[PostPolicy::class] ?? null);
         $this->assertSame('action-to-view', $edit['view::blade__posts.show'] ?? null);
+    }
+
+    #[Test]
+    public function a_legacy_string_route_action_reaches_the_controller_that_exists(): void
+    {
+        // The fixture registers `'SocialAuthController@login'` under `->namespace('Auth')`, so the
+        // action reaches the graph as `Auth\SocialAuthController` — FQCN-shaped, and therefore a node
+        // of its own beside the real class unless the rewrite lands it. Both nodes existing is what
+        // makes the untreated case invisible: the route reads connected while every code edge hangs
+        // off the class the route never reaches.
+        $graph = $this->graph();
+
+        $this->assertFalse($graph->hasNode('Auth\SocialAuthController'));
+        $this->assertContains(
+            SocialAuthController::class,
+            array_column($graph->dependenciesOf(['route::GET::/auth/login'], maxDepth: 1), 'node'),
+        );
     }
 
     #[Test]

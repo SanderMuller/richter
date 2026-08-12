@@ -22,6 +22,10 @@ final class ViewRenderGraphTest extends TestCase
 
     private const string VIEW_FILE = 'resources/views/livewire/status-panel.blade.php';
 
+    private const string PAGE = 'App\\Pages\\SettingsPage';
+
+    private const string DECLARED_VIEW_FILE = 'resources/views/pages/settings.blade.php';
+
     private static ?CodeGraph $graph = null;
 
     protected function setUp(): void
@@ -52,6 +56,20 @@ final class ViewRenderGraphTest extends TestCase
         $reached = array_column(new ImpactAnalyzer($this->graph())->impact(self::COMPONENT . '::render')['dependencies'], 'node');
 
         $this->assertContains(BladeViews::seedForChangedFile(self::VIEW_FILE), $reached);
+    }
+
+    #[Test]
+    public function a_changed_view_reaches_the_page_that_only_declares_it(): void
+    {
+        // The property form, where the subclass renders nothing and a base class does. Anchored on
+        // the class rather than a member: there is no method to name, and inventing one would send a
+        // reviewer to a symbol that does not exist.
+        $seed = BladeViews::seedForChangedFile(self::DECLARED_VIEW_FILE);
+        $this->assertNotNull($seed);
+
+        $callers = array_column(new ImpactAnalyzer($this->graph())->impact($seed)['callers'], 'node');
+
+        $this->assertContains(self::PAGE, $callers);
     }
 
     #[Test]

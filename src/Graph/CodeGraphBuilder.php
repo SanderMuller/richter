@@ -501,11 +501,24 @@ final class CodeGraphBuilder
     }
 
     /**
-     * Rewrite Brain's short controller/action ids (`action::SocialAuthController::login` — emitted
-     * when Brain couldn't resolve the FQCN) onto the FQCN scheme the seeds use, so a change to such
-     * a controller joins its route chain instead of reading UNRESOLVED. Only a basename with exactly
-     * one candidate FQCN rewrites — an ambiguous short id (five controller basenames are duplicated)
-     * stays verbatim rather than claiming the wrong class.
+     * Rewrite the under-qualified controller ids Brain emits for a string-form route action onto the
+     * FQCN scheme the seeds use, so such a controller joins its route chain instead of reading
+     * UNRESOLVED. Two shapes arrive, and both come from `'FooController@bar'` rather than
+     * `[FooController::class, 'bar']`:
+     *
+     * - a short id (`action::SocialAuthController::login`), where Brain resolved no namespace at all;
+     * - a partially qualified one (`Post\ReviewController`), where a `->namespace('Post')` group was
+     *   applied without the root the provider adds. It is FQCN-shaped, so it survives
+     *   {@see NodeNormalizer::canonicalId()} as a node of its own — a phantom beside the real class,
+     *   reached from the route while every code edge hangs off the class the route never reaches.
+     *   Nothing reads as broken: both nodes exist, and the chain between them is simply cut.
+     *
+     * A candidate must be unambiguous either way, and for the partial shape it must extend the id on
+     * a namespace boundary. An id that already names a controller is left alone outright: a deeper
+     * class can nest another's whole path, so the boundary test alone would move a route off the
+     * class it had correctly reached. What it cannot rule out is a non-controller class that is a
+     * namespace-suffix of exactly one controller — the map holds controllers only, so there is
+     * nothing here to recognise it by.
      *
      * @param  list<array{source: string, target: string, type: string}>  $edges
      * @param  array<string, list<string>>  $basenameToFqcns
@@ -529,17 +542,36 @@ final class CodeGraphBuilder
     private static function shortControllerIdResolver(array $basenameToFqcns): Closure
     {
         return static function (string $node) use ($basenameToFqcns): string {
-            if (preg_match('/^(?:controller|action)::([A-Za-z_]\w*)(?:::(\w+))?$/', $node, $matches) !== 1) {
+            if (preg_match('/^(?:(?:controller|action)::([A-Za-z_]\w*)|([A-Za-z_]\w*(?:\\\\[A-Za-z_]\w*)+))(?:::(\w+))?$/', $node, $matches) !== 1) {
                 return $node;
             }
 
-            $candidates = $basenameToFqcns[$matches[1]] ?? [];
+            $partial = $matches[2] ?? '';
+            $basename = $partial === '' ? ($matches[1] ?? '') : substr($partial, (int) strrpos($partial, '\\') + 1);
+            $candidates = $basenameToFqcns[$basename] ?? [];
+
+            // The partial shape narrows on the namespace it did carry, so a duplicated basename still
+            // resolves when only one of its candidates ends that way — which is the common case, since
+            // the missing part is a shared root and the part that survived is what tells them apart.
+            if ($partial !== '') {
+                // An id already naming a controller is resolved, and a deeper class can still nest its
+                // whole path (`…\Api\App\Http\Controllers\PostController`): without this, the suffix
+                // filter would move a route off the class it correctly reached.
+                if (in_array($partial, $candidates, true)) {
+                    return $node;
+                }
+
+                $candidates = array_values(array_filter(
+                    $candidates,
+                    static fn (string $candidate): bool => str_ends_with($candidate, '\\' . $partial),
+                ));
+            }
 
             if (count($candidates) !== 1) {
                 return $node;
             }
 
-            $method = $matches[2] ?? null;
+            $method = $matches[3] ?? null;
 
             // A short id can also denote a routed class Brain failed to resolve *outside* the map
             // (a vendor controller sharing the basename) — requiring the method to actually exist on

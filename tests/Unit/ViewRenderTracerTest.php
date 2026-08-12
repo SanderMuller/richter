@@ -13,8 +13,9 @@ use SanderMuller\Richter\Tracers\ViewRenderTracer;
 /**
  * A class no route resolves to — a Livewire component, a Filament page, a mailable — has its body
  * skipped by a route-anchored walk, so the view it renders ends up with no caller and a change to
- * that view reads UNRESOLVED. These pin the call this reads instead, and the shapes that must draw
- * nothing rather than point an edge at a node the graph does not share.
+ * that view reads UNRESOLVED. These pin the two places the name is written instead — the render call
+ * and the declared `$view` property — and the shapes that must draw nothing rather than point an edge
+ * at a node the graph does not share.
  */
 final class ViewRenderTracerTest extends TestCase
 {
@@ -111,6 +112,48 @@ final class ViewRenderTracerTest extends TestCase
         $sources = array_column($this->edgesForSource($source), 'source');
 
         $this->assertSame(['App\\Livewire\\StatusPanel::build'], $sources);
+    }
+
+    #[Test]
+    public function a_declared_view_property_is_anchored_on_the_class(): void
+    {
+        $source = "<?php\nnamespace App\\Pages;\n"
+            . "class SettingsPage { protected static string \$view = 'livewire.status-panel'; }\n";
+
+        $this->assertSame([[
+            'source' => 'App\\Pages\\SettingsPage',
+            'target' => 'view::blade__livewire.status_panel',
+            'type' => 'action-to-view',
+        ]], $this->edgesForSource($source));
+    }
+
+    #[Test]
+    public function a_declared_view_property_holding_no_blade_file_here_draws_nothing(): void
+    {
+        $source = "<?php\nnamespace App\\Pages;\n"
+            . "class SettingsPage { protected string \$view = 'pages.absent'; }\n";
+
+        $this->assertSame([], $this->edgesForSource($source));
+    }
+
+    #[Test]
+    public function a_non_literal_view_property_draws_nothing(): void
+    {
+        $source = "<?php\nnamespace App\\Pages;\n"
+            . "class SettingsPage { protected static string \$view = self::DEFAULT_VIEW; }\n";
+
+        $this->assertSame([], $this->edgesForSource($source));
+    }
+
+    #[Test]
+    public function a_property_of_another_name_is_not_read_as_a_view(): void
+    {
+        // The name is the whole signal: a literal that happens to match a Blade file is a view name
+        // only where the convention says so, and `$layout = 'livewire.status-panel'` does not say it.
+        $source = "<?php\nnamespace App\\Pages;\n"
+            . "class SettingsPage { protected string \$layout = 'livewire.status-panel'; }\n";
+
+        $this->assertSame([], $this->edgesForSource($source));
     }
 
     /**
