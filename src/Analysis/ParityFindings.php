@@ -52,6 +52,30 @@ final readonly class ParityFindings
             ...(! $modelLane instanceof PayloadParityChecker || $file->addedModelFields === [] ? [] : $modelLane->findingsFor($file->fqcn, $file->modelFieldSet, $file->addedModelFields)),
             ...(! $consumerLane instanceof FrontendConsumerParityChecker || $file->removedResourceKeys === [] ? [] : $consumerLane->findingsFor($file->fqcn, $file->removedResourceKeys, $file->addedResourceKeys)),
             ...(! $requestLane instanceof RequestFieldParityChecker || $file->removedRequestFields === [] ? [] : $requestLane->findingsFor($file->fqcn, $file->removedRequestFields, $file->addedRequestFields)),
+            ...self::inlineRequestFindings($file, $requestLane),
         ];
+    }
+
+    /**
+     * Inline validation is anchored on the MEMBER that holds it, not the file: the routes upstream
+     * of a controller action are what its payload comes from, and a sibling action in the same class
+     * validates something else entirely. The parser hands over fully qualified member ids, so a file
+     * declaring two classes anchors each on its own.
+     *
+     * @return list<string>
+     */
+    private static function inlineRequestFindings(ChangedFileSymbols $file, ?RequestFieldParityChecker $requestLane): array
+    {
+        if (! $requestLane instanceof RequestFieldParityChecker) {
+            return [];
+        }
+
+        $findings = [];
+
+        foreach ($file->inlineRequestFields as $member => [$removed, $added]) {
+            $findings = [...$findings, ...$requestLane->findingsFor($member, $removed, $added)];
+        }
+
+        return $findings;
     }
 }

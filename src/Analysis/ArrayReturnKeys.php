@@ -8,6 +8,7 @@ use PhpParser\Node\Expr\ClassConstFetch;
 use PhpParser\Node\Identifier;
 use PhpParser\Node\Name;
 use PhpParser\Node\Scalar\String_;
+use PhpParser\Node\Stmt;
 use PhpParser\Node\Stmt\ClassLike;
 use PhpParser\Node\Stmt\ClassMethod;
 use PhpParser\Node\Stmt\Return_;
@@ -70,6 +71,28 @@ final class ArrayReturnKeys
         }
 
         return self::keysOfArray($return, self::classFqcn($ast), $strict);
+    }
+
+    /**
+     * The keys of an array literal passed as a rules argument, strictly. Exposed because inline
+     * validation puts that array in an ARGUMENT rather than a return, and the enumeration rules —
+     * literal keys only, no spread, no class constant — must not diverge between the two shapes.
+     *
+     * @return list<string>|null
+     */
+    public static function keysOfLiteral(Array_ $array, ?string $selfFqcn): ?array
+    {
+        return self::keysOfArray($array, $selfFqcn, strict: true);
+    }
+
+    /**
+     * The file's single class FQCN, for resolving a `self::CONST` key.
+     *
+     * @param  list<Stmt>  $ast
+     */
+    public static function classFqcnOf(array $ast): ?string
+    {
+        return self::classFqcn($ast);
     }
 
     /** @return list<string>|null */
@@ -136,7 +159,7 @@ final class ArrayReturnKeys
         return $class === null ? null : AppFiles::stringConstantValue($class, $node->name->toString());
     }
 
-    /** @param  list<Node\Stmt>  $ast */
+    /** @param  list<Stmt>  $ast */
     private static function classFqcn(array $ast): ?string
     {
         /** @var list<ClassLike> $classes */

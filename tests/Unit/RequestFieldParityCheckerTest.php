@@ -153,6 +153,21 @@ final class RequestFieldParityCheckerTest extends TestCase
         file_put_contents("{$this->projectRoot}/{$relative}", $content);
     }
 
+    #[Test]
+    public function an_inline_anchor_is_named_as_the_member_never_as_a_rules_method(): void
+    {
+        // Inline validation is anchored on the member holding the call. Appending `::rules()` there
+        // names `PostController::store::rules()` — a symbol that does not exist, and the wrong ignore
+        // target for a reader to copy out of the report.
+        $this->consumerFile('resources/js/post.ts', "fetch('/posts', { method: 'POST', body: JSON.stringify({ subtitle }) });");
+
+        $findings = $this->checker()->findingsFor(self::ACTION, ['subtitle'], []);
+
+        $this->assertCount(1, $findings);
+        $this->assertStringContainsString(self::ACTION, $findings[0]);
+        $this->assertStringNotContainsString('::rules()', $findings[0]);
+    }
+
     /** @param  list<string>  $ignore */
     private function checker(array $ignore = []): RequestFieldParityChecker
     {

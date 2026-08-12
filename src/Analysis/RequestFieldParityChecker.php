@@ -22,6 +22,17 @@ final readonly class RequestFieldParityChecker
     public function __construct(private FrontendConsumerLane $lane) {}
 
     /**
+     * Where the rule lived, named so the reader can open it. A form request is anchored on its class,
+     * so its `rules()` is spelled out; inline validation is already anchored on the member holding
+     * the call, and appending `::rules()` there would name `PostController::store::rules()` — a
+     * symbol that does not exist, and a wrong ignore target to copy out of the report.
+     */
+    private function validationSite(string $anchor): string
+    {
+        return str_contains($anchor, '::') ? $anchor : $anchor . '::rules()';
+    }
+
+    /**
      * @param  list<string>  $removedFields
      * @param  list<string>  $addedFields
      * @return list<string> advisory findings, consumer-file- and route-named
@@ -47,11 +58,11 @@ final readonly class RequestFieldParityChecker
                 foreach ($removed as $field) {
                     if ($this->sendsField($file, $field)) {
                         $findings[] = sprintf(
-                            "%s posts to %s and sends '%s', which this diff removes from %s::rules()%s",
+                            "%s posts to %s and sends '%s', which this diff removes from %s%s",
                             $file,
                             FrontendConsumerLane::routeLabel($route),
                             $field,
-                            $requestFqcn,
+                            $this->validationSite($requestFqcn),
                             FrontendConsumerLane::renameSuffix($removed, $added),
                         );
                     }

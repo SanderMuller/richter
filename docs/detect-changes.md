@@ -83,7 +83,19 @@ A third lane covers the request side. A field removed from a form request's `rul
 
 Matching here is send-shaped rather than access-shaped: an object-literal key, a `FormData` `append`/`set` with a literal name, or an assignment onto a payload by dot or bracket. The false positive mirrors the response lane's: a file that both posts to and reads from the endpoint can match on a field it only reads, and the same per-field `ignore` entry (`App\Http\Requests\StorePostRequest::subtitle`) suppresses it.
 
-The `rules()` parse is as strict as the resource one: a method that builds its array up (`$rules = […]; if (…) …; return $rules;`), a spread, or a constant key makes the side unenumerable and the lane stays silent. A dotted rule key (`items.*.name`) matches nothing on purpose: its segments appear separately in a payload, and matching the last one would fire on every unrelated `name` in the file.
+Validation written **inline** is covered by the same lane. A form request is the documented
+convention, not the only place validation lives: an action that validates a handful of fields
+commonly does it in the controller, and those fields are just as removable. Both
+`$request->validate([...])` and the `ValidatesRequests` form `$this->validate($request, [...])` are
+read — the latter only where the class pulls that trait in itself, since `validate` is an ordinary
+method name and a class with its own would otherwise have its argument read as request rules. The
+finding is anchored on the **method** that holds the call rather than the file, so a controller's
+other actions are not implicated in a field one of them dropped. The per-field `ignore`
+entry takes the same shape against that member (`App\Http\Controllers\PostController::store`).
+
+The `rules()` parse is as strict as the resource one: a method that builds its array up (`$rules = […]; if (…) …; return $rules;`), a spread, or a constant key makes the side unenumerable and the lane stays silent. Inline rules are
+held to the same bar: a method that passes rules it cannot read (a variable, a merge) is skipped
+entirely rather than reported as having removed every field. A dotted rule key (`items.*.name`) matches nothing on purpose: its segments appear separately in a payload, and matching the last one would fire on every unrelated `name` in the file.
 
 ## Middleware group membership
 

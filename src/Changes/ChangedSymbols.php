@@ -296,8 +296,9 @@ final class ChangedSymbols
         [$modelFieldSet, $addedModelFields] = self::modelFields($file, $isNew, $headSrc, $baseSrc);
         [$removedResourceKeys, $addedResourceKeys] = ResourceKeyParser::diffFor($file, $isNew, $headSrc, $baseSrc);
         [$removedRequestFields, $addedRequestFields] = RequestFieldParser::diffFor($file, $isNew, $headSrc, $baseSrc);
+        $inlineRequestFields = RequestFieldParser::inlineDiffFor($file, $isNew, $headSrc, $baseSrc);
 
-        return new ChangedFileSymbols($file, Fqcn::fromPath($file), $members, $members === [], findings: self::sourceFindings($members, $head['members'], $headSrc, $eagerLoadChecker, $featureGateChecker, $inertiaPageChecker), modelFieldSet: $modelFieldSet, addedModelFields: $addedModelFields, isNewFile: $isNew, removedResourceKeys: $removedResourceKeys, addedResourceKeys: $addedResourceKeys, removedRequestFields: $removedRequestFields, addedRequestFields: $addedRequestFields);
+        return new ChangedFileSymbols($file, Fqcn::fromPath($file), $members, $members === [], findings: self::sourceFindings($members, $head['members'], $headSrc, $eagerLoadChecker, $featureGateChecker, $inertiaPageChecker), modelFieldSet: $modelFieldSet, addedModelFields: $addedModelFields, isNewFile: $isNew, removedResourceKeys: $removedResourceKeys, addedResourceKeys: $addedResourceKeys, removedRequestFields: $removedRequestFields, addedRequestFields: $addedRequestFields, inlineRequestFields: $inlineRequestFields);
     }
 
     /**

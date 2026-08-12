@@ -40,6 +40,10 @@ final readonly class ChangedFileSymbols
      * @param  list<string>  $removedRequestFields  a changed form-request file's `rules()` field names
      *   present at base and absent at head ({@see RequestFieldParser}) — the request-parity lane's
      *   trigger, with the same emptiness rules as `$removedResourceKeys`
+     * @param  array<string, array{0: list<string>, 1: list<string>}>  $inlineRequestFields  the same
+     *   diff for validation written inline in a method (`$request->validate([...])`), keyed by the
+     *   fully qualified member id so a controller's several actions — and two classes in one file —
+     *   stay apart
      * @param  list<string>  $addedRequestFields  the inverse diff (head − base), feeding that finding's
      *   rename hint
      */
@@ -58,6 +62,7 @@ final readonly class ChangedFileSymbols
         public array $addedResourceKeys = [],
         public array $removedRequestFields = [],
         public array $addedRequestFields = [],
+        public array $inlineRequestFields = [],
     ) {}
 
     /** @return list<MemberChange> */
