@@ -5,6 +5,75 @@ All notable changes to `sandermuller/richter` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.26.0 - 2026-08-12
+
+A precision release, driven by a consumer usage audit across two production applications. 0.25.0's config-registry lane over-reported; the entry-point list counted things that were not callers; and on a large codebase the risk level had stopped discriminating. All three are addressed, and one new lane closes a recurring class of UNRESOLVED.
+
+### Fixed
+
+#### The config-registry lane over-reported on ordinary config reads
+
+Shipped in 0.25.0, this lane linked a `config('x.y')` lookup to every app class `config/x.php` names, on the reasoning that cohesive config files made the file-level match harmless. `config/app.php` is the counter-example every Laravel application ships: it names app classes in its `aliases` map, so an ordinary `config('app.timezone')` fanned out into all of them and on through their real edges, multiplying the reported reach of a routine change with no true positive behind any of it.
+
+A fully literal key needs no approximation — it is knowable at build time. It is now looked up in the config file's own returned array and draws only the app classes that key's value actually names.
+
+- File granularity remains where the key genuinely cannot be enumerated: an interpolated key (`config("calculators.{$id}")`, the shape the lane exists for), and a file whose array is built by a loop, spread from a default, or keyed by a constant. That is the safe direction for a lane that adds reach.
+- Position decides where a spread is involved: `['a' => X::class, ...$extra]` is uncertain because the spread can overwrite the key, while `[...$extra, 'a' => X::class]` is not.
+- A repeated key resolves to the last value, as PHP's own array semantics do.
+- A key naming a class inside a call (`env('DRIVER', Basic::class)`) still links — that default is what the application uses unless the environment overrides it.
+
+**If you upgraded to 0.25.0, expect impacted counts to fall back to roughly their 0.24.0 levels.** That is the over-reporting going away, not coverage being lost.
+
+### Changed
+
+#### Entry points are callers again
+
+An entry point in the reached list is supposed to be something that **calls** the changed code. A surface connected only through an Eloquent relation is not, and listing the two together produced the most misleading output this report can give: on one application a model change named six admin resources as reached surfaces while the routes that actually run the changed code reported no path at all.
+
+Entry-point discovery now walks call edges only. Surfaces reached solely by association are reported in their own section — present and labelled, never silently dropped, and out of the count that drives the risk level. The impacted total has always drawn this line ("Related models (association reach — context, not risk)"); the entry-point list draws it now too.
+
+The demoted set is deliberately narrow: `model-relationship` and `model-to-policy`, the two edge types that associate rather than invoke. `override` and `config-registry` are over-approximated **calls** — the dispatch is real, only the target is uncertain — so a surface behind one stays in the main list. Explanation chains use the same exclusions, so `--explain` can never present a relation as the reason a listed caller calls the change.
+
+**This narrows what `entryPoints` means.** Consumers parsing the report should know:
+
+- `entryPoints` (text, markdown, HTML, JSON, both MCP tools) no longer includes association-only surfaces.
+- A new `associationEntryPoints` list carries them, in the same position across every format. It is a new key in the `detect-changes` and `impact` JSON payloads and in both MCP output schemas.
+- Risk levels may drop for changes whose reached count was inflated by relations.
+
+#### Risk thresholds are configurable
+
+Every non-blank report captured on a large application came back HIGH — twelve of twelve, across four unrelated changes and three versions. `impacted >= 20` is a rounding error where a routine change reaches thousands of nodes, and a level that never varies trains reviewers to skip the line.
+
+`risk_thresholds` in `config/richter.php` sets the counts at which each level steps up. They stay **absolute** rather than becoming a percentile of your graph: a gate whose meaning shifts with the repo's own distribution is not one anyone can reason about in CI. Raise them until a middling change on your repo reports `medium` — the impacted count printed on every run is the calibration data.
+
+Defaults are unchanged, so nothing moves unless you set the key.
+
+### Added
+
+#### Views rendered outside a route
+
+Laravel Brain connects a controller to `view('posts.show')` by walking the body a route led it to. A class no route resolves to — a Livewire component, a Filament page, a mailable, an action — never gets its body walked, so the view it renders has no caller and every diff touching that view read UNRESOLVED.
+
+The render call is written out in the source, so it is read directly. Literal names only, and only when the Blade file exists under `resources/views` — a package-namespaced name (`mail::message`) resolves elsewhere and would mint a node nothing else shares. Brain's own `action-to-view` type is reused, so a controller both lanes see yields one edge rather than two hops in every chain.
+
+#### `richter:trace --depth`
+
+The miss message already said the walk had run out of depth; there was no way to ask the follow-up question, so "no path" and "path deeper than 6" read identically. `--depth` sets the search limit, validated before the graph is built so a mistyped flag does not cost a scan first.
+
+### Internal
+
+- An anonymous class is no longer used as an edge source in the config-registry and view lanes. Naming it after the file's primary class invented a member that may not exist — a caller a reviewer opens and cannot find. Its calls are attributed to the method that builds it, which is both true and openable.
+- `config/*.php` gained a graph-build input in 0.25.0; that still holds, so a config change costs one rebuild.
+- The `PUBLIC_WRITE` auth cross-check is **not** superseded by Brain 2.4.0. Brain added a class-basename match, which its own source describes as "a name match, not a verified subclass check" — a middleware subclass named anything other than the framework's own basename still draws the false finding that richter's ancestry walk catches.
+
+### Upgrading
+
+`GraphCache::FORMAT_VERSION` moves 12 → 13, so the first run after upgrading rebuilds the graph. The config lane's change removes edges and the view lane adds them, so a stale entry would be wrong in both directions.
+
+No configuration changes are required. If you parse the JSON or MCP payloads, see "Entry points are callers again" above for the one narrowed key and the one new key.
+
+**Full Changelog**: https://github.com/SanderMuller/richter/compare/v0.25.0...v0.26.0
+
 ## v0.25.0 - 2026-08-12
 
 Richter follows config-keyed class registries now, and several places where the report claimed more coverage than it had were corrected. Sourced from a consumer usage audit across two production applications.
@@ -30,6 +99,7 @@ A diff of nothing but a stylesheet, a CI workflow and a lockfile printed `No cha
 
 ```text
 Note: 2 changed file(s) are outside the analysed scope (not PHP under app/, a Blade view, or a configured frontend root) and were not analysed: resources/sass/app.scss, vapor.yml
+
 
 ```
 Stderr, like the untracked-file note, so `--json` and `--markdown` stdout stay exactly the report. Frontend sources the configuration declines to scan are not counted: generated Wayfinder output under `frontend.generated_paths` and `.d.ts` declarations were silenced on purpose, and a note that fires loudest on regeneration churn is one people stop reading.
@@ -94,6 +164,7 @@ One new advisory lane, and a README that finally leads with what the package is 
     ! App\Http\Middleware\EnsureTenant runs in middleware group 'api', which guards 142 routes; group membership is not drawn as edges, so those routes are not in the reach above
   
   
+  
   ```
   The count comes off the `route:: → middleware::<group>` edges already in the graph, so it counts endpoints only: a controller-level attachment of the same group does not inflate it. Membership is read from `$middlewareGroups` on a Laravel 10 Kernel or the `->web(append: [...])` form in a Laravel 11+ `bootstrap/app.php`. A member written as an alias resolves through the same alias map, parameters are cut first (`tenant:strict` is one alias with an argument), and a group that names another group is expanded transitively, since Laravel runs the inner group's middleware on the outer group's routes too.
   
@@ -126,6 +197,7 @@ Two silent-failure shapes that richter used to miss: a call through an applicati
   
   ```text
     ! resources/js/Pages/Posts/Create.vue posts to POST /posts and sends 'subtitle', which this diff removes from App\Http\Requests\StorePostRequest::rules() (renamed to 'sub_title'?)
+  
   
   
   
