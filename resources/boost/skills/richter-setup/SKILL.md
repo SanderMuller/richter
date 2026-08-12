@@ -155,8 +155,8 @@ On yes:
   reached entry points and any `UNRESOLVED` files against what was expected — that's the fastest way to
   spot a still-missing `entry_point_roots` entry.
 - If you calibrate `risk_thresholds`, move the `high` bar and leave `medium` at its default. Raising
-  both until routine changes read `medium` demotes real defects with them — on a large application the
-  known-bug population can sit *below* the routine-change population. Run the benchmark corpus
+  both until routine changes read `medium` demotes real defects with them: a bug fix is usually small
+  and surgical, so defects sit at the low end of the impacted range, often below routine changes. Run the benchmark corpus
   afterwards if the project has one; that is the check that the calibration still surfaces defects.
 - Testing any config key against historical diffs has a trap: `richter:detect-changes` has no `--head`,
   so a replay checks out each ref, and a tracked `config/richter.php` reverts to that ref's version

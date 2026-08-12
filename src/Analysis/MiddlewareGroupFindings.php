@@ -166,7 +166,7 @@ final class MiddlewareGroupFindings
      * `route:: → middleware::<group>` edge exists only where the group is applied in a route file's
      * own `->middleware('web')` call; a provider that loops over route files and groups them there —
      * the shape Laravel's own `RouteServiceProvider` ships — produces no such edge for any of them.
-     * On one application the graph knew 36 of 420, and a note whose entire job is to stop a reviewer
+     * The graph's subset can be an order of magnitude short, and a note whose entire job is to stop a reviewer
      * under-sizing a change would have under-sized it twelvefold, in a number stated as fact.
      *
      * The router is only authoritative when the analysed project IS the running application. A run

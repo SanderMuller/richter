@@ -139,10 +139,10 @@ return [
      * codebase where a routine change reaches thousands of nodes will report `high` for everything,
      * and a level that is always `high` carries no signal and trains reviewers to skip the line.
      * Move the `high` bar; leave `medium` where it is. Raising both until routine changes read
-     * `medium` is the obvious calibration and it demotes real defects along with them — the defect
-     * population does not sit above the routine-change population. Measured on one application, four
-     * of five known-bug fixtures landed at 33-48 impacted nodes, BELOW where its routine pull
-     * requests start, so a `medium` bar tuned to routine breadth reported a genuine defect as `low`.
+     * `medium` is the obvious calibration and it demotes real defects along with them: a bug fix is
+     * usually small and surgical, so defects sit at the LOW end of the impacted range — often below
+     * where routine pull requests start — and a `medium` bar tuned to routine breadth lands above
+     * them and reports a genuine defect as `low`.
      * If you keep a benchmark corpus, run it afterwards: it is the check that a calibration has not
      * quietly demoted the defects it was meant to surface.
      *
