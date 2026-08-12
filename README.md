@@ -101,9 +101,9 @@ A member *added* to an existing class seeds nothing: nothing called it before, s
 ```text
 Changed files:
   app/Models/Post.php (4 graph nodes)
-  app/Services/CategoryImporter.php (0 graph nodes)  (UNRESOLVED: coverage incomplete for this area)
+  app/Services/CategoryImporter.php (0 graph nodes)  (UNRESOLVED: reach for this file could not be fully determined)
 
-Entry points reached: 2 (some changed files are in an area not yet graphed — see UNRESOLVED above)
+Entry points reached: 2 (some changed files could not be fully placed — see UNRESOLVED above)
   - command::categories:sync  (app/Console/Commands/SyncCategories.php)  [test-referenced]
   - route::PATCH::/api/posts/{post}  (routes/api.php:41)  [⚠ no test references this]  [authed]
 
@@ -147,6 +147,8 @@ Risk is a coarse, advisory signal, deliberately simple so `--fail-on` stays pred
 Association edges (model relationships, trait usage, `declares`) are reach and context, not risk. They never count toward the impacted-node total, so touching a hub model or trait can't saturate a change to `high` on breadth alone.
 
 A separate guard covers low confidence. When a changed member can't be pinned to a graph node and only a coarse class-level seed is available, a resulting `high` is capped to `medium` (`coarseCapApplied`). A low-confidence estimate shouldn't drive the top level on its own.
+
+The thresholds are absolute, not relative to your repo — that is what keeps `--fail-on` predictable, and it has a consequence worth knowing before you gate CI on it. Every release that teaches Richter to follow more edges raises the impacted-node count for the same diff, so a change that sat under `≥ 20` can cross it on an upgrade with nothing in your application having changed. Treat a level shift right after a version bump as a coverage change first and a code change second, and pin the version in CI if you need a `--fail-on` verdict to stay comparable across a release. The counts move upward over time by design: an under-reported blast radius is the failure this package exists to prevent.
 
 ### Gating in CI
 

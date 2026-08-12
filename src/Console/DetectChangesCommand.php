@@ -37,6 +37,9 @@ final class DetectChangesCommand extends Command
     use WarnsAboutEntryPointCoverage;
     use WarnsAboutRootNamespace;
 
+    /** Enough to recognise what was skipped without turning a 130-file PR's note into the report. */
+    private const int OUT_OF_SCOPE_NAMES_SHOWN = 5;
+
     /** @var string */
     protected $signature = 'richter:detect-changes
         {--base= : Git ref to diff the current branch against (defaults to the richter.default_base config value)}
@@ -127,11 +130,39 @@ final class DetectChangesCommand extends Command
         ));
     }
 
+    /**
+     * A diff can consist entirely of files no lane analyses — a stylesheet, a CI workflow, a
+     * lockfile. The report then reads `No changed PHP files under app/`, which is true of the
+     * analyser and false of the diff, and a reader takes it for "nothing to review here". Naming
+     * the count says which of the two it is.
+     *
+     * Stderr, like the untracked note above and for the same reason: `--json`/`--markdown` stdout
+     * stays exactly the report. Capped at five names because a large PR can drop dozens.
+     *
+     * @param  list<string>  $outOfScope
+     */
+    private function noteOutOfScopeFiles(array $outOfScope): void
+    {
+        if ($outOfScope === []) {
+            return;
+        }
+
+        $shown = array_slice($outOfScope, 0, self::OUT_OF_SCOPE_NAMES_SHOWN);
+        $remaining = count($outOfScope) - count($shown);
+
+        $this->getOutput()->getErrorStyle()->writeln(sprintf(
+            'Note: %d changed file(s) are outside the analysed scope (not PHP under app/, a Blade view, or a configured frontend root) and were not analysed: %s%s',
+            count($outOfScope),
+            implode(', ', $shown),
+            $remaining > 0 ? ", and {$remaining} more" : '',
+        ));
+    }
+
     private function handleText(GraphCache $graphs, ?RiskLevel $failOn, bool $failOnUnresolved, bool $gateActive): int
     {
         try {
             $base = RichterConfig::baseRef($this->option('base'));
-            $changed = ChangedSymbols::resolve($base);
+            ['changed' => $changed, 'outOfScope' => $outOfScope] = ChangedSymbols::resolveWithScope($base);
         } catch (RuntimeException $runtimeException) {
             // A broken diff can't be assessed: advisory still exits 0, but under a gate that reads as failure.
             $this->warn($runtimeException->getMessage());
@@ -147,6 +178,8 @@ final class DetectChangesCommand extends Command
 
             throw $invalidArgumentException;
         }
+
+        $this->noteOutOfScopeFiles($outOfScope);
 
         if ($changed === []) {
             return $this->reportEmptyDiff($base, $failOn, $failOnUnresolved, $gateActive);
@@ -194,11 +227,13 @@ final class DetectChangesCommand extends Command
         try {
             try {
                 $base = RichterConfig::baseRef($this->option('base'));
-                $changed = ChangedSymbols::resolve($base);
+                ['changed' => $changed, 'outOfScope' => $outOfScope] = ChangedSymbols::resolveWithScope($base);
             } catch (InvalidArgumentException|RuntimeException $expected) {
                 // Expected operational failures (bad/option-shaped ref, broken diff): advisory unless gated.
                 return $this->jsonError($expected->getMessage(), $gateActive ? self::FAILURE : self::SUCCESS);
             }
+
+            $this->noteOutOfScopeFiles($outOfScope);
 
             return $this->emitJson($graphs, $base, $changed, $failOn, $failOnUnresolved, $gateActive);
         } catch (Throwable $throwable) {

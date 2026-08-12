@@ -144,7 +144,7 @@ final class MarkdownFormatter
         foreach ($result['changed'] as $file => $nodeCount) {
             $isUnresolved = ($result['coverage'][$file] ?? 'analyzed') === 'unresolved';
             $coverage = $isUnresolved
-                ? '⚠️ **UNRESOLVED** (not placed in the graph)'
+                ? '⚠️ **UNRESOLVED** (reach not fully determined)'
                 : 'analyzed';
             // Says why the node count is a whole-class seed, and why an adds-only diff can carry risk.
             $coverage .= in_array($file, $newFiles, strict: true) ? ' · new file' : '';
@@ -154,7 +154,7 @@ final class MarkdownFormatter
         $lines = [...$lines, '', sprintf('### Entry points reached (%d)', count($result['entryPoints'])), ''];
 
         if ($unresolved) {
-            $lines[] = '> ⚠️ Some changed files could not be placed in the graph — the reach below may be incomplete.';
+            $lines[] = '> ⚠️ Some changed files could not be fully placed — the reach below may be incomplete.';
             $lines[] = '';
         }
 

@@ -858,6 +858,57 @@ final class ChangedSymbolsTest extends TestCase
         $this->assertSame([], $result->findings);
     }
 
+    #[Test]
+    public function a_changed_file_no_lane_analyses_is_reported_as_out_of_scope(): void
+    {
+        // A diff of nothing but a stylesheet and a CI workflow currently prints `No changed PHP
+        // files under app/`, which is true of the analyser and reads as "no impact". The caller can
+        // only say otherwise if this method tells it what it dropped.
+        $diff = $this->addedLineDiff('resources/sass/app.scss')
+            . $this->addedLineDiff('.github/workflows/deploy.yml');
+
+        Process::fake([
+            '*merge-base*' => Process::result("abc123\n"),
+            '*diff*' => Process::result($diff),
+            '*show*' => Process::result(''),
+        ]);
+
+        $resolved = ChangedSymbols::resolveWithScope('base-ref', 'head-ref');
+
+        $this->assertSame([], $resolved['changed']);
+        $this->assertSame(['resources/sass/app.scss', '.github/workflows/deploy.yml'], $resolved['outOfScope']);
+    }
+
+    #[Test]
+    public function a_frontend_file_the_configuration_ignores_is_not_reported_as_out_of_scope(): void
+    {
+        // Generated Wayfinder output and `.d.ts` declarations are configured away on purpose. Listing
+        // them as unanalysed would make the note loudest on exactly the churn the user silenced.
+        config()->set('richter.frontend.roots', ['resources/js']);
+        config()->set('richter.frontend.generated_paths', ['actions']);
+
+        $diff = $this->addedLineDiff('resources/js/actions/App/Http/Controllers/PostController.ts')
+            . $this->addedLineDiff('resources/js/types/api.d.ts')
+            . $this->addedLineDiff('resources/js/README.md');
+
+        Process::fake([
+            '*merge-base*' => Process::result("abc123\n"),
+            '*diff*' => Process::result($diff),
+            '*show*' => Process::result('export function show() {}'),
+        ]);
+
+        $resolved = ChangedSymbols::resolveWithScope('base-ref', 'head-ref');
+
+        $this->assertSame([], $resolved['changed']);
+        $this->assertSame(['resources/js/README.md'], $resolved['outOfScope']);
+    }
+
+    /** A minimal one-line-addition diff for a single file, enough for the scope branches to classify it. */
+    private function addedLineDiff(string $file): string
+    {
+        return "diff --git a/{$file} b/{$file}\n--- a/{$file}\n+++ b/{$file}\n@@ -0,0 +1,1 @@\n+x\n";
+    }
+
     /**
      * @param  list<array{0: int, 1: string}>  $added
      * @param  list<array{0: int, 1: string}>  $removed

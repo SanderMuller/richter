@@ -39,39 +39,62 @@ final class FrontendChanges
     /** Whether the file is a scannable frontend source: bridge on, under a configured root, a frontend extension, not a `.d.ts` declaration file, and not generated regeneration churn (a directory, exact file, or `*`-glob). */
     public function handles(string $file): bool
     {
-        $roots = RichterConfig::frontendRoots();
+        return $this->rootFor($file) !== null && ! $this->isDeliberatelyIgnored($file);
+    }
+
+    /**
+     * Whether the file is frontend source this configuration deliberately declines to scan — a
+     * `.d.ts` declaration, or generated regeneration churn under `frontend.generated_paths`.
+     *
+     * Distinct from "not frontend at all", and the distinction is the whole reason this is public:
+     * a caller that reports which changed files went unanalysed must stay silent about the ones the
+     * user configured away, or the note it prints is loudest exactly where it was asked to be quiet.
+     */
+    public function isDeliberatelyIgnored(string $file): bool
+    {
+        $root = $this->rootFor($file);
+
+        if ($root === null) {
+            return false;
+        }
 
         // A `.d.ts` reports extension `ts` via pathinfo(), but carries types only — no executable
         // endpoint calls — so scanning it is pure false-positive surface (route-name string-
         // literal-union types); a determined "no impact" for a type-only change is honest, not
         // under-reporting.
-        if ($roots === [] || str_ends_with(strtolower($file), '.d.ts') || ! in_array(strtolower(pathinfo($file, PATHINFO_EXTENSION)), self::EXTENSIONS, strict: true)) {
-            return false;
+        if (str_ends_with(strtolower($file), '.d.ts')) {
+            return true;
+        }
+
+        return ! array_all(RichterConfig::frontendGeneratedPaths(), function (string $generated) use ($file, $root): bool {
+            $entry = trim($generated, '/');
+
+            // Directory-prefix semantics (the original contract), plus exact files and
+            // `*`-globs via Str::is — a generated file directly under a root (ziggy.js) was
+            // inexpressible before. Str::is with no wildcard is exact equality; its `*`
+            // crosses `/`, so `*.generated.ts` matches at any depth.
+            return ! str_starts_with($file, "{$root}/{$entry}/") && ! Str::is("{$root}/{$entry}", $file);
+        });
+    }
+
+    /** The configured frontend root a file with a scannable extension sits under, or null. */
+    private function rootFor(string $file): ?string
+    {
+        $roots = RichterConfig::frontendRoots();
+
+        if ($roots === [] || ! in_array(strtolower(pathinfo($file, PATHINFO_EXTENSION)), self::EXTENSIONS, strict: true)) {
+            return null;
         }
 
         foreach ($roots as $root) {
             $root = trim($root, '/');
 
-            if ($root === '') {
-                continue;
+            if ($root !== '' && str_starts_with($file, $root . '/')) {
+                return $root;
             }
-
-            if (! str_starts_with($file, $root . '/')) {
-                continue;
-            }
-
-            return array_all(RichterConfig::frontendGeneratedPaths(), function (string $generated) use ($file, $root): bool {
-                $entry = trim($generated, '/');
-
-                // Directory-prefix semantics (the original contract), plus exact files and
-                // `*`-globs via Str::is — a generated file directly under a root (ziggy.js) was
-                // inexpressible before. Str::is with no wildcard is exact equality; its `*`
-                // crosses `/`, so `*.generated.ts` matches at any depth.
-                return ! str_starts_with($file, "{$root}/{$entry}/") && ! Str::is("{$root}/{$entry}", $file);
-            });
         }
 
-        return false;
+        return null;
     }
 
     /**

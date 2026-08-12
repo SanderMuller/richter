@@ -91,7 +91,7 @@ final class ImpactFormatter
 
         foreach ($result['changed'] as $file => $nodeCount) {
             $note = ($result['coverage'][$file] ?? 'analyzed') === 'unresolved'
-                ? '  (UNRESOLVED: coverage incomplete for this area)'
+                ? '  (UNRESOLVED: reach for this file could not be fully determined)'
                 : '';
             // Says why the node count is a whole-class seed, and why an adds-only diff can carry risk.
             $marker = in_array($file, $newFiles, strict: true) ? ' [new file]' : '';
@@ -100,7 +100,7 @@ final class ImpactFormatter
 
         $unresolved = in_array('unresolved', $result['coverage'], strict: true);
 
-        $unresolvedSuffix = $unresolved ? ' (some changed files are in an area not yet graphed — see UNRESOLVED above)' : '';
+        $unresolvedSuffix = $unresolved ? ' (some changed files could not be fully placed — see UNRESOLVED above)' : '';
         $lines[] = '';
         $lines[] = 'Entry points reached: ' . count($result['entryPoints']) . $unresolvedSuffix;
         $lines = [...$lines, ...self::entryPointList(

@@ -217,8 +217,8 @@ final class HtmlFormatterTest extends TestCase
         $html = $this->render();
 
         // The per-file badge and the advisory note both name the unresolved coverage.
-        $this->assertStringContainsString('UNRESOLVED (not placed in the graph)', $html);
-        $this->assertStringContainsString('Some changed files could not be placed in the graph', $html);
+        $this->assertStringContainsString('UNRESOLVED (reach not fully determined)', $html);
+        $this->assertStringContainsString('Some changed files could not be fully placed', $html);
         $this->assertStringContainsString('may be incomplete', $html);
     }
 

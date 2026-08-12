@@ -18,15 +18,38 @@ use SanderMuller\Richter\Tracers\InertiaPageChecker;
 final class ChangedSymbols
 {
     /**
-     * @param  string  $head  `HEAD` diffs the working tree against the merge-base with `$base`, so
-     *   uncommitted and staged edits are included and line up with {@see headSource()}'s working-tree
-     *   read (no hunk/source desync); any other ref replays its committed tree via `$base...$head`,
-     *   reading both sides from git so a historical diff (e.g. a benchmark fix commit) is unaffected.
+     * The changed members alone. Every caller that only seeds impact uses this; a caller that also
+     * has to tell the user what it did *not* look at wants {@see resolveWithScope()}.
+     *
+     * @param  string  $head  see {@see resolveWithScope()}
      * @return list<ChangedFileSymbols>
      *
      * @throws RuntimeException when the git diff fails (missing base ref / not a checkout).
      */
     public static function resolve(string $base, string $head = 'HEAD'): array
+    {
+        return self::resolveWithScope($base, $head)['changed'];
+    }
+
+    /**
+     * The changed members, plus the changed files no lane here analyses.
+     *
+     * A file the diff touched that is neither PHP under `app/`, nor under a configured frontend
+     * root, nor a Blade view falls through every branch below and contributes nothing. That is
+     * correct — none of them can reach a backend entry point — but silently dropping them lets a
+     * diff of a stylesheet, a CI workflow and a lockfile print `No changed PHP files under app/`,
+     * which a reader takes for "no impact" rather than "not looked at". The caller reports the
+     * count; this method is the only place that knows which files those were.
+     *
+     * @param  string  $head  `HEAD` diffs the working tree against the merge-base with `$base`, so
+     *   uncommitted and staged edits are included and line up with {@see headSource()}'s working-tree
+     *   read (no hunk/source desync); any other ref replays its committed tree via `$base...$head`,
+     *   reading both sides from git so a historical diff (e.g. a benchmark fix commit) is unaffected.
+     * @return array{changed: list<ChangedFileSymbols>, outOfScope: list<string>}
+     *
+     * @throws RuntimeException when the git diff fails (missing base ref / not a checkout).
+     */
+    public static function resolveWithScope(string $base, string $head = 'HEAD'): array
     {
         // Resolved first: HEAD mode needs it to build the diff range below, and a broken base ref
         // fails here before a second, redundant git invocation would fail again in the diff itself.
@@ -62,6 +85,7 @@ final class ChangedSymbols
         $prefix = GitProjectPaths::prefix() ?? '';
 
         $changed = [];
+        $outOfScope = [];
 
         // One checker shared across every classified file: its instance cache bounds the model
         // scan to once per invocation, while a fresh run always rebuilds the set — a relation
@@ -73,36 +97,7 @@ final class ChangedSymbols
 
         foreach (UnifiedDiffParser::parse($diff->output()) as $file => $hunk) {
             if (str_starts_with($file, 'app/') && str_ends_with($file, '.php')) {
-                // A 100%-similarity rename emits no hunks, but the old FQCN disappears — every caller of it
-                // breaks. Never cosmetic: seed the vanished old FQCN directly (head-tree callers still
-                // reference it) and the new FQCN coarsely (a class-level change with no member to pin).
-                if ($hunk['added'] === [] && $hunk['removed'] === [] && $hunk['oldPath'] !== $file) {
-                    $changed[] = new ChangedFileSymbols($file, Fqcn::fromPath($file), [
-                        new MemberChange('', MemberChange::KIND_CLASS, MemberChange::CHANGE_MODIFIED, resolvable: false),
-                    ], cosmeticOnly: false, directSeeds: [Fqcn::fromPath($hunk['oldPath'])]);
-
-                    continue;
-                }
-
-                $headSrc = self::headSource($head, $file, $prefix);
-
-                // An unreadable head source (failed `git show` on a diff that *adds* lines, so the file
-                // must exist at head) cannot classify — an empty string would read as cosmetic/additive,
-                // the forbidden falsely-empty "no impact". Seed coarsely instead. A pure deletion
-                // legitimately has no head source and classifies from the base side below.
-                if ($headSrc === null && $hunk['added'] !== []) {
-                    $changed[] = new ChangedFileSymbols($file, Fqcn::fromPath($file), [
-                        new MemberChange('', MemberChange::KIND_CLASS, MemberChange::CHANGE_MODIFIED, resolvable: false),
-                    ], cosmeticOnly: false);
-
-                    continue;
-                }
-
-                $headSrc ??= '';
-                // Use the pre-change path so a rename still resolves the base-side members.
-                $baseSrc = self::baseSource($mergeBase, $hunk['oldPath'], $prefix);
-
-                $changed[] = self::classifyFile($file, $headSrc, $baseSrc, ['added' => $hunk['added'], 'removed' => $hunk['removed']], $eagerLoadChecker, $featureGateChecker, $inertiaPageChecker, isNew: $hunk['isNew']);
+                $changed[] = self::appPhpChange($file, $hunk, $head, $mergeBase, $prefix, $eagerLoadChecker, $featureGateChecker, $inertiaPageChecker);
 
                 continue;
             }
@@ -141,10 +136,19 @@ final class ChangedSymbols
                     $viewSeed,
                     ...$frontendChanges->inlineUriSeeds($headSrc, self::baseSource($mergeBase, $hunk['oldPath'], $prefix)),
                 ], findings: $featureGateChecker->bladeFindingsFor($headSrc ?? ''));
+
+                continue;
+            }
+
+            // Nothing above analyses this file. A file the frontend configuration declines to scan
+            // (generated Wayfinder output, a `.d.ts`) was not overlooked but configured away, and
+            // reporting it would make the note noisiest on exactly the churn the user silenced.
+            if (! $frontendChanges->isDeliberatelyIgnored($file)) {
+                $outOfScope[] = $file;
             }
         }
 
-        return $changed;
+        return ['changed' => $changed, 'outOfScope' => $outOfScope];
     }
 
     /**
@@ -182,6 +186,38 @@ final class ChangedSymbols
         );
 
         return GitProjectPaths::relevantUntracked($untrackedPaths, $roots);
+    }
+
+    /**
+     * One changed PHP file under `app/`, classified to its members. Split out of the diff loop
+     * because the loop sits at the class's complexity ceiling, so its branches live beside it.
+     *
+     * @param  array{added: list<array{line: int, text: string}>, removed: list<array{line: int, text: string}>, oldPath: string, isNew: bool}  $hunk
+     */
+    private static function appPhpChange(string $file, array $hunk, string $head, string $mergeBase, string $prefix, EagerLoadStringChecker $eagerLoadChecker, FeatureGateChecker $featureGateChecker, InertiaPageChecker $inertiaPageChecker): ChangedFileSymbols
+    {
+        // A 100%-similarity rename emits no hunks, but the old FQCN disappears — every caller of it
+        // breaks. Never cosmetic: seed the vanished old FQCN directly (head-tree callers still
+        // reference it) and the new FQCN coarsely (a class-level change with no member to pin).
+        if ($hunk['added'] === [] && $hunk['removed'] === [] && $hunk['oldPath'] !== $file) {
+            return new ChangedFileSymbols($file, Fqcn::fromPath($file), [self::coarseClassChange()],
+                cosmeticOnly: false, directSeeds: [Fqcn::fromPath($hunk['oldPath'])]);
+        }
+
+        $headSrc = self::headSource($head, $file, $prefix);
+
+        // An unreadable head source (failed `git show` on a diff that *adds* lines, so the file
+        // must exist at head) cannot classify — an empty string would read as cosmetic/additive,
+        // the forbidden falsely-empty "no impact". Seed coarsely instead. A pure deletion
+        // legitimately has no head source and classifies from the base side in classifyFile().
+        if ($headSrc === null && $hunk['added'] !== []) {
+            return new ChangedFileSymbols($file, Fqcn::fromPath($file), [self::coarseClassChange()], cosmeticOnly: false);
+        }
+
+        // Use the pre-change path so a rename still resolves the base-side members.
+        return self::classifyFile($file, $headSrc ?? '', self::baseSource($mergeBase, $hunk['oldPath'], $prefix),
+            ['added' => $hunk['added'], 'removed' => $hunk['removed']],
+            $eagerLoadChecker, $featureGateChecker, $inertiaPageChecker, isNew: $hunk['isNew']);
     }
 
     /** @param  array{added: list<array{line: int, text: string}>, removed: list<array{line: int, text: string}>}  $hunk */

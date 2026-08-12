@@ -903,6 +903,31 @@ final class CommandsTest extends TestCase
     }
 
     #[Test]
+    public function detect_changes_names_the_changed_files_no_lane_analysed(): void
+    {
+        // The whole diff is out of scope, so the report is `No changed PHP files under app/` — true
+        // of the analyser, and read as "no impact" by anyone who just changed a stylesheet and a
+        // deploy config. The note is the difference between "nothing to review" and "not looked at".
+        $file = static fn (string $path): string => "diff --git a/{$path} b/{$path}\n--- a/{$path}\n+++ b/{$path}\n@@ -0,0 +1,1 @@\n+x\n";
+
+        Process::fake([
+            '*merge-base*' => Process::result("abc123\n"),
+            '*rev-parse*' => Process::result(),
+            '*diff*' => Process::result($file('resources/sass/app.scss') . $file('vapor.yml')),
+            '*status*' => Process::result(''),
+        ]);
+
+        $this->withoutMockingConsoleOutput();
+        Artisan::call('richter:detect-changes', ['--base' => 'some-base']);
+        $output = Artisan::output();
+
+        $this->assertStringContainsString('2 changed file(s) are outside the analysed scope', $output);
+        $this->assertStringContainsString('resources/sass/app.scss, vapor.yml', $output);
+        // The report itself is unchanged — the note is stderr, beside it, never instead of it.
+        $this->assertStringContainsString('No changed PHP files under app/', $output);
+    }
+
+    #[Test]
     public function affected_tests_fails_closed_on_an_untracked_file_whose_path_git_quotes(): void
     {
         // git status --porcelain double-quotes any path with a space, independent of

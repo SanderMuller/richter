@@ -2,9 +2,21 @@
 
 The [README](../README.md#advisory-change-impact-of-the-current-diff) covers day-to-day usage. This page documents the annotation lanes, the payload-parity checks, and the output formats in full.
 
+## Changed files no lane analyses
+
+Three kinds of changed file carry impact: PHP under `app/`, Blade views, and sources under a configured frontend root. A diff can consist entirely of files that are none of those: a stylesheet, a CI workflow, a lockfile, a `config/` guard, an infrastructure manifest, a routes file. None of them reach a backend entry point through any lane here, so none affect the reach or the risk level, and a diff of nothing else reports `No changed PHP files under app/`.
+
+That sentence is accurate about the analyser and misleading about the diff, so the count is named on stderr beside it:
+
+```text
+Note: 2 changed file(s) are outside the analysed scope (not PHP under app/, a Blade view, or a configured frontend root) and were not analysed: resources/sass/app.scss, vapor.yml
+```
+
+Up to five names are listed, with a count of the rest. Stderr, like the untracked-file note, so `--json` and `--markdown` stdout stay exactly the report. Frontend files the configuration deliberately declines to scan are not counted — generated Wayfinder output under `frontend.generated_paths` and `.d.ts` declarations were silenced on purpose, and a note that fires loudest on regeneration churn is a note people stop reading.
+
 ## Unplaceable files and the defined-node fallback
 
-Before a file falls through to UNRESOLVED, richter tries one last lane: the nodes the graph says *that file defines*. Not every entry surface has a class name to look up. A scheduled task is identified by what it runs and how often, and a routes file is not a class at all, so a change to a legacy `app/Console/Kernel.php` or to `routes/api.php` would otherwise be unplaceable despite defining surfaces the graph already knows.
+Before a file falls through to UNRESOLVED, richter tries one last lane: the nodes the graph says *that file defines*. Not every entry surface has a class name to look up. A scheduled task is identified by what it runs and how often, not by a class name, so a change to a legacy `app/Console/Kernel.php` would otherwise be unplaceable despite defining surfaces the graph already knows. The lane reaches only files a lane above already picked up, so it applies within `app/`; a change to `routes/api.php` is out of scope entirely and is reported as such (see above).
 
 Those surfaces list as touched, but they are never walked and they never move the risk level. A file that *declares* a surface has not called into it: adding one line to a `$commands` array cannot break the ten commands registered beside it, and rating the edit by everything those ten reach would be breadth dressed up as consequence. The lane runs only when every other lane came up empty, so member-level precision elsewhere is unaffected: a one-method change to a controller still seeds that method, not the class its file also defines.
 

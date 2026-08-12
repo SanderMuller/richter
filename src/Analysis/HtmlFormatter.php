@@ -356,7 +356,7 @@ final class HtmlFormatter
     private static function changedFile(ChangedFileSymbols $file, string $coverage, ?EditorLink $editor): string
     {
         $badges = $coverage === 'unresolved'
-            ? '<span class="badge warn">UNRESOLVED (not placed in the graph)</span>'
+            ? '<span class="badge warn">UNRESOLVED (reach not fully determined)</span>'
             : '<span class="badge">analyzed</span>';
 
         // Read off the change record; the text/markdown reports get the same fact via `newFiles`.
@@ -470,7 +470,7 @@ final class HtmlFormatter
             return '';
         }
 
-        return '<p class="note warn">Some changed files could not be placed in the graph, so the reach reported here may be incomplete.</p>';
+        return '<p class="note warn">Some changed files could not be fully placed, so the reach reported here may be incomplete.</p>';
     }
 
     // -------------------------------------------------------------- shared

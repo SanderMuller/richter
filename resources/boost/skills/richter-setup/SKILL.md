@@ -154,3 +154,8 @@ On yes:
 - Suggest a first run: `php artisan richter:detect-changes` on the current branch, and check the
   reached entry points and any `UNRESOLVED` files against what was expected — that's the fastest way to
   spot a still-missing `entry_point_roots` entry.
+- If the project has a `post-checkout` hook that reinstalls dependencies (a `composer install` or a
+  `composer run <refresh-script>`, common in Laravel repos), say so now. Comparing several refs in one
+  session — replaying branches, walking commits, bisecting — checks out each one, and the hook then
+  installs *that* ref's lockfile, silently swapping the richter version mid-comparison. Checking out
+  with `git -c core.hooksPath=/dev/null checkout <ref>` keeps one version across the whole run.

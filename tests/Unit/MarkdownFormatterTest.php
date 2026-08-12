@@ -113,7 +113,7 @@ final class MarkdownFormatterTest extends TestCase
         $this->assertStringContainsString('| File | Graph nodes | Coverage |', $output);
         $this->assertStringContainsString('| `app/Models/Post.php` | 1 | analyzed |', $output);
         $this->assertStringContainsString('| `app/Services/Lost.php` | 1 | ⚠️ **UNRESOLVED**', $output);
-        $this->assertStringContainsString('could not be placed in the graph', $output);
+        $this->assertStringContainsString('could not be fully placed', $output);
     }
 
     #[Test]
