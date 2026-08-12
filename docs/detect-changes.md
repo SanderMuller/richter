@@ -53,7 +53,7 @@ Reached routes inherit [Laravel Brain](https://github.com/laramint/laravel-brain
       ⚠ PUBLIC_WRITE (high): POST route with no auth middleware
 ```
 
-This is annotation only: it never feeds the risk level or a `--fail-on` gate, it exists for routes only (Brain classifies nothing else), and false positives are suppressed where Brain's own config says so (`laravel-brain.security.trusted_route_names` / `trusted_route_uris`). A Livewire, Filament, or queue entry point never carries one of these tags at all; that absence means *not classified*, never "public" or "unauthenticated", and its real exposure comes from mount-time `authorize()` calls, middleware, or route placement the graph doesn't model.
+This is annotation only: it never feeds the risk level or a `--fail-on` gate, it exists for routes only (Brain classifies nothing else), and false positives are suppressed where Brain's own config says so (`laravel-brain.security.trusted_route_names` / `trusted_route_uris`). A Livewire, Filament, Nova or queue entry point never carries one of these tags at all; that absence means *not classified*, never "public" or "unauthenticated", and its real exposure comes from mount-time `authorize()` calls, middleware, or route placement the graph doesn't model.
 
 Brain classifies exposure from the route's static middleware surface, so it can flag a `PUBLIC_WRITE` on a route that is in fact gated by a policy-constant check (`Gate::authorize(PostPolicy::UPDATE, …)`) it cannot see. Richter cross-checks such a finding against its own `authorizes` edges: when the route's reach authorizes a policy, it adds a note pointing at that policy. The note is evidence for you to verify rather than a suppression, and Brain's finding stays shown.
 
@@ -154,7 +154,7 @@ With `--json`, stdout is a single JSON document (the full, uncapped report) with
 | `associationEntryPoints` | string[] | entry surfaces connected only by a model relation — associated with the change, not callers of it, and excluded from `risk` |
 | `entryPointPaths` | object | per reached entry point, the shortest call chain down to the changed code as `{node, via, file?, line?}` hops; a self-listed entry class carries no chain |
 | `entryPointLocations` | object | per entry point, its defining `{file, line?}` (project-relative), when known |
-| `entryPointSecurity` | object | per reached route, Brain's security surface `{exposure, riskLevel, issues[]}` (advisory annotation, routes only, never an input to `risk` or the gate); a Livewire/Filament/queue entry point has no key here at all, meaning "not classified," never "public" |
+| `entryPointSecurity` | object | per reached route, Brain's security surface `{exposure, riskLevel, issues[]}` (advisory annotation, routes only, never an input to `risk` or the gate); a Livewire/Filament/Nova/queue entry point has no key here at all, meaning "not classified," never "public" |
 | `entryPointGates` | object | per reached route, the Pennant feature flags gating it (advisory annotation, never an input to `risk` or the gate) |
 | `entryPointTestReferences` | object | per reached entry point, `"referenced"` / `"referenced-no-behavioural-assertion"` / `"unreferenced"`; an entry point whose reference state cannot be determined is omitted from the map (advisory annotation, never an input to `risk`, the gate, or `affected-tests` selection) |
 | `impacted` | int | count of risk-bearing nodes reached |
