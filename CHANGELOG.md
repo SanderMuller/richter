@@ -5,6 +5,60 @@ All notable changes to `sandermuller/richter` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.28.0 - 2026-08-12
+
+A recall fix for applications that still route through the legacy string action, the second half of the view lane, and the report finally naming the counts its risk level was decided on. Sourced from a consumer usage audit — one of whose findings turned out to be wrong, and the reproduction that disproved it found the real bug beside it.
+
+### Fixed
+
+#### A legacy string route action no longer strands its controller
+
+`Route::get('/x', 'FooController@bar')` reaches the graph under-qualified. The bare-basename form was already rewritten onto its FQCN. The partially qualified one — what a `->namespace('Foo')` group produces when the provider supplies the root — was not, because it is FQCN-shaped and survives canonicalisation as a node in its own right.
+
+That is worse than an id nobody can open. Both nodes exist. The route reaches the phantom while every code edge hangs off the real class, so the controller reports no entry surface, the security annotations never arrive, and the payload-parity request lane cannot fire for it. Nothing in the report looks broken; the chain is simply cut, and a change to such a controller reads as inert.
+
+The rewrite now narrows on the namespace the id did carry, so a duplicated basename still resolves when exactly one candidate ends that way — which is the common case, since the missing part is a shared root and the surviving part is what tells the candidates apart. An id that already names a controller is left alone outright: a deeper class can nest another's whole path, and the boundary test on its own would move a route off the class it had correctly reached.
+
+An id whose basename matches no controller, or matches several equally, stays verbatim rather than claiming a class.
+
+#### A request-parity finding names the verb it actually saw
+
+The sentence was written for the form-request lane and said the consumer file "posts to" the route. The matcher was never POST-only — a `params:` object on a GET route matches — so a query-parameter finding read "posts to GET /posts", contradicting itself in a report whose value rests on being trusted. The route's own verb is printed now, and none is assumed.
+
+### Added
+
+#### The view lane reads the `$view` property, not only the `view()` call
+
+0.26.0's lane named page components among its targets, and covered them only where they call `view()` themselves. A page component commonly does not: it declares `protected static string $view = 'pages.settings';` and a base class renders it. Reading calls alone covered none of those, so their Blade files kept reporting UNRESOLVED.
+
+The edge is anchored on the class rather than a member — there is no method to name, and inventing one would send a reviewer to a symbol that does not exist. The same no-guess bar as the call form applies: a literal string, and only when the Blade file exists in the project.
+
+#### `scoredEntryPoints` and `scoredImpacted` — the counts the level was decided on
+
+`risk_thresholds` shipped with guidance to calibrate against the counts your own reports print. On some reports those are not the counts the level was measured against, which makes the instruction silently false exactly where a reader follows it — and following it there sets the bar around an order of magnitude too high, collapsing everything to `medium`.
+
+Two things pull the counts apart:
+
+- A low-confidence `high` is re-scored against the precisely-seeded subset alone. `coarseCapApplied` already reported that a substitution happened, without saying what was substituted.
+- The entry-point list gains self-listed and frontend surfaces **after** the level is scored. Those are deliberately excluded from `risk` — a frontend change does not alter backend behaviour — but it means the printed count can exceed the scored one on a report that is not low-confidence at all.
+
+Both counts are now on every report and in the JSON and MCP output. The text, markdown and HTML reports name them only where they differ from the printed counts; a line repeating the same two numbers on every run teaches its reader to skip it. The calibration guidance in the README, the configuration reference, the published config file and the setup skill now all point at these.
+
+No verdict moves: the level is computed exactly as before.
+
+### Also in this release
+
+- The config comment explains why `benchmark:add` writes `'max_risk' => 'high'` on a signal fixture — the cap is checked on every fixture and simply does nothing at the default — and documents the ignore form for a field validated inline (`App\Http\Controllers\PostController::store::subtitle`).
+- The setup skill's post-checkout warning gains the case that disabling the hook does not cover: replaying a ref reverts `composer.json` and `composer.lock` while `vendor/` keeps the version under test, so a version bump made on the branch is silently undone. Measurements stay valid; the manifest is what to re-check.
+
+### Upgrading
+
+`GraphCache::FORMAT_VERSION` moves 14 → 15, so the first run after upgrading rebuilds the graph. A stale entry lacks both new sets of edges: the route chains that used to end on a phantom controller, and the views a page component declares rather than renders.
+
+No configuration changes are required. If you have tuned `risk_thresholds`, re-read the calibration note — the numbers to tune against are now printed when they differ from the ones beside them.
+
+**Full Changelog**: https://github.com/SanderMuller/richter/compare/v0.27.0...v0.28.0
+
 ## v0.27.0 - 2026-08-12
 
 Two coverage gaps closed, and the risk-threshold guidance corrected twice — once for citing evidence it should not have, and once for replacing it with reasoning that did not hold. Sourced from a consumer usage audit, which confirmed 0.26.0's changes measurably and found the advice that needed fixing.
@@ -145,6 +199,7 @@ Note: 2 changed file(s) are outside the analysed scope (not PHP under app/, a Bl
 
 
 
+
 ```
 Stderr, like the untracked-file note, so `--json` and `--markdown` stdout stay exactly the report. Frontend sources the configuration declines to scan are not counted: generated Wayfinder output under `frontend.generated_paths` and `.d.ts` declarations were silenced on purpose, and a note that fires loudest on regeneration churn is one people stop reading.
 
@@ -210,6 +265,7 @@ One new advisory lane, and a README that finally leads with what the package is 
   
   
   
+  
   ```
   The count comes off the `route:: → middleware::<group>` edges already in the graph, so it counts endpoints only: a controller-level attachment of the same group does not inflate it. Membership is read from `$middlewareGroups` on a Laravel 10 Kernel or the `->web(append: [...])` form in a Laravel 11+ `bootstrap/app.php`. A member written as an alias resolves through the same alias map, parameters are cut first (`tenant:strict` is one alias with an argument), and a group that names another group is expanded transitively, since Laravel runs the inner group's middleware on the outer group's routes too.
   
@@ -242,6 +298,7 @@ Two silent-failure shapes that richter used to miss: a call through an applicati
   
   ```text
     ! resources/js/Pages/Posts/Create.vue posts to POST /posts and sends 'subtitle', which this diff removes from App\Http\Requests\StorePostRequest::rules() (renamed to 'sub_title'?)
+  
   
   
   
