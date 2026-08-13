@@ -147,8 +147,8 @@ generalises only if the buckets it defines already exist.
 
 **ID:** golden-graph · **Depends:** none
 
-- [x] Add a test that builds the fixture-project graph and asserts the full edge list — sources, targets, types, **and order** — against a committed expectation.
-- [x] Tests — the assertion above is the test; confirm it fails if a single edge is reordered, so it can actually catch what this refactor risks.
+- [x] Add a test that builds the fixture-project graph and asserts the full edge list — sources, targets and types — against a committed expectation.
+- [x] Tests — the assertion above is the test. (The spec asked for order to be part of it; see Findings — that premise was wrong.)
 
 ### Phase 2: Share the unscoped buckets — BUILT, MEASURED, REVERTED
 
@@ -233,6 +233,14 @@ touching the prune-named / descend-anonymous / flag-nested rules. Not started, o
 
 **What was kept.** Phase 1 only. The golden test is independently valuable: nothing else in the suite
 can see a change in what the lanes produce *together*, or in the order the merged set arrives in.
+
+**The spec's order premise was wrong, and a test written to prove it is what found that out.**
+Sections 1 and 3.2 and STOP condition 2 all rest on "the graph preserves insertion order, so a reorder
+would change `--json` output". It does not: `CodeGraph::__construct` sorts every edge set canonically
+(`src/Graph/CodeGraph.php:62`), on purpose, so a cache-revived graph tie-breaks its walks exactly as a
+fresh build does. A test asserting that a reordered edge set renders differently **failed**, which is
+how this surfaced. The golden test still earns its place — nothing else fails on the merged set — but
+it guards content, not sequence, and STOP condition 2 should be read as "byte-identical edge set".
 
 **Phase 1 (`golden-graph`).** `tests/Feature/GraphShapeGoldenTest.php` + `tests/Fixtures/graph-shape.golden.txt`
 — 85 edges, one `source\ttype\ttarget` line each in build order. A text file rather than JSON so a
