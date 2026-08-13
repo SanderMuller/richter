@@ -8,7 +8,7 @@ The command inverts the test-reference index into a selection: the test files th
 
 ## Unfollowable dispatches
 
-A dispatch whose target cannot be seen statically — a variable, or a factory call — hides a
+A dispatch whose target cannot be seen statically (a variable or a factory call) hides a
 `dispatcher → job::handle` edge, so it makes the selection undeterminable whenever a possible dispatch
 target sits in the change's reach. The reason names every such site as
 `file:line (Dispatcher::method)`:
@@ -19,9 +19,9 @@ app/Jobs/Fanout.php:88 (App\Jobs\Fanout::handle), app/Services/Importer.php:12 (
 ```
 
 The site is the dispatch statement, so two opaque items of one `Bus::chain([...])` are one place to
-look rather than two. The rendered reason caps at 15 with an `… and N more` tail; `--json` carries the
-**full** list under `unresolvedDispatchSites` (`{file, line, dispatcher}`), so a script tracking these
-never has to read them out of the sentence — or lose the ones past the cap.
+look rather than two. The rendered reason caps at 15 with an `… and N more` tail. `--json` carries the full
+list under `unresolvedDispatchSites` (`{file, line, dispatcher}`), so a script tracking these does not
+have to read them out of the sentence, and does not lose the ones past the cap.
 
 There is deliberately **no way to acknowledge a site and have it stop blocking**. Suppressing it would
 assert that the hidden edge is harmless, and a wrong assertion under-selects tests — the one direction
@@ -30,14 +30,14 @@ restructure the dispatch into a form the tracer can follow (a literal `Job::disp
 `new Job(...)` the tracer can see), which fixes the gap rather than silencing it. A project that
 genuinely needs a dynamic dispatch keeps running its full suite, correctly.
 
-Two shapes that look unfollowable are **not** counted, because nothing is actually hidden:
+Two shapes look unfollowable and are not counted, because neither hides anything:
 
-- **An inline closure** — `dispatch(function () { … })` queues the closure itself, and its body is in
-  the same source the tracers already read, so the work it does is already edges out of the
-  dispatching member. There is no target to name and nothing to restructure.
-- **A string literal** — `$this->dispatch('some-event')` is not a job dispatch at all.
-  `DispatchesJobs::dispatch()` takes a job *object*, so a literal can never be one; the common case is
-  a Livewire component emitting a browser event, which has no queue involvement.
+- An inline closure. `dispatch(function () { … })` queues the closure itself, and its body sits in the
+  same source the tracers already read, so its work already appears as edges out of the dispatching
+  member. There is no target to name.
+- A string literal. `$this->dispatch('some-event')` is not a job dispatch. `DispatchesJobs::dispatch()`
+  takes a job *object*, so a literal can never be one. The common case is a Livewire component
+  emitting a browser event, which has no queue involvement.
 
 ## Untracked files
 
