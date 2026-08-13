@@ -17,6 +17,8 @@ use PhpParser\Node\Identifier;
 use PhpParser\Node\Name;
 use PhpParser\Node\Stmt\ClassMethod;
 use PhpParser\NodeFinder;
+use PhpParser\NodeTraverser;
+use PhpParser\NodeVisitorAbstract;
 use SanderMuller\Richter\Graph\CodeGraphBuilder;
 use SanderMuller\Richter\Support\AppFiles;
 use SanderMuller\Richter\Support\DispatchTarget;
@@ -93,7 +95,32 @@ final readonly class DispatchEdgeTracer
 
         foreach ($classMethods as $method) {
             $dispatcher = ltrim($classFqcn, '\\') . '::' . $method->name->toString();
-            $calls = new NodeFinder()->find($method, static fn (Node $n): bool => $n instanceof FuncCall || $n instanceof MethodCall || $n instanceof StaticCall);
+            // Both lanes below read the same body, so it is descended once. Two NodeFinder passes per
+            // method — one for the calls, one for the `new`s — cost a second full walk of every
+            // method in the app tree for nodes this one already sees.
+            $calls = [];
+            $instantiations = [];
+
+            $collector = new class ($calls, $instantiations) extends NodeVisitorAbstract {
+                /**
+                 * @param  list<Node>  $calls
+                 * @param  list<New_>  $instantiations
+                 */
+                public function __construct(public array &$calls, public array &$instantiations) {}
+
+                public function enterNode(Node $node): null
+                {
+                    if ($node instanceof FuncCall || $node instanceof MethodCall || $node instanceof StaticCall) {
+                        $this->calls[] = $node;
+                    } elseif ($node instanceof New_) {
+                        $this->instantiations[] = $node;
+                    }
+
+                    return null;
+                }
+            };
+
+            new NodeTraverser($collector)->traverse([$method]);
 
             // Edges target `::handle` (the method `BusDispatcher::dispatchNow` prefers, falling back
             // to `__invoke` only when `handle` is absent), so an `__invoke`-only self-handling command
@@ -119,7 +146,7 @@ final readonly class DispatchEdgeTracer
                 fn (Node $call): bool => (! $call instanceof CallLike || ! $call->isFirstClassCallable()) && $this->dispatchSite($call) !== null,
             );
 
-            foreach (new NodeFinder()->findInstanceOf($method, New_::class) as $new) {
+            foreach ($instantiations as $new) {
                 if (! $new->class instanceof Name) {
                     continue;
                 }
