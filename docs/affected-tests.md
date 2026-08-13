@@ -19,9 +19,11 @@ app/Jobs/Fanout.php:88 (App\Jobs\Fanout::handle), app/Services/Importer.php:12 (
 ```
 
 The site is the dispatch statement, so two opaque items of one `Bus::chain([...])` are one place to
-look rather than two. The rendered reason caps at 15 with an `… and N more` tail. `--json` carries the full
-list under `unresolvedDispatchSites` (`{file, line, dispatcher}`), so a script tracking these does not
-have to read them out of the sentence, and does not lose the ones past the cap.
+look rather than two. The rendered reason caps at 15 with an `… and N more` tail. `--json` carries the same
+sites in full under `unresolvedDispatchSites` (`{file, line, dispatcher}`), so a script tracking them
+does not have to read them out of the sentence, and does not lose the ones past the cap. It lists what
+blocked *this* selection and is empty when nothing did; for every unfollowable dispatch in the project
+regardless of the diff, read the `richter://graph/stats` MCP resource.
 
 There is deliberately **no way to acknowledge a site and have it stop blocking**. Suppressing it would
 assert that the hidden edge is harmless, and a wrong assertion under-selects tests — the one direction

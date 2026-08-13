@@ -2,6 +2,7 @@
 
 namespace SanderMuller\Richter\Tests\Unit;
 
+use App\Models\Post;
 use Illuminate\Support\Facades\Route;
 use PHPUnit\Framework\Attributes\Test;
 use SanderMuller\Richter\Analysis\AffectedTests;
@@ -156,6 +157,27 @@ final class AffectedTestsTest extends TestCase
 
         $this->assertSame($sites, $selection['unresolvedDispatchSites']);
         $this->assertStringEndsWith(', … and 3 more', $selection['reasons'][0]);
+    }
+
+    #[Test]
+    public function sites_that_blocked_nothing_are_not_listed(): void
+    {
+        // The key reports what blocked THIS selection, not an inventory of the project. A dispatch
+        // the change cannot be reached through leaves the selection determinable and belongs in no
+        // reason, so listing it would hand a script work nobody has to do. The project-wide list
+        // lives on the graph-stats resource.
+        $selection = AffectedTests::select(
+            $this->detectResult([]),
+            // A model that really exists in the fixture app, so DispatchTarget can load it and rule
+            // it out. An unloadable class fails toward "yes" by design, which would taint anyway.
+            [$this->changed('app/Models/Post.php', Post::class)],
+            $this->index(),
+            unresolvedDispatchSites: [['file' => 'app/Services/Importer.php', 'line' => 12, 'dispatcher' => 'App\Services\Importer::run']],
+        );
+
+        $this->assertTrue($selection['determinable']);
+        $this->assertSame([], $selection['reasons']);
+        $this->assertSame([], $selection['unresolvedDispatchSites']);
     }
 
     #[Test]

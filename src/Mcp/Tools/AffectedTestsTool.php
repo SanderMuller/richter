@@ -100,7 +100,7 @@ final class AffectedTestsTool extends Tool
                 'file' => $schema->string(),
                 'line' => $schema->integer(),
                 'dispatcher' => $schema->string(),
-            ]))->description('Every dispatch whose target could not be followed, in full — the reason above names only the first few. Each is a place to restructure the dispatch into a followable form.'),
+            ]))->description('The dispatches that made THIS selection undeterminable, in full; the reason above names only the first few. Empty when the selection is determinable. Each is a place to restructure the dispatch into a followable form. For the project-wide list regardless of the diff, read richter://graph/stats.'),
         ];
     }
 }

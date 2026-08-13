@@ -153,8 +153,12 @@ final class AffectedTests
         // in the change's upward-caller closure (or is the changed class). A change with no dispatch
         // target upstream cannot be reached through the hidden edge, so an unresolved dispatch
         // elsewhere is irrelevant to it — the scoping never under-selects (see changeReachesDispatchable).
-        if ($unresolvedDispatchSites !== [] && self::changeReachesDispatchable($result, $changed)) {
-            $reasons[] = 'the graph contains job dispatches that could not be followed: ' . self::renderSites($unresolvedDispatchSites);
+        $blockingSites = $unresolvedDispatchSites !== [] && self::changeReachesDispatchable($result, $changed)
+            ? $unresolvedDispatchSites
+            : [];
+
+        if ($blockingSites !== []) {
+            $reasons[] = 'the graph contains job dispatches that could not be followed: ' . self::renderSites($blockingSites);
         }
 
         $selected = [];
@@ -213,11 +217,14 @@ final class AffectedTests
             'tests' => $selected,
             'frontendTests' => $frontendSelected,
             'unreferencedEntryPoints' => $unreferenced,
-            // The FULL list, deliberately uncapped while the reason above stays capped. The reason
-            // is prose for a reader, where 36 lines help nobody; this is the machine's copy, and a
-            // payload that could only ever express the first 15 would make the rest unreachable to
-            // anything but the MCP resource — which a CLI-only CI job cannot reach at all.
-            'unresolvedDispatchSites' => $unresolvedDispatchSites,
+            // The sites that blocked THIS selection, uncapped while the reason above stays capped:
+            // the reason is prose for a reader, where 36 lines help nobody, and this is the
+            // machine's copy, which must not lose the ones past the cap.
+            //
+            // Blockers, not an inventory. Sites the change cannot be reached through leave the
+            // selection determinable and belong in no reason, so listing them here would report
+            // work nobody has to do. `richter://graph/stats` carries the project-wide list.
+            'unresolvedDispatchSites' => $blockingSites,
         ];
     }
 
