@@ -13,7 +13,7 @@ final class GraphStatsResource extends Resource
 
     protected string $mimeType = 'application/json';
 
-    protected string $description = 'How complete the code graph is here, at a glance: node and edge counts by edge type, plus the two honesty flags — hasUnparseableFiles (an app file the parser could not read) and hasUnresolvedDispatches (a dispatch whose target could not be followed). The first read in a session builds the code graph (cached afterwards).';
+    protected string $description = 'How complete the code graph is here, at a glance: node and edge counts by edge type, plus the two honesty flags — hasUnparseableFiles (an app file the parser could not read) and hasUnresolvedDispatches (a dispatch whose target could not be followed), the latter with unresolvedDispatchSites naming each such dispatch as file, line and dispatching member. The first read in a session builds the code graph (cached afterwards).';
 
     public function __construct(private readonly GraphCache $graphs) {}
 
@@ -34,6 +34,7 @@ final class GraphStatsResource extends Resource
             'edgesByType' => $edgesByType,
             'hasUnparseableFiles' => $graph->hasUnparseableFiles(),
             'hasUnresolvedDispatches' => $graph->hasUnresolvedDispatches(),
+            'unresolvedDispatchSites' => $graph->unresolvedDispatchSites(),
         ]));
     }
 }

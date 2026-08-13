@@ -48,7 +48,7 @@ final class AffectedTestsTest extends TestCase
             $this->detectResult(['route::GET::/errors/log']),
             [$this->changed('app/Services/X.php', 'App\Services\X')],
             $this->index(),
-            hasUnresolvedDispatches: false,
+            unresolvedDispatchSites: [],
         );
 
         $this->assertTrue($selection['determinable']);
@@ -64,7 +64,7 @@ final class AffectedTestsTest extends TestCase
             $this->detectResult(['route::GET::/errors/log'], coverage: ['app/Services/Lost.php' => 'unresolved']),
             [],
             $this->index(),
-            hasUnresolvedDispatches: false,
+            unresolvedDispatchSites: [],
         );
 
         $this->assertFalse($selection['determinable']);
@@ -80,7 +80,7 @@ final class AffectedTestsTest extends TestCase
             $this->detectResult([], lowConfidence: true),
             [],
             $this->index(),
-            hasUnresolvedDispatches: false,
+            unresolvedDispatchSites: [],
         );
         $this->assertFalse($lowConfidence['determinable']);
         $this->assertStringContainsString('low confidence', $lowConfidence['reasons'][0]);
@@ -91,10 +91,71 @@ final class AffectedTestsTest extends TestCase
             $this->detectResult([]),
             [$this->changed('app/Jobs/PublishPostJob.php', 'App\Jobs\PublishPostJob')],
             $this->index(),
-            hasUnresolvedDispatches: true,
+            unresolvedDispatchSites: [['file' => 'app/Services/Importer.php', 'line' => 12, 'dispatcher' => 'App\Services\Importer::run']],
         );
         $this->assertFalse($dispatches['determinable']);
         $this->assertStringContainsString('dispatches', $dispatches['reasons'][0]);
+    }
+
+    #[Test]
+    public function the_dispatch_reason_names_every_site_in_order(): void
+    {
+        // The point of the whole lane: "a dispatch somewhere could not be followed" is a verdict a
+        // project can only ever accept, while a named statement is one it can go and restructure.
+        $selection = AffectedTests::select(
+            $this->detectResult([]),
+            [$this->changed('app/Jobs/PublishPostJob.php', 'App\Jobs\PublishPostJob')],
+            $this->index(),
+            unresolvedDispatchSites: [
+                ['file' => 'app/Jobs/Fanout.php', 'line' => 88, 'dispatcher' => 'App\Jobs\Fanout::handle'],
+                ['file' => 'app/Services/Importer.php', 'line' => 12, 'dispatcher' => 'App\Services\Importer::run'],
+            ],
+        );
+
+        $this->assertFalse($selection['determinable']);
+        $this->assertSame(
+            'the graph contains job dispatches that could not be followed: '
+            . 'app/Jobs/Fanout.php:88 (App\Jobs\Fanout::handle), '
+            . 'app/Services/Importer.php:12 (App\Services\Importer::run)',
+            $selection['reasons'][0],
+        );
+    }
+
+    #[Test]
+    public function no_dispatch_sites_adds_no_dispatch_reason(): void
+    {
+        $selection = AffectedTests::select(
+            $this->detectResult([]),
+            [$this->changed('app/Jobs/PublishPostJob.php', 'App\Jobs\PublishPostJob')],
+            $this->index(),
+            unresolvedDispatchSites: [],
+        );
+
+        $this->assertTrue($selection['determinable']);
+        $this->assertSame([], $selection['reasons']);
+    }
+
+    #[Test]
+    public function a_long_site_list_is_capped_and_reports_the_remainder(): void
+    {
+        // A project dispatching dynamically throughout would otherwise push every other reason off
+        // the screen; the count keeps the report honest about what it stopped naming.
+        $sites = [];
+
+        for ($i = 1; $i <= 18; ++$i) {
+            $sites[] = ['file' => "app/Services/S{$i}.php", 'line' => $i, 'dispatcher' => "App\\Services\\S{$i}::run"];
+        }
+
+        $selection = AffectedTests::select(
+            $this->detectResult([]),
+            [$this->changed('app/Jobs/PublishPostJob.php', 'App\Jobs\PublishPostJob')],
+            $this->index(),
+            unresolvedDispatchSites: $sites,
+        );
+
+        $this->assertStringEndsWith(', … and 3 more', $selection['reasons'][0]);
+        $this->assertStringContainsString('app/Services/S15.php:15', $selection['reasons'][0]);
+        $this->assertStringNotContainsString('app/Services/S16.php', $selection['reasons'][0]);
     }
 
     #[Test]
@@ -110,7 +171,7 @@ final class AffectedTestsTest extends TestCase
             ),
             [$this->changed('app/Models/Post.php', 'App\Models\Post')],
             $this->index(),
-            hasUnresolvedDispatches: true,
+            unresolvedDispatchSites: [['file' => 'app/Services/Importer.php', 'line' => 12, 'dispatcher' => 'App\Services\Importer::run']],
         );
         $this->assertTrue($selection['determinable']);
         $this->assertSame([], $selection['reasons']);
@@ -125,7 +186,7 @@ final class AffectedTestsTest extends TestCase
             $this->detectResult(['route::GET::/errors/log']),
             [$this->changed('app/Models/Post.php', 'App\Models\Post')],
             $this->index(),
-            hasUnresolvedDispatches: false,
+            unresolvedDispatchSites: [],
             hasUnparseableFiles: true,
         );
         $this->assertFalse($selection['determinable']);
@@ -145,7 +206,7 @@ final class AffectedTestsTest extends TestCase
             ),
             [$this->changed('app/Models/Post.php', 'App\Models\Post')],
             $this->index(),
-            hasUnresolvedDispatches: true,
+            unresolvedDispatchSites: [['file' => 'app/Services/Importer.php', 'line' => 12, 'dispatcher' => 'App\Services\Importer::run']],
         );
         $this->assertFalse($selection['determinable']);
         $this->assertStringContainsString('dispatches', $selection['reasons'][0]);
@@ -163,7 +224,7 @@ final class AffectedTestsTest extends TestCase
             ),
             [$this->changed('app/Models/Post.php', 'App\Models\Post')],
             $this->index(),
-            hasUnresolvedDispatches: true,
+            unresolvedDispatchSites: [['file' => 'app/Services/Importer.php', 'line' => 12, 'dispatcher' => 'App\Services\Importer::run']],
         );
         $this->assertFalse($selection['determinable']);
         $this->assertStringContainsString('dispatches', $selection['reasons'][0]);
@@ -182,7 +243,7 @@ final class AffectedTestsTest extends TestCase
             ),
             [$this->changed('app/Models/Post.php', 'App\Models\Post')],
             $this->index(),
-            hasUnresolvedDispatches: true,
+            unresolvedDispatchSites: [['file' => 'app/Services/Importer.php', 'line' => 12, 'dispatcher' => 'App\Services\Importer::run']],
         );
         $this->assertFalse($selection['determinable']);
         $this->assertStringContainsString('dispatches', $selection['reasons'][0]);
@@ -196,7 +257,7 @@ final class AffectedTestsTest extends TestCase
             $this->detectResult(['schedule::posts:cleanup']),
             [],
             $this->index(),
-            hasUnresolvedDispatches: false,
+            unresolvedDispatchSites: [],
         );
 
         $this->assertFalse($selection['determinable']);
@@ -210,7 +271,7 @@ final class AffectedTestsTest extends TestCase
             $this->detectResult(['route::GET::/errors/log', 'route::GET::/uncovered']),
             [],
             $this->index(),
-            hasUnresolvedDispatches: false,
+            unresolvedDispatchSites: [],
         );
 
         $this->assertTrue($selection['determinable']);
@@ -229,7 +290,7 @@ final class AffectedTestsTest extends TestCase
             $this->detectResult(['route::GET::/errors/log']),
             [$this->changed('app/Services/X.php', 'App\Services\X')],
             $index,
-            hasUnresolvedDispatches: false,
+            unresolvedDispatchSites: [],
         );
 
         $this->assertSame(['tests/Feature/ATest.php', 'tests/Feature/ZTest.php'], $selection['tests']);
@@ -249,7 +310,7 @@ final class AffectedTestsTest extends TestCase
                 new MemberChange('', MemberChange::KIND_CLASS, MemberChange::CHANGE_MODIFIED, resolvable: true),
             ], cosmeticOnly: false, directSeeds: ['App\Services\OldName'])],
             $index,
-            hasUnresolvedDispatches: false,
+            unresolvedDispatchSites: [],
         );
 
         $this->assertSame(['tests/Unit/OldNameTest.php'], $selection['tests']);
@@ -267,7 +328,7 @@ final class AffectedTestsTest extends TestCase
             $this->detectResult([]),
             [$this->changed('app/Services/X.php', 'App\Services\X')],
             $index,
-            hasUnresolvedDispatches: false,
+            unresolvedDispatchSites: [],
         );
 
         $this->assertTrue($selection['determinable']);
@@ -286,7 +347,7 @@ final class AffectedTestsTest extends TestCase
             $this->detectResult(['route::GET::/errors/log']),
             [],
             $index,
-            hasUnresolvedDispatches: false,
+            unresolvedDispatchSites: [],
         );
 
         $this->assertFalse($selection['determinable']);
@@ -306,7 +367,7 @@ final class AffectedTestsTest extends TestCase
             $this->detectResult(['route::GET::/errors/log']),
             [],
             $index,
-            hasUnresolvedDispatches: false,
+            unresolvedDispatchSites: [],
         );
 
         $this->assertTrue($selection['determinable']);
@@ -325,7 +386,7 @@ final class AffectedTestsTest extends TestCase
             $this->detectResult([], callers: [['depth' => 1, 'node' => 'App\Services\Upstream::run', 'via' => 'call']]),
             [$this->changed('app/Services/X.php', 'App\Services\X')],
             $index,
-            hasUnresolvedDispatches: false,
+            unresolvedDispatchSites: [],
         );
 
         $this->assertTrue($selection['determinable']);
@@ -345,7 +406,7 @@ final class AffectedTestsTest extends TestCase
             $this->detectResult(['schedule::abc123']),
             [],
             $index,
-            hasUnresolvedDispatches: false,
+            unresolvedDispatchSites: [],
             graph: $graph,
         );
 
@@ -364,7 +425,7 @@ final class AffectedTestsTest extends TestCase
             $this->detectResult(['schedule::abc123']),
             [],
             $this->index(),
-            hasUnresolvedDispatches: false,
+            unresolvedDispatchSites: [],
             graph: $graph,
         );
 
@@ -380,7 +441,7 @@ final class AffectedTestsTest extends TestCase
             $this->detectResult(['route::GET::/errors/log']),
             [new ChangedFileSymbols('resources/views/errors.blade.php', '', [], cosmeticOnly: false, directSeeds: ['view::blade__errors'])],
             $this->index(),
-            hasUnresolvedDispatches: false,
+            unresolvedDispatchSites: [],
         );
 
         $this->assertTrue($selection['determinable']);
@@ -396,7 +457,7 @@ final class AffectedTestsTest extends TestCase
             $this->detectResult(['route::GET::/errors/log'], coverage: ['resources/js/Pages/Errors.vue' => 'analyzed']),
             [new ChangedFileSymbols('resources/js/Pages/Errors.vue', '', [], cosmeticOnly: false, directSeeds: ['route::GET::/errors/log'])],
             $this->index(),
-            hasUnresolvedDispatches: false,
+            unresolvedDispatchSites: [],
         );
 
         $this->assertTrue($selection['determinable']);
@@ -414,7 +475,7 @@ final class AffectedTestsTest extends TestCase
             $this->detectResult(['route::GET::/errors/log']),
             [$this->changed('app/Services/X.php', 'App\Services\X')],
             $this->index(),
-            hasUnresolvedDispatches: false,
+            unresolvedDispatchSites: [],
             frontendTests: $frontendTests,
         );
 
@@ -431,7 +492,7 @@ final class AffectedTestsTest extends TestCase
             $this->detectResult([], coverage: ['resources/js/Pages/Errors.vue' => 'unresolved']),
             [new ChangedFileSymbols('resources/js/Pages/Errors.vue', '', [], cosmeticOnly: false, unresolvedFrontendReferences: true)],
             $this->index(),
-            hasUnresolvedDispatches: false,
+            unresolvedDispatchSites: [],
         );
 
         $this->assertFalse($selection['determinable']);

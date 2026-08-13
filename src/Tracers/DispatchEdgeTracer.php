@@ -59,13 +59,13 @@ final readonly class DispatchEdgeTracer
         $this->dispatchFunctions = [...self::DISPATCH_FUNCTIONS, ...$dispatchHelpers];
     }
 
-    /** @return array{edges: list<array{source: string, target: string, type: string}>, unresolved: int} */
+    /** @return array{edges: list<array{source: string, target: string, type: string}>, unresolvedSites: list<array{line: int, dispatcher: string}>} */
     public function edgesForSource(string $source, string $classFqcn): array
     {
         $ast = AppFiles::parseResolved($source);
 
         if ($ast === null) {
-            return ['edges' => [], 'unresolved' => 0];
+            return ['edges' => [], 'unresolvedSites' => []];
         }
 
         return $this->edgesForResolvedAst($ast, $classFqcn);
@@ -73,7 +73,7 @@ final readonly class DispatchEdgeTracer
 
     /**
      * @param  list<Node\Stmt>  $ast  a name-resolved AST ({@see AppFiles::parseResolved()})
-     * @return array{edges: list<array{source: string, target: string, type: string}>, unresolved: int}
+     * @return array{edges: list<array{source: string, target: string, type: string}>, unresolvedSites: list<array{line: int, dispatcher: string}>}
      */
     public function edgesForResolvedAst(array $ast, string $classFqcn): array
     {
@@ -86,12 +86,12 @@ final readonly class DispatchEdgeTracer
      * bucket, so no tracer re-walks the full tree.
      *
      * @param  list<ClassMethod>  $classMethods  every ClassMethod in the file, any depth
-     * @return array{edges: list<array{source: string, target: string, type: string}>, unresolved: int}
+     * @return array{edges: list<array{source: string, target: string, type: string}>, unresolvedSites: list<array{line: int, dispatcher: string}>}
      */
     public function edgesForMethods(array $classMethods, string $classFqcn): array
     {
         $edges = [];
-        $unresolved = 0;
+        $unresolvedSites = [];
 
         foreach ($classMethods as $method) {
             $dispatcher = ltrim($classFqcn, '\\') . '::' . $method->name->toString();
@@ -127,7 +127,12 @@ final readonly class DispatchEdgeTracer
             // draws an edge to a `::handle` node that may not exist — a narrow residual, not a
             // regression: before this widening it drew no edge at all, so selection is no worse.
             foreach ($calls as $call) {
-                foreach ($this->jobsFromCall($call, $unresolved) as $jobFqcn) {
+                // The whole dispatch statement is the site, not the opaque sub-expression inside it:
+                // that is the line a reader opens to see why the target could not be followed, and it
+                // keeps two opaque items of one `chain()` from reading as two separate places to look.
+                $origin = ['line' => $call->getStartLine(), 'dispatcher' => $dispatcher];
+
+                foreach ($this->jobsFromCall($call, $origin, $unresolvedSites) as $jobFqcn) {
                     $edges[] = ['source' => $dispatcher, 'target' => $jobFqcn . '::handle', 'type' => 'action-to-job'];
                 }
             }
@@ -166,11 +171,32 @@ final readonly class DispatchEdgeTracer
             }
         }
 
-        return ['edges' => AppFiles::dedupeEdges($edges), 'unresolved' => $unresolved];
+        // De-duplicated on the whole record, so a count reads as distinct sites rather than as
+        // increments — a `chain()` of two opaque items is one place to look, not two.
+        return ['edges' => AppFiles::dedupeEdges($edges), 'unresolvedSites' => $this->dedupeSites($unresolvedSites)];
     }
 
-    /** @return list<string> */
-    private function jobsFromCall(Node $call, int &$unresolved): array
+    /**
+     * @param  list<array{line: int, dispatcher: string}>  $sites
+     * @return list<array{line: int, dispatcher: string}>
+     */
+    private function dedupeSites(array $sites): array
+    {
+        $seen = [];
+
+        foreach ($sites as $site) {
+            $seen[$site['dispatcher'] . "\0" . $site['line']] = $site;
+        }
+
+        return array_values($seen);
+    }
+
+    /**
+     * @param  array{line: int, dispatcher: string}  $origin  the dispatch statement a site is recorded against
+     * @param  list<array{line: int, dispatcher: string}>  $unresolvedSites
+     * @return list<string>
+     */
+    private function jobsFromCall(Node $call, array $origin, array &$unresolvedSites): array
     {
         // A first-class callable (`Job::dispatch(...)`) builds a closure, not a dispatch — and
         // calling getArgs() on it throws. It's not a dispatch site, so skip it.
@@ -181,8 +207,8 @@ final readonly class DispatchEdgeTracer
         $site = $this->dispatchSite($call);
 
         return match ($site['mode'] ?? null) {
-            'single' => $this->jobsFromArg($site['arg'], $unresolved),
-            'array' => $this->jobsFromArray($site['arg']?->value, $unresolved),
+            'single' => $this->jobsFromArg($site['arg'], $origin, $unresolvedSites),
+            'array' => $this->jobsFromArray($site['arg']?->value, $origin, $unresolvedSites),
             'class' => DispatchTarget::matches($site['class']) ? [$site['class']] : [],
             default => [],
         };
@@ -242,30 +268,38 @@ final readonly class DispatchEdgeTracer
             : null;
     }
 
-    /** @return list<string> */
-    private function jobsFromArg(?Arg $arg, int &$unresolved): array
+    /**
+     * @param  array{line: int, dispatcher: string}  $origin
+     * @param  list<array{line: int, dispatcher: string}>  $unresolvedSites
+     * @return list<string>
+     */
+    private function jobsFromArg(?Arg $arg, array $origin, array &$unresolvedSites): array
     {
         $value = $arg?->value;
 
         if ($value instanceof New_) {
-            return $this->jobFromNew($value, $unresolved);
+            return $this->jobFromNew($value, $origin, $unresolvedSites);
         }
 
         if ($value instanceof Array_) {
-            return $this->jobsFromArray($value, $unresolved);
+            return $this->jobsFromArray($value, $origin, $unresolvedSites);
         }
 
         // A dispatch verb whose job we can't see (a variable, factory, closure).
-        ++$unresolved;
+        $unresolvedSites[] = $origin;
 
         return [];
     }
 
-    /** @return list<string> */
-    private function jobsFromArray(?Expr $value, int &$unresolved): array
+    /**
+     * @param  array{line: int, dispatcher: string}  $origin
+     * @param  list<array{line: int, dispatcher: string}>  $unresolvedSites
+     * @return list<string>
+     */
+    private function jobsFromArray(?Expr $value, array $origin, array &$unresolvedSites): array
     {
         if (! $value instanceof Array_) {
-            ++$unresolved;
+            $unresolvedSites[] = $origin;
 
             return [];
         }
@@ -274,24 +308,28 @@ final readonly class DispatchEdgeTracer
 
         foreach ($value->items as $item) {
             if ($item->value instanceof New_) {
-                $jobs = [...$jobs, ...$this->jobFromNew($item->value, $unresolved)];
+                $jobs = [...$jobs, ...$this->jobFromNew($item->value, $origin, $unresolvedSites)];
 
                 continue;
             }
 
             // An opaque item in a chain/batch (a variable, a factory call) is an unfollowable
-            // dispatch on its own — count it, or a job reached only this way reads as "none".
-            ++$unresolved;
+            // dispatch on its own — record it, or a job reached only this way reads as "none".
+            $unresolvedSites[] = $origin;
         }
 
         return $jobs;
     }
 
-    /** @return list<string> */
-    private function jobFromNew(New_ $new, int &$unresolved): array
+    /**
+     * @param  array{line: int, dispatcher: string}  $origin
+     * @param  list<array{line: int, dispatcher: string}>  $unresolvedSites
+     * @return list<string>
+     */
+    private function jobFromNew(New_ $new, array $origin, array &$unresolvedSites): array
     {
         if (! $new->class instanceof Name) {
-            ++$unresolved;
+            $unresolvedSites[] = $origin;
 
             return [];
         }

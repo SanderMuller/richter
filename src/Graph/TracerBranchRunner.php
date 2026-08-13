@@ -62,7 +62,7 @@ final class TracerBranchRunner
      * or malformed output) — the caller then rebuilds the branch in-process. The temp file is always
      * cleaned up.
      *
-     * @return array{edges: list<array{source: string, target: string, type: string}>, unparseableFiles: int, unresolvedDispatches: int, inheritance: array<string, array{parent: string|null, declared: list<string>}>, declares: array<string, list<array{source: string, target: string, type: string}>>}|null
+     * @return array{edges: list<array{source: string, target: string, type: string}>, unparseableFiles: int, unresolvedDispatchSites: list<array{file: string, line: int, dispatcher: string}>, inheritance: array<string, array{parent: string|null, declared: list<string>}>, declares: array<string, list<array{source: string, target: string, type: string}>>}|null
      */
     public static function finish(PendingTracerBranch $pending): ?array
     {
@@ -88,7 +88,7 @@ final class TracerBranchRunner
      * rather than risking a wrong graph from a truncated or corrupt file — a slow-but-correct build
      * beats a fast-but-wrong one.
      *
-     * @return array{edges: list<array{source: string, target: string, type: string}>, unparseableFiles: int, unresolvedDispatches: int, inheritance: array<string, array{parent: string|null, declared: list<string>}>, declares: array<string, list<array{source: string, target: string, type: string}>>}|null
+     * @return array{edges: list<array{source: string, target: string, type: string}>, unparseableFiles: int, unresolvedDispatchSites: list<array{file: string, line: int, dispatcher: string}>, inheritance: array<string, array{parent: string|null, declared: list<string>}>, declares: array<string, list<array{source: string, target: string, type: string}>>}|null
      */
     private static function validate(mixed $decoded): ?array
     {
@@ -98,13 +98,16 @@ final class TracerBranchRunner
             || ! is_array($decoded['inheritance'] ?? null)
             || ! is_array($decoded['declares'] ?? null)
             || ! is_int($decoded['unparseableFiles'] ?? null)
-            || ! is_int($decoded['unresolvedDispatches'] ?? null)
             || $decoded['unparseableFiles'] < 0
-            || $decoded['unresolvedDispatches'] < 0) {
-            // A negative count or a non-list edges map is impossible from the worker (counts only
-            // increment; edges is json_encode of a PHP list) — treat it as corruption and fall back.
+            || ! self::isSiteList($decoded['unresolvedDispatchSites'] ?? null)) {
+            // A negative count, a non-list edges map, or a site record missing a field is impossible
+            // from the worker — treat it as corruption and fall back to the serial build.
             return null;
         }
+
+        /** @var list<array{file: string, line: int, dispatcher: string}> $sites */
+        $sites = $decoded['unresolvedDispatchSites'];
+        $decoded['unresolvedDispatchSites'] = $sites;
 
         $edges = [];
 
@@ -168,9 +171,32 @@ final class TracerBranchRunner
         return [
             'edges' => $edges,
             'unparseableFiles' => $decoded['unparseableFiles'],
-            'unresolvedDispatches' => $decoded['unresolvedDispatches'],
+            'unresolvedDispatchSites' => $decoded['unresolvedDispatchSites'],
             'inheritance' => $inheritance,
             'declares' => $declares,
         ];
+    }
+
+    /**
+     * Whether a decoded value is a well-formed unresolved-dispatch site list.
+     *
+     * Checked field by field rather than trusted: this payload crosses a process boundary as JSON,
+     * and a half-formed record would otherwise reach a report and name a file:line that does not
+     * exist. A rejection costs the parallel build, never correctness — the caller falls back to the
+     * serial one, which produces the same graph.
+     *
+     * @phpstan-assert-if-true list<array{file: string, line: int, dispatcher: string}> $value
+     */
+    private static function isSiteList(mixed $value): bool
+    {
+        return is_array($value)
+            && array_is_list($value)
+            && array_all($value, static fn (mixed $site): bool => is_array($site)
+                && is_string($site['file'] ?? null)
+                && $site['file'] !== ''
+                && is_string($site['dispatcher'] ?? null)
+                && $site['dispatcher'] !== ''
+                && is_int($site['line'] ?? null)
+                && $site['line'] >= 1);
     }
 }

@@ -26,7 +26,7 @@ final class DispatchEdgeTracerTest extends TestCase
     {
         $source = "<?php\nnamespace App\Http\Controllers;\n{$uses}\nclass PostController\n{\n    public function store(): void\n    {\n        {$body}\n    }\n}\n";
 
-        return new DispatchEdgeTracer()->edgesForSource($source, self::DISPATCHER)['unresolved'];
+        return count(new DispatchEdgeTracer()->edgesForSource($source, self::DISPATCHER)['unresolvedSites']);
     }
 
     /**
@@ -162,6 +162,56 @@ final class DispatchEdgeTracerTest extends TestCase
         $result = new DispatchEdgeTracer()->edgesForSource($source, self::DISPATCHER);
 
         $this->assertContains('App\Jobs\ImportJob::handle', array_column($result['edges'], 'target'));
-        $this->assertSame(1, $result['unresolved']);
+        $this->assertCount(1, $result['unresolvedSites']);
+    }
+
+    #[Test]
+    public function an_unresolved_site_carries_the_dispatching_member_and_the_dispatch_line(): void
+    {
+        // Without these two fields the report can only say a dispatch somewhere could not be
+        // followed, which is the whole reason the selection was unactionable.
+        $source = "<?php\nnamespace App\Http\Controllers;\nclass PostController\n{\n    public function store(): void\n    {\n        dispatch(\$job);\n    }\n}\n";
+
+        $sites = new DispatchEdgeTracer()->edgesForSource($source, self::DISPATCHER)['unresolvedSites'];
+
+        $this->assertSame([['line' => 7, 'dispatcher' => self::DISPATCHER . '::store']], $sites);
+    }
+
+    #[Test]
+    public function two_opaque_items_in_one_chain_are_one_site(): void
+    {
+        // The site is the dispatch statement, not each opaque sub-expression: a reader opens one
+        // line, so a count that read 2 here would be counting increments rather than places to look.
+        $source = "<?php\nnamespace App\Http\Controllers;\nuse Illuminate\Support\Facades\Bus;\nclass PostController\n{\n    public function store(): void\n    {\n        Bus::chain([\$first, \$second]);\n    }\n}\n";
+
+        $sites = new DispatchEdgeTracer()->edgesForSource($source, self::DISPATCHER)['unresolvedSites'];
+
+        $this->assertSame([['line' => 8, 'dispatcher' => self::DISPATCHER . '::store']], $sites);
+    }
+
+    #[Test]
+    public function two_unfollowable_dispatches_in_one_method_stay_two_sites(): void
+    {
+        // The counterpart to the de-duplication above: distinct statements are distinct places, and
+        // collapsing them would hide one of the two lines a reader has to go and fix.
+        $source = "<?php\nnamespace App\Http\Controllers;\nclass PostController\n{\n    public function store(): void\n    {\n        dispatch(\$first);\n        dispatch(\$second);\n    }\n}\n";
+
+        $sites = new DispatchEdgeTracer()->edgesForSource($source, self::DISPATCHER)['unresolvedSites'];
+
+        $this->assertSame([
+            ['line' => 7, 'dispatcher' => self::DISPATCHER . '::store'],
+            ['line' => 8, 'dispatcher' => self::DISPATCHER . '::store'],
+        ], $sites);
+    }
+
+    #[Test]
+    public function an_unparseable_source_yields_no_sites(): void
+    {
+        // The unparseable-file taint is a separate, global signal; a file with no AST must not also
+        // contribute a dispatch site naming a line nobody can open.
+        $result = new DispatchEdgeTracer()->edgesForSource("<?php\nclass {{{ broken\n", self::DISPATCHER);
+
+        $this->assertSame([], $result['unresolvedSites']);
+        $this->assertSame([], $result['edges']);
     }
 }

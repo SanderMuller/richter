@@ -186,7 +186,7 @@ final class CodeGraphBuilder
         $graph = new CodeGraph(
             $edges,
             $tracerBranch['unparseableFiles'] > 0,
-            $tracerBranch['unresolvedDispatches'] > 0,
+            $tracerBranch['unresolvedDispatchSites'],
             NodeMetadata::withFallbackFiles($edges, $metadata, $projectRoot),
         );
 
@@ -204,7 +204,7 @@ final class CodeGraphBuilder
      * order build() appends them serially, keeping the merged graph byte-identical either way.
      *
      * @param  (callable(string, array<string, mixed>): void)|null  $onProgress
-     * @return array{edges: list<array{source: string, target: string, type: string}>, unparseableFiles: int, unresolvedDispatches: int, inheritance: array<string, array{parent: string|null, declared: list<string>}>, declares: array<string, list<array{source: string, target: string, type: string}>>}
+     * @return array{edges: list<array{source: string, target: string, type: string}>, unparseableFiles: int, unresolvedDispatchSites: list<array{file: string, line: int, dispatcher: string}>, inheritance: array<string, array{parent: string|null, declared: list<string>}>, declares: array<string, list<array{source: string, target: string, type: string}>>}
      */
     public function buildTracerBranch(string $projectRoot, ?callable $onProgress = null): array
     {
@@ -245,7 +245,7 @@ final class CodeGraphBuilder
         return [
             'edges' => $edges,
             'unparseableFiles' => $consolidated['unparseableFiles'],
-            'unresolvedDispatches' => $consolidated['unresolvedDispatches'],
+            'unresolvedDispatchSites' => $consolidated['unresolvedDispatchSites'],
             'inheritance' => $consolidated['inheritance'],
             'declares' => $consolidated['declares'],
         ];
@@ -282,12 +282,12 @@ final class CodeGraphBuilder
      *
      * Two independent counts, per plan 036: `unparseableFiles` (S1 — a file the parser could not
      * read at all; unknown content could hide any edge, so this stays a GLOBAL determinability
-     * blocker) and `unresolvedDispatches` (S2 — a bus dispatch whose target could not be resolved
+     * blocker) and `unresolvedDispatchSites` (S2 — a bus dispatch whose target could not be resolved
      * statically; the target is still bounded to "a dispatchable", so this is change-scopeable).
      * Conflating the two (as pre-036 code did) would make an unrelated unparseable file's taint
      * masquerade as a scopeable dispatch signal — see plan 036 "Why v1 was unsound".
      *
-     * @return array{edges: list<array{source: string, target: string, type: string}>, unparseableFiles: int, unresolvedDispatches: int, entryPointAsts: array<string, list<Node\Stmt>>, inheritance: array<string, array{parent: string|null, declared: list<string>}>, declares: array<string, list<array{source: string, target: string, type: string}>>}
+     * @return array{edges: list<array{source: string, target: string, type: string}>, unparseableFiles: int, unresolvedDispatchSites: list<array{file: string, line: int, dispatcher: string}>, entryPointAsts: array<string, list<Node\Stmt>>, inheritance: array<string, array{parent: string|null, declared: list<string>}>, declares: array<string, list<array{source: string, target: string, type: string}>>}
      */
     private function consolidatedTracerEdges(string $projectRoot, EntryPointTracer $entryPointTracer): array
     {
@@ -321,7 +321,7 @@ final class CodeGraphBuilder
         $entryPointAsts = [];
         $declaresByFqcn = [];
         $unparseableFiles = 0;
-        $unresolvedDispatches = 0;
+        $unresolvedDispatchSites = [];
 
         foreach (AppFiles::phpClasses($projectRoot . '/app', $projectRoot) as $class) {
             $ast = AppFiles::parseResolved((string) file_get_contents($class['path']));
@@ -352,7 +352,14 @@ final class CodeGraphBuilder
             // (a variable dispatch must make a job read "unknown", not "none"). The target is
             // bounded to "a dispatchable" (S2), so unlike S1 above this IS change-scopeable.
             $dispatch = $dispatchTracer->edgesForMethods($nodes['classMethods'], $class['fqcn']);
-            $unresolvedDispatches += $dispatch['unresolved'];
+
+            // The tracer knows the dispatching member and the line; only this loop knows the file, so
+            // it stamps the project-relative path the reports print everywhere else.
+            $relativePath = substr($class['path'], strlen($projectRoot) + 1);
+
+            foreach ($dispatch['unresolvedSites'] as $site) {
+                $unresolvedDispatchSites[] = ['file' => $relativePath, ...$site];
+            }
 
             array_push($edges, ...$dispatch['edges']);
             array_push($edges, ...$policyTracer->edgesForMethods($nodes['classMethods'], $class['fqcn']));
@@ -376,10 +383,17 @@ final class CodeGraphBuilder
         // carries it to the code that runs.
         array_push($edges, ...$facadeTracer->resolutionEdges($edges));
 
+        // Sorted before it leaves the branch: a report that names sites must not reorder between
+        // runs, and the cached payload has to be byte-stable or the fingerprint starts flapping.
+        usort(
+            $unresolvedDispatchSites,
+            static fn (array $a, array $b): int => [$a['file'], $a['line'], $a['dispatcher']] <=> [$b['file'], $b['line'], $b['dispatcher']],
+        );
+
         return [
             'edges' => AppFiles::dedupeEdges($edges, byType: true),
             'unparseableFiles' => $unparseableFiles,
-            'unresolvedDispatches' => $unresolvedDispatches,
+            'unresolvedDispatchSites' => $unresolvedDispatchSites,
             'entryPointAsts' => $entryPointAsts,
             // Carried out rather than consumed here: the inherited-method pass is edge-set-driven and
             // the full set only exists in build(), after Brain's branch merges in — a controller that

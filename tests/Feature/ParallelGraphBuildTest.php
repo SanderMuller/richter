@@ -81,7 +81,7 @@ final class ParallelGraphBuildTest extends TestCase
         // A negative count (or a non-list edges map) can't come from the worker; it's corruption,
         // and validate() must fail closed to serial rather than build a graph with false flags.
         $out = (string) tempnam(sys_get_temp_dir(), 'richter-test-');
-        file_put_contents($out, (string) json_encode(['edges' => [], 'unparseableFiles' => -1, 'unresolvedDispatches' => 0]));
+        file_put_contents($out, (string) json_encode(['edges' => [], 'unparseableFiles' => -1, 'unresolvedDispatchSites' => []]));
         $process = Process::path(base_path())->start([PHP_BINARY, '-r', 'exit(0);']);
 
         $this->assertNull(TracerBranchRunner::finish(new PendingTracerBranch($process, $out)));
@@ -96,7 +96,7 @@ final class ParallelGraphBuildTest extends TestCase
         file_put_contents($out, (string) json_encode([
             'edges' => [],
             'unparseableFiles' => 0,
-            'unresolvedDispatches' => 0,
+            'unresolvedDispatchSites' => [],
             'inheritance' => ['App\\Services\\Child' => ['parent' => 42, 'declared' => ['handle']]],
             'declares' => [],
         ]));
@@ -114,9 +114,28 @@ final class ParallelGraphBuildTest extends TestCase
         file_put_contents($out, (string) json_encode([
             'edges' => [],
             'unparseableFiles' => 0,
-            'unresolvedDispatches' => 0,
+            'unresolvedDispatchSites' => [],
             'inheritance' => [],
             'declares' => ['App\\Services\\Child' => [['source' => 'App\\Services\\Child', 'target' => 42, 'type' => 'declares']]],
+        ]));
+        $process = Process::path(base_path())->start([PHP_BINARY, '-r', 'exit(0);']);
+
+        $this->assertNull(TracerBranchRunner::finish(new PendingTracerBranch($process, $out)));
+    }
+
+    #[Test]
+    public function finish_rejects_a_payload_with_a_mis_shaped_dispatch_site(): void
+    {
+        // These are rendered into a report as `file:line`, so a record missing a field would send a
+        // reader to a place that does not exist. Rejecting costs the parallel build, never
+        // correctness — the serial fallback produces the same graph.
+        $out = (string) tempnam(sys_get_temp_dir(), 'richter-test-');
+        file_put_contents($out, (string) json_encode([
+            'edges' => [],
+            'unparseableFiles' => 0,
+            'unresolvedDispatchSites' => [['file' => 'app/Services/Importer.php', 'dispatcher' => 'App\\Services\\Importer::run']],
+            'inheritance' => [],
+            'declares' => [],
         ]));
         $process = Process::path(base_path())->start([PHP_BINARY, '-r', 'exit(0);']);
 
@@ -130,7 +149,7 @@ final class ParallelGraphBuildTest extends TestCase
         $branch = [
             'edges' => [['source' => 'A::m', 'target' => 'B', 'type' => 'call']],
             'unparseableFiles' => 0,
-            'unresolvedDispatches' => 2,
+            'unresolvedDispatchSites' => [['file' => 'app/Services/Importer.php', 'line' => 12, 'dispatcher' => 'App\\Services\\Importer::run']],
             // The worker also carries out the inheritance map, which the parent applies to the merged
             // edge set — a payload without it is not this worker's output. Same for the declares map:
             // the parent looks members up there rather than re-parsing every app class file.

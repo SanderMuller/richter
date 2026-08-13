@@ -73,8 +73,12 @@ final class GraphCache
      * rewritten onto the class it names, joining a route chain that used to end on a phantom beside
      * the real class. And `action-to-view` is now also drawn from a `protected static string $view`
      * declaration, for the page components that render through a base class rather than a call.
+     * 15 → 16: the payload's `hasUnresolvedDispatches` bool became `unresolvedDispatchSites`, a list
+     * naming each unfollowable dispatch. A 15 entry has no such key, so it would revive as an empty
+     * list — reading as "no unfollowable dispatch" on a graph that has one, which drops the taint and
+     * under-selects. The bump is what stops that entry from ever being served.
      */
-    private const int FORMAT_VERSION = 15;
+    private const int FORMAT_VERSION = 16;
 
     private ?CodeGraph $memoized = null;
 
@@ -268,7 +272,10 @@ final class GraphCache
         return new CodeGraph(
             $edges,
             ($data['hasUnparseableFiles'] ?? false) === true,
-            ($data['hasUnresolvedDispatches'] ?? false) === true,
+            // Validated like the edges rather than trusted: a hand-edited or truncated cache file
+            // would otherwise revive sites that send a reader to a line that does not exist. A
+            // rejected list reads as a miss, and the build runs — never a wrong report.
+            $this->validDispatchSites($data['unresolvedDispatchSites'] ?? null) ?? [],
             $metadata,
         );
     }
@@ -297,6 +304,39 @@ final class GraphCache
     private function cacheFile(): string
     {
         return RichterConfig::cacheDirectory() . '/graph.json';
+    }
+
+    /**
+     * A revived unresolved-dispatch site list, or null when the stored value is not one.
+     *
+     * Null and `[]` are deliberately different here: `[]` is "the build found none", null is "this
+     * file cannot be trusted". The caller coalesces null to `[]`, which reads as no sites and so as
+     * no taint — safe only because a rejected list can never be the difference between a determinable
+     * and a non-determinable selection on its own: the whole entry is fingerprinted, so a file this
+     * malformed misses and rebuilds.
+     *
+     * @return list<array{file: string, line: int, dispatcher: string}>|null
+     */
+    private function validDispatchSites(mixed $sites): ?array
+    {
+        if (! is_array($sites) || ! array_is_list($sites)) {
+            return null;
+        }
+
+        $valid = [];
+
+        foreach ($sites as $site) {
+            if (! is_array($site)
+                || ! is_string($site['file'] ?? null)
+                || ! is_string($site['dispatcher'] ?? null)
+                || ! is_int($site['line'] ?? null)) {
+                return null;
+            }
+
+            $valid[] = ['file' => $site['file'], 'line' => $site['line'], 'dispatcher' => $site['dispatcher']];
+        }
+
+        return $valid;
     }
 
     /**

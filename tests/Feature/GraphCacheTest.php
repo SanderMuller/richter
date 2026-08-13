@@ -61,7 +61,7 @@ final class GraphCacheTest extends TestCase
             'fingerprint' => $fingerprint,
             'edges' => $edges,
             'hasUnparseableFiles' => false,
-            'hasUnresolvedDispatches' => false,
+            'unresolvedDispatchSites' => [],
             'nodeMetadata' => $nodeMetadata,
         ], JSON_THROW_ON_ERROR));
     }
@@ -163,7 +163,7 @@ final class GraphCacheTest extends TestCase
         $this->assertSame([
             'edges' => $this->markerEdges(),
             'hasUnparseableFiles' => false,
-            'hasUnresolvedDispatches' => false,
+            'unresolvedDispatchSites' => [],
             'nodeMetadata' => [],
         ], $graph->toArray());
     }
@@ -350,11 +350,18 @@ final class GraphCacheTest extends TestCase
 
         $this->assertFalse($graph->hasUnparseableFiles());
         $this->assertTrue($graph->hasUnresolvedDispatches());
+        // The site itself, not just the flag: this is what a report sends a reader to, so a cache
+        // that revived the flag while losing the location would leave the reason unactionable again.
+        $this->assertSame(
+            [['file' => 'app/Services/Dispatcher.php', 'line' => 9, 'dispatcher' => 'App\Services\Dispatcher::run']],
+            $graph->unresolvedDispatchSites(),
+        );
 
         // Round-trips through a fresh process reading the just-written cache from disk.
         $reread = new GraphCache(new CodeGraphBuilder())->graph($this->projectRoot);
         $this->assertFalse($reread->hasUnparseableFiles());
         $this->assertTrue($reread->hasUnresolvedDispatches());
+        $this->assertSame($graph->unresolvedDispatchSites(), $reread->unresolvedDispatchSites());
     }
 
     #[Test]

@@ -48,12 +48,15 @@ final class CodeGraph
      *   036). Its content and edges are unknown, so it could reach anything — this is a GLOBAL,
      *   unscopeable determinability blocker. Required (no default) so a missed construction site
      *   fails loud (ArgumentCountError → fail-safe backstop) instead of silently reading `false`.
-     * @param  bool  $hasUnresolvedDispatches  a dispatch verb was seen whose target couldn't be
-     *   statically resolved (S2 — see plan 036). The target is still bounded to "a dispatchable",
-     *   so unlike `$hasUnparseableFiles` this one is change-scopeable by the caller.
+     * @param  list<array{file: string, line: int, dispatcher: string}>  $unresolvedDispatchSites  every
+     *   dispatch verb seen whose target couldn't be statically resolved (S2 — see plan 036), each
+     *   named by the statement it sits on. The target is still bounded to "a dispatchable", so unlike
+     *   `$hasUnparseableFiles` this one is change-scopeable by the caller. Carried as the sites rather
+     *   than as a flag so a report can send a reader to the line instead of saying only that one
+     *   exists; `hasUnresolvedDispatches()` derives from it, so the two can never disagree.
      * @param  array<string, MetadataShape>  $nodeMetadata  sparse per-node annotation, keyed by node id
      */
-    public function __construct(array $edges, private readonly bool $hasUnparseableFiles, private readonly bool $hasUnresolvedDispatches = false, private readonly array $nodeMetadata = [])
+    public function __construct(array $edges, private readonly bool $hasUnparseableFiles, private readonly array $unresolvedDispatchSites = [], private readonly array $nodeMetadata = [])
     {
         // Canonical order before building adjacency: a fresh build receives edges build-ordered,
         // a cache-revived graph receives them regrouped by source ({@see toArray()}). Without a
@@ -71,7 +74,17 @@ final class CodeGraph
 
     public function hasUnresolvedDispatches(): bool
     {
-        return $this->hasUnresolvedDispatches;
+        return $this->unresolvedDispatchSites !== [];
+    }
+
+    /**
+     * The dispatch statements whose target could not be followed, sorted by file then line.
+     *
+     * @return list<array{file: string, line: int, dispatcher: string}>
+     */
+    public function unresolvedDispatchSites(): array
+    {
+        return $this->unresolvedDispatchSites;
     }
 
     /**
@@ -142,7 +155,7 @@ final class CodeGraph
      * The graph as plain constructor input, for on-disk caching. Every edge lives in the downstream
      * adjacency (nodes only exist through edges), so deriving from it loses nothing.
      *
-     * @return array{edges: list<array{source: string, target: string, type: string}>, hasUnparseableFiles: bool, hasUnresolvedDispatches: bool, nodeMetadata: array<string, MetadataShape>}
+     * @return array{edges: list<array{source: string, target: string, type: string}>, hasUnparseableFiles: bool, unresolvedDispatchSites: list<array{file: string, line: int, dispatcher: string}>, nodeMetadata: array<string, MetadataShape>}
      */
     public function toArray(): array
     {
@@ -157,15 +170,15 @@ final class CodeGraph
         return [
             'edges' => $edges,
             'hasUnparseableFiles' => $this->hasUnparseableFiles,
-            'hasUnresolvedDispatches' => $this->hasUnresolvedDispatches,
+            'unresolvedDispatchSites' => $this->unresolvedDispatchSites,
             'nodeMetadata' => $this->nodeMetadata,
         ];
     }
 
-    /** @param  array{edges: list<array{source: string, target: string, type: string}>, hasUnparseableFiles: bool, hasUnresolvedDispatches: bool, nodeMetadata?: array<string, MetadataShape>}  $data */
+    /** @param  array{edges: list<array{source: string, target: string, type: string}>, hasUnparseableFiles: bool, unresolvedDispatchSites: list<array{file: string, line: int, dispatcher: string}>, nodeMetadata?: array<string, MetadataShape>}  $data */
     public static function fromArray(array $data): self
     {
-        return new self($data['edges'], $data['hasUnparseableFiles'], $data['hasUnresolvedDispatches'], $data['nodeMetadata'] ?? []);
+        return new self($data['edges'], $data['hasUnparseableFiles'], $data['unresolvedDispatchSites'], $data['nodeMetadata'] ?? []);
     }
 
     /**

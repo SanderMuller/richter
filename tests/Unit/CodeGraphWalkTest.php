@@ -42,7 +42,7 @@ final class CodeGraphWalkTest extends TestCase
         $graph = new CodeGraph([
             ['source' => 'route::GET::/r', 'target' => 'App\Http\Controllers\C::index', 'type' => 'route-to-controller'],
             ['source' => 'App\Http\Controllers\C::index', 'target' => 'App\Services\S::run', 'type' => 'action-to-service'],
-        ], hasUnparseableFiles: false, hasUnresolvedDispatches: true, nodeMetadata: [
+        ], hasUnparseableFiles: false, unresolvedDispatchSites: [['file' => 'app/Services/Importer.php', 'line' => 12, 'dispatcher' => 'App\\Services\\Importer::run']], nodeMetadata: [
             'route::GET::/r' => ['file' => 'routes/web.php', 'line' => 3, 'uri' => '/r', 'gates' => ['labs']],
         ]);
 
@@ -62,7 +62,7 @@ final class CodeGraphWalkTest extends TestCase
         $revived = CodeGraph::fromArray([
             'edges' => [['source' => 'A', 'target' => 'B', 'type' => 'call']],
             'hasUnparseableFiles' => false,
-            'hasUnresolvedDispatches' => false,
+            'unresolvedDispatchSites' => [],
         ]);
 
         $this->assertNull($revived->locationOf('A'));

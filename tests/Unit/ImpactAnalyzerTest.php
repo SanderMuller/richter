@@ -1169,7 +1169,7 @@ final class ImpactAnalyzerTest extends TestCase
     {
         $graph = new CodeGraph([
             ['source' => 'App\Jobs\ImportJob::handle', 'target' => 'App\Services\X::run', 'type' => 'job'],
-        ], hasUnparseableFiles: false, hasUnresolvedDispatches: true);
+        ], hasUnparseableFiles: false, unresolvedDispatchSites: [['file' => 'app/Services/Importer.php', 'line' => 12, 'dispatcher' => 'App\\Services\\Importer::run']]);
 
         $result = new ImpactAnalyzer($graph)->detectChanges([
             $this->changedMethod('app/Jobs/ImportJob.php', 'App\Jobs\ImportJob', 'handle'),
@@ -1188,7 +1188,7 @@ final class ImpactAnalyzerTest extends TestCase
         // flip it to UNRESOLVED, or every "just added a field to a job" PR reads as noise.
         $graph = new CodeGraph([
             ['source' => 'App\Jobs\ImportJob::handle', 'target' => 'App\Services\X::run', 'type' => 'job'],
-        ], hasUnparseableFiles: false, hasUnresolvedDispatches: true);
+        ], hasUnparseableFiles: false, unresolvedDispatchSites: [['file' => 'app/Services/Importer.php', 'line' => 12, 'dispatcher' => 'App\\Services\\Importer::run']]);
 
         $result = new ImpactAnalyzer($graph)->detectChanges([
             $this->changedAdditive('app/Jobs/ImportJob.php', 'App\Jobs\ImportJob'),
@@ -1204,7 +1204,7 @@ final class ImpactAnalyzerTest extends TestCase
         // are genuinely unknown, which is the honest answer, not "analyzed".
         $graph = new CodeGraph([
             ['source' => 'App\Jobs\ImportJob::handle', 'target' => 'App\Services\X::run', 'type' => 'job'],
-        ], hasUnparseableFiles: false, hasUnresolvedDispatches: true);
+        ], hasUnparseableFiles: false, unresolvedDispatchSites: [['file' => 'app/Services/Importer.php', 'line' => 12, 'dispatcher' => 'App\\Services\\Importer::run']]);
 
         $result = new ImpactAnalyzer($graph)->detectChanges([
             $this->changedNewFile('app/Jobs/ImportJob.php', 'App\Jobs\ImportJob'),
@@ -1222,7 +1222,7 @@ final class ImpactAnalyzerTest extends TestCase
         $graph = new CodeGraph([
             ['source' => self::ROUTE, 'target' => 'App\Services\X::run', 'type' => 'route-to-controller'],
             ['source' => 'App\Jobs\ImportJob::handle', 'target' => 'App\Services\Y::run', 'type' => 'job'],
-        ], hasUnparseableFiles: false, hasUnresolvedDispatches: true);
+        ], hasUnparseableFiles: false, unresolvedDispatchSites: [['file' => 'app/Services/Importer.php', 'line' => 12, 'dispatcher' => 'App\\Services\\Importer::run']]);
 
         $result = new ImpactAnalyzer($graph)->detectChanges([
             $this->changedMethod('app/Services/X.php', 'App\Services\X', 'run'),
@@ -1262,7 +1262,7 @@ final class ImpactAnalyzerTest extends TestCase
         // file's own coverage on its own key, never collapse the two.
         $graph = new CodeGraph([
             ['source' => 'App\Jobs\ImportJob::handle', 'target' => 'App\Services\X::run', 'type' => 'job'],
-        ], hasUnparseableFiles: false, hasUnresolvedDispatches: true);
+        ], hasUnparseableFiles: false, unresolvedDispatchSites: [['file' => 'app/Services/Importer.php', 'line' => 12, 'dispatcher' => 'App\\Services\\Importer::run']]);
 
         $result = new ImpactAnalyzer($graph)->detectChanges([
             $this->changedMethod('app/Jobs/ImportJobCopyOne.php', 'App\Jobs\ImportJob', 'handle'),
@@ -1873,7 +1873,7 @@ final class ImpactAnalyzerTest extends TestCase
         $analyzer = new ImpactAnalyzer(new CodeGraph(
             [['source' => self::ROUTE, 'target' => 'App\Http\Controllers\PostController', 'type' => 'route-to-controller']],
             hasUnparseableFiles: false,
-            hasUnresolvedDispatches: false,
+            unresolvedDispatchSites: [],
             nodeMetadata: [self::ROUTE => ['file' => 'routes/web.php', 'line' => 12, 'gates' => ['interactive-post']]],
         ));
 
@@ -1898,7 +1898,7 @@ final class ImpactAnalyzerTest extends TestCase
                 ['source' => self::ROUTE, 'target' => 'App\Http\Controllers\PostController', 'type' => 'route-to-controller'],
             ],
             hasUnparseableFiles: false,
-            hasUnresolvedDispatches: false,
+            unresolvedDispatchSites: [],
             nodeMetadata: [
                 'schedule::7b1c' => ['file' => 'app/Console/Kernel.php', 'line' => 31],
                 'command::reports:sync {--force}' => ['file' => 'app/Console/Commands/SyncReports.php'],
@@ -1978,7 +1978,7 @@ final class ImpactAnalyzerTest extends TestCase
         $analyzer = new ImpactAnalyzer(new CodeGraph(
             [['source' => 'route::GET::/reports', 'target' => 'Acme\\Http\\Controllers\\ReportController', 'type' => 'route-to-controller']],
             hasUnparseableFiles: false,
-            hasUnresolvedDispatches: false,
+            unresolvedDispatchSites: [],
             nodeMetadata: ['route::GET::/reports' => ['file' => 'routes/reports.php']],
         ));
 
@@ -2000,7 +2000,7 @@ final class ImpactAnalyzerTest extends TestCase
         $analyzer = new ImpactAnalyzer(new CodeGraph(
             [['source' => 'middleware::Acme\\Http\\Middleware\\Throttle', 'target' => 'Acme\\Services\\RateLimiter', 'type' => 'service']],
             hasUnparseableFiles: false,
-            hasUnresolvedDispatches: false,
+            unresolvedDispatchSites: [],
             nodeMetadata: ['middleware::Acme\\Http\\Middleware\\Throttle' => ['file' => 'app/Http/Kernel.php']],
         ));
 
@@ -2027,7 +2027,7 @@ final class ImpactAnalyzerTest extends TestCase
             $metadata["command::app:task{$i}"] = ['file' => 'app/Console/Kernel.php'];
         }
 
-        $analyzer = new ImpactAnalyzer(new CodeGraph($edges, hasUnparseableFiles: false, hasUnresolvedDispatches: false, nodeMetadata: $metadata));
+        $analyzer = new ImpactAnalyzer(new CodeGraph($edges, hasUnparseableFiles: false, unresolvedDispatchSites: [], nodeMetadata: $metadata));
 
         $result = $analyzer->detectChanges([
             $this->changedCoarse('app/Console/Kernel.php', 'Acme\\Console\\Kernel'),
@@ -2066,7 +2066,7 @@ final class ImpactAnalyzerTest extends TestCase
                 ['source' => 'App\Http\Controllers\PostController::draft', 'target' => 'App\Services\Drafts', 'type' => 'action-to-service'],
             ],
             hasUnparseableFiles: false,
-            hasUnresolvedDispatches: false,
+            unresolvedDispatchSites: [],
             nodeMetadata: ['App\Http\Controllers\PostController' => ['file' => 'app/Http/Controllers/PostController.php']],
         ));
 
@@ -2085,7 +2085,7 @@ final class ImpactAnalyzerTest extends TestCase
         $analyzer = new ImpactAnalyzer(new CodeGraph(
             [['source' => self::ROUTE, 'target' => 'App\Http\Controllers\PostController', 'type' => 'route-to-controller']],
             hasUnparseableFiles: false,
-            hasUnresolvedDispatches: false,
+            unresolvedDispatchSites: [],
             nodeMetadata: ['schedule::0d0d' => ['file' => 'app/Console/Kernel.php']],
         ));
 

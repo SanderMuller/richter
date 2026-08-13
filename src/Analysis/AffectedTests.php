@@ -25,6 +25,12 @@ use SanderMuller\Richter\Support\RichterConfig;
 final class AffectedTests
 {
     /**
+     * Dispatch sites named in a reason before the rest collapses into a count. Matches the rendered
+     * breadth cap the formatters already use, so a capped list reads the same wherever it appears.
+     */
+    private const int SITE_CAP = 15;
+
+    /**
      * The full selection assembly for the current branch diff — one shared implementation
      * of the fail-safe contract for the CLI and MCP: untracked-file short-circuit,
      * base/diff-resolution failures as undetermined-with-reason, the empty-diff fast
@@ -71,7 +77,7 @@ final class AffectedTests
             new ImpactAnalyzer($graph)->detectChanges($changed, payloadParityEnabled: false),
             $changed,
             TestReferenceIndex::fromTests(base_path('tests'), base_path()),
-            $graph->hasUnresolvedDispatches(),
+            $graph->unresolvedDispatchSites(),
             $graph,
             self::configuredFrontendTestIndex(),
             $graph->hasUnparseableFiles(),
@@ -112,9 +118,14 @@ final class AffectedTests
      * @param  FrontendTestIndex|null  $frontendTests  when given, frontend specs referencing a
      *   reached route are suggested under `frontendTests` — advisory for the JS runner, never an
      *   input to determinability (a route no spec references is not a blocker)
+     * @param  list<array{file: string, line: int, dispatcher: string}>  $unresolvedDispatchSites  the
+     *   dispatch statements whose target could not be followed ({@see CodeGraph::unresolvedDispatchSites()}).
+     *   Taken as the sites rather than a flag so the reason can name them: "a dispatch somewhere could
+     *   not be followed" leaves a reader with nothing to act on, which is what kept this verdict
+     *   permanent for a project that has one.
      * @return array{determinable: bool, reasons: list<string>, tests: list<string>, frontendTests: list<string>, unreferencedEntryPoints: int}
      */
-    public static function select(array $result, array $changed, TestReferenceIndex $tests, bool $hasUnresolvedDispatches, ?CodeGraph $graph = null, ?FrontendTestIndex $frontendTests = null, bool $hasUnparseableFiles = false): array
+    public static function select(array $result, array $changed, TestReferenceIndex $tests, array $unresolvedDispatchSites, ?CodeGraph $graph = null, ?FrontendTestIndex $frontendTests = null, bool $hasUnparseableFiles = false): array
     {
         $reasons = [];
 
@@ -137,8 +148,8 @@ final class AffectedTests
         // in the change's upward-caller closure (or is the changed class). A change with no dispatch
         // target upstream cannot be reached through the hidden edge, so an unresolved dispatch
         // elsewhere is irrelevant to it — the scoping never under-selects (see changeReachesDispatchable).
-        if ($hasUnresolvedDispatches && self::changeReachesDispatchable($result, $changed)) {
-            $reasons[] = 'the graph contains job dispatches that could not be followed';
+        if ($unresolvedDispatchSites !== [] && self::changeReachesDispatchable($result, $changed)) {
+            $reasons[] = 'the graph contains job dispatches that could not be followed: ' . self::renderSites($unresolvedDispatchSites);
         }
 
         $selected = [];
@@ -312,6 +323,26 @@ final class AffectedTests
         }
 
         return false;
+    }
+
+    /**
+     * The sites as one comma-separated `file:line (Dispatcher::method)` run, capped like every other
+     * rendered breadth list in the reports ({@see ImpactFormatter}'s `LIST_CAP`) — a project that
+     * dispatches dynamically throughout would otherwise bury the other reasons beside this one.
+     *
+     * @param  list<array{file: string, line: int, dispatcher: string}>  $sites
+     */
+    private static function renderSites(array $sites): string
+    {
+        $shown = array_slice($sites, 0, self::SITE_CAP);
+        $rendered = implode(', ', array_map(
+            static fn (array $site): string => "{$site['file']}:{$site['line']} ({$site['dispatcher']})",
+            $shown,
+        ));
+
+        $rest = count($sites) - count($shown);
+
+        return $rest > 0 ? "{$rendered}, … and {$rest} more" : $rendered;
     }
 
     /**
