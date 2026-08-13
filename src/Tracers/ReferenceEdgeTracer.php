@@ -13,6 +13,8 @@ use PhpParser\Node\Name;
 use PhpParser\Node\Stmt\ClassMethod;
 use PhpParser\Node\Stmt\TraitUse;
 use PhpParser\NodeFinder;
+use PhpParser\NodeTraverser;
+use PhpParser\NodeVisitorAbstract;
 use SanderMuller\Richter\Graph\CodeGraphBuilder;
 use SanderMuller\Richter\Support\AppFiles;
 use SanderMuller\Richter\Support\AppNamespace;
@@ -96,15 +98,18 @@ final class ReferenceEdgeTracer
 
         foreach ($classMethods as $method) {
             $sourceNode = $classFqcn . '::' . $method->name->toString();
+            // One descent of the method feeding both lanes. Each used to run its own NodeFinder over
+            // the same body — three full walks per method, on every app file in the tree.
+            ['names' => $names, 'calls' => $calls] = $this->namesAndCalls($method);
 
-            foreach ($this->referencesIn($method) as $target => $type) {
+            foreach ($this->referencesIn($names) as $target => $type) {
                 // A class referencing itself (nested collection of its own type) is not a dependency edge.
                 if ($target !== $classFqcn) {
                     $edges[] = ['source' => $sourceNode, 'target' => $target, 'type' => $type];
                 }
             }
 
-            foreach ($this->relationsLoadedIn($method) as $relationNode) {
+            foreach ($this->relationsLoadedIn($calls) as $relationNode) {
                 $edges[] = ['source' => $sourceNode, 'target' => $relationNode, 'type' => 'loads-relation'];
             }
         }
@@ -132,13 +137,12 @@ final class ReferenceEdgeTracer
      * declaring model stands in for the receiver, which is not statically knowable; the
      * convention that relation constants live on the model declaring the relation makes that sound.
      *
+     * @param  list<MethodCall|StaticCall>  $calls
      * @return list<string>
      */
-    private function relationsLoadedIn(ClassMethod $method): array
+    private function relationsLoadedIn(array $calls): array
     {
         $finder = new NodeFinder();
-        /** @var list<MethodCall|StaticCall> $calls */
-        $calls = [...$finder->findInstanceOf($method, MethodCall::class), ...$finder->findInstanceOf($method, StaticCall::class)];
         $relations = [];
 
         foreach ($calls as $call) {
@@ -198,13 +202,47 @@ final class ReferenceEdgeTracer
     }
 
     /**
+     * Every `Name`, `MethodCall` and `StaticCall` in one method, in one descent — the buckets the two
+     * lanes above consume. Pre-order, so each bucket arrives in the same order a per-type NodeFinder
+     * produced it and the emitted edges keep their order.
+     *
+     * @return array{names: list<Name>, calls: list<MethodCall|StaticCall>}
+     */
+    private function namesAndCalls(ClassMethod $method): array
+    {
+        $visitor = new class extends NodeVisitorAbstract {
+            /** @var list<Name> */
+            public array $names = [];
+
+            /** @var list<MethodCall|StaticCall> */
+            public array $calls = [];
+
+            public function enterNode(Node $node): null
+            {
+                if ($node instanceof Name) {
+                    $this->names[] = $node;
+                } elseif ($node instanceof MethodCall || $node instanceof StaticCall) {
+                    $this->calls[] = $node;
+                }
+
+                return null;
+            }
+        };
+
+        new NodeTraverser($visitor)->traverse([$method]);
+
+        return ['names' => $visitor->names, 'calls' => $visitor->calls];
+    }
+
+    /**
+     * @param  list<Name>  $names
      * @return array<string, string> FQCN → edge type
      */
-    private function referencesIn(Node $node): array
+    private function referencesIn(array $names): array
     {
         $references = [];
 
-        foreach (new NodeFinder()->findInstanceOf($node, Name::class) as $name) {
+        foreach ($names as $name) {
             $fqcn = AppFiles::resolveName($name);
 
             foreach (self::NAMESPACE_TYPES as $relative => $type) {
