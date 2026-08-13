@@ -50,6 +50,15 @@ final class GraphCacheTest extends TestCase
         return "{$this->cacheDirectory}/graph.json";
     }
 
+    /** @return array<string, mixed> */
+    private function storedEntry(): array
+    {
+        /** @var array<string, mixed> $entry */
+        $entry = json_decode((string) file_get_contents($this->cacheFile()), associative: true, flags: JSON_THROW_ON_ERROR);
+
+        return $entry;
+    }
+
     /**
      * @param  list<array{source: string, target: string, type: string}>  $edges
      * @param  array<string, array{file?: string, line?: int, uri?: string, security?: array{exposure: string, riskLevel: string, issues: list<array{type: string, severity: string, message: string, file?: string, line?: int}>}}>|string  $nodeMetadata  a string writes a deliberately corrupt field
@@ -182,6 +191,27 @@ final class GraphCacheTest extends TestCase
         $stored = json_decode((string) file_get_contents($this->cacheFile()), associative: true);
         $this->assertIsArray($stored);
         $this->assertSame($cache->fingerprint($this->projectRoot), $stored['fingerprint']);
+    }
+
+    #[Test]
+    public function a_malformed_dispatch_site_list_fails_the_whole_read(): void
+    {
+        // The dangerous coalesce: treating a broken list as "no sites" clears the unfollowable-
+        // dispatch taint, and a selection that should have been undeterminable reports determinable
+        // and runs fewer tests. The fingerprint is no defence — it lives in this same entry and can
+        // match while a later key is corrupt, which is exactly what this fixture is.
+        $cache = $this->cache();
+        $cache->graph($this->projectRoot);
+
+        $stored = $this->storedEntry();
+        $stored['unresolvedDispatchSites'] = [['file' => 'app/Services/Importer.php', 'line' => 'twelve']];
+        file_put_contents($this->cacheFile(), json_encode($stored, JSON_THROW_ON_ERROR));
+
+        $rebuilt = new GraphCache(new CodeGraphBuilder())->graph($this->projectRoot);
+
+        // Rebuilt from source, and the rewritten entry is well-formed again.
+        $this->assertSame([], $rebuilt->unresolvedDispatchSites());
+        $this->assertSame([], $this->storedEntry()['unresolvedDispatchSites']);
     }
 
     #[Test]

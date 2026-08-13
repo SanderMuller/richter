@@ -329,20 +329,18 @@ final class GraphCache
 
         $edges = $this->validEdges($data['edges'] ?? null);
         $metadata = $this->validNodeMetadata($data['nodeMetadata'] ?? null);
+        $dispatchSites = $this->validDispatchSites($data['unresolvedDispatchSites'] ?? null);
 
-        if ($edges === null || $metadata === null) {
+        // All three are whole-entry conditions. A malformed site list must not coalesce to "no
+        // sites": that reads as no unfollowable dispatch, drops the S2 taint, and lets a selection
+        // report determinable when it is not — under-selection, from a file this code chose to
+        // trust. The fingerprint is no defence here, since it lives in the same entry and can match
+        // while a later key is corrupt.
+        if ($edges === null || $metadata === null || $dispatchSites === null) {
             return null;
         }
 
-        return new CodeGraph(
-            $edges,
-            ($data['hasUnparseableFiles'] ?? false) === true,
-            // Validated like the edges rather than trusted: a hand-edited or truncated cache file
-            // would otherwise revive sites that send a reader to a line that does not exist. A
-            // rejected list reads as a miss, and the build runs — never a wrong report.
-            $this->validDispatchSites($data['unresolvedDispatchSites'] ?? null) ?? [],
-            $metadata,
-        );
+        return new CodeGraph($edges, ($data['hasUnparseableFiles'] ?? false) === true, $dispatchSites, $metadata);
     }
 
     /**
@@ -444,11 +442,9 @@ final class GraphCache
     /**
      * A revived unresolved-dispatch site list, or null when the stored value is not one.
      *
-     * Null and `[]` are deliberately different here: `[]` is "the build found none", null is "this
-     * file cannot be trusted". The caller coalesces null to `[]`, which reads as no sites and so as
-     * no taint — safe only because a rejected list can never be the difference between a determinable
-     * and a non-determinable selection on its own: the whole entry is fingerprinted, so a file this
-     * malformed misses and rebuilds.
+     * Null and `[]` mean different things and the caller must keep them apart: `[]` is "the build
+     * found none", null is "this file cannot be trusted". Null therefore fails the whole read, the
+     * same as a malformed edge list.
      *
      * @return list<array{file: string, line: int, dispatcher: string}>|null
      */
