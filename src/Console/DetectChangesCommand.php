@@ -112,12 +112,19 @@ final class DetectChangesCommand extends Command
     }
 
     /**
-     * `git diff` never shows an untracked (never `git add`-ed) file, HEAD-mode or otherwise — the one
-     * gap the diff-form fix can't close. Stderr only, so `--json`/`--plain` stdout stays a single
-     * parseable document or contract-clean output.
+     * `git diff` never shows an untracked (never `git add`-ed) file — the one gap the diff-form fix
+     * can't close. Stderr only, so `--json`/`--plain` stdout stays a single parseable document or
+     * contract-clean output.
+     *
+     * Silent under `--head`: that run analyses a COMMITTED tree, which a file never `git add`-ed
+     * cannot be part of, so naming it would report a gap the run does not have.
      */
     private function warnAboutUntrackedFiles(): void
     {
+        if (RichterConfig::headRef($this->option('head')) !== 'HEAD') {
+            return;
+        }
+
         $untracked = ChangedSymbols::untrackedRelevantFiles();
 
         if ($untracked === []) {

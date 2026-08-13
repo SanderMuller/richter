@@ -339,11 +339,15 @@ final class RichterConfig
 
         $result = Process::path(base_path())->run(['git', 'rev-parse', '--verify', '--end-of-options', self::refOrFail($option) . '^{commit}']);
 
-        if (! $result->successful()) {
+        $commit = trim($result->output());
+
+        // Empty output with a zero exit is not a resolution. Returning it would leave the diff range
+        // as `base...` and read as committed-tree mode, so the run would analyse a ref it never found.
+        if (! $result->successful() || $commit === '') {
             throw new InvalidArgumentException("Git ref \"{$option}\" could not be resolved to a commit.");
         }
 
-        return trim($result->output());
+        return $commit;
     }
 
     private static function refOrFail(string $ref): string

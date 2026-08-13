@@ -215,6 +215,56 @@ final class CommandsTest extends TestCase
     }
 
     #[Test]
+    public function detect_changes_head_stays_silent_about_untracked_files(): void
+    {
+        // The flag exists for a dirty checkout, so the guard it was added around must not fire in
+        // it: a file never `git add`-ed cannot be part of the committed tree being analysed, and
+        // naming it would report a gap this run does not have.
+        Process::fake([
+            '*merge-base*' => Process::result("abc123\n"),
+            // Two different rev-parse calls: the prefix lookup that re-roots `git status` paths
+            // must stay EMPTY, or untracked detection breaks and the guard under test never fires.
+            '*show-prefix*' => Process::result(),
+            '*^{commit}*' => Process::result("def456\n"),
+            '*show*' => Process::result(errorOutput: 'bad object', exitCode: 128),
+            '*status*' => Process::result("?? app/Models/Report.php\n"),
+            '*diff*' => Process::result(''),
+        ]);
+
+        $this->withoutMockingConsoleOutput();
+        Artisan::call('richter:detect-changes', ['--base' => 'some-base', '--head' => 'HEAD']);
+
+        $this->assertStringNotContainsString('untracked file(s)', Artisan::output());
+    }
+
+    #[Test]
+    public function affected_tests_head_is_determinable_despite_untracked_files(): void
+    {
+        // Same guard, and here it cost the whole feature: the untracked short-circuit returned exit
+        // 2 before the head was even read, so `--head` forced the full suite in exactly the checkout
+        // it was added to analyse around.
+        Process::fake([
+            '*merge-base*' => Process::result("abc123\n"),
+            // Two different rev-parse calls: the prefix lookup that re-roots `git status` paths
+            // must stay EMPTY, or untracked detection breaks and the guard under test never fires.
+            '*show-prefix*' => Process::result(),
+            '*^{commit}*' => Process::result("def456\n"),
+            '*show*' => Process::result(errorOutput: 'bad object', exitCode: 128),
+            '*status*' => Process::result("?? app/Models/Report.php\n"),
+            '*diff*' => Process::result(''),
+        ]);
+
+        $this->withoutMockingConsoleOutput();
+        $exitCode = Artisan::call('richter:affected-tests', ['--base' => 'some-base', '--head' => 'HEAD', '--json' => true]);
+        $output = Artisan::output();
+
+        $this->assertSame(0, $exitCode, 'an untracked file cannot affect a committed tree');
+        $decoded = json_decode(substr($output, (int) strpos($output, '{')), associative: true);
+        $this->assertIsArray($decoded);
+        $this->assertTrue($decoded['determinable']);
+    }
+
+    #[Test]
     public function detect_changes_profile_names_the_analysis_path(): void
     {
         // The label exists to answer "did the partial rebuild engage?", and it is only worth having

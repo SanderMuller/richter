@@ -42,7 +42,12 @@ final class AffectedTests
      */
     public static function selectForCurrentDiff(GraphCache $graphs, ?string $requestedBase, bool $fresh = false, ?string $requestedHead = null): array
     {
-        $untracked = ChangedSymbols::untrackedRelevantFiles();
+        $head = RichterConfig::headRef($requestedHead);
+        // Only the working tree can be widened by an untracked file. An explicit head names a
+        // COMMITTED tree, which a file that was never `git add`-ed cannot be part of — so applying
+        // the guard there would force the full suite for exactly the dirty checkout `--head` exists
+        // to analyse around.
+        $untracked = $head === 'HEAD' ? ChangedSymbols::untrackedRelevantFiles() : [];
 
         try {
             $base = RichterConfig::baseRef($requestedBase);
@@ -58,7 +63,7 @@ final class AffectedTests
                 )], $untracked);
             }
 
-            $changed = ChangedSymbols::resolve($base, RichterConfig::headRef($requestedHead));
+            $changed = ChangedSymbols::resolve($base, $head);
         } catch (InvalidArgumentException|RuntimeException $exception) {
             // A diff that can't be taken means the selection can't be determined — fail
             // toward the full suite.
