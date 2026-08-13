@@ -335,6 +335,16 @@ final readonly class DispatchEdgeTracer
                 continue;
             }
 
+            // A closure item is the same case as a closure argument: it IS the queued work, and its
+            // body is in the source the tracers already read.
+            if ($item->value instanceof Closure) {
+                continue;
+            }
+
+            if ($item->value instanceof ArrowFunction) {
+                continue;
+            }
+
             // An opaque item in a chain/batch (a variable, a factory call) is an unfollowable
             // dispatch on its own — record it, or a job reached only this way reads as "none".
             $unresolvedSites[] = $origin;

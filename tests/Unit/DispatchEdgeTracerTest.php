@@ -253,6 +253,19 @@ final class DispatchEdgeTracerTest extends TestCase
     }
 
     #[Test]
+    public function a_closure_inside_a_chain_is_not_unfollowable_either(): void
+    {
+        // Chained queued closures are an ordinary Laravel idiom, and the argument is the same one
+        // that exempts a closure passed alone: it is the queued work, and its body is right there.
+        $source = "<?php\nnamespace App\Http\Controllers;\nuse App\Jobs\ImportJob;\nuse Illuminate\Support\Facades\Bus;\nclass PostController\n{\n    public function store(): void\n    {\n        Bus::chain([new ImportJob(), function (): void {}]);\n    }\n}\n";
+
+        $result = new DispatchEdgeTracer()->edgesForSource($source, self::DISPATCHER);
+
+        $this->assertContains('App\Jobs\ImportJob::handle', array_column($result['edges'], 'target'));
+        $this->assertSame([], $result['unresolvedSites']);
+    }
+
+    #[Test]
     public function an_unparseable_source_yields_no_sites(): void
     {
         // The unparseable-file taint is a separate, global signal; a file with no AST must not also

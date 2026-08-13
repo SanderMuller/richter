@@ -36,7 +36,7 @@ Two shapes look unfollowable and are not counted, because neither hides anything
 
 - An inline closure. `dispatch(function () { … })` queues the closure itself, and its body sits in the
   same source the tracers already read, so its work already appears as edges out of the dispatching
-  member. There is no target to name.
+  member. There is no target to name. The same holds for a closure inside a `Bus::chain([...])`.
 - A string literal. `$this->dispatch('some-event')` is not a job dispatch. `DispatchesJobs::dispatch()`
   takes a job *object*, so a literal can never be one. The common case is a Livewire component
   emitting a browser event, which has no queue involvement.
