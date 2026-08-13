@@ -104,15 +104,25 @@ final class GraphCache
     public function __construct(private readonly CodeGraphBuilder $builder) {}
 
     /**
-     * The current graph — from memory, then disk, then a fresh build (which also warms the cache).
-     * `$fresh` bypasses the cache entirely for one call: no read, no write, no memo — the escape
-     * hatch for the one failure mode a content fingerprint cannot rule out (an input it doesn't cover).
+     * The current graph — from memory, then disk, then a build (which also warms the cache).
      * `$onProgress`, when given, is forwarded to the builder on every build path; a cache HIT never
      * invokes it — nothing was built, so there is nothing to time.
      *
+     * Two different ways to refuse a hit, and they are not the same request:
+     *
+     * - `$fresh` bypasses the cache entirely: no read, no write, no memo, and no merge base — the
+     *   escape hatch for the one failure mode a content fingerprint cannot rule out, an input it
+     *   does not cover.
+     * - `$rebuild` refuses only the *hit*. The merge base is still read, so the build takes whatever
+     *   path a real warm run would, and the entry is still written. This is what profiling wants: a
+     *   build to time, in the shape the project actually gets. Timing `$fresh` instead would report a
+     *   full analysis for a project whose every run is scoped.
+     *
+     * `$fresh` wins when both are set.
+     *
      * @param  (callable(string, array<string, mixed>): void)|null  $onProgress
      */
-    public function graph(?string $projectRoot = null, bool $fresh = false, ?callable $onProgress = null): CodeGraph
+    public function graph(?string $projectRoot = null, bool $fresh = false, ?callable $onProgress = null, bool $rebuild = false): CodeGraph
     {
         $projectRoot ??= base_path();
 
@@ -123,11 +133,11 @@ final class GraphCache
         $record = $this->inputRecord($projectRoot);
         $fingerprint = $this->hashRecord($record);
 
-        if ($this->memoized instanceof CodeGraph && $this->memoizedFingerprint === $fingerprint) {
+        if (! $rebuild && $this->memoized instanceof CodeGraph && $this->memoizedFingerprint === $fingerprint) {
             return $this->memoized;
         }
 
-        $graph = $this->read($fingerprint);
+        $graph = $rebuild ? null : $this->read($fingerprint);
 
         if (! $graph instanceof CodeGraph) {
             // A miss is precisely when a merge base is useful — and the only time one is available,

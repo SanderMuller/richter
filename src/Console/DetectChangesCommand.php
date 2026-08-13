@@ -50,7 +50,7 @@ final class DetectChangesCommand extends Command
         {--fail-on-unresolved : Exit non-zero when any changed PHP file is UNRESOLVED}
         {--no-cache : Build the code graph fresh, bypassing the graph cache}
         {--no-payload-parity : Skip the payload-parity findings lanes (a model field never mirrored in a resource; a removed resource key a frontend consumer still reads)}
-        {--profile : Time each graph-build phase and print the split to stderr (forces a fresh build)}
+        {--profile : Time each graph-build phase and print the split to stderr (forces a build, and names which analysis path it took; add --no-cache to time a cold one)}
         {--html= : Write a self-contained HTML report to this path (all CSS/JS inline; opens offline)}
         {--open : Open the --html report in the default browser after writing it}';
 
@@ -375,17 +375,28 @@ final class DetectChangesCommand extends Command
 
         /** @var array<string, float> $phases */
         $phases = [];
+        $path = null;
 
+        // `rebuild`, not `fresh`: refusing the cache HIT gives something to time, while keeping the
+        // merge base means the timings — and the path label — describe the build this project
+        // actually gets. `--no-cache` alongside still forces the cold one.
         $graph = $graphs->graph(
-            fresh: true,
-            onProgress: function (string $event, array $data) use (&$phases): void {
-                if ($event === 'richter:phase' && is_string($data['phase'] ?? null) && is_float($data['seconds'] ?? null)) {
-                    $phases[$data['phase']] = $data['seconds'];
+            fresh: (bool) $this->option('no-cache'),
+            onProgress: function (string $event, array $data) use (&$phases, &$path): void {
+                if ($event !== 'richter:phase' || ! is_string($data['phase'] ?? null) || ! is_float($data['seconds'] ?? null)) {
+                    return;
+                }
+
+                $phases[$data['phase']] = $data['seconds'];
+
+                if ($data['phase'] === 'brain-analyze' && is_string($data['path'] ?? null)) {
+                    $path = $data['path'];
                 }
             },
+            rebuild: true,
         );
 
-        $this->printProfile($phases);
+        $this->printProfile($phases, $path, (bool) $this->option('no-cache'));
         $this->warnAboutEntryPointCoverage($graph);
 
         return $graph;
@@ -396,17 +407,27 @@ final class DetectChangesCommand extends Command
      * --json (stdout stays one parseable document) and --markdown (stdout stays the pasteable body).
      *
      * @param  array<string, float>  $phases
+     * @param  string|null  $path  which analysis path `brain-analyze` took, when it reported one
      */
-    private function printProfile(array $phases): void
+    private function printProfile(array $phases, ?string $path, bool $cold): void
     {
         $total = array_sum($phases);
         $errorOutput = $this->getOutput()->getErrorStyle();
 
-        $errorOutput->writeln('Build profile (fresh build, cache bypassed):');
+        // The header states only what the invocation asked for. Whether a merge base was actually
+        // available and used is a fact about the run, not the flags, and the path label below is
+        // where that is reported — a header claiming reuse would be wrong the moment the cache is
+        // disabled or holds no entry.
+        $errorOutput->writeln($cold
+            ? 'Build profile (cold build, cache bypassed):'
+            : 'Build profile (forced rebuild):');
 
         foreach ($phases as $phase => $seconds) {
             $percent = $total > 0.0 ? $seconds / $total * 100 : 0.0;
-            $errorOutput->writeln(sprintf('  %-24s %6.2fs  %4.1f%%', $phase, $seconds, $percent));
+            // The path rides on this one line rather than a note of its own: "was it scoped?" is a
+            // question about this phase, and a reader comparing two runs wants it beside the number.
+            $label = $phase === 'brain-analyze' && $path !== null ? "{$phase} ({$path})" : $phase;
+            $errorOutput->writeln(sprintf('  %-24s %6.2fs  %4.1f%%', $label, $seconds, $percent));
         }
 
         $errorOutput->writeln(sprintf('  %-24s %6.2fs', 'total', $total));

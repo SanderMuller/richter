@@ -318,7 +318,7 @@ Building the code graph is the dominant cost of every command. Richter caches th
 - The cache is on by default; set `richter.cache.enabled` to `false` to disable it.
 - `--no-cache` (on every command) bypasses it for one run, the escape hatch for an input the fingerprint doesn't cover.
 - A corrupt or mismatched cache file reads as a miss and is rebuilt; it never fails a run.
-- `--profile` (on `richter:detect-changes`) forces a fresh build and prints a phase-by-phase timing split to stderr, for judging where build time goes on a given codebase. The `brain-analyze` line names which path ran (`full`, `scoped`, or `scoped-rejected`) — the answer to "did the partial rebuild engage?".
+- `--profile` (on `richter:detect-changes`) forces a build and prints a phase-by-phase timing split to stderr, for judging where build time goes on a given codebase. It refuses the cache *hit* — otherwise there is nothing to time — but still reuses the stored merge base, so the timings describe the build this project actually gets. The `brain-analyze` line names which path ran (`full`, `scoped`, or `scoped-rejected`), the answer to "did the partial rebuild engage?". Add `--no-cache` to time a cold build instead.
 
 A miss no longer always costs a full analysis. The entry also stores the graph Laravel Brain produced and a record of the inputs it was built from, so a miss can compare the two records and ask which inputs actually differ, rather than only whether any did. When every difference is a changed file under `app/` — nothing added, nothing deleted, no config or package change, nothing outside `app/` — Brain re-traces only the controllers those files declare and merges the result into the stored graph. Everything else is a full build, as before.
 

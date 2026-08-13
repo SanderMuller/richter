@@ -190,6 +190,49 @@ final class CommandsTest extends TestCase
     }
 
     #[Test]
+    public function detect_changes_profile_names_the_analysis_path(): void
+    {
+        // The label exists to answer "did the partial rebuild engage?", and it is only worth having
+        // if the flag documented to show it can reach it. It could not: --profile used to force a
+        // fully fresh build, which discards the merge base, so the path was always `full` by
+        // construction and the question had no answer.
+        $diff = "diff --git a/app/Models/User.php b/app/Models/User.php\n--- a/app/Models/User.php\n+++ b/app/Models/User.php\n@@ -0,0 +1,1 @@\n+    public function added(): void {}\n";
+
+        Process::fake([
+            '*merge-base*' => Process::result("abc123\n"),
+            '*show*' => Process::result(errorOutput: 'bad object', exitCode: 128),
+            '*diff*' => Process::result($diff),
+        ]);
+
+        $this->withoutMockingConsoleOutput();
+        Artisan::call('richter:detect-changes', ['--base' => 'some-base', '--profile' => true]);
+        $output = Artisan::output();
+
+        $this->assertMatchesRegularExpression('/brain-analyze \((full|scoped|scoped-rejected)\)/', $output);
+        $this->assertStringContainsString('forced rebuild', $output);
+    }
+
+    #[Test]
+    public function detect_changes_profile_with_no_cache_reports_a_cold_build(): void
+    {
+        // The other half of the split: --no-cache alongside --profile still measures a build with no
+        // merge base at all, so the cold number stays available.
+        $diff = "diff --git a/app/Models/User.php b/app/Models/User.php\n--- a/app/Models/User.php\n+++ b/app/Models/User.php\n@@ -0,0 +1,1 @@\n+    public function added(): void {}\n";
+
+        Process::fake([
+            '*merge-base*' => Process::result("abc123\n"),
+            '*show*' => Process::result(errorOutput: 'bad object', exitCode: 128),
+            '*diff*' => Process::result($diff),
+        ]);
+
+        $this->withoutMockingConsoleOutput();
+        Artisan::call('richter:detect-changes', ['--base' => 'some-base', '--profile' => true, '--no-cache' => true]);
+        $output = Artisan::output();
+
+        $this->assertStringContainsString('cold build, cache bypassed', $output);
+    }
+
+    #[Test]
     public function detect_changes_profile_json_still_emits_a_single_document(): void
     {
         $diff = "diff --git a/app/Models/User.php b/app/Models/User.php\n--- a/app/Models/User.php\n+++ b/app/Models/User.php\n@@ -0,0 +1,1 @@\n+    public function added(): void {}\n";

@@ -153,6 +153,58 @@ final class ScopedGraphBuildTest extends TestCase
     }
 
     #[Test]
+    public function a_forced_rebuild_still_reuses_the_merge_base(): void
+    {
+        // What `--profile` relies on. It has to refuse the cache HIT, or there is no build to time —
+        // but refusing the merge base too would make it profile a full analysis for a project whose
+        // every run is scoped, and would pin the path label to `full` by construction, which is
+        // exactly how the label shipped unobservable.
+        $cache = resolve(GraphCache::class);
+        $cache->graph($this->projectRoot);
+
+        file_put_contents(
+            "{$this->projectRoot}/app/Http/Controllers/PostController.php",
+            "<?php\n\nnamespace App\\Http\\Controllers;\n\nuse App\\Services\\Publisher;\n\nclass PostController\n{\n    public function store(Publisher \$publisher): void\n    {\n        \$w = 4;\n        \$publisher->run();\n    }\n}\n",
+        );
+
+        $paths = [];
+        $collect = static function (string $event, array $data) use (&$paths): void {
+            if ($event === 'richter:phase' && ($data['phase'] ?? null) === 'brain-analyze') {
+                $paths[] = $data['path'] ?? null;
+            }
+        };
+
+        new GraphCache(new CodeGraphBuilder())->graph($this->projectRoot, onProgress: $collect, rebuild: true);
+
+        $this->assertSame(['scoped'], $paths);
+    }
+
+    #[Test]
+    public function a_fresh_build_takes_no_merge_base(): void
+    {
+        // The counterpart, and the reason `fresh` and `rebuild` are two requests rather than one:
+        // `--no-cache` must still measure a build with nothing reused.
+        $cache = resolve(GraphCache::class);
+        $cache->graph($this->projectRoot);
+
+        file_put_contents(
+            "{$this->projectRoot}/app/Http/Controllers/PostController.php",
+            "<?php\n\nnamespace App\\Http\\Controllers;\n\nuse App\\Services\\Publisher;\n\nclass PostController\n{\n    public function store(Publisher \$publisher): void\n    {\n        \$v = 5;\n        \$publisher->run();\n    }\n}\n",
+        );
+
+        $paths = [];
+        $collect = static function (string $event, array $data) use (&$paths): void {
+            if ($event === 'richter:phase' && ($data['phase'] ?? null) === 'brain-analyze') {
+                $paths[] = $data['path'] ?? null;
+            }
+        };
+
+        new GraphCache(new CodeGraphBuilder())->graph($this->projectRoot, fresh: true, onProgress: $collect);
+
+        $this->assertSame(['full'], $paths);
+    }
+
+    #[Test]
     public function the_profile_extra_names_the_path_taken(): void
     {
         // Without this a scoped build that silently fell back looks identical to one that never

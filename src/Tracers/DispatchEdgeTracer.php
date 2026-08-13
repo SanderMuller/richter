@@ -15,6 +15,7 @@ use PhpParser\Node\Expr\StaticCall;
 use PhpParser\Node\Expr\Variable;
 use PhpParser\Node\Identifier;
 use PhpParser\Node\Name;
+use PhpParser\Node\Scalar\String_;
 use PhpParser\Node\Stmt\ClassMethod;
 use PhpParser\NodeFinder;
 use PhpParser\NodeTraverser;
@@ -230,10 +231,20 @@ final readonly class DispatchEdgeTracer
         // Only `$this->dispatch(...)` (the Dispatchable form) — not an unrelated `$x->dispatch($y)`,
         // which would spuriously count as an unresolved dispatch and taint every job's coverage.
         if ($call instanceof MethodCall) {
-            return $call->var instanceof Variable && $call->var->name === 'this'
-                && $call->name instanceof Identifier && $call->name->toString() === 'dispatch'
-                ? ['mode' => 'single', 'arg' => $call->getArgs()[0] ?? null]
-                : null;
+            if (! $call->var instanceof Variable || $call->var->name !== 'this'
+                || ! $call->name instanceof Identifier || $call->name->toString() !== 'dispatch') {
+                return null;
+            }
+
+            $first = $call->getArgs()[0] ?? null;
+
+            // A string literal is never a job. `DispatchesJobs::dispatch()` takes a job OBJECT, so
+            // `$this->dispatch('some-event')` is a different method that happens to share the name —
+            // Livewire's browser-event dispatch being the common one. Counting it as an unfollowable
+            // job dispatch is the same spurious taint the `$x->dispatch($y)` exclusion above avoids,
+            // and worse: there is nothing to restructure, so the site would block a test selection
+            // permanently with no repair available to the project.
+            return $first?->value instanceof String_ ? null : ['mode' => 'single', 'arg' => $first];
         }
 
         return $call instanceof StaticCall ? $this->staticDispatchSite($call) : null;

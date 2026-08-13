@@ -205,6 +205,32 @@ final class DispatchEdgeTracerTest extends TestCase
     }
 
     #[Test]
+    public function a_string_literal_argument_is_not_a_job_dispatch(): void
+    {
+        // `$this->dispatch('close-modal')` is Livewire's browser-event dispatch, a different method
+        // that happens to share the name. `DispatchesJobs::dispatch()` takes a job OBJECT, so a bare
+        // literal can never be one. Counting it blocked a test selection with nothing to restructure.
+        $source = "<?php\nnamespace App\Livewire;\nclass Modal\n{\n    public function close(): void\n    {\n        \$this->dispatch('close-modal', id: 1);\n    }\n}\n";
+
+        $result = new DispatchEdgeTracer()->edgesForSource($source, 'App\Livewire\Modal');
+
+        $this->assertSame([], $result['unresolvedSites']);
+        $this->assertSame([], $result['edges']);
+    }
+
+    #[Test]
+    public function a_variable_argument_to_this_dispatch_is_still_a_job_dispatch(): void
+    {
+        // The other side of the same guard: narrowing must not swallow the real Dispatchable form,
+        // which is the whole reason the lane exists.
+        $source = "<?php\nnamespace App\Http\Controllers;\nclass PostController\n{\n    public function store(): void\n    {\n        \$this->dispatch(\$job);\n    }\n}\n";
+
+        $sites = new DispatchEdgeTracer()->edgesForSource($source, self::DISPATCHER)['unresolvedSites'];
+
+        $this->assertSame([['line' => 7, 'dispatcher' => self::DISPATCHER . '::store']], $sites);
+    }
+
+    #[Test]
     public function an_unparseable_source_yields_no_sites(): void
     {
         // The unparseable-file taint is a separate, global signal; a file with no AST must not also
