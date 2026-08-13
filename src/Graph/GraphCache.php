@@ -80,8 +80,14 @@ final class GraphCache
      * naming each unfollowable dispatch. A 15 entry has no such key, so it would revive as an empty
      * list — reading as "no unfollowable dispatch" on a graph that has one, which drops the taint and
      * under-selects. The bump is what stops that entry from ever being served.
+     * 16 → 17: the dispatch tracer stopped recording two shapes as unfollowable — a string-literal
+     * argument to `$this->dispatch()` (a Livewire component event, never a job) and an inline
+     * closure (whose body the tracers already read). Both SHRINK `unresolvedDispatchSites` for
+     * identical file inputs, so a 16 entry keeps sites the current code would not record — and
+     * since that list is what taints a test selection, the very block this release removes would
+     * survive the upgrade until some unrelated input happened to change.
      */
-    private const int FORMAT_VERSION = 16;
+    private const int FORMAT_VERSION = 17;
 
     private ?CodeGraph $memoized = null;
 
