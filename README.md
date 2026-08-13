@@ -141,7 +141,7 @@ Risk is a coarse, advisory signal, deliberately simple so `--fail-on` stays pred
 | Level | Condition (defaults — see `risk_thresholds`) |
 |---|---|
 | `high` | ≥ 3 entry points reached, **or** ≥ 20 impacted nodes |
-| `medium` | ≥ 1 entry point reached, ≥ 5 impacted nodes, **or** the diff changes an entry-point class (job, listener, command, Livewire, observer, middleware) |
+| `medium` | ≥ 1 entry point reached, ≥ 5 impacted nodes, **or** the diff changes an entry-point class (job, listener, command, observer, middleware, or a Livewire/Filament/Nova component) |
 | `low` | everything else |
 
 Association edges (model relationships, trait usage, `declares`) are reach and context, not risk. They never count toward the impacted-node total, so touching a hub model or trait can't saturate a change to `high` on breadth alone. The same rule now applies to the entry-point list: a surface reached *only* through a model relation is not a caller of your change, so it is reported under **Entry surfaces reached only by association** rather than counted as reached. Over-approximated *calls* (`override`, `config-registry`) stay in the main list — the dispatch is real there, only the target is uncertain.

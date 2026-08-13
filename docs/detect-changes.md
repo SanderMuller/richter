@@ -117,16 +117,25 @@ Advisory, like everything else on this page. Letting a group's routes count towa
 
 `risk` is not always decided against the counts printed beside it, and two things pull them apart.
 The entry-point list gains surfaces **after** the level is scored: a changed class that is itself an
-entry surface self-lists, and a changed frontend file contributes the routes it references. And a
-low-confidence `high` is re-scored against the precisely-seeded subset alone, which is what
-`coarseCapApplied` reports.
+entry surface self-lists, and a changed frontend file contributes the routes it references. And every
+low-confidence `high` is re-scored against the precisely-seeded part of the change alone.
+
+**`coarseCapApplied` does not tell you whether that rescore ran.** It reports one thing only: whether
+the rescore *downgraded* the level. A low-confidence `high` that the rescore confirms as `high` stays
+`high` with the flag `false`, and still reports the rescore's counts — so `coarseCapApplied: false`
+never means "the printed counts are the scored ones". The scored counts themselves are the answer to
+that; they are what the two keys below exist for.
 
 `scoredEntryPoints` and `scoredImpacted` carry the counts the level was actually measured against.
 `scoredEntryPoints` describes a subset of the entry points listed — either the set before self-listed
 and frontend surfaces are appended, or, on a low-confidence rescore, the precisely-seeded part of it. It
 should therefore not exceed the printed count; a report where it does is a bug worth sending in, not a
-documented shape. `scoredImpacted` carries no such relationship at all: the rescore walks a different
-seed set, so it is simply whatever that walk reached.
+documented shape. (One such report was sent in, and was one: narrowing the seeds for the rescore made a
+co-changed entry surface stop being a seed, and a walk reports every node except its own seeds, so the
+surface read as *reached* by the half of the change that was still being walked. The rescore is now told
+which nodes the change owns, and counts none of them as reach.) `scoredImpacted` is measured the same
+way but carries no subset relation to the printed `impacted`: the rescore walks a different seed set,
+so it is simply whatever that walk reached.
 They are present on every report and equal the printed counts whenever nothing pulled them apart; the
 text, markdown and HTML reports name them only when they differ, since repeating identical numbers
 teaches a reader to skip the line.
@@ -166,7 +175,7 @@ With `--json`, stdout is a single JSON document (the full, uncapped report) with
 | `relatedModels` | string[] | models reached only via association edges (context, not risk) |
 | `risk` | string | `"low"` / `"medium"` / `"high"` |
 | `lowConfidence` | bool | a changed member couldn't be pinned, so part of the estimate is coarse |
-| `coarseCapApplied` | bool | a low-confidence `high` was capped to `medium` |
+| `coarseCapApplied` | bool | a low-confidence `high` was capped to `medium`. Whether the cap *downgraded*, never whether the rescore ran — `false` on a confirmed `high` that was still re-scored, so it says nothing about the printed counts being the scored ones |
 | `scoredEntryPoints` | int | entry points the `risk` level was decided on — see below |
 | `scoredImpacted` | int | risk-bearing nodes the `risk` level was decided on — see below |
 | `findings` | string[] | source-level findings |

@@ -315,7 +315,7 @@ final readonly class ImpactAnalyzer
             fn (array $types): bool => ! $this->isRiskBearing($types) && isset($types['model-relationship']),
         ));
 
-        [$risk, $coarseCapApplied, $scoredEntryPoints, $scoredImpacted] = $this->riskWithCoarseCap($impacted, $riskEntryPointCount, $touchesEntryClass, $preciseSeeds, $lowConfidence, $maxDepth, $riskInputsMemo);
+        [$risk, $coarseCapApplied, $scoredEntryPoints, $scoredImpacted] = $this->riskWithCoarseCap($impacted, $riskEntryPointCount, $touchesEntryClass, $preciseSeeds, $coarseSeeds, $lowConfidence, $maxDepth, $riskInputsMemo);
 
         $findings = $newFileFindings;
         [$modelParityLane, $consumerParityLane, $requestParityLane] = ParityFindings::checkers($this->graph, $payloadParityEnabled);
@@ -458,11 +458,15 @@ final readonly class ImpactAnalyzer
      * the arguments as given — and `$entryPoints` is already the pre-augmentation count, since the
      * caller extends its list with self-listed and frontend surfaces only after scoring.
      *
+     * The rescore narrows the SEEDS, never what counts as changed — hence `$coarseSeeds`, the half it
+     * stops walking from but must still not read as reached ({@see riskInputs()}).
+     *
      * @param  list<string>  $preciseSeeds
+     * @param  list<string>  $coarseSeeds
      * @param  array<string, array{0: int, 1: int}>  $riskInputsMemo
      * @return array{0: RiskLevel, 1: bool, 2: int, 3: int}
      */
-    private function riskWithCoarseCap(int $impacted, int $entryPoints, bool $touchesEntryClass, array $preciseSeeds, bool $lowConfidence, int $maxDepth, array &$riskInputsMemo): array
+    private function riskWithCoarseCap(int $impacted, int $entryPoints, bool $touchesEntryClass, array $preciseSeeds, array $coarseSeeds, bool $lowConfidence, int $maxDepth, array &$riskInputsMemo): array
     {
         $risk = $this->risk($impacted, $entryPoints, $touchesEntryClass);
 
@@ -470,7 +474,7 @@ final readonly class ImpactAnalyzer
             return [$risk, false, $entryPoints, $impacted];
         }
 
-        [$preciseEntryPoints, $preciseImpacted] = $this->riskInputs($preciseSeeds, $maxDepth, $riskInputsMemo);
+        [$preciseEntryPoints, $preciseImpacted] = $this->riskInputs($preciseSeeds, $maxDepth, $riskInputsMemo, $coarseSeeds);
 
         return $this->risk($preciseImpacted, $preciseEntryPoints, $touchesEntryClass) === RiskLevel::High
             ? [RiskLevel::High, false, $preciseEntryPoints, $preciseImpacted]
@@ -697,14 +701,21 @@ final readonly class ImpactAnalyzer
      * relation answers none of them: counting it let association reach hold a coarse change at HIGH,
      * on the one path the split that removed it elsewhere did not cover.
      *
-     * Fixed rather than a parameter — the memo is keyed on maxDepth and the seed set, so two callers
-     * asking with different exclusions would alias onto one entry.
+     * The edge-type exclusion is fixed rather than a parameter — the memo is keyed on maxDepth and
+     * the seed set, so two callers asking with different exclusions would alias onto one entry.
+     * `$alsoChanged` is parameterised, so it is folded into that key for the same reason.
+     *
+     * `$alsoChanged` is the rest of the change: nodes a caller scores a SUBSET of. A walk never
+     * reports its own seeds as reached ({@see CodeGraph::reachedViaTypes()} unsets them; the BFS
+     * marks them seen at depth 0), so without this the dropped nodes stop being seeds and read as
+     * reached — an artifact of scoring, not reach, and how a scored count exceeded a printed one.
      *
      * @param  list<string>  $seeds
      * @param  array<string, array{0: int, 1: int}>  $memo
+     * @param  list<string>  $alsoChanged  changed nodes outside `$seeds`, never counted as reached
      * @return array{0: int, 1: int} [entryPointCount, impactedCount]
      */
-    private function riskInputs(array $seeds, int $maxDepth, array &$memo): array
+    private function riskInputs(array $seeds, int $maxDepth, array &$memo, array $alsoChanged = []): array
     {
         if ($seeds === []) {
             return [0, 0];
@@ -712,16 +723,31 @@ final readonly class ImpactAnalyzer
 
         $sortedSeeds = $seeds;
         sort($sortedSeeds);
-        // NUL-joined: no node-id shape carries a NUL byte, so two distinct seed sets can never
-        // alias one key (a comma could, in principle, appear inside a future node id).
-        $key = $maxDepth . '|' . implode("\0", $sortedSeeds);
+        $sortedAlsoChanged = $alsoChanged;
+        sort($sortedAlsoChanged);
+        // NUL-joined: no node-id shape carries a NUL byte, so two distinct sets can never alias one
+        // key (a comma could, in principle, appear inside a future node id). The seed count pins
+        // where one set ends and the other begins — a delimiter alone would not, since an empty id
+        // in either set can shift the boundary and produce a colliding string.
+        $key = implode("\0", [$maxDepth, count($sortedSeeds), ...$sortedSeeds, ...$sortedAlsoChanged]);
 
         if (isset($memo[$key])) {
             return $memo[$key];
         }
 
-        $entryPoints = $this->entryPointsAmong($this->graph->callersOf($seeds, $maxDepth, self::ASSOCIATION_EDGE_TYPES));
-        $impacted = count(array_filter($this->graph->reachedViaTypes($seeds, $maxDepth), $this->isRiskBearing(...)));
+        $changed = array_fill_keys($alsoChanged, true);
+
+        // Filtered on the hop, before the UI-component collapse, so this mirrors the full walk
+        // exactly: there too a suppressed class node still reaches the list when a MEMBER of it is
+        // walked, since the member is a node of its own and never a seed.
+        $reachedCallers = array_filter(
+            $this->graph->callersOf($seeds, $maxDepth, self::ASSOCIATION_EDGE_TYPES),
+            static fn (array $hop): bool => ! isset($changed[$hop['node']]),
+        );
+
+        $entryPoints = $this->entryPointsAmong(array_values($reachedCallers));
+        $reach = array_diff_key($this->graph->reachedViaTypes($seeds, $maxDepth), $changed);
+        $impacted = count(array_filter($reach, $this->isRiskBearing(...)));
 
         return $memo[$key] = [count($entryPoints), $impacted];
     }

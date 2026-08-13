@@ -841,13 +841,13 @@ final class ImpactAnalyzerTest extends TestCase
     #[Test]
     public function the_scored_entry_point_count_never_exceeds_the_printed_list(): void
     {
-        // Argued in 0.29.0's notes as holding "by construction"; asserted here instead, because an
-        // invariant a release states and nothing checks is one a consumer gets to disprove — and one
-        // has been reported, on a shape this codebase is not currently able to produce (see the probe
-        // note in internal/). These pin the derivation; they do not prove it globally. Both the
-        // paths that set the scored count are exercised: the plain one, and the low-confidence rescore
-        // that runs on a narrower seed set. A report where the printed list ALSO grows afterwards (a
-        // self-listed entry class) is the case that makes the two counts diverge the other way.
+        // Argued in 0.29.0's notes as holding "by construction", then reported broken by a consumer on
+        // a shape the earlier fixtures here could not produce. The last case below IS that shape, and
+        // it failed until the rescore was told about the coarse half of the change: a walk never
+        // reports its own seeds as reached, so narrowing the seeds for scoring un-suppressed a
+        // co-changed entry surface and counted it. These pin the derivation; they do not prove it
+        // globally. Both paths that set the scored count are exercised: the plain one, and the
+        // low-confidence rescore on a narrower seed set.
         $edges = [
             ['source' => 'route::GET::/posts', 'target' => 'App\Services\Publisher::run', 'type' => 'route-to-controller'],
             ['source' => 'App\Services\Publisher::run', 'target' => Post::class, 'type' => 'call'],
@@ -867,6 +867,94 @@ final class ImpactAnalyzerTest extends TestCase
                 'scored counts describe the narrower set the level was measured on, so they can never exceed the printed list',
             );
         }
+    }
+
+    #[Test]
+    public function a_co_changed_entry_surface_is_not_counted_as_reached_by_the_rescore(): void
+    {
+        // The reported counterexample, reduced. Every clause of this fixture is load-bearing: the
+        // component's own seeds must reach a route, or the self-listing lane echoes it back into the
+        // printed list (it only echoes a class nothing reaches) and the divergence disappears.
+        $edges = [
+            ['source' => 'route::GET::/dash', 'target' => 'App\Livewire\Dashboard', 'type' => 'route-to-controller'],
+            ['source' => 'App\Livewire\Dashboard', 'target' => 'App\Services\Publisher::run', 'type' => 'call'],
+        ];
+
+        // Fans the diff out past the impacted threshold so the level is HIGH and the rescore runs.
+        for ($i = 0; $i < 25; ++$i) {
+            $edges[] = ['source' => 'App\Services\Publisher::run', 'target' => "App\\Services\\S{$i}::run", 'type' => 'call'];
+        }
+
+        $result = new ImpactAnalyzer(new CodeGraph($edges, hasUnparseableFiles: false))->detectChanges([
+            $this->changedCoarse('app/Livewire/Dashboard.php', 'App\Livewire\Dashboard'),
+            $this->changedMethod('app/Services/Publisher.php', 'App\Services\Publisher', 'run'),
+        ]);
+
+        // The precondition the counterexample needs: a low-confidence HIGH that the rescore did not cap.
+        $this->assertTrue($result['lowConfidence']);
+        $this->assertFalse($result['coarseCapApplied']);
+        $this->assertSame(RiskLevel::High, $result['risk']);
+
+        $this->assertSame(['route::GET::/dash'], $result['entryPoints']);
+        $this->assertSame(1, $result['scoredEntryPoints']);
+        // Same artifact on the other count: the component is changed code, never reach.
+        $this->assertLessThanOrEqual($result['impacted'], $result['scoredImpacted']);
+    }
+
+    #[Test]
+    public function suppressing_co_changed_surfaces_can_let_the_cap_downgrade(): void
+    {
+        // The user-visible half of the fix: the rescore's counts decide the level, so dropping the
+        // co-changed surfaces from them can take a confirmed HIGH down to MEDIUM. A `--fail-on=high`
+        // gate that tripped on this diff no longer does — correctly, since the surface it counted as
+        // reached was part of the change, but it is a level moving, not just a number.
+        $edges = [
+            ['source' => 'App\Livewire\Dashboard', 'target' => 'App\Services\Publisher::run', 'type' => 'call'],
+            ['source' => 'route::GET::/a', 'target' => 'App\Services\Publisher::run', 'type' => 'route-to-controller'],
+            ['source' => 'route::GET::/b', 'target' => 'App\Services\Publisher::run', 'type' => 'route-to-controller'],
+        ];
+
+        // Hung off the COARSE seed, so the full walk clears the impacted threshold while the precise
+        // rescore does not — leaving the entry-point count as the only thing deciding the rescore.
+        for ($i = 0; $i < 25; ++$i) {
+            $edges[] = ['source' => 'App\Livewire\Dashboard', 'target' => "App\\Services\\S{$i}::run", 'type' => 'call'];
+        }
+
+        $result = new ImpactAnalyzer(new CodeGraph($edges, hasUnparseableFiles: false))->detectChanges([
+            $this->changedCoarse('app/Livewire/Dashboard.php', 'App\Livewire\Dashboard'),
+            $this->changedMethod('app/Services/Publisher.php', 'App\Services\Publisher', 'run'),
+        ]);
+
+        // Unsuppressed, the rescore counted Dashboard alongside /a and /b and confirmed HIGH.
+        $this->assertSame(RiskLevel::Medium, $result['risk']);
+        $this->assertTrue($result['coarseCapApplied']);
+        $this->assertSame(2, $result['scoredEntryPoints']);
+    }
+
+    #[Test]
+    public function the_rescore_does_not_read_back_an_unsuppressed_memo_entry(): void
+    {
+        // The suppression is only half the fix; the memo key is the other half. Self-listing asks the
+        // same question about a changed entry class's OWN seeds, unsuppressed, and it runs first — so
+        // when a diff's precise seeds happen to be exactly one entry class's seeds, an unkeyed memo
+        // hands the rescore back the count that still includes the co-changed surface.
+        $edges = [
+            ['source' => 'route::GET::/dash', 'target' => 'App\Livewire\Dashboard', 'type' => 'route-to-controller'],
+            ['source' => 'App\Livewire\Dashboard', 'target' => 'App\Jobs\SyncJob::handle', 'type' => 'call'],
+        ];
+
+        for ($i = 0; $i < 25; ++$i) {
+            $edges[] = ['source' => 'App\Jobs\SyncJob::handle', 'target' => "App\\Services\\S{$i}::run", 'type' => 'call'];
+        }
+
+        $result = new ImpactAnalyzer(new CodeGraph($edges, hasUnparseableFiles: false))->detectChanges([
+            $this->changedCoarse('app/Livewire/Dashboard.php', 'App\Livewire\Dashboard'),
+            $this->changedMethod('app/Jobs/SyncJob.php', 'App\Jobs\SyncJob', 'handle'),
+        ]);
+
+        $this->assertSame(RiskLevel::High, $result['risk']);
+        $this->assertSame(['route::GET::/dash'], $result['entryPoints']);
+        $this->assertSame(1, $result['scoredEntryPoints']);
     }
 
     #[Test]
