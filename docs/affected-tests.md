@@ -8,7 +8,7 @@ The command inverts the test-reference index into a selection: the test files th
 
 ## Unfollowable dispatches
 
-A dispatch whose target cannot be seen statically — a variable, a factory call, a closure — hides a
+A dispatch whose target cannot be seen statically — a variable, or a factory call — hides a
 `dispatcher → job::handle` edge, so it makes the selection undeterminable whenever a possible dispatch
 target sits in the change's reach. The reason names every such site as
 `file:line (Dispatcher::method)`:
@@ -29,6 +29,15 @@ this command's exit-code contract exists to prevent. The remedy the named site m
 restructure the dispatch into a form the tracer can follow (a literal `Job::dispatch()`, or a
 `new Job(...)` the tracer can see), which fixes the gap rather than silencing it. A project that
 genuinely needs a dynamic dispatch keeps running its full suite, correctly.
+
+Two shapes that look unfollowable are **not** counted, because nothing is actually hidden:
+
+- **An inline closure** — `dispatch(function () { … })` queues the closure itself, and its body is in
+  the same source the tracers already read, so the work it does is already edges out of the
+  dispatching member. There is no target to name and nothing to restructure.
+- **A string literal** — `$this->dispatch('some-event')` is not a job dispatch at all.
+  `DispatchesJobs::dispatch()` takes a job *object*, so a literal can never be one; the common case is
+  a Livewire component emitting a browser event, which has no queue involvement.
 
 ## Untracked files
 

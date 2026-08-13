@@ -32,7 +32,8 @@ use SanderMuller\Richter\Support\DispatchTarget;
  * It never covers project-custom dispatch helper functions (configured via `richter.dispatch_helpers`),
  * nor flags a dispatch whose job can't be seen statically. This tracer fills both gaps: it emits
  * `action-to-job` edges (FQCN-keyed, joining the normalised graph) and records an unresolved-dispatch
- * signal for a variable / factory / closure argument, so such a job reads as "unknown", not "none".
+ * signal for a variable or factory-call argument, so such a job reads as "unknown", not "none".
+ * An inline closure and a string literal are deliberately NOT that signal — see {@see dispatchSite()}.
  * Dev/CI tooling only.
  *
  * A resolved target is recognised via the shared {@see DispatchTarget} predicate (plan 043), so the
