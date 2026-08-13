@@ -3,9 +3,12 @@
 namespace SanderMuller\Richter\Graph;
 
 use Composer\InstalledVersions;
+use LaraMint\LaravelBrain\Analysis\Incremental\GraphProvenance;
+use LaraMint\LaravelBrain\Graph\Graph as BrainGraph;
 use OutOfBoundsException;
 use SanderMuller\Richter\Support\AppNamespace;
 use SanderMuller\Richter\Support\RichterConfig;
+use SanderMuller\Richter\Support\ScopedRebuild;
 use SanderMuller\Richter\Tracers\ConfigRegistryTracer;
 use Symfony\Component\Finder\Finder;
 use Throwable;
@@ -117,7 +120,8 @@ final class GraphCache
             return $this->builder->build($projectRoot, $onProgress);
         }
 
-        $fingerprint = $this->fingerprint($projectRoot);
+        $record = $this->inputRecord($projectRoot);
+        $fingerprint = $this->hashRecord($record);
 
         if ($this->memoized instanceof CodeGraph && $this->memoizedFingerprint === $fingerprint) {
             return $this->memoized;
@@ -126,8 +130,24 @@ final class GraphCache
         $graph = $this->read($fingerprint);
 
         if (! $graph instanceof CodeGraph) {
-            $graph = $this->builder->build($projectRoot, $onProgress);
-            $this->write($fingerprint, $graph);
+            // A miss is precisely when a merge base is useful — and the only time one is available,
+            // since a hit builds nothing. The stored entry is read by file rather than by fingerprint
+            // equality, and {@see ScopedRebuild} decides whether it may be built onto.
+            $base = $this->mergeBase();
+            $built = $this->builder->buildDetailed(
+                $projectRoot,
+                $onProgress,
+                $base['brainGraph'] ?? null,
+                ScopedRebuild::filesFor(
+                    $base['inputs'] ?? null,
+                    $record,
+                    $projectRoot,
+                    isset($base['brainGraph']) ? array_fill_keys(array_keys(GraphProvenance::of($base['brainGraph'])->byFile), true) : [],
+                ),
+            );
+
+            $graph = $built->graph;
+            $this->write($fingerprint, $graph, $built->brainGraph, $record);
         }
 
         $this->memoized = $graph;
@@ -144,24 +164,43 @@ final class GraphCache
      */
     public function fingerprint(string $projectRoot): string
     {
-        $context = hash_init('xxh128');
+        return $this->hashRecord($this->inputRecord($projectRoot));
+    }
 
-        hash_update($context, 'format:' . self::FORMAT_VERSION);
-        hash_update($context, '|php:' . PHP_VERSION);
-        hash_update($context, '|richter:' . $this->packageVersion('sandermuller/richter'));
-        hash_update($context, '|brain:' . $this->packageVersion('laramint/laravel-brain'));
-        hash_update($context, '|config:' . json_encode([
-            // The effective root namespace, not the raw config value: it also derives from
-            // composer.json, which the input-file hashes below don't cover. Every node id in the
-            // graph carries it, so a change here invalidates the whole graph.
-            'root_namespace' => AppNamespace::root(),
-            'entry_point_roots' => RichterConfig::entryPointRoots(),
-            // Changes which bodies get read, so it changes the edge set — a hit on an entry built
-            // with the walk off would serve a graph the current config would not produce.
-            'second_hop' => RichterConfig::secondHopEnabled(),
-            'dispatch_helpers' => RichterConfig::dispatchHelpers(),
-            'laravel-brain' => $this->brainConfigInput(),
-        ], JSON_THROW_ON_ERROR));
+    /**
+     * The inputs the fingerprint is computed over, kept apart instead of folded away.
+     *
+     * An opaque hash answers "same or not" and nothing else, which is exactly why an incremental
+     * rebuild could never obtain a merge base: a hit means nothing needs building, a miss means there
+     * is no previous graph to build onto. Storing the record alongside the hash lets a later run ask
+     * the sharper question — *which* inputs differ — without weakening the equality check that governs
+     * an ordinary cache hit ({@see ScopedRebuild}).
+     *
+     * `files` is ordered exactly as {@see inputFiles()} yields it, because {@see hashRecord()} folds it
+     * in that order and the hash must not depend on how a caller happened to iterate.
+     *
+     * @return array{nonFile: array{format: int, php: string, richter: string, brain: string, config: string}, files: array<string, string>}
+     */
+    public function inputRecord(string $projectRoot): array
+    {
+        $nonFile = [
+            'format' => self::FORMAT_VERSION,
+            'php' => PHP_VERSION,
+            'richter' => $this->packageVersion('sandermuller/richter'),
+            'brain' => $this->packageVersion('laramint/laravel-brain'),
+            'config' => json_encode([
+                // The effective root namespace, not the raw config value: it also derives from
+                // composer.json, which the input-file hashes below don't cover. Every node id in the
+                // graph carries it, so a change here invalidates the whole graph.
+                'root_namespace' => AppNamespace::root(),
+                'entry_point_roots' => RichterConfig::entryPointRoots(),
+                // Changes which bodies get read, so it changes the edge set — a hit on an entry built
+                // with the walk off would serve a graph the current config would not produce.
+                'second_hop' => RichterConfig::secondHopEnabled(),
+                'dispatch_helpers' => RichterConfig::dispatchHelpers(),
+                'laravel-brain' => $this->brainConfigInput(),
+            ], JSON_THROW_ON_ERROR),
+        ];
 
         // Fresh stat metadata: in a long-lived process (the MCP singleton) PHP's per-request stat
         // cache would otherwise report a file changed since the previous call as unchanged.
@@ -170,8 +209,34 @@ final class GraphCache
         // (Carbon::setTestNow), which would disable the racy-clean guard below against real writes.
         $now = time();
 
+        $files = [];
+
         foreach ($this->inputFiles($projectRoot) as $path) {
-            hash_update($context, "|{$path}:" . $this->fileHash("{$projectRoot}/{$path}", $now));
+            $files[$path] = $this->fileHash("{$projectRoot}/{$path}", $now);
+        }
+
+        return ['nonFile' => $nonFile, 'files' => $files];
+    }
+
+    /**
+     * The fingerprint value for a record — the exact byte sequence the pre-split `fingerprint()` fed
+     * the hash, kept in one place so the split cannot drift from it. A changed sequence would
+     * invalidate every cache entry in the wild without a `FORMAT_VERSION` decision behind it.
+     *
+     * @param  array{nonFile: array{format: int, php: string, richter: string, brain: string, config: string}, files: array<string, string>}  $record
+     */
+    private function hashRecord(array $record): string
+    {
+        $context = hash_init('xxh128');
+
+        hash_update($context, 'format:' . $record['nonFile']['format']);
+        hash_update($context, '|php:' . $record['nonFile']['php']);
+        hash_update($context, '|richter:' . $record['nonFile']['richter']);
+        hash_update($context, '|brain:' . $record['nonFile']['brain']);
+        hash_update($context, '|config:' . $record['nonFile']['config']);
+
+        foreach ($record['files'] as $path => $hash) {
+            hash_update($context, "|{$path}:{$hash}");
         }
 
         return hash_final($context);
@@ -280,7 +345,70 @@ final class GraphCache
         );
     }
 
-    private function write(string $fingerprint, CodeGraph $graph): void
+    /**
+     * The Brain graph and input record a previous entry was built from, for use as a scoped
+     * rebuild's merge base — read by cache FILE, deliberately not by fingerprint equality.
+     *
+     * That is the whole point: a fingerprint match means nothing needs building, and a miss is
+     * exactly when a merge base is wanted. Equality can therefore not be the gate here. Soundness
+     * comes from {@see ScopedRebuild} comparing the returned record field by field instead, which is
+     * a strictly sharper question than the hash's "same or not".
+     *
+     * @return array{brainGraph: BrainGraph, inputs: array{nonFile: array<string, mixed>, files: array<string, string>}}|null
+     */
+    public function mergeBase(): ?array
+    {
+        $file = $this->cacheFile();
+
+        if (! is_file($file)) {
+            return null;
+        }
+
+        try {
+            $data = json_decode((string) file_get_contents($file), associative: true, flags: JSON_THROW_ON_ERROR);
+        } catch (Throwable) {
+            return null;
+        }
+
+        if (! is_array($data)) {
+            return null;
+        }
+
+        $brainGraph = BrainGraphCodec::fromArray($data['brainGraph'] ?? null);
+        $inputs = $this->validInputRecord($data['inputs'] ?? null);
+
+        // An entry written before this feature carries neither key. That is "no merge base", not an
+        // error — the run simply builds in full, exactly as every run did before.
+        return $brainGraph instanceof BrainGraph && $inputs !== null
+            ? ['brainGraph' => $brainGraph, 'inputs' => $inputs]
+            : null;
+    }
+
+    /**
+     * A revived input record, or null when the stored value is not one.
+     *
+     * @return array{nonFile: array<string, mixed>, files: array<string, string>}|null
+     */
+    private function validInputRecord(mixed $inputs): ?array
+    {
+        if (! is_array($inputs) || ! is_array($inputs['nonFile'] ?? null) || ! is_array($inputs['files'] ?? null)) {
+            return null;
+        }
+
+        foreach ($inputs['files'] as $path => $hash) {
+            if (! is_string($path) || ! is_string($hash)) {
+                return null;
+            }
+        }
+
+        /** @var array{nonFile: array<string, mixed>, files: array<string, string>} $inputs */
+        return $inputs;
+    }
+
+    /**
+     * @param  array{nonFile: array<string, mixed>, files: array<string, string>}  $record
+     */
+    private function write(string $fingerprint, CodeGraph $graph, ?BrainGraph $brainGraph, array $record): void
     {
         try {
             $directory = RichterConfig::cacheDirectory();
@@ -291,7 +419,14 @@ final class GraphCache
 
             // Write-then-rename so a concurrent reader never sees a torn file.
             $tmp = $this->cacheFile() . '.' . getmypid() . '.tmp';
-            $payload = json_encode(['fingerprint' => $fingerprint] + $graph->toArray(), JSON_THROW_ON_ERROR);
+            // Brain's graph and the record it was built from ride in the SAME file as richter's own
+            // graph, not a sibling: two files can disagree after a partial write, and a merge base
+            // that disagrees with the graph beside it is the one input that must never be wrong.
+            $payload = json_encode([
+                'fingerprint' => $fingerprint,
+                'inputs' => $record,
+                'brainGraph' => $brainGraph instanceof BrainGraph ? BrainGraphCodec::toArray($brainGraph) : null,
+            ] + $graph->toArray(), JSON_THROW_ON_ERROR);
 
             if (file_put_contents($tmp, $payload) !== false) {
                 rename($tmp, $this->cacheFile());

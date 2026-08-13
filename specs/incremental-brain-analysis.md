@@ -198,35 +198,35 @@ engaged.
 
 **ID:** cache-payload · **Depends:** none
 
-- [ ] Add a `BrainGraphCodec` (`src/Graph/`) — `toArray(Graph): array` and `fromArray(mixed): ?Graph`, the second fail-closed on any mis-shaped node/edge, mirroring `GraphCache::validEdges()`.
-- [ ] Split `fingerprint()` into the record it already computes and the hash over it, so the per-file map and the non-file inputs are available separately without changing the hash a single byte.
-- [ ] Extend `GraphCache::write()`/`read()` with a `brainGraph` key and an `inputs` record; a payload missing either reads as "no merge base", never as an error.
-- [ ] Add a merge-base read path — fetch the stored entry by cache file rather than by fingerprint equality, returning the graph *and* its input record for comparison.
-- [ ] Bump `GraphCache::FORMAT_VERSION` with a history line — the payload gained two keys, and an entry written before them offers no merge base.
-- [ ] Tests — the hash is byte-identical before and after the split (a characterisation test, so the refactor cannot silently invalidate every cache in the wild); round-trip a real fixture-project Brain graph and assert node ids, edge ids and `data['file']` provenance survive; a truncated payload yields null, not a partial graph.
+- [x] Add a `BrainGraphCodec` (`src/Graph/`) — `toArray(Graph): array` and `fromArray(mixed): ?Graph`, the second fail-closed on any mis-shaped node/edge, mirroring `GraphCache::validEdges()`.
+- [x] Split `fingerprint()` into the record it already computes and the hash over it, so the per-file map and the non-file inputs are available separately without changing the hash a single byte.
+- [x] Extend `GraphCache::write()`/`read()` with a `brainGraph` key and an `inputs` record; a payload missing either reads as "no merge base", never as an error.
+- [x] Add a merge-base read path — fetch the stored entry by cache file rather than by fingerprint equality, returning the graph *and* its input record for comparison.
+- [x] ~~Bump `GraphCache::FORMAT_VERSION`~~ — already 16 for the dispatch-site change shipping in the same release; the history line covers both keys. One bump, one consumer rebuild with a history line — the payload gained two keys, and an entry written before them offers no merge base.
+- [x] Tests — the hash is byte-identical before and after the split (a characterisation test, so the refactor cannot silently invalidate every cache in the wild); round-trip a real fixture-project Brain graph and assert node ids, edge ids and `data['file']` provenance survive; a truncated payload yields null, not a partial graph.
 
 ### Phase 2: The soundness decision (Priority: HIGH)
 
 **ID:** scope-decision · **Depends:** none
 
-- [ ] Add `Support\ScopedRebuild::filesFor(array $previousInputs, array $currentInputs): ?array` implementing the comparison table in 3.2 — non-file inputs must match exactly, keys must match exactly, and every differing value must be under `app/`.
-- [ ] Tests — one case per row of that table: a version bump, a config change, an added key, a removed key, a change outside `app/`, and the positive case. Brain `realpath`-normalises whatever it is handed (`ProjectAnalyzer.php:201`) before matching against provenance, so also prove the returned paths *resolve to* the files the provenance map keys on — a path resolving to nothing scopes to zero files, which is a green run against a stale graph and the most dangerous failure this class can have.
+- [x] Add `Support\ScopedRebuild::filesFor(array $previousInputs, array $currentInputs): ?array` implementing the comparison table in 3.2 — non-file inputs must match exactly, keys must match exactly, and every differing value must be under `app/`.
+- [x] Tests — one case per row of that table: a version bump, a config change, an added key, a removed key, a change outside `app/`, and the positive case. Brain `realpath`-normalises whatever it is handed (`ProjectAnalyzer.php:201`) before matching against provenance, so also prove the returned paths *resolve to* the files the provenance map keys on — a path resolving to nothing scopes to zero files, which is a green run against a stale graph and the most dangerous failure this class can have.
 
 ### Phase 3: Use it in the build (Priority: HIGH)
 
 **ID:** scoped-build · **Depends:** cache-payload, scope-decision
 
-- [ ] Thread the previous Brain graph from `GraphCache` into `CodeGraphBuilder::build()`.
-- [ ] Call `scopedTo(...)` when the decision says so; catch `ScopedRebuildNotApplicable` and retry with a fresh `ProjectAnalyzer`.
-- [ ] Emit the path taken as a `brain-analyze` phase extra.
-- [ ] Tests — **the load-bearing one**: on the fixture project, a scoped build and a full build must produce a byte-identical `CodeGraph` (same edges, same order, same metadata). Plus: the rejection path retries and still produces that graph; the profile extra names the path.
+- [x] Thread the previous Brain graph from `GraphCache` into `CodeGraphBuilder::build()`.
+- [x] Call `scopedTo(...)` when the decision says so; catch `ScopedRebuildNotApplicable` and retry with a fresh `ProjectAnalyzer`.
+- [x] Emit the path taken as a `brain-analyze` phase extra.
+- [x] Tests — **the load-bearing one**: on the fixture project, a scoped build and a full build must produce a byte-identical `CodeGraph` (same edges, same order, same metadata). Plus: the rejection path retries and still produces that graph; the profile extra names the path.
 
 ### Phase 4: Measure it (Priority: HIGH)
 
 **ID:** measure · **Depends:** scoped-build
 
-- [ ] Extend `autoresearch/graph-build-bench.php` with a warm-previous-graph mode — build once, touch one file, rebuild — and report `brain-analyze` for scoped vs full.
-- [ ] Record the numbers in the autoresearch research doc; **if the scoped path does not beat the full path on `brain-analyze`, stop and report** rather than shipping the complexity.
+- [x] Added `autoresearch/scoped-rebuild-bench.php` instead of extending the existing bench — a warm-cache A/B needs a different harness with a warm-previous-graph mode — build once, touch one file, rebuild — and report `brain-analyze` for scoped vs full.
+- [x] Record the numbers in the autoresearch research doc; **if the scoped path does not beat the full path on `brain-analyze`, stop and report** rather than shipping the complexity.
 
 ---
 
@@ -255,9 +255,11 @@ Stop and report — do not improvise — if any of these proves false during imp
 
 1. *(resolved — see Resolved Questions 3)*
 2. *(resolved — see Resolved Questions 1)*
-3. **Should there be an opt-out?** The fallback is automatic and fail-closed, so nothing needs tuning.
+3. *(resolved — see Resolved Questions 4)*
+
+<!-- original: **Should there be an opt-out?** The fallback is automatic and fail-closed, so nothing needs tuning.
    But a `richter.incremental` flag would let a consumer bisect a suspected wrong graph without
-   downgrading the package. Cheap to add, one more key to document.
+   downgrading the package. Cheap to add, one more key to document. -->
 4. *(resolved — see Resolved Questions 2)*
 
 ---
@@ -270,6 +272,12 @@ Stop and report — do not improvise — if any of these proves false during imp
    required. It is also the better source: the git diff describes the branch, the input record
    describes what actually differs from the graph on disk, and those are not the same set once the
    working tree has moved on.
+
+4. **Should there be a `richter.incremental` opt-out?** **Decision:** No new key. **Rationale:**
+   `--no-cache` already is the escape hatch, and not by analogy — it is the same mechanism. It
+   bypasses the cache read entirely, so no merge base is obtained and the run is a full analysis;
+   verified in the phase-4 bench, where the `fresh: true` case reports path `full`. A second switch
+   would document a capability the package already has.
 
 3. **Is Brain's `Graph → JSON → Graph` round-trip lossless in practice?**
    **Decision:** Yes, on the public surface, verified empirically (see Findings). **Rationale:** A
@@ -286,6 +294,44 @@ Stop and report — do not improvise — if any of these proves false during imp
 ---
 
 ## Findings
+
+**Status: SHIPPED — all four phases complete, measured, gate green.** The pre-implementation note below
+is kept for the record.
+
+### What the implementation found that the spec did not
+
+**A scoped run can return a quietly-stale graph without throwing — and richter now prevents it.** This
+was observed, not theorised. Brain matches paths two different ways: its controller filter
+`realpath()`s both sides (`ProjectAnalyzer.php:201-206`), while its soundness check compares the given
+paths *verbatim* against each node's `data['file']` (`GraphProvenance::edgeIdsForFiles`). A path that
+matches nothing therefore produces an EMPTY owned-edge set on **both** sides of that check — empty
+equals empty, so the check passes, `applyPartial` substitutes nothing, and the previous graph comes
+back as though it were current. On macOS a plain `realpath()` triggers it, since `/var` resolves to
+`/private/var` while the provenance keeps the unresolved form. Measured on a fixture: 5 nodes/4 edges
+returned where a full analysis gives 4/3, with the stale edge intact.
+
+STOP condition 4 is therefore **not** violated — Brain does throw when it can see the edges; it was
+being handed paths that named nothing. But the caller cannot rely on the throw alone, so
+`ScopedRebuild` now requires every scoped path to be present in the previous graph's provenance, in
+the provenance's own (un-realpath'd) form, and refuses the whole scope otherwise. That guard is
+load-bearing, and it is what makes the non-scopeable case cost nothing (see the measurement).
+
+**`scopedTo()` only serves a changed file that DECLARES A CONTROLLER.** It re-traces the controllers a
+changed file declares; a service- or model-only diff yields an empty controller set. The feature helps
+controller edits and is correctly refused for everything else — narrower than the spec implied.
+
+**Brain's `meta` is not preserved across a scoped merge.** The scoped graph loses `project` and
+`analyzedAt`. richter reads only nodes and edges, so nothing downstream changes, and `analyzedAt` is a
+timestamp that could never be byte-compared between two analyses anyway — which is why the phase-3
+gate asserts on nodes and edges rather than on `toJson()`.
+
+**A test that could not fail, twice.** The first byte-identity gate compared two graphs built from a
+fixture with no route, so Brain's graph was EMPTY (0 nodes) and every comparison passed regardless of
+path. The second version added a route but edited the last member of a file, which shifts no line and
+changes nothing. Only the empty-scope mutation exposed both. The fixture now routes a controller and
+the edit shifts a later member.
+
+### Original pre-implementation note
 
 **Status: gate checked, nothing built.** STOP condition 2 was the cheapest of the load-bearing ones and
 gates every phase, so it was tested before any implementation started. It passes. The rest of the spec

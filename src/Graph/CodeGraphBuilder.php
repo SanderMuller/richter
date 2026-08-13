@@ -3,8 +3,10 @@
 namespace SanderMuller\Richter\Graph;
 
 use Closure;
+use LaraMint\LaravelBrain\Analysis\Incremental\ScopedRebuildNotApplicable;
 use LaraMint\LaravelBrain\Analysis\ProjectAnalyzer;
 use LaraMint\LaravelBrain\Graph\Edge;
+use LaraMint\LaravelBrain\Graph\Graph as BrainGraph;
 use PhpParser\Node;
 use PhpParser\Node\Stmt\ClassLike;
 use PhpParser\Node\Stmt\ClassMethod;
@@ -51,14 +53,23 @@ final class CodeGraphBuilder
      */
     public function build(?string $projectRoot = null, ?callable $onProgress = null): CodeGraph
     {
-        $projectRoot ??= base_path();
+        return $this->buildDetailed($projectRoot, $onProgress)->graph;
+    }
 
-        // Start richter's tracer branch (Branch B) concurrently when eligible, so it overlaps Brain's
-        // analyze() below. Null → the branch runs in-process (serial / profiling / fallback).
-        $pending = TracerBranchRunner::start($projectRoot, $onProgress);
-
-        // The override must not outlive the build: the process may be a long-lived MCP server whose
-        // global config repository the host app shares. Only analyze() reads these keys.
+    /**
+     * Runs `$analyse` with Brain's route/command globs widened, and restores them afterwards
+     * whatever happens.
+     *
+     * The override must not outlive the build: the process may be a long-lived MCP server whose
+     * global config repository the host app shares. Only `analyze()` reads these keys.
+     *
+     * @template T
+     *
+     * @param  Closure(): T  $analyse
+     * @return T
+     */
+    private function withWidenedBrainPaths(Closure $analyse): mixed
+    {
         $overrides = [
             'laravel-brain.route_paths' => self::ROUTE_PATHS,
             'laravel-brain.channel_paths' => self::ROUTE_PATHS,
@@ -67,26 +78,85 @@ final class CodeGraphBuilder
         ];
         $snapshot = array_map(config(...), array_combine(array_keys($overrides), array_keys($overrides)));
 
-        // Timing is opt-in: hrtime() and event dispatch only run when a caller supplied a callback,
-        // so the no-listener path (the common case — cache warms silently) stays allocation-free.
-        $phaseStart = $onProgress !== null ? (float) hrtime(true) : 0.0;
-
         try {
             foreach ($overrides as $key => $paths) {
                 config()->set($key, $paths);
             }
 
-            $analysis = new ProjectAnalyzer()->analyze(
-                $projectRoot,
-                $onProgress ?? static fn (string $event, array $data): null => null,
-            );
+            return $analyse();
         } finally {
             foreach ($snapshot as $key => $original) {
                 config()->set($key, $original);
             }
         }
+    }
 
-        $phaseStart = $this->emitPhase($onProgress, 'brain-analyze', $phaseStart);
+    /**
+     * Brain's analysis and the path that produced it: scoped when a merge base and a scope were both
+     * supplied and Brain accepted them, `scoped-rejected` when it did not, `full` otherwise.
+     *
+     * @param  (callable(string, array<string, mixed>): void)|null  $onProgress
+     * @param  list<string>|null  $scopedFiles
+     * @return array{0: object{fullGraph: BrainGraph}, 1: 'full'|'scoped'|'scoped-rejected'}
+     */
+    private function analyse(string $projectRoot, ?callable $onProgress, ?BrainGraph $previousBrainGraph, ?array $scopedFiles): array
+    {
+        $progress = $onProgress ?? static fn (string $event, array $data): null => null;
+
+        if ($scopedFiles === null || ! $previousBrainGraph instanceof BrainGraph) {
+            return [new ProjectAnalyzer()->analyze($projectRoot, $progress), 'full'];
+        }
+
+        try {
+            return [new ProjectAnalyzer()->scopedTo($scopedFiles, $previousBrainGraph)->analyze($projectRoot, $progress), 'scoped'];
+        } catch (ScopedRebuildNotApplicable) {
+            // The edit moved a call, so the previous graph's edges cannot be carried over. One full
+            // analysis — today's cost, never a wrong graph. A FRESH analyzer, not the rejected one:
+            // `scopedTo` state is consumed on the first `analyze()`, and constructing a new instance
+            // makes that independent of Brain's internals.
+            return [new ProjectAnalyzer()->analyze($projectRoot, $progress), 'scoped-rejected'];
+        }
+    }
+
+    /**
+     * {@see build()} plus the Brain graph it merged from and which analysis path produced it.
+     *
+     * A separate entry point rather than a widened return type: `build()` is the public surface every
+     * report goes through and needs only the merged graph, while the cache needs Brain's own graph to
+     * keep as a later scoped rebuild's merge base.
+     *
+     * `$previousBrainGraph` and `$scopedFiles` are supplied together or not at all — a scope without
+     * a base has nothing to merge into, and a base without a scope is unused. The caller
+     * ({@see GraphCache}) owns the soundness decision via {@see ScopedRebuild}; this method owns only
+     * the fallback when Brain rejects the scope it was handed.
+     *
+     * @param  (callable(string, array<string, mixed>): void)|null  $onProgress
+     * @param  list<string>|null  $scopedFiles  absolute paths to re-trace, or null for a full analysis
+     */
+    public function buildDetailed(
+        ?string $projectRoot = null,
+        ?callable $onProgress = null,
+        ?BrainGraph $previousBrainGraph = null,
+        ?array $scopedFiles = null,
+    ): BuiltGraph {
+        $projectRoot ??= base_path();
+
+        // Start richter's tracer branch (Branch B) concurrently when eligible, so it overlaps Brain's
+        // analyze() below. Null → the branch runs in-process (serial / profiling / fallback).
+        $pending = TracerBranchRunner::start($projectRoot, $onProgress);
+
+        // Timing is opt-in: hrtime() and event dispatch only run when a caller supplied a callback,
+        // so the no-listener path (the common case — cache warms silently) stays allocation-free.
+        $phaseStart = $onProgress !== null ? (float) hrtime(true) : 0.0;
+
+        [$analysis, $path] = $this->withWidenedBrainPaths(
+            fn (): array => $this->analyse($projectRoot, $onProgress, $previousBrainGraph, $scopedFiles),
+        );
+
+        $phaseStart = $this->emitPhase($onProgress, 'brain-analyze', $phaseStart, [
+            'path' => $path,
+            'scopedFiles' => $path === 'scoped' ? count($scopedFiles ?? []) : 0,
+        ]);
 
         // One FQCN-keyed id per symbol, read from Brain's own node data — the anti-corruption boundary
         // that lets the post-hoc tracers below address symbols by plain FQCN and join the route chain.
@@ -192,7 +262,7 @@ final class CodeGraphBuilder
 
         $this->emitPhase($onProgress, 'rewrites-and-members', $phaseStart);
 
-        return $graph;
+        return new BuiltGraph($graph, $analysis->fullGraph, $path, $path === 'scoped' ? count($scopedFiles ?? []) : 0);
     }
 
     /**
@@ -257,8 +327,9 @@ final class CodeGraphBuilder
      * Centralised so build()'s six call sites share one branch instead of each carrying their own.
      *
      * @param  (callable(string, array<string, mixed>): void)|null  $onProgress
+     * @param  array<string, int|string>  $extra  phase-specific detail, for a phase whose seconds
+     *   alone don't explain it — a counter, or which of several paths the phase took
      */
-    /** @param  array<string, int>  $extra  phase-specific counters, for a phase whose seconds alone don't explain it */
     private function emitPhase(?callable $onProgress, string $phase, float $phaseStart, array $extra = []): float
     {
         if ($onProgress === null) {
