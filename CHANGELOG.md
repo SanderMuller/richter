@@ -5,6 +5,58 @@ All notable changes to `sandermuller/richter` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.32.0 - 2026-08-13
+
+Two features that had been waiting on each other's cache-format change, shipped together so the rebuild happens once: an unfollowable dispatch now tells you where it is, and a warm cache can rebuild only the part of the graph that changed.
+
+### Added
+
+#### An unfollowable dispatch names the line it sits on
+
+A dispatch whose target cannot be seen statically — a variable, a factory call, a closure — hides an edge, so `richter:affected-tests` reports the selection as not determinable and you run the full suite. That was the right verdict and an unusable one: the reason said a dispatch somewhere could not be followed, and left you with nowhere to go.
+
+It now names every site:
+
+```
+the graph contains job dispatches that could not be followed:
+app/Jobs/Fanout.php:88 (App\Jobs\Fanout::handle), app/Services/Importer.php:12 (App\Services\Importer::run)
+
+```
+The dispatching member and the line were already known at the point the old code incremented a counter, and were simply discarded. The site is the dispatch statement, so two opaque items of one `Bus::chain([...])` are one place to look rather than two; long lists cap at 15. The MCP graph-stats resource carries the same list as `unresolvedDispatchSites`.
+
+**There is deliberately no way to acknowledge a site and have it stop blocking.** Suppressing it would assert that the hidden edge is harmless, and a wrong assertion runs fewer tests than it should — the one direction this command's exit-code contract exists to prevent. What the named site makes possible is the actual repair: restructuring the dispatch into a form the tracer can follow. A project that genuinely needs a dynamic dispatch keeps running its full suite, correctly.
+
+#### A warm cache can rebuild only what changed
+
+Laravel Brain 2.4.0 can re-trace the controllers a changed file declares and merge the result into a previous graph. Richter could not use it, for a structural reason: a cache hit builds nothing, and a miss left no previous graph to merge into, so the merge base never existed.
+
+The cache entry now stores Brain's graph and a record of the inputs it was built from. A miss can then ask *which* inputs differ rather than only whether any did. When every difference is a changed file under `app/` — nothing added, nothing deleted, no config or package change, nothing outside `app/` — the rebuild is scoped to those files. Everything else is a full build, as before.
+
+On a 541-file synthetic corpus, `brain-analyze` went **52 ms → 27 ms** for a changed controller, with the merged graph identical to a full build's. Two things are worth knowing before you expect it:
+
+- **It helps a changed file that declares a controller.** A diff touching only services, models or jobs has no controllers to re-trace and is refused — at no extra cost, measured at 52.5 ms against the full path's 52.3 ms.
+- **`brain-analyze` is a minority of the build.** About a quarter on that corpus, so roughly −6% end to end there. A real application should see more of it, since this corpus over-weights richter's own per-file work.
+
+`--profile` now names which path ran (`full`, `scoped`, or `scoped-rejected`) on the `brain-analyze` line, because "did it engage?" is the first question anyone asks.
+
+Every ambiguous case is refused. A wrong refusal costs one full build, which is what every run cost before; a wrong acceptance would produce a graph quietly missing edges. `--no-cache` still forces a full analysis.
+
+### Fixed
+
+#### A corrupt cache entry could quietly drop the unfollowable-dispatch warning
+
+A cache file whose stored dispatch data was malformed but whose fingerprint still matched was served with that data silently treated as "none". The unfollowable-dispatch taint disappeared with it, and a test selection that should have reported *not determinable* reported a narrower set instead — the one failure direction `affected-tests` is built to avoid. A malformed list now fails the whole read and the graph is rebuilt, which is what a malformed edge list already did.
+
+The same read path now also rejects a stored Brain graph that decodes to fewer nodes or edges than its own payload claims, rather than accepting a structurally valid but short graph as a merge base.
+
+### Upgrading
+
+**Your cached graph rebuilds once on first run.** `GraphCache::FORMAT_VERSION` moves 15 → 16, covering both features above — that is why they ship together rather than in consecutive releases. No action needed; the rebuild is automatic and happens once.
+
+No configuration changes. Two internal constructor signatures changed (`CodeGraph`, and `AffectedTests::select()`), which affects only code constructing those directly rather than going through the commands or the MCP server.
+
+**Full Changelog**: https://github.com/SanderMuller/richter/compare/v0.31.0...v0.32.0
+
 ## v0.31.0 - 2026-08-13
 
 A count that could exceed the list it describes, traced to its cause and fixed. The correction moves risk levels on one narrow shape, so read the upgrading note if you gate CI on `--fail-on`.
@@ -319,6 +371,7 @@ Note: 2 changed file(s) are outside the analysed scope (not PHP under app/, a Bl
 
 
 
+
 ```
 Stderr, like the untracked-file note, so `--json` and `--markdown` stdout stay exactly the report. Frontend sources the configuration declines to scan are not counted: generated Wayfinder output under `frontend.generated_paths` and `.d.ts` declarations were silenced on purpose, and a note that fires loudest on regeneration churn is one people stop reading.
 
@@ -388,6 +441,7 @@ One new advisory lane, and a README that finally leads with what the package is 
   
   
   
+  
   ```
   The count comes off the `route:: → middleware::<group>` edges already in the graph, so it counts endpoints only: a controller-level attachment of the same group does not inflate it. Membership is read from `$middlewareGroups` on a Laravel 10 Kernel or the `->web(append: [...])` form in a Laravel 11+ `bootstrap/app.php`. A member written as an alias resolves through the same alias map, parameters are cut first (`tenant:strict` is one alias with an argument), and a group that names another group is expanded transitively, since Laravel runs the inner group's middleware on the outer group's routes too.
   
@@ -420,6 +474,7 @@ Two silent-failure shapes that richter used to miss: a call through an applicati
   
   ```text
     ! resources/js/Pages/Posts/Create.vue posts to POST /posts and sends 'subtitle', which this diff removes from App\Http\Requests\StorePostRequest::rules() (renamed to 'sub_title'?)
+  
   
   
   
