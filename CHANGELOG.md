@@ -5,6 +5,43 @@ All notable changes to `sandermuller/richter` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.30.0 - 2026-08-13
+
+A faster graph build, a claim from the last release walked back to what is actually guaranteed, and a new test that catches the class of change none of the existing ones could see. No behaviour change: the graph this version produces is byte-identical to 0.29.0's.
+
+### Changed
+
+#### The build stopped doing the same work twice
+
+Three duplications, found by profiling rather than by reading. On a 1,600-file synthetic corpus the build went **864 ms → 660 ms, −24%**, measured back to back on the same machine state.
+
+- **The member-declaration pass re-parsed every app class file.** The pass that links each class to the members it declares read and parsed every file a second time, straight after the tracer pass had parsed all of them. It now derives those edges from the AST already in hand and carries the map across the process boundary with the rest of the tracer branch's output, falling back to a read only for a file the tracers never visited. That phase went 172 ms → 60 ms.
+- **Two tracers walked each method more than once.** `NodeFinder::findInstanceOf()` is a full traversal, and the reference lane ran three per method — names, method calls, static calls — while the dispatch lane ran two, for calls and instantiations. Each now descends once and buckets what it finds.
+
+The parse itself is now the floor: php-parser's own cost is most of what remains, so this is close to the end of what can be won without changing what the build reads.
+
+#### `scoredEntryPoints` is described as what it is, not as an absolute
+
+0.29.0's notes stated that `scoredEntryPoints <= entryPoints` holds *by construction*. That is what the code derives, and it is now pinned by a test rather than argued in a release note — but a consumer has reported a counterexample that does not reproduce here and that the current code has no path to produce.
+
+Rather than restate the absolute, the documentation now says what the number is: a subset of the printed entry-point list, so a report where it exceeds that list is a bug worth sending in. If you have one, the JSON payload and the changed-file list are what would settle it.
+
+### Added
+
+#### A test that pins the whole graph's shape
+
+Every lane already had tests for the edges its own tracer draws. None of them can see the merged result: an edge a lane stops drawing, one it starts drawing, or one whose type changes leaves every per-lane test green so long as that lane's own fixture is unaffected.
+
+The fixture project's complete edge list is now committed and compared on every run. It is what made the three optimisations above safe to take, and it is why this release can claim byte-identical output rather than merely intend it.
+
+It also corrected a misconception while being written. The test initially claimed to pin edge *order*; replacing its assertion with one that actually proved that — rendering one edge set in two orders and requiring the results to differ — failed, because `CodeGraph` sorts every edge set canonically in its constructor. That is deliberate: it is what stops a cache-revived graph from tie-breaking its walks differently to a fresh build, so `--explain` cannot show one chain on a warm cache and an equal-length different one under `--no-cache`. The test guards content, not sequence.
+
+### Upgrading
+
+Nothing to do. No `GraphCache::FORMAT_VERSION` change, so no rebuild is triggered and no cached graph is stale. No configuration changes, no API changes, and no report should differ from 0.29.0 in any way other than arriving sooner.
+
+**Full Changelog**: https://github.com/SanderMuller/richter/compare/v0.29.0...v0.30.0
+
 ## v0.29.0 - 2026-08-12
 
 Two ways the report named a surface that does not run the changed code, or failed to name one that does. Both move risk levels, and neither touches the graph. Sourced from a consumer usage audit that put 0.28.0's own new output to work: one of these was found by following up an observation the reporter had filed as "not a defect".
@@ -240,6 +277,7 @@ Note: 2 changed file(s) are outside the analysed scope (not PHP under app/, a Bl
 
 
 
+
 ```
 Stderr, like the untracked-file note, so `--json` and `--markdown` stdout stay exactly the report. Frontend sources the configuration declines to scan are not counted: generated Wayfinder output under `frontend.generated_paths` and `.d.ts` declarations were silenced on purpose, and a note that fires loudest on regeneration churn is one people stop reading.
 
@@ -307,6 +345,7 @@ One new advisory lane, and a README that finally leads with what the package is 
   
   
   
+  
   ```
   The count comes off the `route:: → middleware::<group>` edges already in the graph, so it counts endpoints only: a controller-level attachment of the same group does not inflate it. Membership is read from `$middlewareGroups` on a Laravel 10 Kernel or the `->web(append: [...])` form in a Laravel 11+ `bootstrap/app.php`. A member written as an alias resolves through the same alias map, parameters are cut first (`tenant:strict` is one alias with an argument), and a group that names another group is expanded transitively, since Laravel runs the inner group's middleware on the outer group's routes too.
   
@@ -339,6 +378,7 @@ Two silent-failure shapes that richter used to miss: a call through an applicati
   
   ```text
     ! resources/js/Pages/Posts/Create.vue posts to POST /posts and sends 'subtitle', which this diff removes from App\Http\Requests\StorePostRequest::rules() (renamed to 'sub_title'?)
+  
   
   
   
