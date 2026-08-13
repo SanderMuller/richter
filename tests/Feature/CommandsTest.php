@@ -265,6 +265,52 @@ final class CommandsTest extends TestCase
     }
 
     #[Test]
+    public function affected_tests_an_unresolvable_head_is_undetermined_not_an_error(): void
+    {
+        // The exit code is the contract: 2 means "run the full suite", 1 means the command itself
+        // broke. A ref that will not resolve is an expected failure and has to come out as the
+        // former, or a CI job reading the code learns the wrong thing.
+        Process::fake([
+            '*merge-base*' => Process::result("abc123\n"),
+            '*show-prefix*' => Process::result(),
+            '*^{commit}*' => Process::result(errorOutput: 'unknown revision', exitCode: 128),
+            '*status*' => Process::result(''),
+            '*diff*' => Process::result(''),
+        ]);
+
+        $this->withoutMockingConsoleOutput();
+        $exitCode = Artisan::call('richter:affected-tests', ['--base' => 'some-base', '--head' => 'nope', '--json' => true]);
+        $output = Artisan::output();
+
+        $this->assertSame(2, $exitCode);
+        $decoded = json_decode(substr($output, (int) strpos($output, '{')), associative: true);
+        $this->assertIsArray($decoded);
+        $this->assertFalse($decoded['determinable']);
+    }
+
+    #[Test]
+    public function detect_changes_json_stays_one_document_when_head_will_not_resolve(): void
+    {
+        // --json owns stdout. An unresolvable ref must travel through the command's JSON error path,
+        // not escape from a preflight before that path exists.
+        Process::fake([
+            '*merge-base*' => Process::result("abc123\n"),
+            '*show-prefix*' => Process::result(),
+            '*^{commit}*' => Process::result(errorOutput: 'unknown revision', exitCode: 128),
+            '*status*' => Process::result(''),
+            '*diff*' => Process::result(''),
+        ]);
+
+        $this->withoutMockingConsoleOutput();
+        Artisan::call('richter:detect-changes', ['--base' => 'some-base', '--head' => 'nope', '--json' => true]);
+        $output = Artisan::output();
+
+        $decoded = json_decode(substr($output, (int) strpos($output, '{')), associative: true);
+        $this->assertIsArray($decoded, 'stdout must still be one parseable document');
+        $this->assertArrayHasKey('error', $decoded);
+    }
+
+    #[Test]
     public function detect_changes_profile_names_the_analysis_path(): void
     {
         // The label exists to answer "did the partial rebuild engage?", and it is only worth having

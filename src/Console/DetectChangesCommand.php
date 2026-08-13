@@ -121,7 +121,12 @@ final class DetectChangesCommand extends Command
      */
     private function warnAboutUntrackedFiles(): void
     {
-        if (RichterConfig::headRef($this->option('head')) !== 'HEAD') {
+        // Read from the option, not from `headRef()`: resolving here would throw on an unresolvable
+        // ref before `handleJson()`'s backstop runs, and stdout would stop being one parseable
+        // document. Whether the user asked for a committed tree is answerable without git.
+        $head = $this->option('head');
+
+        if (is_string($head) && $head !== '') {
             return;
         }
 

@@ -42,15 +42,20 @@ final class AffectedTests
      */
     public static function selectForCurrentDiff(GraphCache $graphs, ?string $requestedBase, bool $fresh = false, ?string $requestedHead = null): array
     {
-        $head = RichterConfig::headRef($requestedHead);
-        // Only the working tree can be widened by an untracked file. An explicit head names a
-        // COMMITTED tree, which a file that was never `git add`-ed cannot be part of — so applying
-        // the guard there would force the full suite for exactly the dirty checkout `--head` exists
-        // to analyse around.
-        $untracked = $head === 'HEAD' ? ChangedSymbols::untrackedRelevantFiles() : [];
+        $untracked = [];
 
         try {
             $base = RichterConfig::baseRef($requestedBase);
+            // Inside the try: an unresolvable ref is an expected failure, and it has to come out as
+            // an undetermined selection (exit 2, run the full suite) rather than escape to the
+            // generic backstop, which would exit 1 and break the contract this command is for.
+            $head = RichterConfig::headRef($requestedHead);
+
+            // Only the working tree can be widened by an untracked file. An explicit head names a
+            // COMMITTED tree, which a file that was never `git add`-ed cannot be part of, so
+            // applying the guard there would force the full suite for exactly the dirty checkout
+            // `--head` exists to analyse around.
+            $untracked = $head === 'HEAD' ? ChangedSymbols::untrackedRelevantFiles() : [];
 
             if ($untracked !== []) {
                 // An untracked (never `git add`-ed) file is invisible to every diff form — the
