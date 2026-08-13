@@ -5,6 +5,46 @@ All notable changes to `sandermuller/richter` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.31.0 - 2026-08-13
+
+A count that could exceed the list it describes, traced to its cause and fixed. The correction moves risk levels on one narrow shape, so read the upgrading note if you gate CI on `--fail-on`.
+
+### Fixed
+
+#### `scoredEntryPoints` could exceed the printed entry-point list
+
+Reported from production dogfooding across three releases and not reproducible until the report arrived with a reading of the code beside it. The conclusion was right; the cause turned out to be one layer down.
+
+A graph walk never reports its own seeds as reached — a change is not something the change reaches. When a low-confidence `high` is re-scored, the walk narrows to the precisely-seeded half of the diff, and at that moment the *other* half stops being seeds. A co-changed entry surface — a Livewire, Filament or Nova component that also happens to sit upstream of the precisely-changed code — was then counted as a surface the change reached. The printed walk had correctly suppressed it, so the scored count came out above the printed one.
+
+The rescore now narrows which nodes it walks *from* without narrowing which nodes count as changed. Nothing in the diff can read as reach.
+
+Two things made this survive earlier releases. The invariant was argued in a release note before anything checked it, and the test written to check it later used fixtures that could not produce the shape — it passed both before and after the fix. And the memo that caches these walks was keyed on the seed set alone, so the unsuppressed answer computed earlier in the same run could be handed straight back to the rescore. Both halves now have a test that fails when the fix is removed.
+
+### Changed
+
+#### A low-confidence `high` can now be capped where it previously stood
+
+The counts the rescore produces are what decide whether a coarse `high` survives, so removing co-changed surfaces from them can take a confirmed `high` down to `medium` — with `coarseCapApplied` reporting `true` where it reported `false`.
+
+This is the correction working as intended: the surface that propped the level up was part of the change, not something it reached. But it is a level moving, not only a number, and a `--fail-on=high` gate that tripped on such a diff will no longer trip. It affects one narrow shape — a low-confidence `high` whose precise seeds reach a co-changed entry surface — and no other report changes.
+
+#### `coarseCapApplied` says whether the cap fired, never whether the rescore ran
+
+Every low-confidence `high` is re-scored; the flag reports only whether that rescore *downgraded* the level. A `high` the rescore confirms comes back with the flag `false` and still carries the rescore's counts — so `coarseCapApplied: false` never means "the printed counts are the scored ones". That was the flag a consumer checked first and reasonably misread. The reference and the JSON key table now say so directly, and point at `scoredEntryPoints` / `scoredImpacted` as the only answer to that question.
+
+#### The risk table listed six of the eight entry-point classes
+
+A diff that changes an entry-point class holds the level at `medium`, and the README's table named jobs, listeners, commands, observers, middleware and Livewire — omitting Filament and Nova, which the check has always covered. A reader with an admin-panel resource in their diff would not have expected the floor to apply.
+
+### Upgrading
+
+Nothing to do. No `GraphCache::FORMAT_VERSION` change, so no rebuild is triggered and no cached graph is stale, and there are no configuration or API changes.
+
+If you gate CI on `--fail-on=high`, see the level-movement note above: a diff matching that one shape can now report `medium` where it reported `high`. Pin the version if you need a `--fail-on` verdict to stay comparable across the upgrade.
+
+**Full Changelog**: https://github.com/SanderMuller/richter/compare/v0.30.0...v0.31.0
+
 ## v0.30.0 - 2026-08-13
 
 A faster graph build, a claim from the last release walked back to what is actually guaranteed, and a new test that catches the class of change none of the existing ones could see. No behaviour change: the graph this version produces is byte-identical to 0.29.0's.
@@ -278,6 +318,7 @@ Note: 2 changed file(s) are outside the analysed scope (not PHP under app/, a Bl
 
 
 
+
 ```
 Stderr, like the untracked-file note, so `--json` and `--markdown` stdout stay exactly the report. Frontend sources the configuration declines to scan are not counted: generated Wayfinder output under `frontend.generated_paths` and `.d.ts` declarations were silenced on purpose, and a note that fires loudest on regeneration churn is one people stop reading.
 
@@ -346,6 +387,7 @@ One new advisory lane, and a README that finally leads with what the package is 
   
   
   
+  
   ```
   The count comes off the `route:: → middleware::<group>` edges already in the graph, so it counts endpoints only: a controller-level attachment of the same group does not inflate it. Membership is read from `$middlewareGroups` on a Laravel 10 Kernel or the `->web(append: [...])` form in a Laravel 11+ `bootstrap/app.php`. A member written as an alias resolves through the same alias map, parameters are cut first (`tenant:strict` is one alias with an argument), and a group that names another group is expanded transitively, since Laravel runs the inner group's middleware on the outer group's routes too.
   
@@ -378,6 +420,7 @@ Two silent-failure shapes that richter used to miss: a call through an applicati
   
   ```text
     ! resources/js/Pages/Posts/Create.vue posts to POST /posts and sends 'subtitle', which this diff removes from App\Http\Requests\StorePostRequest::rules() (renamed to 'sub_title'?)
+  
   
   
   
