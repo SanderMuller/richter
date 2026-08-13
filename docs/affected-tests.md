@@ -6,6 +6,28 @@ The [README](../README.md#affected-test-selection) covers the commands, the simp
 
 The command inverts the test-reference index into a selection: the test files that reference any entry point the diff reaches, plus the tests that import any changed **or reached** class (a unit test of an intermediate caller never touches an entry point). A test naming a Livewire component by string (`Livewire::test('admin.dashboard')`, the `livewire()` helper) counts as referencing `App\Livewire\Admin\Dashboard` via the default naming convention. A `schedule::` entry resolves through the command it runs. Only conventionally-named `*Test.php` files are selected; helpers and fixtures under `tests/` never end up as runner arguments, and an entry point whose only references live in a support trait blocks determination rather than silently dropping the tests using that trait. Selection is reference-based recall, not proof of coverage: reached entry points nothing references contribute nothing, and the report says how many those are.
 
+## Unfollowable dispatches
+
+A dispatch whose target cannot be seen statically — a variable, a factory call, a closure — hides a
+`dispatcher → job::handle` edge, so it makes the selection undeterminable whenever a possible dispatch
+target sits in the change's reach. The reason names every such site as
+`file:line (Dispatcher::method)`:
+
+```
+the graph contains job dispatches that could not be followed:
+app/Jobs/Fanout.php:88 (App\Jobs\Fanout::handle), app/Services/Importer.php:12 (App\Services\Importer::run)
+```
+
+The site is the dispatch statement, so two opaque items of one `Bus::chain([...])` are one place to
+look rather than two. Long lists cap at 15 with an `… and N more` tail.
+
+There is deliberately **no way to acknowledge a site and have it stop blocking**. Suppressing it would
+assert that the hidden edge is harmless, and a wrong assertion under-selects tests — the one direction
+this command's exit-code contract exists to prevent. The remedy the named site makes possible is to
+restructure the dispatch into a form the tracer can follow (a literal `Job::dispatch()`, or a
+`new Job(...)` the tracer can see), which fixes the gap rather than silencing it. A project that
+genuinely needs a dynamic dispatch keeps running its full suite, correctly.
+
 ## Untracked files
 
 An untracked (never `git add`-ed) file under `app/`, `resources/views/`, or a frontend root is one `git diff` cannot see, so it makes the selection **undeterminable** (exit 2) rather than emit a narrowed set that silently omits it. The stderr note still fires, and `git add`-ing the file includes it. The note is stderr-only, never on stdout, so `--plain`/`--json` stay clean.

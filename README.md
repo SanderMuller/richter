@@ -279,7 +279,7 @@ It fails safe, and the exit code is the contract:
 | Exit | Meaning |
 |---|---|
 | `0` | Selection determined (possibly empty). |
-| `2` | **Not determinable: run the full suite.** Any UNRESOLVED file, low-confidence seed, an unparseable app file, an unfollowable dispatch *that a possible dispatch target in the change's reach could hide*, an uncheckable entry point, or an untracked relevant file `git diff` can't see trips this; the reasons are printed (text) or carried in `reasons` (JSON). |
+| `2` | **Not determinable: run the full suite.** Any UNRESOLVED file, low-confidence seed, an unparseable app file, an unfollowable dispatch *that a possible dispatch target in the change's reach could hide*, an uncheckable entry point, or an untracked relevant file `git diff` can't see trips this; the reasons are printed (text) or carried in `reasons` (JSON), and an unfollowable dispatch names each site as `file:line (Dispatcher::method)` so it can be restructured rather than only lived with. |
 | `1` | Usage or unexpected error. |
 
 The simple form only ever errs toward running more: both an undetermined selection and a
@@ -318,7 +318,14 @@ Building the code graph is the dominant cost of every command. Richter caches th
 - The cache is on by default; set `richter.cache.enabled` to `false` to disable it.
 - `--no-cache` (on every command) bypasses it for one run, the escape hatch for an input the fingerprint doesn't cover.
 - A corrupt or mismatched cache file reads as a miss and is rebuilt; it never fails a run.
-- `--profile` (on `richter:detect-changes`) forces a fresh build and prints a phase-by-phase timing split to stderr, for judging where build time goes on a given codebase.
+- `--profile` (on `richter:detect-changes`) forces a fresh build and prints a phase-by-phase timing split to stderr, for judging where build time goes on a given codebase. The `brain-analyze` line names which path ran (`full`, `scoped`, or `scoped-rejected`) — the answer to "did the partial rebuild engage?".
+
+A miss no longer always costs a full analysis. The entry also stores the graph Laravel Brain produced and a record of the inputs it was built from, so a miss can compare the two records and ask which inputs actually differ, rather than only whether any did. When every difference is a changed file under `app/` — nothing added, nothing deleted, no config or package change, nothing outside `app/` — Brain re-traces only the controllers those files declare and merges the result into the stored graph. Everything else is a full build, as before.
+
+The merged graph is identical either way; that is asserted, not assumed. Two things are worth knowing about when it engages:
+
+- **It helps a changed file that declares a controller.** A diff touching only services, models or jobs has no controllers to re-trace, so it is refused and costs nothing extra.
+- **Every ambiguous case is refused.** A wrong refusal costs one full build, which is what every run cost before. A wrong acceptance would produce a graph quietly missing edges, which is the failure this package exists to prevent — so `--no-cache` remains the way to force a full analysis if you ever suspect one.
 
 ### MCP server
 
@@ -327,7 +334,7 @@ When [`laravel/mcp`](https://github.com/laravel/mcp) is installed, Richter regis
 | Resource | URI | Content |
 |---|---|---|
 | Entry points | `richter://graph/entry-points` | Every statically-known entry surface (routes, commands, schedules, Livewire/Filament/Nova components) with kind and `file:line` where known. |
-| Graph stats | `richter://graph/stats` | Node and edge counts by edge type, plus the honesty flags (`hasUnparseableFiles`, `hasUnresolvedDispatches`). |
+| Graph stats | `richter://graph/stats` | Node and edge counts by edge type, plus the honesty flags (`hasUnparseableFiles`, `hasUnresolvedDispatches`) and `unresolvedDispatchSites`, which names each unfollowable dispatch by file, line and dispatching member. |
 | Config | `richter://config` | The effective analysis configuration: base ref, root namespace, entry-point roots, dispatch helpers, feature-gate wrappers, payload-parity settings, the frontend bridge, cache and parallel switches. |
 
 A coding agent can then triage changes without shelling out to Artisan. Because the MCP session holds the graph cache in memory, repeated tool calls in one review don't rebuild the graph. Every tool returns MCP structured content in the same shape as the CLI `--json` output, so an agent can branch on fields instead of parsing prose. The supported range is `laravel/mcp` `^0.8||^0.9`; `composer.json` carries a matching `conflict` entry so an unvalidated release fails at resolution time rather than at boot.
