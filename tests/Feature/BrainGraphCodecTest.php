@@ -84,4 +84,34 @@ final class BrainGraphCodecTest extends TestCase
             $this->assertNotInstanceOf(Graph::class, BrainGraphCodec::fromArray($broken), "{$case} must discard the whole graph");
         }
     }
+
+    #[Test]
+    public function a_payload_that_decodes_smaller_than_it_claims_is_discarded(): void
+    {
+        // The dangerous shape: still valid JSON, every surviving element still well-formed, just
+        // short. Shape checks alone accept it, and as a merge base its missing elements are carried
+        // into every scoped rebuild after it — an under-reported graph nobody can see is short.
+        $payload = BrainGraphCodec::toArray(new ProjectAnalyzer()->analyze(
+            self::fixtureProjectPath(),
+            static fn (string $event, array $data): null => null,
+        )->fullGraph);
+
+        $this->assertGreaterThan(1, count($payload['nodes']));
+        $this->assertNotSame([], $payload['edges']);
+
+        $lostNode = $payload;
+        array_pop($lostNode['nodes']);
+
+        $lostEdge = $payload;
+        array_pop($lostEdge['edges']);
+
+        // Two nodes sharing an id collapse on `addNode()`, so the list length still matches while
+        // the graph does not — the case an array-length check would miss.
+        $duplicated = $payload;
+        $duplicated['nodes'][count($duplicated['nodes']) - 1] = $duplicated['nodes'][0];
+
+        $this->assertNotInstanceOf(Graph::class, BrainGraphCodec::fromArray($lostNode), 'a missing node must discard the graph');
+        $this->assertNotInstanceOf(Graph::class, BrainGraphCodec::fromArray($lostEdge), 'a missing edge must discard the graph');
+        $this->assertNotInstanceOf(Graph::class, BrainGraphCodec::fromArray($duplicated), 'a collapsed duplicate must discard the graph');
+    }
 }

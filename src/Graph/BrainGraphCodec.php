@@ -42,6 +42,18 @@ final class BrainGraphCodec
             return null;
         }
 
+        // The payload states its own size, so a graph that decodes to fewer elements than it claims
+        // is detectable without trusting the file's length. Shape checks alone would accept it: every
+        // surviving node still looks like a node. As a merge base that graph is the worst kind of
+        // wrong — structurally valid, silently short, and its missing elements are carried forward
+        // into every scoped rebuild after it as though they had never existed.
+        $declaredNodes = $data['meta']['nodeCount'] ?? null;
+        $declaredEdges = $data['meta']['edgeCount'] ?? null;
+
+        if (! is_int($declaredNodes) || ! is_int($declaredEdges)) {
+            return null;
+        }
+
         $graph = new Graph();
 
         foreach ($data['nodes'] as $node) {
@@ -67,6 +79,12 @@ final class BrainGraphCodec
             }
 
             $graph->addEdge(new Edge($edge['id'], $edge['source'], $edge['target'], $edge['label'], $edge['type']));
+        }
+
+        // Counted after the build, not before: `addNode()` is keyed by id, so a payload carrying two
+        // nodes with one id decodes to fewer than it lists — a mismatch the array lengths never show.
+        if ($graph->nodeCount() !== $declaredNodes || $graph->edgeCount() !== $declaredEdges) {
+            return null;
         }
 
         /** @var array<string, mixed> $meta */
