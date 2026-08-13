@@ -40,7 +40,7 @@ final class AffectedTests
      *
      * @return array{base: string, determinable: bool, reasons: list<string>, tests: list<string>, frontendTests: list<string>, unreferencedEntryPoints: int, untrackedFiles: list<string>}
      */
-    public static function selectForCurrentDiff(GraphCache $graphs, ?string $requestedBase, bool $fresh = false): array
+    public static function selectForCurrentDiff(GraphCache $graphs, ?string $requestedBase, bool $fresh = false, ?string $requestedHead = null): array
     {
         $untracked = ChangedSymbols::untrackedRelevantFiles();
 
@@ -58,7 +58,7 @@ final class AffectedTests
                 )], $untracked);
             }
 
-            $changed = ChangedSymbols::resolve($base);
+            $changed = ChangedSymbols::resolve($base, RichterConfig::headRef($requestedHead));
         } catch (InvalidArgumentException|RuntimeException $exception) {
             // A diff that can't be taken means the selection can't be determined — fail
             // toward the full suite.

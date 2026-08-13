@@ -29,6 +29,7 @@ final class AffectedTestsCommand extends Command
     /** @var string */
     protected $signature = 'richter:affected-tests
         {--base= : Git ref to diff the current branch against (defaults to the richter.default_base config value)}
+        {--head= : Select against the COMMITTED tree of this ref instead of the working tree}
         {--json : Emit the selection as JSON on stdout}
         {--plain : Print one test path per line and nothing else — for command substitution}
         {--no-cache : Build the code graph fresh, bypassing the graph cache}';
@@ -51,10 +52,12 @@ final class AffectedTestsCommand extends Command
         $this->warnAboutRootNamespace();
         try {
             $base = $this->option('base');
+            $head = $this->option('head');
             $selection = AffectedTests::selectForCurrentDiff(
                 $graphs,
                 is_string($base) ? $base : null,
                 (bool) $this->option('no-cache'),
+                is_string($head) ? $head : null,
             );
 
             $this->warnAboutUntrackedFiles($selection['untrackedFiles']);

@@ -2,6 +2,7 @@
 
 namespace SanderMuller\Richter\Support;
 
+use Illuminate\Support\Facades\Process;
 use InvalidArgumentException;
 use SanderMuller\Richter\Analysis\BenchmarkCase;
 use SanderMuller\Richter\Graph\SecondHopWalk;
@@ -318,6 +319,33 @@ final class RichterConfig
      * here keeps an option-injection attempt (e.g. `--upload-pack=…`) out of every git argv, even
      * if a future call site forgets its `--end-of-options`.
      */
+    /**
+     * The ref whose tree a run analyses, or the literal `HEAD` for the working tree.
+     *
+     * Unset means the working tree — staged and unstaged edits included — which is what a developer
+     * running this before committing needs. An explicit ref means that ref's *committed* tree, which
+     * is what a run in a dirty checkout needs when the uncommitted work is not the subject.
+     *
+     * The value is resolved to a commit id rather than passed through, so `--head=HEAD` means the
+     * commit rather than the working tree: {@see ChangedSymbols::resolveWithScope()} keys the
+     * working-tree mode on the literal string, and a flag that silently did nothing for the most
+     * obvious value anyone would type is worse than no flag.
+     */
+    public static function headRef(mixed $option = null): string
+    {
+        if (! is_string($option) || $option === '') {
+            return 'HEAD';
+        }
+
+        $result = Process::path(base_path())->run(['git', 'rev-parse', '--verify', '--end-of-options', self::refOrFail($option) . '^{commit}']);
+
+        if (! $result->successful()) {
+            throw new InvalidArgumentException("Git ref \"{$option}\" could not be resolved to a commit.");
+        }
+
+        return trim($result->output());
+    }
+
     private static function refOrFail(string $ref): string
     {
         if (str_starts_with($ref, '-')) {

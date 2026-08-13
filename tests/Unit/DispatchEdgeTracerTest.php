@@ -231,6 +231,28 @@ final class DispatchEdgeTracerTest extends TestCase
     }
 
     #[Test]
+    public function an_inline_closure_dispatch_is_not_unfollowable(): void
+    {
+        // `dispatch(function () { … })` queues the closure itself, and its body is in the same AST
+        // the reference tracer already descends — so the work it does is already edges out of this
+        // dispatching member. Nothing is hidden and nothing can be restructured, which is what makes
+        // calling it unfollowable a block over reach the graph already has.
+        $source = "<?php\nnamespace App\Http\Controllers;\nclass PostController\n{\n    public function store(): void\n    {\n        dispatch(function (): void {\n            \$this->rebuild();\n        })->afterResponse();\n    }\n\n    private function rebuild(): void {}\n}\n";
+
+        $result = new DispatchEdgeTracer()->edgesForSource($source, self::DISPATCHER);
+
+        $this->assertSame([], $result['unresolvedSites']);
+    }
+
+    #[Test]
+    public function an_arrow_function_dispatch_is_not_unfollowable_either(): void
+    {
+        $source = "<?php\nnamespace App\Http\Controllers;\nclass PostController\n{\n    public function store(): void\n    {\n        dispatch(fn (): int => 1);\n    }\n}\n";
+
+        $this->assertSame([], new DispatchEdgeTracer()->edgesForSource($source, self::DISPATCHER)['unresolvedSites']);
+    }
+
+    #[Test]
     public function an_unparseable_source_yields_no_sites(): void
     {
         // The unparseable-file taint is a separate, global signal; a file with no AST must not also

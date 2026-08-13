@@ -7,7 +7,9 @@ use PhpParser\Node;
 use PhpParser\Node\Arg;
 use PhpParser\Node\Expr;
 use PhpParser\Node\Expr\Array_;
+use PhpParser\Node\Expr\ArrowFunction;
 use PhpParser\Node\Expr\CallLike;
+use PhpParser\Node\Expr\Closure;
 use PhpParser\Node\Expr\FuncCall;
 use PhpParser\Node\Expr\MethodCall;
 use PhpParser\Node\Expr\New_;
@@ -296,7 +298,15 @@ final readonly class DispatchEdgeTracer
             return $this->jobsFromArray($value, $origin, $unresolvedSites);
         }
 
-        // A dispatch verb whose job we can't see (a variable, factory, closure).
+        // An inline closure IS the job, and its body sits in the very AST the tracers just walked —
+        // `ReferenceEdgeTracer` descends into it, so the work it does is already edges out of this
+        // same dispatching member. There is no hidden target and nothing to restructure, so calling
+        // it unfollowable would block a selection over reach the graph already has.
+        if ($value instanceof Closure || $value instanceof ArrowFunction) {
+            return [];
+        }
+
+        // A dispatch verb whose job we can't see (a variable, or a factory call).
         $unresolvedSites[] = $origin;
 
         return [];

@@ -190,6 +190,31 @@ final class CommandsTest extends TestCase
     }
 
     #[Test]
+    public function detect_changes_head_analyses_the_committed_tree(): void
+    {
+        // Without --head the diff is the working tree, which is what a developer wants before
+        // committing. With it, the uncommitted work is excluded — the run in a dirty checkout whose
+        // WIP is not the subject. `HEAD` must resolve to the commit, or the flag would silently mean
+        // "working tree" for the most obvious value anyone would type.
+        Process::fake([
+            '*merge-base*' => Process::result("abc123\n"),
+            '*rev-parse*' => Process::result("def456\n"),
+            '*show*' => Process::result(errorOutput: 'bad object', exitCode: 128),
+            '*diff*' => Process::result(''),
+        ]);
+
+        $this->withoutMockingConsoleOutput();
+        $exitCode = Artisan::call('richter:detect-changes', ['--base' => 'some-base', '--head' => 'HEAD']);
+
+        $this->assertSame(0, $exitCode);
+        // The diff range is the two-dot-three form against the resolved commit, never the
+        // single-ref working-tree form.
+        Process::assertRan(fn (PendingProcess $process): bool => is_array($process->command)
+            && in_array('diff', $process->command, true)
+            && in_array('some-base...def456', $process->command, true));
+    }
+
+    #[Test]
     public function detect_changes_profile_names_the_analysis_path(): void
     {
         // The label exists to answer "did the partial rebuild engage?", and it is only worth having

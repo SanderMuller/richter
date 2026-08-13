@@ -43,6 +43,7 @@ final class DetectChangesCommand extends Command
     /** @var string */
     protected $signature = 'richter:detect-changes
         {--base= : Git ref to diff the current branch against (defaults to the richter.default_base config value)}
+        {--head= : Analyse the COMMITTED tree of this ref instead of the working tree — for a run in a dirty checkout whose uncommitted work is not the subject}
         {--json : Emit the report as JSON on stdout}
         {--markdown : Emit the report as GitHub-flavoured markdown, for PR descriptions and comments}
         {--explain : Show the call chain from each reached entry point down to the changed code (JSON always carries the chains)}
@@ -162,7 +163,7 @@ final class DetectChangesCommand extends Command
     {
         try {
             $base = RichterConfig::baseRef($this->option('base'));
-            ['changed' => $changed, 'outOfScope' => $outOfScope] = ChangedSymbols::resolveWithScope($base);
+            ['changed' => $changed, 'outOfScope' => $outOfScope] = ChangedSymbols::resolveWithScope($base, RichterConfig::headRef($this->option('head')));
         } catch (RuntimeException $runtimeException) {
             // A broken diff can't be assessed: advisory still exits 0, but under a gate that reads as failure.
             $this->warn($runtimeException->getMessage());
@@ -227,7 +228,7 @@ final class DetectChangesCommand extends Command
         try {
             try {
                 $base = RichterConfig::baseRef($this->option('base'));
-                ['changed' => $changed, 'outOfScope' => $outOfScope] = ChangedSymbols::resolveWithScope($base);
+                ['changed' => $changed, 'outOfScope' => $outOfScope] = ChangedSymbols::resolveWithScope($base, RichterConfig::headRef($this->option('head')));
             } catch (InvalidArgumentException|RuntimeException $expected) {
                 // Expected operational failures (bad/option-shaped ref, broken diff): advisory unless gated.
                 return $this->jsonError($expected->getMessage(), $gateActive ? self::FAILURE : self::SUCCESS);

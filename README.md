@@ -81,13 +81,14 @@ _Add the CI advisory comment:_
 ```bash
 php artisan richter:detect-changes                        # diffs against richter.default_base
 php artisan richter:detect-changes --base=origin/develop
+php artisan richter:detect-changes --head=HEAD            # the committed tree, ignoring uncommitted work
 php artisan richter:detect-changes --explain              # show how each entry point reaches the change
 php artisan richter:detect-changes --json                 # machine-readable, for scripting or CI
 php artisan richter:detect-changes --markdown             # PR-ready markdown, for descriptions and comments
 php artisan richter:detect-changes --html=impact.html     # self-contained visual report (add --open to launch it)
 ```
 
-Against the default `HEAD`, the diff is the working tree compared to the merge-base with `--base`: staged and unstaged edits are included, not just what's committed, so running this before you commit still sees your changes. (Passing an explicit non-`HEAD` ref instead replays that ref's committed tree.) The one gap `git diff` can't close is a brand-new file that was never `git add`-ed: it shows in no diff form, so a stderr-only note flags any such untracked file under `app/`, `resources/views/`, or a configured frontend root. The note never reaches stdout, so `--json`/`--markdown` output stays exactly the report.
+Against the default `HEAD`, the diff is the working tree compared to the merge-base with `--base`: staged and unstaged edits are included, not just what's committed, so running this before you commit still sees your changes. `--head=<ref>` analyses that ref's **committed** tree instead — for a run in a dirty checkout whose uncommitted work is not the subject. `--head=HEAD` resolves to the commit, so it means the last commit rather than the working tree. The one gap `git diff` can't close is a brand-new file that was never `git add`-ed: it shows in no diff form, so a stderr-only note flags any such untracked file under `app/`, `resources/views/`, or a configured frontend root. The note never reaches stdout, so `--json`/`--markdown` output stays exactly the report.
 
 Resolves which class members the branch changed, walks the graph, and reports:
 
@@ -265,6 +266,7 @@ With `--json`, stdout is `{from, to, resolvedFrom, resolvedTo, found, path}`, pl
 ```bash
 php artisan richter:affected-tests                        # human-readable selection
 php artisan richter:affected-tests --base=origin/develop
+php artisan richter:affected-tests --head=HEAD            # select against the committed tree
 php artisan richter:affected-tests --json                 # {base, determinable, reasons, tests, frontendTests, unreferencedEntryPoints}
 php artisan test $(php artisan richter:affected-tests --plain)   # simple form: coarse but safe
 ```
