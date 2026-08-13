@@ -54,7 +54,7 @@ final class AffectedTestsTool extends Tool
             ->withStructuredContent($selection);
     }
 
-    /** @param  array{base: string, determinable: bool, reasons: list<string>, tests: list<string>, frontendTests: list<string>, unreferencedEntryPoints: int}  $selection */
+    /** @param  array{base: string, determinable: bool, reasons: list<string>, tests: list<string>, frontendTests: list<string>, unreferencedEntryPoints: int, unresolvedDispatchSites: list<array{file: string, line: int, dispatcher: string}>}  $selection */
     private function summary(array $selection): string
     {
         if (! $selection['determinable']) {
@@ -96,6 +96,11 @@ final class AffectedTestsTool extends Tool
             'tests' => $schema->array()->items($schema->string())->description('PHP test files to run, project-relative.'),
             'frontendTests' => $schema->array()->items($schema->string())->description('Advisory: frontend spec files referencing a touched route, for the JS runner.'),
             'unreferencedEntryPoints' => $schema->integer()->description('Reached entry points no test references — the selection cannot cover them.'),
+            'unresolvedDispatchSites' => $schema->array()->items($schema->object([
+                'file' => $schema->string(),
+                'line' => $schema->integer(),
+                'dispatcher' => $schema->string(),
+            ]))->description('Every dispatch whose target could not be followed, in full — the reason above names only the first few. Each is a place to restructure the dispatch into a followable form.'),
         ];
     }
 }

@@ -136,6 +136,45 @@ final class AffectedTestsTest extends TestCase
     }
 
     #[Test]
+    public function the_payload_carries_every_site_the_reason_truncates(): void
+    {
+        // The whole point of the key. The reason is prose for a reader and stays capped, but a
+        // payload that could only ever express the first 15 leaves the rest reachable from nothing
+        // but the MCP graph-stats resource — which a CI job running the CLI cannot reach at all.
+        $sites = [];
+
+        for ($i = 1; $i <= 18; ++$i) {
+            $sites[] = ['file' => "app/Services/S{$i}.php", 'line' => $i, 'dispatcher' => "App\\Services\\S{$i}::run"];
+        }
+
+        $selection = AffectedTests::select(
+            $this->detectResult([]),
+            [$this->changed('app/Jobs/PublishPostJob.php', 'App\Jobs\PublishPostJob')],
+            $this->index(),
+            unresolvedDispatchSites: $sites,
+        );
+
+        $this->assertSame($sites, $selection['unresolvedDispatchSites']);
+        $this->assertStringEndsWith(', … and 3 more', $selection['reasons'][0]);
+    }
+
+    #[Test]
+    public function a_determinable_selection_still_declares_the_key(): void
+    {
+        // A shape that appears only sometimes is one every consumer has to guard against; an empty
+        // list says "none" in the same words a full one says "these".
+        $selection = AffectedTests::select(
+            $this->detectResult([]),
+            [$this->changed('app/Jobs/PublishPostJob.php', 'App\Jobs\PublishPostJob')],
+            $this->index(),
+            unresolvedDispatchSites: [],
+        );
+
+        $this->assertTrue($selection['determinable']);
+        $this->assertSame([], $selection['unresolvedDispatchSites']);
+    }
+
+    #[Test]
     public function a_long_site_list_is_capped_and_reports_the_remainder(): void
     {
         // A project dispatching dynamically throughout would otherwise push every other reason off

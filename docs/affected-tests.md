@@ -19,7 +19,9 @@ app/Jobs/Fanout.php:88 (App\Jobs\Fanout::handle), app/Services/Importer.php:12 (
 ```
 
 The site is the dispatch statement, so two opaque items of one `Bus::chain([...])` are one place to
-look rather than two. Long lists cap at 15 with an `… and N more` tail.
+look rather than two. The rendered reason caps at 15 with an `… and N more` tail; `--json` carries the
+**full** list under `unresolvedDispatchSites` (`{file, line, dispatcher}`), so a script tracking these
+never has to read them out of the sentence — or lose the ones past the cap.
 
 There is deliberately **no way to acknowledge a site and have it stop blocking**. Suppressing it would
 assert that the hidden edge is harmless, and a wrong assertion under-selects tests — the one direction

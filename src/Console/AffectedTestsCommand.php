@@ -103,7 +103,7 @@ final class AffectedTestsCommand extends Command
         ));
     }
 
-    /** @param  array{base: string, determinable: bool, reasons: list<string>, tests: list<string>, frontendTests: list<string>, unreferencedEntryPoints: int, untrackedFiles: list<string>}  $selection */
+    /** @param  array{base: string, determinable: bool, reasons: list<string>, tests: list<string>, frontendTests: list<string>, unreferencedEntryPoints: int, unresolvedDispatchSites: list<array{file: string, line: int, dispatcher: string}>, untrackedFiles: list<string>}  $selection */
     private function emit(bool $json, bool $plain, array $selection): int
     {
         $exit = $selection['determinable'] ? self::SUCCESS : self::UNDETERMINED;

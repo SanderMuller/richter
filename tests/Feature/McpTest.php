@@ -76,7 +76,8 @@ final class McpTest extends TestCase
                     ->where('unreferencedEntryPoints', 0)
                     ->has('reasons')
                     ->has('tests')
-                    ->has('frontendTests');
+                    ->has('frontendTests')
+                    ->has('unresolvedDispatchSites');
 
                 return true;
             });
@@ -314,7 +315,7 @@ final class McpTest extends TestCase
         $this->assertIsArray($affectedTestsOutputSchema);
         $affectedTestsProperties = $affectedTestsOutputSchema['properties'] ?? [];
         $this->assertIsArray($affectedTestsProperties);
-        $this->assertSame(['base', 'determinable', 'reasons', 'tests', 'frontendTests', 'unreferencedEntryPoints'], array_keys($affectedTestsProperties));
+        $this->assertSame(['base', 'determinable', 'reasons', 'tests', 'frontendTests', 'unreferencedEntryPoints', 'unresolvedDispatchSites'], array_keys($affectedTestsProperties));
 
         $this->assertIsArray($impactOutputSchema);
         $this->assertIsArray($traceOutputSchema);

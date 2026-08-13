@@ -38,7 +38,7 @@ final class AffectedTests
      * `untrackedFiles` rides along for the CLI's stderr note and is stripped from every
      * stdout/structured document by the callers. Unexpected `Throwable`s escape.
      *
-     * @return array{base: string, determinable: bool, reasons: list<string>, tests: list<string>, frontendTests: list<string>, unreferencedEntryPoints: int, untrackedFiles: list<string>}
+     * @return array{base: string, determinable: bool, reasons: list<string>, tests: list<string>, frontendTests: list<string>, unreferencedEntryPoints: int, unresolvedDispatchSites: list<array{file: string, line: int, dispatcher: string}>, untrackedFiles: list<string>}
      */
     public static function selectForCurrentDiff(GraphCache $graphs, ?string $requestedBase, bool $fresh = false, ?string $requestedHead = null): array
     {
@@ -66,7 +66,7 @@ final class AffectedTests
         }
 
         if ($changed === []) {
-            return ['base' => $base, 'determinable' => true, 'reasons' => [], 'tests' => [], 'frontendTests' => [], 'unreferencedEntryPoints' => 0, 'untrackedFiles' => $untracked];
+            return ['base' => $base, 'determinable' => true, 'reasons' => [], 'tests' => [], 'frontendTests' => [], 'unreferencedEntryPoints' => 0, 'unresolvedDispatchSites' => [], 'untrackedFiles' => $untracked];
         }
 
         $graph = $graphs->graph(fresh: $fresh);
@@ -89,11 +89,11 @@ final class AffectedTests
     /**
      * @param  list<string>  $reasons
      * @param  list<string>  $untracked
-     * @return array{base: string, determinable: bool, reasons: list<string>, tests: list<string>, frontendTests: list<string>, unreferencedEntryPoints: int, untrackedFiles: list<string>}
+     * @return array{base: string, determinable: bool, reasons: list<string>, tests: list<string>, frontendTests: list<string>, unreferencedEntryPoints: int, unresolvedDispatchSites: list<array{file: string, line: int, dispatcher: string}>, untrackedFiles: list<string>}
      */
     private static function undeterminedForCurrentDiff(string $base, array $reasons, array $untracked): array
     {
-        return ['base' => $base, 'determinable' => false, 'reasons' => $reasons, 'tests' => [], 'frontendTests' => [], 'unreferencedEntryPoints' => 0, 'untrackedFiles' => $untracked];
+        return ['base' => $base, 'determinable' => false, 'reasons' => $reasons, 'tests' => [], 'frontendTests' => [], 'unreferencedEntryPoints' => 0, 'unresolvedDispatchSites' => [], 'untrackedFiles' => $untracked];
     }
 
     /**
@@ -123,7 +123,7 @@ final class AffectedTests
      *   Taken as the sites rather than a flag so the reason can name them: "a dispatch somewhere could
      *   not be followed" leaves a reader with nothing to act on, which is what kept this verdict
      *   permanent for a project that has one.
-     * @return array{determinable: bool, reasons: list<string>, tests: list<string>, frontendTests: list<string>, unreferencedEntryPoints: int}
+     * @return array{determinable: bool, reasons: list<string>, tests: list<string>, frontendTests: list<string>, unreferencedEntryPoints: int, unresolvedDispatchSites: list<array{file: string, line: int, dispatcher: string}>}
      */
     public static function select(array $result, array $changed, TestReferenceIndex $tests, array $unresolvedDispatchSites, ?CodeGraph $graph = null, ?FrontendTestIndex $frontendTests = null, bool $hasUnparseableFiles = false): array
     {
@@ -208,6 +208,11 @@ final class AffectedTests
             'tests' => $selected,
             'frontendTests' => $frontendSelected,
             'unreferencedEntryPoints' => $unreferenced,
+            // The FULL list, deliberately uncapped while the reason above stays capped. The reason
+            // is prose for a reader, where 36 lines help nobody; this is the machine's copy, and a
+            // payload that could only ever express the first 15 would make the rest unreachable to
+            // anything but the MCP resource — which a CLI-only CI job cannot reach at all.
+            'unresolvedDispatchSites' => $unresolvedDispatchSites,
         ];
     }
 

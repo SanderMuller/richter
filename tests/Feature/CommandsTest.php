@@ -900,7 +900,7 @@ final class CommandsTest extends TestCase
         $this->assertSame('nonsense-ref', $document['base']);
         // The stderr note's data source never leaks into the document — the key set IS
         // the declared --json contract.
-        $this->assertSame(['base', 'determinable', 'reasons', 'tests', 'frontendTests', 'unreferencedEntryPoints'], array_keys($document));
+        $this->assertSame(['base', 'determinable', 'reasons', 'tests', 'frontendTests', 'unreferencedEntryPoints', 'unresolvedDispatchSites'], array_keys($document));
 
         $reasons = $document['reasons'] ?? null;
         $this->assertIsArray($reasons);

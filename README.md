@@ -267,7 +267,7 @@ With `--json`, stdout is `{from, to, resolvedFrom, resolvedTo, found, path}`, pl
 php artisan richter:affected-tests                        # human-readable selection
 php artisan richter:affected-tests --base=origin/develop
 php artisan richter:affected-tests --head=HEAD            # select against the committed tree
-php artisan richter:affected-tests --json                 # {base, determinable, reasons, tests, frontendTests, unreferencedEntryPoints}
+php artisan richter:affected-tests --json                 # {base, determinable, reasons, tests, frontendTests, unreferencedEntryPoints, unresolvedDispatchSites}
 php artisan test $(php artisan richter:affected-tests --plain)   # simple form: coarse but safe
 ```
 
