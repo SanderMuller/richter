@@ -203,7 +203,7 @@ engaged.
 - [x] Extend `GraphCache::write()`/`read()` with a `brainGraph` key and an `inputs` record; a payload missing either reads as "no merge base", never as an error.
 - [x] Add a merge-base read path — fetch the stored entry by cache file rather than by fingerprint equality, returning the graph *and* its input record for comparison.
 - [x] ~~Bump `GraphCache::FORMAT_VERSION`~~ — already 16 for the dispatch-site change shipping in the same release; the history line covers both keys. One bump, one consumer rebuild with a history line — the payload gained two keys, and an entry written before them offers no merge base.
-- [x] Tests — the hash is byte-identical before and after the split (a characterisation test, so the refactor cannot silently invalidate every cache in the wild); round-trip a real fixture-project Brain graph and assert node ids, edge ids and `data['file']` provenance survive; a truncated payload yields null, not a partial graph.
+- [x] Tests — the hash is byte-identical before and after the split (verified once, in-session; a committed test would be tautological — see Findings); round-trip a real fixture-project Brain graph and assert node ids, edge ids and `data['file']` provenance survive; a truncated payload yields null, not a partial graph.
 
 ### Phase 2: The soundness decision (Priority: HIGH)
 
@@ -297,6 +297,19 @@ Stop and report — do not improvise — if any of these proves false during imp
 
 **Status: SHIPPED — all four phases complete, measured, gate green.** The pre-implementation note below
 is kept for the record.
+
+**STOP condition 1 — verified empirically, then by construction.** The fixture project's fingerprint
+was captured before the split and re-checked after it:
+
+```
+before  e5ca71271b1e55cc125634af7c9c70ef
+after   e5ca71271b1e55cc125634af7c9c70ef
+```
+
+Not a byte changed. No committed test guards this and none should: a before/after characterisation
+can only be run once, and after the split `fingerprint()` *is* `hashRecord(inputRecord())` by
+construction, so a test asserting that equality would assert nothing. What a future change must
+preserve is the byte sequence in `hashRecord()`, which its docblock names as the contract.
 
 ### What the implementation found that the spec did not
 
