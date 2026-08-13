@@ -122,6 +122,11 @@ low-confidence `high` is re-scored against the precisely-seeded subset alone, wh
 `coarseCapApplied` reports.
 
 `scoredEntryPoints` and `scoredImpacted` carry the counts the level was actually measured against.
+`scoredEntryPoints` describes a subset of the entry points listed — either the set before self-listed
+and frontend surfaces are appended, or, on a low-confidence rescore, the precisely-seeded part of it. It
+should therefore not exceed the printed count; a report where it does is a bug worth sending in, not a
+documented shape. `scoredImpacted` carries no such relationship at all: the rescore walks a different
+seed set, so it is simply whatever that walk reached.
 They are present on every report and equal the printed counts whenever nothing pulled them apart; the
 text, markdown and HTML reports name them only when they differ, since repeating identical numbers
 teaches a reader to skip the line.

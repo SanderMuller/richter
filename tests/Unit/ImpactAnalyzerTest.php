@@ -839,6 +839,37 @@ final class ImpactAnalyzerTest extends TestCase
     }
 
     #[Test]
+    public function the_scored_entry_point_count_never_exceeds_the_printed_list(): void
+    {
+        // Argued in 0.29.0's notes as holding "by construction"; asserted here instead, because an
+        // invariant a release states and nothing checks is one a consumer gets to disprove — and one
+        // has been reported, on a shape this codebase is not currently able to produce (see the probe
+        // note in internal/). These pin the derivation; they do not prove it globally. Both the
+        // paths that set the scored count are exercised: the plain one, and the low-confidence rescore
+        // that runs on a narrower seed set. A report where the printed list ALSO grows afterwards (a
+        // self-listed entry class) is the case that makes the two counts diverge the other way.
+        $edges = [
+            ['source' => 'route::GET::/posts', 'target' => 'App\Services\Publisher::run', 'type' => 'route-to-controller'],
+            ['source' => 'App\Services\Publisher::run', 'target' => Post::class, 'type' => 'call'],
+            ['source' => 'App\Jobs\ImportJob::handle', 'target' => Post::class, 'type' => 'call'],
+        ];
+
+        foreach ([
+            [$this->changedMethod('app/Models/Post.php', Post::class, 'publish')],
+            [$this->changedCoarse('app/Models/Post.php', Post::class)],
+            [$this->changedCoarse('app/Models/Post.php', Post::class), $this->changedMethod('app/Jobs/ImportJob.php', 'App\Jobs\ImportJob', 'handle')],
+        ] as $changed) {
+            $result = new ImpactAnalyzer(new CodeGraph($edges, hasUnparseableFiles: false))->detectChanges($changed);
+
+            $this->assertLessThanOrEqual(
+                count($result['entryPoints']),
+                $result['scoredEntryPoints'],
+                'scored counts describe the narrower set the level was measured on, so they can never exceed the printed list',
+            );
+        }
+    }
+
+    #[Test]
     public function an_over_approximated_call_edge_still_yields_a_real_entry_point(): void
     {
         // `override` and `config-registry` fan out, but the dispatch behind them is real, so a surface
