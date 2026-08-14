@@ -87,6 +87,7 @@ final class DetectChangesTool extends Tool
                 ->description('Entry-point node => "referenced" | "referenced-no-behavioural-assertion" | "unreferenced". A node whose reference state could not be determined is omitted. Advisory annotation; never an input to risk, the gate, or affected-tests selection. Empty map serializes as [].'),
             'impacted' => $schema->integer()->description('Distinct impacted graph nodes.'),
             'relatedModels' => $schema->array()->items($schema->string()),
+            'traitAndOverrideReach' => $schema->array()->items($schema->string())->description('Classes that run the changed member without calling it — they use the trait declaring it, or implement the ancestor it overrides. Deliberately not counted toward impacted or risk (a hub trait would saturate the level on breadth), and reported because excluding them from the count is not a reason to exclude them from the report.'),
             'risk' => $schema->string()->description('low, medium or high.'),
             'lowConfidence' => $schema->boolean(),
             'coarseCapApplied' => $schema->boolean(),

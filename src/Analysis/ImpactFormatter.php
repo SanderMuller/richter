@@ -80,7 +80,7 @@ final class ImpactFormatter
     }
 
     /**
-     * @param  array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, newFiles?: list<string>, fqcns?: array<string, string>, entryPoints: list<string>, associationEntryPoints?: list<string>, entryPointPaths?: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations?: array<string, array{file: string, line?: int}>, entryPointSecurity?: array<string, SecurityShape>, entryPointGates?: array<string, list<string>>, entryPointAuthGates?: array<string, list<string>>, entryPointAuthMiddleware?: array<string, list<string>>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied?: bool, scoredEntryPoints?: int, scoredImpacted?: int, findings?: list<string>, ...}  $result
+     * @param  array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, newFiles?: list<string>, fqcns?: array<string, string>, entryPoints: list<string>, associationEntryPoints?: list<string>, entryPointPaths?: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations?: array<string, array{file: string, line?: int}>, entryPointSecurity?: array<string, SecurityShape>, entryPointGates?: array<string, list<string>>, entryPointAuthGates?: array<string, list<string>>, entryPointAuthMiddleware?: array<string, list<string>>, impacted: int, relatedModels: list<string>, traitAndOverrideReach?: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied?: bool, scoredEntryPoints?: int, scoredImpacted?: int, findings?: list<string>, ...}  $result
      * @param  bool  $gateActive  when a `--fail-on*` gate is active the command prints its own verdict, so the advisory suffix is dropped to avoid contradicting it
      * @param  bool  $explain  render the call chain from each reached entry point down to the changed symbol
      */
@@ -127,6 +127,12 @@ final class ImpactFormatter
             $lines = [...$lines, ...self::summarisedList($result['relatedModels'])];
         }
 
+        if (($result['traitAndOverrideReach'] ?? []) !== []) {
+            $lines[] = '';
+            $lines[] = 'Runs this code without calling it (trait users and overrides — context, not risk): ' . count($result['traitAndOverrideReach'] ?? []);
+            $lines = [...$lines, ...self::summarisedList($result['traitAndOverrideReach'] ?? [])];
+        }
+
         if (($result['findings'] ?? []) !== []) {
             $lines[] = '';
             $lines[] = 'Findings (in the changed source itself):';
@@ -139,6 +145,15 @@ final class ImpactFormatter
         $lines[] = '';
         $lines[] = 'Impacted nodes: ' . $result['impacted'];
         $lines[] = 'Risk: ' . Str::upper($result['risk']->value) . ($gateActive ? '' : ' (advisory)');
+
+        // A level computed over nothing is not a level. When NOT ONE changed file could be placed, the
+        // figures above describe the search rather than the change, and LOW is what a reviewer takes
+        // from the bottom line — the UNRESOLVED markers sit further up, beside the files. This says it
+        // where the level is read. It does not alter the level: risk is a function of the graph by
+        // contract, and a report that silently withheld one would break every `--fail-on` in CI.
+        if (self::nothingCouldBePlaced($result['coverage'])) {
+            $lines[] = 'Note: none of the changed files could be placed in the graph, so this level says what was not found, not that nothing is affected.';
+        }
 
         if ($result['lowConfidence']) {
             // Only claim the cap when it actually bound the result — when precise seeds genuinely
@@ -202,6 +217,16 @@ final class ImpactFormatter
         }
 
         return $graphNodeCount === null ? '' : "\nScanned {$graphNodeCount} graph nodes; none share an identifier with it.";
+    }
+
+    /**
+     * Whether every changed file came back unresolved — no node, no reach, nothing to score.
+     *
+     * @param  array<string, 'analyzed'|'unresolved'>  $coverage
+     */
+    private static function nothingCouldBePlaced(array $coverage): bool
+    {
+        return $coverage !== [] && ! in_array('analyzed', $coverage, strict: true);
     }
 
     /**

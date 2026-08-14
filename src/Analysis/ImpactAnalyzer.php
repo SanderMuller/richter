@@ -151,7 +151,7 @@ final readonly class ImpactAnalyzer
      * draw "nothing changed" without a graph build. {@see JsonPresenter::emptyDetectChanges()} is
      * the separate JSON-shaped equivalent; the two differ in `risk` (enum here, string there).
      *
-     * @return array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, newFiles: list<string>, fqcns: array<string, string>, callers: list<array{depth: int, node: string, via: string}>, dependencies: list<array{depth: int, node: string, via: string}>, seeds: list<string>, reach: array<string, array<string, true>>, edges: list<array{source: string, target: string, via: string, depth: int}>, entryPoints: list<string>, associationEntryPoints: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, SecurityShape>, entryPointGates: array<string, list<string>>, entryPointAuthGates: array<string, list<string>>, entryPointAuthMiddleware: array<string, list<string>>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied: bool, scoredEntryPoints: int, scoredImpacted: int, findings: list<string>}
+     * @return array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, newFiles: list<string>, fqcns: array<string, string>, callers: list<array{depth: int, node: string, via: string}>, dependencies: list<array{depth: int, node: string, via: string}>, seeds: list<string>, reach: array<string, array<string, true>>, edges: list<array{source: string, target: string, via: string, depth: int}>, entryPoints: list<string>, associationEntryPoints: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, SecurityShape>, entryPointGates: array<string, list<string>>, entryPointAuthGates: array<string, list<string>>, entryPointAuthMiddleware: array<string, list<string>>, impacted: int, relatedModels: list<string>, traitAndOverrideReach: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied: bool, scoredEntryPoints: int, scoredImpacted: int, findings: list<string>}
      */
     public static function emptyDetectChanges(): array
     {
@@ -160,7 +160,7 @@ final readonly class ImpactAnalyzer
             'seeds' => [], 'reach' => [], 'edges' => [], 'entryPoints' => [], 'associationEntryPoints' => [], 'entryPointPaths' => [],
             'entryPointLocations' => [], 'entryPointSecurity' => [], 'entryPointGates' => [],
             'entryPointAuthGates' => [], 'entryPointAuthMiddleware' => [],
-            'impacted' => 0, 'relatedModels' => [], 'risk' => RiskLevel::Low,
+            'impacted' => 0, 'relatedModels' => [], 'traitAndOverrideReach' => [], 'risk' => RiskLevel::Low,
             'lowConfidence' => false, 'coarseCapApplied' => false,
             'scoredEntryPoints' => 0, 'scoredImpacted' => 0, 'findings' => [],
         ];
@@ -191,6 +191,7 @@ final readonly class ImpactAnalyzer
      *     entryPointAuthMiddleware: array<string, list<string>>,
      *     impacted: int,
      *     relatedModels: list<string>,
+     *     traitAndOverrideReach: list<string>,
      *     risk: RiskLevel,
      *     lowConfidence: bool,
      *     coarseCapApplied: bool,
@@ -310,10 +311,16 @@ final readonly class ImpactAnalyzer
         // A node only reachable through `model-relationship` is context, not risk — counting it lets touching a hub model saturate to HIGH on relation breadth alone. Any behavioural edge still counts.
         $reach = $this->graph->reachedViaTypes($seeds, $maxDepth);
         $impacted = count(array_filter($reach, $this->isRiskBearing(...)));
-        $relatedModels = array_keys(array_filter(
-            $reach,
-            fn (array $types): bool => ! $this->isRiskBearing($types) && isset($types['model-relationship']),
-        ));
+        $relatedModels = $this->uncountedReachVia($reach, ['model-relationship']);
+        // Classes that RUN the changed member without calling it: they use the trait declaring it, or
+        // they implement the ancestor it overrides. Excluded from the count for the saturation reason
+        // in {@see RISK_EXCLUDED_EDGE_TYPES} — fifty using classes must not decide a risk level — but
+        // excluding them from the COUNT and excluding them from the REPORT are different decisions,
+        // and only the first one is about saturation. Without this, a one-method change to a hub trait
+        // printed `0 entry points, 0 impacted, LOW`: byte-identical to a change that does nothing,
+        // while `richter:impact` on the same member listed every user. Shown, never counted — the same
+        // bargain {@see $relatedModels} already strikes for association reach.
+        $traitAndOverrideReach = $this->uncountedReachVia($reach, ['uses-trait', 'override']);
 
         [$risk, $coarseCapApplied, $scoredEntryPoints, $scoredImpacted] = $this->riskWithCoarseCap($impacted, $riskEntryPointCount, $touchesEntryClass, $preciseSeeds, $coarseSeeds, $lowConfidence, $maxDepth, $riskInputsMemo);
 
@@ -357,6 +364,7 @@ final readonly class ImpactAnalyzer
             'entryPointAuthMiddleware' => $entryPointAuthMiddleware,
             'impacted' => $impacted,
             'relatedModels' => $this->readableModelLabels($relatedModels),
+            'traitAndOverrideReach' => $traitAndOverrideReach,
             'risk' => $risk,
             'lowConfidence' => $lowConfidence,
             'coarseCapApplied' => $coarseCapApplied,
@@ -850,6 +858,27 @@ final readonly class ImpactAnalyzer
         }
 
         return Str::contains($class, self::UI_COMPONENT_NAMESPACES) ? $class : null;
+    }
+
+    /**
+     * Nodes reached ONLY through the given excluded edge types — reach the report shows and the count
+     * ignores.
+     *
+     * The "only" is what makes it safe to print beside the impacted number without double-counting: a
+     * node that also arrived by a risk-bearing edge is already in that number, and listing it here as
+     * uncounted context would contradict it.
+     *
+     * @param  array<string, array<string, true>>  $reach
+     * @param  list<string>  $types
+     * @return list<string>
+     */
+    private function uncountedReachVia(array $reach, array $types): array
+    {
+        return array_keys(array_filter(
+            $reach,
+            fn (array $viaTypes): bool => ! $this->isRiskBearing($viaTypes)
+                && array_intersect_key($viaTypes, array_flip($types)) !== [],
+        ));
     }
 
     /**

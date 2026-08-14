@@ -101,6 +101,8 @@ Resolves which class members the branch changed, walks the graph, and reports:
 - a coarse risk level (`low` / `medium` / `high`);
 - honest degradation: a change that cannot be placed in the graph reads **UNRESOLVED**, never as a falsely reassuring "no impact", and an unfollowable dispatch makes a queue job read "unknown", not "none". A file that resolved to no graph node also echoes the FQCN its path derived to (`app/Services/Inspector.php → App\Services\Inspector`), which is what separates a coverage gap from a wrong root namespace. Before a file falls through to UNRESOLVED, one last lane lists the surfaces that file *defines* (a routes file, a legacy `app/Console/Kernel.php`) as touched, without walking them or moving the risk level ([why](docs/detect-changes.md#unplaceable-files-and-the-defined-node-fallback)).
 
+**A report of nothing is a claim about your diff, not only about the code.** Richter resolves changes to class *members*, so an edit that changes a file without changing a member — a comment after the closing brace, a `use` reordering — genuinely seeds nothing and correctly reports nothing. That is the first thing to rule out when a change you expected to light up comes back empty, and it is the most common reason a probe of richter's own behaviour misleads its author.
+
 A member *added* to an existing class seeds nothing: nothing called it before, so it can break nothing. A brand-new **file** is different: the class itself is new, so it seeds on its class node and reports its reach, its own entry surface (a new command, job or listener), and a risk level accordingly, marked `[new file]` in the report. A diff that only adds files can therefore report `medium`/`high` and trip `--fail-on`.
 
 ```text
@@ -114,6 +116,10 @@ Entry points reached: 2 (some changed files could not be fully placed — see UN
 
 Related models (association reach — context, not risk): 1
   - App\Models\Category
+
+Runs this code without calling it (trait users and overrides — context, not risk): 2
+  - App\Builders\InvoiceBuilder
+  - App\Builders\QuoteBuilder
 
 Findings (in the changed source itself):
   ! app/Models/Post.php: eager-load string 'ownerprofile': segment 'ownerprofile' is not a method on any model — check the relation name (a broken constant concatenation reads exactly like this)

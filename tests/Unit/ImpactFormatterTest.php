@@ -552,4 +552,49 @@ final class ImpactFormatterTest extends TestCase
         // The breadth note coexists with the low-confidence note.
         $this->assertStringContainsString('low confidence', $text);
     }
+
+    #[Test]
+    public function a_report_where_nothing_could_be_placed_says_so_beside_the_level(): void
+    {
+        // The shape a production bug fix produced: one changed file, no node for it, and a bottom line
+        // reading LOW. The UNRESOLVED marker was printed — beside the file, several lines up — while
+        // the level is what a reviewer reads.
+        $output = ImpactFormatter::detectChanges([
+            'changed' => ['app/View/Elements/Widget.php' => 1],
+            'coverage' => ['app/View/Elements/Widget.php' => 'unresolved'],
+            'entryPoints' => [],
+            'entryPointPaths' => [],
+            'entryPointLocations' => [],
+            'entryPointSecurity' => [],
+            'entryPointGates' => [],
+            'impacted' => 0,
+            'relatedModels' => [],
+            'risk' => RiskLevel::Low,
+            'lowConfidence' => false,
+            'findings' => [],
+        ], new TestReferenceIndex(), false, false);
+
+        $this->assertStringContainsString('none of the changed files could be placed', $output);
+    }
+
+    #[Test]
+    public function a_report_with_one_placed_file_does_not_claim_nothing_was_placed(): void
+    {
+        $output = ImpactFormatter::detectChanges([
+            'changed' => ['app/Models/Post.php' => 1, 'app/View/Elements/Widget.php' => 1],
+            'coverage' => ['app/Models/Post.php' => 'analyzed', 'app/View/Elements/Widget.php' => 'unresolved'],
+            'entryPoints' => [],
+            'entryPointPaths' => [],
+            'entryPointLocations' => [],
+            'entryPointSecurity' => [],
+            'entryPointGates' => [],
+            'impacted' => 0,
+            'relatedModels' => [],
+            'risk' => RiskLevel::Low,
+            'lowConfidence' => false,
+            'findings' => [],
+        ], new TestReferenceIndex(), false, false);
+
+        $this->assertStringNotContainsString('none of the changed files could be placed', $output);
+    }
 }

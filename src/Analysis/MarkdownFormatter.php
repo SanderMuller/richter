@@ -121,7 +121,7 @@ final class MarkdownFormatter
     }
 
     /**
-     * @param  array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, newFiles?: list<string>, fqcns?: array<string, string>, entryPoints: list<string>, associationEntryPoints?: list<string>, entryPointPaths?: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations?: array<string, array{file: string, line?: int}>, entryPointSecurity?: array<string, SecurityShape>, entryPointGates?: array<string, list<string>>, entryPointAuthGates?: array<string, list<string>>, entryPointAuthMiddleware?: array<string, list<string>>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied?: bool, scoredEntryPoints?: int, scoredImpacted?: int, findings?: list<string>, ...}  $result
+     * @param  array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, newFiles?: list<string>, fqcns?: array<string, string>, entryPoints: list<string>, associationEntryPoints?: list<string>, entryPointPaths?: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations?: array<string, array{file: string, line?: int}>, entryPointSecurity?: array<string, SecurityShape>, entryPointGates?: array<string, list<string>>, entryPointAuthGates?: array<string, list<string>>, entryPointAuthMiddleware?: array<string, list<string>>, impacted: int, relatedModels: list<string>, traitAndOverrideReach?: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied?: bool, scoredEntryPoints?: int, scoredImpacted?: int, findings?: list<string>, ...}  $result
      * @param  bool  $gateActive  when a `--fail-on*` gate is active the command appends its own verdict, so the advisory suffix is dropped to avoid contradicting it
      * @param  bool  $explain  render the call chain from each reached entry point down to the changed symbol
      * @param  string|null  $notice  a caveat about the analysis to render inside the document (the
@@ -203,6 +203,13 @@ final class MarkdownFormatter
         // Beside the call-reached list, never dropped: demoting a surface out of `entryPoints`
         // without printing it here would lose it entirely in this format.
         $lines = [...$lines, ...self::associationSection($result['associationEntryPoints'] ?? [])];
+
+        if (($result['traitAndOverrideReach'] ?? []) !== []) {
+            $lines = [...$lines, '', sprintf(
+                'Runs this code without calling it (trait users and overrides — context, not risk): %d',
+                count($result['traitAndOverrideReach'] ?? []),
+            ), ...array_map(static fn (string $user): string => "- `{$user}`", self::sorted($result['traitAndOverrideReach'] ?? []))];
+        }
 
         if ($result['relatedModels'] !== []) {
             $lines = [...$lines, '', ...self::collapsed(

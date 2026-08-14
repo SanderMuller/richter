@@ -356,6 +356,7 @@ final class McpTest extends TestCase
             'entryPointTestReferences',
             'impacted',
             'relatedModels',
+            'traitAndOverrideReach',
             'risk',
             'lowConfidence',
             'coarseCapApplied',

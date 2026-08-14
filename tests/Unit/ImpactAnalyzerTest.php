@@ -1568,6 +1568,70 @@ final class ImpactAnalyzerTest extends TestCase
     }
 
     #[Test]
+    public function a_hub_trait_reports_its_users_without_counting_them(): void
+    {
+        // The shape that read as a blank page: a trait whose users have no route-reachable caller of
+        // their own. `uses-trait` is excluded from the impacted count on purpose — fifty using classes
+        // must not decide a risk level — but the report said nothing at all, which is what a change
+        // that affects nothing looks like. Shown now, still uncounted.
+        $analyzer = new ImpactAnalyzer(new CodeGraph([
+            ['source' => 'App\Builders\FirstBuilder', 'target' => WithAudits::class, 'type' => 'uses-trait'],
+            ['source' => 'App\Builders\SecondBuilder', 'target' => WithAudits::class, 'type' => 'uses-trait'],
+            ['source' => WithAudits::class, 'target' => 'App\Models\Concerns\WithAudits::audits', 'type' => 'declares'],
+        ], hasUnparseableFiles: false));
+
+        $result = $analyzer->detectChanges([
+            $this->changedMethod('app/Models/Concerns/WithAudits.php', WithAudits::class, 'audits'),
+        ]);
+
+        $this->assertSame(['App\Builders\FirstBuilder', 'App\Builders\SecondBuilder'], $result['traitAndOverrideReach']);
+        // Uncounted, which is the half of the bargain that was never in question.
+        $this->assertSame(0, $result['impacted']);
+        $this->assertSame(RiskLevel::Low, $result['risk']);
+    }
+
+    #[Test]
+    public function an_override_implementor_is_reported_the_same_way(): void
+    {
+        // `override` is excluded for the same over-approximation reason as `uses-trait`, so it had the
+        // same blind spot: an interface method's implementors were known and unmentioned.
+        $analyzer = new ImpactAnalyzer(new CodeGraph([
+            ['source' => 'App\Services\ConcreteExporter::export', 'target' => 'App\Contracts\Exporter::export', 'type' => 'override'],
+            ['source' => 'App\Contracts\Exporter', 'target' => 'App\Contracts\Exporter::export', 'type' => 'declares'],
+        ], hasUnparseableFiles: false));
+
+        $result = $analyzer->detectChanges([
+            $this->changedMethod('app/Contracts/Exporter.php', 'App\Contracts\Exporter', 'export'),
+        ]);
+
+        $this->assertSame(['App\Services\ConcreteExporter::export'], $result['traitAndOverrideReach']);
+        $this->assertSame(0, $result['impacted']);
+    }
+
+    #[Test]
+    public function reach_that_also_arrives_by_a_real_call_is_counted_not_listed_as_context(): void
+    {
+        // The "only" in "reached only through an excluded type" is load-bearing: a class that also
+        // arrives by a behavioural edge is already in the impacted number, and repeating it as
+        // uncounted context would contradict that number.
+        $analyzer = new ImpactAnalyzer(new CodeGraph([
+            // The SAME node on both edges — that is what the "only" decides. A different node on each
+            // would pass whatever the filter did, which is how the first version of this test passed
+            // against a mutation that removed the check it exists for.
+            ['source' => 'App\Builders\FirstBuilder', 'target' => WithAudits::class, 'type' => 'uses-trait'],
+            ['source' => 'App\Builders\FirstBuilder', 'target' => 'App\Models\Concerns\WithAudits::audits', 'type' => 'calls'],
+            ['source' => WithAudits::class, 'target' => 'App\Models\Concerns\WithAudits::audits', 'type' => 'declares'],
+        ], hasUnparseableFiles: false));
+
+        $result = $analyzer->detectChanges([
+            $this->changedMethod('app/Models/Concerns/WithAudits.php', WithAudits::class, 'audits'),
+        ]);
+
+        $this->assertNotContains('App\Builders\FirstBuilder', $result['traitAndOverrideReach']);
+        $this->assertGreaterThan(0, $result['impacted']);
+    }
+
+    #[Test]
     public function a_route_mapped_middleware_lists_its_route_instead_of_self_listing(): void
     {
         $analyzer = new ImpactAnalyzer(new CodeGraph([
