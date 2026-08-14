@@ -158,6 +158,8 @@ final class DispatchEdgeTracerTest extends TestCase
         yield 'reassigned from something opaque' => ['$job = new ImportJob(); $job = $this->factory->make(); dispatch($job);'];
         yield 'assigned only below the dispatch' => ['dispatch($job); $job = new ImportJob();'];
         yield 'rebound by a foreach' => ['$job = new ImportJob(); foreach ($queue as $job) { } dispatch($job);'];
+        yield 'rebound by a destructuring foreach' => ['$job = new ImportJob(); foreach ($rows as [$job, $meta]) { } dispatch($job);'];
+        yield 'rebound by a keyed destructuring foreach' => ['$job = new ImportJob(); foreach ($rows as $i => [$job]) { } dispatch($job);'];
         yield 'captured by reference' => ['$job = new ImportJob(); $f = function () use (&$job) { $job = null; }; dispatch($job);'];
         yield 'rebound through a reference alias' => ['$job = new ImportJob(); $alias = &$job; $alias = $this->factory->make(); dispatch($job);'];
         yield 'constructed inside a closure, dispatched outside' => ['$f = function () { $job = new ImportJob(); }; dispatch($job);'];

@@ -149,7 +149,13 @@ final class LocallyConstructedJobs
                 // variable written once — the exemption dropping a dispatch whose target moved.
                 $node instanceof AssignRef => array_map($count, [...self::assignedVariables($node->var), ...self::assignedVariables($node->expr)]),
                 $node instanceof Assign, $node instanceof AssignOp => array_map($count, self::assignedVariables($node->var)),
-                $node instanceof Foreach_ => array_map($count, [$node->keyVar, $node->valueVar]),
+                // Through `assignedVariables()`, like every other target: `foreach ($rows as [$job])`
+                // binds through a list, and a branch that only recognised a plain variable let the
+                // rebinding pass unseen — the dispatch below it then read as provably local.
+                $node instanceof Foreach_ => array_map($count, [
+                    ...($node->keyVar instanceof Expr ? self::assignedVariables($node->keyVar) : []),
+                    ...self::assignedVariables($node->valueVar),
+                ]),
                 $node instanceof ClosureUse => array_map($count, [$node->var]),
                 $node instanceof Static_ => array_map($count, array_map(static fn (StaticVar $var): Variable => $var->var, $node->vars)),
                 $node instanceof Global_ => array_map($count, $node->vars),
