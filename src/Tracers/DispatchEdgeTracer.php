@@ -67,6 +67,21 @@ final readonly class DispatchEdgeTracer
         $this->dispatchFunctions = [...self::DISPATCH_FUNCTIONS, ...$dispatchHelpers];
     }
 
+    /**
+     * Whether this source can possibly dispatch — a cheap pre-check before the AST walk.
+     *
+     * Two lanes have to be covered, and both spell themselves out. Every dispatch verb this tracer
+     * knows carries `dispatch` in its name, except the `Bus` facade's `chain`/`batch`; and the
+     * instantiation over-approximation needs a `new`. A file with none of the three cannot produce an
+     * edge or a site. Any new verb has to be spelled by one of these tokens, or widen them first.
+     */
+    public static function mayMatch(string $source): bool
+    {
+        return stripos($source, 'dispatch') !== false
+            || stripos($source, 'new ') !== false
+            || str_contains($source, 'Bus');
+    }
+
     /** @return array{edges: list<array{source: string, target: string, type: string}>, unresolvedSites: list<array{line: int, dispatcher: string}>} */
     public function edgesForSource(string $source, string $classFqcn): array
     {

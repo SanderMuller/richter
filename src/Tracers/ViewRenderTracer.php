@@ -152,6 +152,18 @@ final readonly class ViewRenderTracer
         return array_keys($views);
     }
 
+    /**
+     * Whether this source can possibly render a view by name — a cheap pre-check before the AST walk.
+     *
+     * Every shape the tracer matches — `view(...)`, `View::make(...)`, a `$view` property — spells the
+     * word out, so a file without it anywhere cannot contribute an edge. Sound only as long as that
+     * holds: a new matcher keyed on something else has to widen this first.
+     */
+    public static function mayMatch(string $source): bool
+    {
+        return stripos($source, 'view') !== false;
+    }
+
     private function isViewRender(mixed $node): bool
     {
         if ($node instanceof FuncCall) {

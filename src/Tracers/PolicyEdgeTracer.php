@@ -41,6 +41,20 @@ final class PolicyEdgeTracer
         return '/\\\\?' . preg_quote(self::policyNamespace(), '/') . '([\w\\\\]+)/';
     }
 
+    /**
+     * Whether this source can possibly reference a policy — a cheap pre-check before the AST walk.
+     *
+     * Sound by construction, and it has to stay that way: every reference the tracer can match
+     * resolves through a `use App\Policies\…`, a namespace declaration, or a qualified name, and all
+     * three carry the namespace's own last segment verbatim. A file without it cannot produce a
+     * policy edge, so the walk over its methods is pure cost. Widen this the moment the matcher
+     * learns a form that does not carry the segment.
+     */
+    public static function mayMatch(string $source): bool
+    {
+        return stripos($source, 'Polic') !== false;
+    }
+
     /** @return list<array{source: string, target: string, type: string}> */
     public function edgesForSource(string $source, string $classFqcn): array
     {

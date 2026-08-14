@@ -33,6 +33,14 @@ use SanderMuller\Richter\Support\AppNamespace;
 final class ReferenceEdgeTracer
 {
     /**
+     * {@see NAMESPACE_TYPES} with its keys qualified against the app's root namespace, built on first
+     * use. Per instance, which is per build — the root namespace cannot change under a running build.
+     *
+     * @var array<string, string>|null
+     */
+    private ?array $qualifiedTypes = null;
+
+    /**
      * The checker's list plus bare `has`/`doesntHave`: overloaded receivers make those unsafe to
      * *validate* strings from (see the checker's LOAD_METHODS note), but for reach edges the
      * model-constant gate below is filter enough — `->has(Model::RELATION)` sites in query builders
@@ -240,20 +248,30 @@ final class ReferenceEdgeTracer
      */
     private function referencesIn(array $names): array
     {
+        // Qualified once per instance, not once per name per type. `qualify()` reads the configured
+        // root namespace and the base path on every call, and this loop runs over every name in every
+        // method of every app file — the prefixes it builds are the same string each time.
+        $this->qualifiedTypes ??= array_combine(
+            array_map(AppNamespace::qualify(...), array_keys(self::NAMESPACE_TYPES)),
+            array_values(self::NAMESPACE_TYPES),
+        );
+
         $references = [];
 
         foreach ($names as $name) {
             $fqcn = AppFiles::resolveName($name);
 
-            foreach (self::NAMESPACE_TYPES as $relative => $type) {
-                if (str_starts_with($fqcn, AppNamespace::qualify($relative))) {
+            foreach ($this->qualifiedTypes as $prefix => $type) {
+                if (str_starts_with($fqcn, $prefix)) {
                     $references[$fqcn] = $type;
                 }
             }
 
             // Custom validator classes live in per-domain `Validators` sub-namespaces under
             // Http\Requests (`App\Http\Requests\Post\Validators\…`) — a segment match, not a prefix.
-            if (AppNamespace::isInApp($fqcn) && str_contains($fqcn, '\\Validators\\')) {
+            // The segment test runs first: it is a substring scan, while the app-namespace test reads
+            // configuration, and only names carrying the segment at all can qualify.
+            if (str_contains($fqcn, '\\Validators\\') && AppNamespace::isInApp($fqcn)) {
                 $references[$fqcn] = 'validates-with';
             }
         }

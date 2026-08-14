@@ -13,6 +13,7 @@ use PhpParser\NodeTraverser;
 use PhpParser\NodeVisitor;
 use PhpParser\NodeVisitor\NameResolver;
 use PhpParser\NodeVisitorAbstract;
+use PhpParser\Parser;
 use PhpParser\ParserFactory;
 use SanderMuller\Richter\Graph\CodeGraphBuilder;
 use Symfony\Component\Finder\Finder;
@@ -24,6 +25,11 @@ use Throwable;
  */
 final class AppFiles
 {
+    /** Attribute key for {@see resolveName()}'s per-node cache — richter's own, never php-parser's. */
+    private const string RESOLVED_FQCN = 'richterResolvedFqcn';
+
+    private static ?Parser $parser = null;
+
     /**
      * Parse PHP source to its statement AST, or null when it doesn't parse (advisory tooling skips
      * unparseable input rather than aborting).
@@ -32,8 +38,13 @@ final class AppFiles
      */
     public static function parse(string $source): ?array
     {
+        // One parser for the process. `createForHostVersion()` builds a lexer and a parser object,
+        // and a graph build parses every file under app/ — 1,600 of them on a mid-sized project.
+        // php-parser resets its own state per `parse()` call, so the instance is reusable.
+        self::$parser ??= new ParserFactory()->createForHostVersion();
+
         try {
-            $ast = new ParserFactory()->createForHostVersion()->parse($source);
+            $ast = self::$parser->parse($source);
 
             return $ast === null ? null : array_values($ast);
         } catch (Throwable) {
@@ -67,9 +78,14 @@ final class AppFiles
      * app-tree walk instead of one each (Brain's own analysis and the member-declaration pass still
      * parse separately).
      *
+     * `$also` rides along in the same traversal. A caller that needs its own pass over the tree — the
+     * graph build collects every method, class-like and trait-use per file — would otherwise walk it a
+     * second time, and the walk is not free at app-tree scale. Name resolution runs first in the
+     * visitor list, so a rider reading `resolvedName` sees a resolved node.
+     *
      * @return list<Stmt>|null
      */
-    public static function parseResolved(string $source): ?array
+    public static function parseResolved(string $source, ?NodeVisitor $also = null): ?array
     {
         $ast = self::parse($source);
 
@@ -86,17 +102,35 @@ final class AppFiles
         // catches: one such file anywhere under `app/` aborted the whole graph build, and one in a
         // diff aborted `detect-changes`. Collecting keeps the rest of the file's names resolved and
         // lets advisory tooling degrade instead of refusing to run.
-        new NodeTraverser(new NameResolver(new Collecting(), ['preserveOriginalNames' => true, 'replaceNodes' => false]))->traverse($ast);
+        $resolver = new NameResolver(new Collecting(), ['preserveOriginalNames' => true, 'replaceNodes' => false]);
+        $traverser = $also instanceof NodeVisitor ? new NodeTraverser($resolver, $also) : new NodeTraverser($resolver);
+
+        $traverser->traverse($ast);
 
         return $ast;
     }
 
-    /** The NameResolver-attached FQCN of a name node (imports/aliases applied), root-slash trimmed. */
+    /**
+     * The NameResolver-attached FQCN of a name node (imports/aliases applied), root-slash trimmed.
+     *
+     * Cached on the node itself, because several tracers resolve the same names out of the same file:
+     * the reference tracer reads every name in a method, and the policy, static-call, config and
+     * view lanes read theirs again. `Name::toString()` re-implodes the parts on each call. The cache
+     * lives and dies with the AST, so it cannot go stale or outlive the file it describes.
+     */
     public static function resolveName(Name $name): string
     {
-        $resolved = $name->getAttribute('resolvedName');
+        $cached = $name->getAttribute(self::RESOLVED_FQCN);
 
-        return ltrim($resolved instanceof Name ? $resolved->toString() : $name->toString(), '\\');
+        if (is_string($cached)) {
+            return $cached;
+        }
+
+        $resolved = $name->getAttribute('resolvedName');
+        $fqcn = ltrim($resolved instanceof Name ? $resolved->toString() : $name->toString(), '\\');
+        $name->setAttribute(self::RESOLVED_FQCN, $fqcn);
+
+        return $fqcn;
     }
 
     /** A class constant's string value, or null when the class/constant doesn't resolve or isn't a string. */

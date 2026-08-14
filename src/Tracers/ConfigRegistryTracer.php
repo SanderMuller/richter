@@ -284,6 +284,17 @@ final class ConfigRegistryTracer
         return array_values($reads);
     }
 
+    /**
+     * Whether this source can possibly read config — a cheap pre-check before the AST walk.
+     *
+     * Both matched forms, `config(...)` and `Config::get(...)`, contain the word; a file without it
+     * cannot produce a registry edge. Widen this if the matcher grows a third form.
+     */
+    public static function mayMatch(string $source): bool
+    {
+        return stripos($source, 'config') !== false;
+    }
+
     private function isConfigRead(mixed $node): bool
     {
         if ($node instanceof FuncCall) {

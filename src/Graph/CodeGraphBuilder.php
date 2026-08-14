@@ -9,10 +9,6 @@ use LaraMint\LaravelBrain\Graph\Edge;
 use LaraMint\LaravelBrain\Graph\Graph as BrainGraph;
 use PhpParser\Node;
 use PhpParser\Node\Stmt\ClassLike;
-use PhpParser\Node\Stmt\ClassMethod;
-use PhpParser\Node\Stmt\TraitUse;
-use PhpParser\NodeTraverser;
-use PhpParser\NodeVisitorAbstract;
 use SanderMuller\Richter\Analysis\ImpactAnalyzer;
 use SanderMuller\Richter\Changes\MemberChange;
 use SanderMuller\Richter\Changes\MemberResolver;
@@ -372,7 +368,7 @@ final class CodeGraphBuilder
 
     /**
      * One parse + name-resolution + node collection per app file, shared by every AST-walking
-     * tracer ({@see collectTracerNodes()}). The tracers' own `edgesForSource()` fronts
+     * tracer ({@see TracerNodeCollector}). The tracers' own `edgesForSource()` fronts
      * (parse-per-call) stay for tests and single-file use.
      *
      * Also retains the resolved ASTs of the entry-point-root files plus EventServiceProvider.php —
@@ -424,7 +420,11 @@ final class CodeGraphBuilder
         $unresolvedDispatchSites = [];
 
         foreach (AppFiles::phpClasses($projectRoot . '/app', $projectRoot) as $class) {
-            $ast = AppFiles::parseResolved((string) file_get_contents($class['path']));
+            $source = (string) file_get_contents($class['path']);
+            // The bucket collector rides along with name resolution rather than walking the tree
+            // again after it — same nodes, one descent.
+            $collector = new TracerNodeCollector();
+            $ast = AppFiles::parseResolved($source, $collector);
 
             if ($ast === null) {
                 // A file the graph cannot read has no edges of its own and could reach anything —
@@ -439,19 +439,20 @@ final class CodeGraphBuilder
                 $entryPointAsts[$class['path']] = $ast;
             }
 
-            $nodes = $this->collectTracerNodes($ast);
             // The declares edges this file's classes contribute, derived from the AST already in
             // hand. {@see memberDeclarationEdges()} would otherwise re-read and re-parse every one
             // of these files a second time, after this loop has just parsed them all.
-            $declaresByFqcn[$class['fqcn']] = $this->declaredMemberEdgesFrom($nodes['classLikes'], $class['fqcn']);
-            $hierarchyTracer->collect($nodes['classLikes']);
-            $constantTracer->collect($nodes['classLikes']);
-            $facadeTracer->collect($nodes['classLikes']);
+            $declaresByFqcn[$class['fqcn']] = $this->declaredMemberEdgesFrom($collector->classLikes, $class['fqcn']);
+            $hierarchyTracer->collect($collector->classLikes);
+            $constantTracer->collect($collector->classLikes);
+            $facadeTracer->collect($collector->classLikes);
 
             // Dispatchers → jobs incl. configured custom helpers + the unresolved-dispatch signal
             // (a variable dispatch must make a job read "unknown", not "none"). The target is
             // bounded to "a dispatchable" (S2), so unlike S1 above this IS change-scopeable.
-            $dispatch = $dispatchTracer->edgesForMethods($nodes['classMethods'], $class['fqcn'], $nodes['classLikes']);
+            $dispatch = DispatchEdgeTracer::mayMatch($source)
+                ? $dispatchTracer->edgesForMethods($collector->classMethods, $class['fqcn'], $collector->classLikes)
+                : ['edges' => [], 'unresolvedSites' => []];
 
             // The tracer knows the dispatching member and the line; only this loop knows the file, so
             // it stamps the project-relative path the reports print everywhere else.
@@ -462,12 +463,24 @@ final class CodeGraphBuilder
             }
 
             array_push($edges, ...$dispatch['edges']);
-            array_push($edges, ...$policyTracer->edgesForMethods($nodes['classMethods'], $class['fqcn']));
-            array_push($edges, ...$referenceTracer->edgesForNodes($nodes['classMethods'], $nodes['traitUses'], $class['fqcn']));
-            array_push($edges, ...$entryPointTracer->interfaceEdgesForClassLikes($nodes['classLikes'], $class['fqcn']));
-            array_push($edges, ...$staticCallTracer->edgesForClassLikes($nodes['classLikes']));
-            array_push($edges, ...$configTracer->edgesForClassLikes($nodes['classLikes']));
-            array_push($edges, ...$viewTracer->edgesForClassLikes($nodes['classLikes']));
+            // Three tracers ask their own question of the raw source before walking it. Each gate is a
+            // strict superset of what its matcher can fire on (see the `mayMatch` docblocks), so this
+            // skips work rather than results — most app files reference no policy, read no config and
+            // render no view, and the walks over them were the tracers' whole cost on those files.
+            if (PolicyEdgeTracer::mayMatch($source)) {
+                array_push($edges, ...$policyTracer->edgesForMethods($collector->classMethods, $class['fqcn']));
+            }
+
+            array_push($edges, ...$referenceTracer->edgesForNodes($collector->classMethods, $collector->traitUses, $class['fqcn']));
+            array_push($edges, ...$entryPointTracer->interfaceEdgesForClassLikes($collector->classLikes, $class['fqcn']));
+            array_push($edges, ...$staticCallTracer->edgesForClassLikes($collector->classLikes));
+            if (ConfigRegistryTracer::mayMatch($source)) {
+                array_push($edges, ...$configTracer->edgesForClassLikes($collector->classLikes));
+            }
+
+            if (ViewRenderTracer::mayMatch($source)) {
+                array_push($edges, ...$viewTracer->edgesForClassLikes($collector->classLikes));
+            }
         }
 
         // CHA override edges (ancestor::m → concrete::m). Emitted once here, after every file's
@@ -501,47 +514,6 @@ final class CodeGraphBuilder
             'inheritance' => $hierarchyTracer->inheritanceMap(),
             'declares' => $declaresByFqcn,
         ];
-    }
-
-    /**
-     * The node buckets the consolidated tracers consume, collected in one descent of the file's AST.
-     * Each tracer used to run its own NodeFinder walk over the same tree — five full descents per
-     * file (three ClassMethod, one TraitUse, one ClassLike) where one suffices. Bucket contents match
-     * what findInstanceOf() returned: every instance at any depth (anonymous classes included), in
-     * document order.
-     *
-     * @param  list<Node\Stmt>  $ast  a name-resolved AST ({@see AppFiles::parseResolved()})
-     * @return array{classMethods: list<ClassMethod>, traitUses: list<TraitUse>, classLikes: list<ClassLike>}
-     */
-    private function collectTracerNodes(array $ast): array
-    {
-        $visitor = new class extends NodeVisitorAbstract {
-            /** @var list<ClassMethod> */
-            public array $classMethods = [];
-
-            /** @var list<TraitUse> */
-            public array $traitUses = [];
-
-            /** @var list<ClassLike> */
-            public array $classLikes = [];
-
-            public function enterNode(Node $node): null
-            {
-                if ($node instanceof ClassMethod) {
-                    $this->classMethods[] = $node;
-                } elseif ($node instanceof TraitUse) {
-                    $this->traitUses[] = $node;
-                } elseif ($node instanceof ClassLike) {
-                    $this->classLikes[] = $node;
-                }
-
-                return null;
-            }
-        };
-
-        new NodeTraverser($visitor)->traverse($ast);
-
-        return ['classMethods' => $visitor->classMethods, 'traitUses' => $visitor->traitUses, 'classLikes' => $visitor->classLikes];
     }
 
     /**

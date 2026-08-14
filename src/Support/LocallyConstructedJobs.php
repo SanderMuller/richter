@@ -54,7 +54,30 @@ final class LocallyConstructedJobs
      */
     public static function in(ClassMethod $method): array
     {
+        $candidates = self::topLevelConstructions($method);
+
+        // Nothing built at the top level means nothing to prove, and most methods are that case. The
+        // write count below walks the whole method, so asking the cheap question first keeps that walk
+        // off every method that could never qualify.
+        if ($candidates === []) {
+            return [];
+        }
+
         $writes = self::variableWriteCounts($method);
+
+        return array_filter($candidates, static fn (array $candidate, string $name): bool => ($writes[$name] ?? 0) === 1, ARRAY_FILTER_USE_BOTH);
+    }
+
+    /**
+     * The `$x = new SomeTarget(...)` assignments directly in the method's body, by variable name.
+     *
+     * Top level only, and that is the whole point: an assignment inside a branch says nothing about
+     * what the variable holds further down.
+     *
+     * @return array<string, array{pos: int, jobs: list<string>}>
+     */
+    private static function topLevelConstructions(ClassMethod $method): array
+    {
         $constructed = [];
 
         foreach ($method->stmts ?? [] as $stmt) {
@@ -80,10 +103,6 @@ final class LocallyConstructedJobs
             }
 
             if (! $assign->expr->class instanceof Name) {
-                continue;
-            }
-
-            if (($writes[$assign->var->name] ?? 0) !== 1) {
                 continue;
             }
 
