@@ -5,6 +5,86 @@ All notable changes to `sandermuller/richter` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.35.0 - 2026-08-14
+
+A dispatch whose job the same method just constructed is not an unfollowable dispatch, and this release stops counting it as one.
+
+### Fixed
+
+#### A job the dispatching method built itself no longer blocks test selection
+
+```php
+$job = new SendInvoice($order);
+dispatch($job);
+
+```
+That was recorded as a dispatch whose target could not be followed — and the taint is global, so one of them makes every `richter:affected-tests` run report `not determinable` and fall back to the full suite. The graph has carried the edge for this shape all along: the instantiation is in the same method, right above the dispatch. The site pointed at a place to restructure where nothing was hidden and nothing needed restructuring.
+
+The bar for "provably this job" is deliberately high, because the cost of getting it wrong is a selection that omits a real test. The method has to write that variable **exactly once**, at the top level of the method, before the dispatch. Everything else keeps the site:
+
+| Shape | Why it still counts |
+|---|---|
+| `if (…) { $job = new SendInvoice(); }` | Assigned only on one path — the variable may still hold what it held before |
+| `$job = new SendInvoice(); $job = $factory->make();` | Reassigned |
+| `$alias = &$job; $alias = …` | Rebound through a reference |
+| `foreach ($queue as $job)` | Rebound by the loop |
+| `function (…) use (&$job)` | Capturable by reference |
+| `public function handle($job)` | A parameter of the same name |
+
+The one residual is a callee taking the variable by reference and replacing it between the construction and the dispatch, which needs that callee's signature to see.
+
+#### `dispatch(SomeJob::for($x))` draws its edge
+
+A named constructor names its class in the receiver, so a change to that job now reaches the dispatching member. The site stays listed: nothing in this pass proves the method returns an instance of its own class, and a wrong "resolved" would drop a real target from a selection.
+
+#### Reach that does not count is now reported
+
+A change to a hub trait used to report `0 entry points, 0 impacted, LOW` — the same thing a change that
+affects nothing reports — while `richter:impact` on that very member listed every using class.
+
+`uses-trait` and `override` are excluded from the impacted count deliberately: fifty using classes must
+not decide a risk level. That has not changed. What changed is that excluding them from the count is no
+longer taken as a reason to exclude them from the report. They appear on their own line — in the text,
+markdown and HTML reports, and as `traitAndOverrideReach` in `--json` and the MCP tool — out of the
+count and out of risk, exactly as `relatedModels` has worked since 0.26.0.
+
+A class that also arrives by a real call stays where it was: in the impacted number, not in this list.
+
+#### A level computed over nothing says so
+
+When not one changed file could be placed in the graph, the report now says that beside the level.
+`UNRESOLVED` already appeared next to each file, but the bottom line read `Risk: LOW`, and the bottom
+line is what gets read.
+
+The level itself is unchanged. Risk is a function of the graph by contract, and a report that withheld
+one would break every `--fail-on` in CI.
+
+### Performance
+
+**The graph build is about a quarter faster.** Every command pays that build on a cache miss, and a
+diff is a miss by definition, so this is the wall-clock cost of a normal run.
+
+Measured over a 1,613-file synthetic corpus: 697 → 530 ms, with the built graph byte-identical. The
+two changes that carried it were duplicated work rather than slow work — a php-parser instance was
+being constructed for every file under `app/`, and the per-file node buckets were collected by
+descending each tree a second time after name resolution had just walked it. The rest is work that
+was being done per name and only needed doing once, plus three tracers that now ask a cheap question
+of the raw source before walking a file at all.
+
+Nothing about the graph changes: same nodes, same edges, same order, asserted rather than assumed.
+
+### Upgrading
+
+**Your cached graph rebuilds once on first run.** `GraphCache::FORMAT_VERSION` moves 18 → 19, and this one is stale in both directions: a graph written by 0.34.1 keeps sites this version does not record, and lacks the edges a named constructor now draws.
+
+`traitAndOverrideReach` is a new key in the `--json` payload and the MCP `detect-changes` output. It is
+additive — every existing key keeps its position and meaning — but anything asserting on the exact key
+set will see it.
+
+No configuration changes.
+
+**Full Changelog**: https://github.com/SanderMuller/richter/compare/v0.34.1...v0.35.0
+
 ## v0.34.1 - 2026-08-14
 
 Two follow-ups to 0.34.0's refusal reasons, both from using them.
@@ -17,6 +97,7 @@ A diff with no PHP under `app/` returns before the graph is ever built, so the f
 
 ```
 Build profile: nothing was built — the diff holds nothing the graph is built from.
+
 
 ```
 On stderr, like the table it stands in for, and before the payload in `--json` mode so stdout stays one document. Building anyway was the alternative, and it would make a no-op run pay for an analysis nothing asked for.
@@ -35,6 +116,7 @@ An event named by a class constant resolves in **any** declaration form, includi
 public const string
     SUBTITLE_CHANGED = 'subtitle-changed',
     SUBTITLE_DELETED = 'subtitle-deleted';
+
 
 ```
 That always worked. 0.34.0's note described the narrow case, and a reader with this style would reasonably conclude their code was not covered.
@@ -64,6 +146,7 @@ Build profile (forced rebuild):
   total                      3.85s
   no scoped rebuild: non-app-change
     config/services.php differs from the cached graph and sits outside app/
+
 
 
 ```
@@ -148,6 +231,7 @@ It now names every site:
 ```
 the graph contains job dispatches that could not be followed:
 app/Jobs/Fanout.php:88 (App\Jobs\Fanout::handle), app/Services/Importer.php:12 (App\Services\Importer::run)
+
 
 
 
@@ -506,6 +590,7 @@ Note: 2 changed file(s) are outside the analysed scope (not PHP under app/, a Bl
 
 
 
+
 ```
 Stderr, like the untracked-file note, so `--json` and `--markdown` stdout stay exactly the report. Frontend sources the configuration declines to scan are not counted: generated Wayfinder output under `frontend.generated_paths` and `.d.ts` declarations were silenced on purpose, and a note that fires loudest on regeneration churn is one people stop reading.
 
@@ -579,6 +664,7 @@ One new advisory lane, and a README that finally leads with what the package is 
   
   
   
+  
   ```
   The count comes off the `route:: → middleware::<group>` edges already in the graph, so it counts endpoints only: a controller-level attachment of the same group does not inflate it. Membership is read from `$middlewareGroups` on a Laravel 10 Kernel or the `->web(append: [...])` form in a Laravel 11+ `bootstrap/app.php`. A member written as an alias resolves through the same alias map, parameters are cut first (`tenant:strict` is one alias with an argument), and a group that names another group is expanded transitively, since Laravel runs the inner group's middleware on the outer group's routes too.
   
@@ -611,6 +697,7 @@ Two silent-failure shapes that richter used to miss: a call through an applicati
   
   ```text
     ! resources/js/Pages/Posts/Create.vue posts to POST /posts and sends 'subtitle', which this diff removes from App\Http\Requests\StorePostRequest::rules() (renamed to 'sub_title'?)
+  
   
   
   
