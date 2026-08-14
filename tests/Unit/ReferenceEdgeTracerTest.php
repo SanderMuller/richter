@@ -213,4 +213,20 @@ final class ReferenceEdgeTracerTest extends TestCase
 
         $this->assertNotContains(self::CONTROLLER . '::__construct', $targets);
     }
+
+    #[Test]
+    public function a_scope_relative_new_draws_no_edge(): void
+    {
+        // `self`/`static`/`parent` are keywords the name resolver leaves alone, so they read as
+        // unqualified names. Nothing must turn them into a `self::__construct` node.
+        foreach (['new self();', 'new static();', 'new parent();'] as $body) {
+            $this->assertSame([], $this->edges($body, ''), $body);
+        }
+    }
+
+    #[Test]
+    public function an_anonymous_class_draws_no_edge(): void
+    {
+        $this->assertSame([], $this->edges('new class { public function handle(): void {} };', ''));
+    }
 }
