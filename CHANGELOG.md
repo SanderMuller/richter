@@ -5,6 +5,36 @@ All notable changes to `sandermuller/richter` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.36.0 - 2026-08-14
+
+A class you construct is a class you depend on, and the graph now says so.
+
+### Added
+
+#### `new SomeClass(...)` links the building method to that class's constructor
+
+A value object, DTO or element class with no route of its own had no caller in the graph at all — not because its caller was exotic, but because no lane drew the edge. A diff landing on such a class reported `0 entry points, 0 impacted, LOW`: the same thing a change that affects nothing reports.
+
+Sampling one production codebase put roughly **one app class in six** with no graph node. The rate is not the problem; the interaction is. A missing node only matters when a diff lands on it, and then it takes the whole report to zero rather than degrading it.
+
+**The edge targets the constructor, not the class.** That is what keeps it affordable. A class-level link would make every method of a widely-constructed class reach every place that builds one — the over-reporting shape that trains reviewers to skip the check. Depending on a constructor is the narrower and truer claim: changing it changes what every construction site gets, and changing some other method of that class does not.
+
+Measured on a 1,613-file corpus, the graph grows 1.5% in nodes and 2.3% in edges.
+
+An unqualified name that resolves against the file's own namespace without existing — `new DateTimeImmutable()` missing its import reads as `App\Services\DateTimeImmutable` — draws nothing rather than inventing a node. That rule was already carrying the static-call lane and is now shared between them.
+
+### Documentation
+
+**Some unfollowable dispatch sites cannot be cleared from the application side.** A named constructor on the job's own class stays listed however the call site is rewritten, because nothing proves the method returns an instance of its own class. Since one site is enough to make every `richter:affected-tests` run report `not determinable`, a project whose remaining sites are all of that kind gains nothing by restructuring the others. `docs/affected-tests.md` now says so — worth knowing before that work is planned.
+
+### Upgrading
+
+**Your cached graph rebuilds once on first run.** `GraphCache::FORMAT_VERSION` moves 19 → 20. The new edges are purely additive, so a graph written by 0.35.0 lacks that reach and under-reports until it is rebuilt.
+
+No configuration changes.
+
+**Full Changelog**: https://github.com/SanderMuller/richter/compare/v0.35.0...v0.36.0
+
 ## v0.35.0 - 2026-08-14
 
 A dispatch whose job the same method just constructed is not an unfollowable dispatch, and this release stops counting it as one.
@@ -16,6 +46,7 @@ A dispatch whose job the same method just constructed is not an unfollowable dis
 ```php
 $job = new SendInvoice($order);
 dispatch($job);
+
 
 ```
 That was recorded as a dispatch whose target could not be followed — and the taint is global, so one of them makes every `richter:affected-tests` run report `not determinable` and fall back to the full suite. The graph has carried the edge for this shape all along: the instantiation is in the same method, right above the dispatch. The site pointed at a place to restructure where nothing was hidden and nothing needed restructuring.
@@ -99,6 +130,7 @@ A diff with no PHP under `app/` returns before the graph is ever built, so the f
 Build profile: nothing was built — the diff holds nothing the graph is built from.
 
 
+
 ```
 On stderr, like the table it stands in for, and before the payload in `--json` mode so stdout stays one document. Building anyway was the alternative, and it would make a no-op run pay for an analysis nothing asked for.
 
@@ -116,6 +148,7 @@ An event named by a class constant resolves in **any** declaration form, includi
 public const string
     SUBTITLE_CHANGED = 'subtitle-changed',
     SUBTITLE_DELETED = 'subtitle-deleted';
+
 
 
 ```
@@ -146,6 +179,7 @@ Build profile (forced rebuild):
   total                      3.85s
   no scoped rebuild: non-app-change
     config/services.php differs from the cached graph and sits outside app/
+
 
 
 
@@ -231,6 +265,7 @@ It now names every site:
 ```
 the graph contains job dispatches that could not be followed:
 app/Jobs/Fanout.php:88 (App\Jobs\Fanout::handle), app/Services/Importer.php:12 (App\Services\Importer::run)
+
 
 
 
@@ -591,6 +626,7 @@ Note: 2 changed file(s) are outside the analysed scope (not PHP under app/, a Bl
 
 
 
+
 ```
 Stderr, like the untracked-file note, so `--json` and `--markdown` stdout stay exactly the report. Frontend sources the configuration declines to scan are not counted: generated Wayfinder output under `frontend.generated_paths` and `.d.ts` declarations were silenced on purpose, and a note that fires loudest on regeneration churn is one people stop reading.
 
@@ -665,6 +701,7 @@ One new advisory lane, and a README that finally leads with what the package is 
   
   
   
+  
   ```
   The count comes off the `route:: → middleware::<group>` edges already in the graph, so it counts endpoints only: a controller-level attachment of the same group does not inflate it. Membership is read from `$middlewareGroups` on a Laravel 10 Kernel or the `->web(append: [...])` form in a Laravel 11+ `bootstrap/app.php`. A member written as an alias resolves through the same alias map, parameters are cut first (`tenant:strict` is one alias with an argument), and a group that names another group is expanded transitively, since Laravel runs the inner group's middleware on the outer group's routes too.
   
@@ -697,6 +734,7 @@ Two silent-failure shapes that richter used to miss: a call through an applicati
   
   ```text
     ! resources/js/Pages/Posts/Create.vue posts to POST /posts and sends 'subtitle', which this diff removes from App\Http\Requests\StorePostRequest::rules() (renamed to 'sub_title'?)
+  
   
   
   
