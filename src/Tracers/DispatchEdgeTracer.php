@@ -28,6 +28,7 @@ use PhpParser\NodeVisitorAbstract;
 use SanderMuller\Richter\Graph\CodeGraphBuilder;
 use SanderMuller\Richter\Support\AppFiles;
 use SanderMuller\Richter\Support\DispatchTarget;
+use SanderMuller\Richter\Support\LocallyConstructedJobs;
 
 /**
  * Brain resolves the standard dispatch forms — `Job::dispatch()`, `dispatch()`, and, since v2.3.1, the
@@ -113,6 +114,7 @@ final readonly class DispatchEdgeTracer
         foreach ($classMethods as $method) {
             $dispatcher = ltrim($classFqcn, '\\') . '::' . $method->name->toString();
             $ownConstants = $stringConstants[spl_object_id($method)] ?? [];
+            $localJobs = LocallyConstructedJobs::in($method);
             // Both lanes below read the same body, so it is descended once. Two NodeFinder passes per
             // method — one for the calls, one for the `new`s — cost a second full walk of every
             // method in the app tree for nodes this one already sees.
@@ -150,7 +152,7 @@ final readonly class DispatchEdgeTracer
                 // keeps two opaque items of one `chain()` from reading as two separate places to look.
                 $origin = ['line' => $call->getStartLine(), 'dispatcher' => $dispatcher];
 
-                foreach ($this->jobsFromCall($call, $origin, $unresolvedSites, $ownConstants) as $jobFqcn) {
+                foreach ($this->jobsFromCall($call, $origin, $unresolvedSites, $ownConstants, $localJobs) as $jobFqcn) {
                     $edges[] = ['source' => $dispatcher, 'target' => $jobFqcn . '::handle', 'type' => 'action-to-job'];
                 }
             }
@@ -216,9 +218,10 @@ final readonly class DispatchEdgeTracer
      * @param  array{line: int, dispatcher: string}  $origin  the dispatch statement a site is recorded against
      * @param  list<array{line: int, dispatcher: string}>  $unresolvedSites
      * @param  array<string, true>  $stringConstants
+     * @param  array<string, array{pos: int, jobs: list<string>}>  $localJobs
      * @return list<string>
      */
-    private function jobsFromCall(Node $call, array $origin, array &$unresolvedSites, array $stringConstants = []): array
+    private function jobsFromCall(Node $call, array $origin, array &$unresolvedSites, array $stringConstants = [], array $localJobs = []): array
     {
         // A first-class callable (`Job::dispatch(...)`) builds a closure, not a dispatch — and
         // calling getArgs() on it throws. It's not a dispatch site, so skip it.
@@ -229,8 +232,8 @@ final readonly class DispatchEdgeTracer
         $site = $this->dispatchSite($call, $stringConstants);
 
         return match ($site['mode'] ?? null) {
-            'single' => $this->jobsFromArg($site['arg'], $origin, $unresolvedSites),
-            'array' => $this->jobsFromArray($site['arg']?->value, $origin, $unresolvedSites),
+            'single' => $this->jobsFromArg($site['arg'], $origin, $unresolvedSites, $localJobs),
+            'array' => $this->jobsFromArray($site['arg']?->value, $origin, $unresolvedSites, $localJobs),
             'class' => DispatchTarget::matches($site['class']) ? [$site['class']] : [],
             default => [],
         };
@@ -376,9 +379,10 @@ final readonly class DispatchEdgeTracer
     /**
      * @param  array{line: int, dispatcher: string}  $origin
      * @param  list<array{line: int, dispatcher: string}>  $unresolvedSites
+     * @param  array<string, array{pos: int, jobs: list<string>}>  $localJobs
      * @return list<string>
      */
-    private function jobsFromArg(?Arg $arg, array $origin, array &$unresolvedSites): array
+    private function jobsFromArg(?Arg $arg, array $origin, array &$unresolvedSites, array $localJobs = []): array
     {
         $value = $arg?->value;
 
@@ -387,7 +391,7 @@ final readonly class DispatchEdgeTracer
         }
 
         if ($value instanceof Array_) {
-            return $this->jobsFromArray($value, $origin, $unresolvedSites);
+            return $this->jobsFromArray($value, $origin, $unresolvedSites, $localJobs);
         }
 
         // An inline closure IS the job, and its body sits in the very AST the tracers just walked —
@@ -398,18 +402,29 @@ final readonly class DispatchEdgeTracer
             return [];
         }
 
+        $local = $this->localJobFor($value, $localJobs);
+
+        if ($local !== null) {
+            return $local;
+        }
+
         // A dispatch verb whose job we can't see (a variable, or a factory call).
         $unresolvedSites[] = $origin;
 
-        return [];
+        // A named constructor on a class that IS a dispatch target — `dispatch(SomeJob::for($x))`.
+        // The edge is worth drawing: a change to that job should reach this member either way. The
+        // site stays, because nothing here proves the method returns an instance of its own class,
+        // and a wrong "resolved" would drop a real target from a selection.
+        return $this->namedConstructorTarget($value);
     }
 
     /**
      * @param  array{line: int, dispatcher: string}  $origin
      * @param  list<array{line: int, dispatcher: string}>  $unresolvedSites
+     * @param  array<string, array{pos: int, jobs: list<string>}>  $localJobs
      * @return list<string>
      */
-    private function jobsFromArray(?Expr $value, array $origin, array &$unresolvedSites): array
+    private function jobsFromArray(?Expr $value, array $origin, array &$unresolvedSites, array $localJobs = []): array
     {
         if (! $value instanceof Array_) {
             $unresolvedSites[] = $origin;
@@ -436,12 +451,62 @@ final readonly class DispatchEdgeTracer
                 continue;
             }
 
+            $local = $this->localJobFor($item->value, $localJobs);
+
+            if ($local !== null) {
+                $jobs = [...$jobs, ...$local];
+
+                continue;
+            }
+
             // An opaque item in a chain/batch (a variable, a factory call) is an unfollowable
             // dispatch on its own — record it, or a job reached only this way reads as "none".
             $unresolvedSites[] = $origin;
+            $jobs = [...$jobs, ...$this->namedConstructorTarget($item->value)];
         }
 
         return $jobs;
+    }
+
+    /**
+     * The jobs a dispatched variable provably holds, or null when this pass cannot say.
+     *
+     * `$job = new SomeJob(...); dispatch($job);` hides nothing: the instantiation is right there, the
+     * graph already carries the edge, and there is no restructuring for a project to do — the same
+     * argument that exempts an inline closure. Recording it as unfollowable taints every selection
+     * over reach the graph already has.
+     *
+     * @param  array<string, array{pos: int, jobs: list<string>}>  $localJobs
+     * @return list<string>|null
+     */
+    private function localJobFor(?Expr $value, array $localJobs): ?array
+    {
+        if (! $value instanceof Variable || ! is_string($value->name)) {
+            return null;
+        }
+
+        $local = $localJobs[$value->name] ?? null;
+        $dispatchedAt = $value->getStartFilePos();
+
+        // Constructed BEFORE this argument. An assignment below the dispatch says nothing about the
+        // value dispatched here, and a parser that attached no positions (-1) proves no order at all.
+        return $local !== null && $local['pos'] >= 0 && $dispatchedAt > $local['pos'] ? $local['jobs'] : null;
+    }
+
+    /**
+     * The dispatch target a `SomeJob::for($x)` argument names, if its receiver is one.
+     *
+     * @return list<string>
+     */
+    private function namedConstructorTarget(?Expr $value): array
+    {
+        if (! $value instanceof StaticCall || ! $value->class instanceof Name) {
+            return [];
+        }
+
+        $job = AppFiles::resolveName($value->class);
+
+        return DispatchTarget::matches($job) ? [$job] : [];
     }
 
     /**

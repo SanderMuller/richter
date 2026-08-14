@@ -32,11 +32,17 @@ restructure the dispatch into a form the tracer can follow (a literal `Job::disp
 `new Job(...)` the tracer can see), which fixes the gap rather than silencing it. A project that
 genuinely needs a dynamic dispatch keeps running its full suite, correctly.
 
-Two shapes look unfollowable and are not counted, because neither hides anything:
+Three shapes look unfollowable and are not counted, because none of them hides anything:
 
 - An inline closure. `dispatch(function () { … })` queues the closure itself, and its body sits in the
   same source the tracers already read, so its work already appears as edges out of the dispatching
   member. There is no target to name. The same holds for a closure inside a `Bus::chain([...])`.
+- A job the dispatching method built itself. `$job = new SomeJob(...); dispatch($job);` names its target
+  one line up, and the graph already carries the edge, so there is nothing hidden and nothing to
+  restructure. The bar for this is deliberately high: the method must write that variable exactly once,
+  at the top level, before the dispatch. A conditional assignment, a reassignment, a `foreach` binding,
+  a by-reference capture or a parameter of the same name all leave the site listed, because the value
+  reaching the dispatch is then no longer provable.
 - A string argument. `$this->dispatch('some-event')` is not a job dispatch. `DispatchesJobs::dispatch()`
   takes a job *object*, so a string can never be one. The common case is a Livewire component emitting
   a browser event, which has no queue involvement. A constant the dispatching class itself declares as
@@ -52,6 +58,11 @@ Two shapes look unfollowable and are not counted, because neither hides anything
   Anything further does not: a constant inherited from a parent, one read off another class, or a
   `static::` reference whose value a subclass can replace. Each of those would need what this pass
   cannot see, and guessing risks dropping a genuine unfollowable dispatch — so they stay listed.
+
+A named constructor — `dispatch(SomeJob::for($x))` — is the one shape that draws its edge and stays
+listed anyway. The receiver names a dispatch target, so a change to that job reaches the dispatching
+member; but nothing in this pass proves the method returns an instance of its own class, and a wrong
+"resolved" would drop a real target from a selection.
 
 ## Untracked files
 

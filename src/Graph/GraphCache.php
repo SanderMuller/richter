@@ -91,8 +91,14 @@ final class GraphCache
      * those sites. A 17 entry therefore keeps sites this code does not record, and the block the
      * previous version's fix was meant to lift survives the upgrade — the same failure 16 → 17
      * existed for.
+     * 18 → 19: two more moves to the same list. A job constructed in the dispatching method and
+     * dispatched through that variable stops being recorded — the edge for it was always there, so the
+     * site never hid anything — which SHRINKS the list; and `dispatch(SomeJob::for($x))` now draws an
+     * `action-to-job` edge from its receiver, which GROWS the edge set. A 18 entry is stale in both
+     * directions: sites blocking a selection that should run, and missing reach into a job named by a
+     * static call.
      */
-    private const int FORMAT_VERSION = 18;
+    private const int FORMAT_VERSION = 19;
 
     private ?CodeGraph $memoized = null;
 

@@ -134,6 +134,70 @@ final class DispatchEdgeTracerTest extends TestCase
     }
 
     #[Test]
+    public function a_job_constructed_just_above_its_dispatch_is_not_unfollowable(): void
+    {
+        // The same shape as the test above, seen from the determinability side. The edge is already
+        // there — the instantiation is in this very method — so the dispatch hides nothing and there is
+        // nothing for a project to restructure. Recording it taints every selection over reach the
+        // graph already has, which is the argument that exempts an inline closure too.
+        $this->assertSame(0, $this->unresolved('$job = new ImportJob(); dispatch($job);', 'use App\Jobs\ImportJob;'));
+    }
+
+    /**
+     * Shapes where the variable is NOT provably the constructed job, and the site must survive.
+     *
+     * Each one is a way the value can differ at the dispatch from what the `new` suggests. Getting any
+     * of these wrong drops a real target from a test selection, so they outnumber the positive case
+     * deliberately.
+     *
+     * @return Iterator<string, array{string}>
+     */
+    public static function unprovableLocalJobs(): Iterator
+    {
+        yield 'assigned only inside a branch' => ['if ($flag) { $job = new ImportJob(); } dispatch($job);'];
+        yield 'reassigned from something opaque' => ['$job = new ImportJob(); $job = $this->factory->make(); dispatch($job);'];
+        yield 'assigned only below the dispatch' => ['dispatch($job); $job = new ImportJob();'];
+        yield 'rebound by a foreach' => ['$job = new ImportJob(); foreach ($queue as $job) { } dispatch($job);'];
+        yield 'captured by reference' => ['$job = new ImportJob(); $f = function () use (&$job) { $job = null; }; dispatch($job);'];
+        yield 'constructed inside a closure, dispatched outside' => ['$f = function () { $job = new ImportJob(); }; dispatch($job);'];
+        yield 'not a dispatch target at all' => ['$job = new Post(); dispatch($job);'];
+    }
+
+    #[Test]
+    #[DataProvider('unprovableLocalJobs')]
+    public function a_variable_the_method_cannot_pin_down_stays_unfollowable(string $body): void
+    {
+        $this->assertSame(1, $this->unresolved($body, "use App\Jobs\ImportJob;\nuse App\Models\Post;"));
+    }
+
+    #[Test]
+    public function a_locally_constructed_job_in_a_chain_is_not_unfollowable_either(): void
+    {
+        $result = new DispatchEdgeTracer()->edgesForSource(
+            "<?php\nnamespace App\Http\Controllers;\nuse App\Jobs\ImportJob;\nuse Illuminate\Support\Facades\Bus;\nclass PostController\n{\n    public function store(): void\n    {\n        \$job = new ImportJob();\n        Bus::chain([\$job]);\n    }\n}\n",
+            self::DISPATCHER,
+        );
+
+        $this->assertSame([], $result['unresolvedSites']);
+        $this->assertContains('App\Jobs\ImportJob::handle', array_column($result['edges'], 'target'));
+    }
+
+    #[Test]
+    public function a_named_constructor_draws_its_edge_but_keeps_its_site(): void
+    {
+        // `dispatch(ImportJob::for($x))` names the job in the receiver, so the edge is worth drawing: a
+        // change to that job should reach this member. The site stays, because nothing here proves the
+        // method returns an instance of its own class — and a wrong "resolved" drops a real target.
+        $result = new DispatchEdgeTracer()->edgesForSource(
+            "<?php\nnamespace App\Http\Controllers;\nuse App\Jobs\ImportJob;\nclass PostController\n{\n    public function store(): void\n    {\n        dispatch(ImportJob::for(\$video));\n    }\n}\n",
+            self::DISPATCHER,
+        );
+
+        $this->assertContains('App\Jobs\ImportJob::handle', array_column($result['edges'], 'target'));
+        $this->assertCount(1, $result['unresolvedSites']);
+    }
+
+    #[Test]
     public function constructing_a_handle_only_shape_without_a_dispatch_verb_draws_no_edge(): void
     {
         // A method that merely constructs a class matching the dispatch predicate ONLY via
