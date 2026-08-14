@@ -304,18 +304,47 @@ final class DispatchEdgeTracerTest extends TestCase
     }
 
     #[Test]
-    public function two_classes_in_one_file_disagreeing_about_a_constant_keep_the_site(): void
+    public function a_constant_resolves_against_its_own_declaring_class_not_the_whole_file(): void
     {
-        // The constant map covers the whole file while the methods arrive as one flat list, so a name
-        // declared twice cannot be tied to the class that dispatches it. Resolving it by name alone
-        // would read the int below as the string above, drop the site, and hand back a `determinable`
-        // selection that nothing determined — so a disagreement records the site instead.
+        // Two classes in one file, each with an `EVENT` of its own: a string in the component, an int
+        // in the service. A name-only map across the file would read the int as the string, drop the
+        // service's site, and hand back a `determinable` selection that nothing determined.
         $source = "<?php\nnamespace App\Livewire;\nclass Panel\n{\n    private const string EVENT = 'saved';\n\n    public function save(): void\n    {\n        \$this->dispatch(self::EVENT);\n    }\n}\n\nclass Importer\n{\n    private const int EVENT = 3;\n\n    public function run(): void\n    {\n        \$this->dispatch(self::EVENT);\n    }\n}\n";
 
         $sites = new DispatchEdgeTracer()->edgesForSource($source, 'App\Livewire\Panel')['unresolvedSites'];
 
-        // Both, not one: which of the two the name belongs to is exactly what this pass cannot tell.
-        $this->assertCount(2, $sites);
+        $this->assertCount(1, $sites);
+        $this->assertSame(19, $sites[0]['line'], 'the service dispatch, not the component one');
+    }
+
+    #[Test]
+    public function a_class_that_does_not_declare_the_constant_keeps_its_site(): void
+    {
+        // The sharper half of the same failure: the dispatching class declares no `EVENT` at all, so
+        // `self::EVENT` comes from a parent this pass cannot read and may hold anything. A file-wide
+        // map would call it a string purely because the class above happens to declare one.
+        //
+        // The component below needs its own dispatching method, or the map never carries its constant
+        // and a file-wide one would be empty too — a test that passes without exercising anything.
+        $source = "<?php\nnamespace App\Livewire;\nclass Panel\n{\n    private const string EVENT = 'saved';\n\n    public function save(): void\n    {\n        \$this->dispatch(self::EVENT);\n    }\n}\n\nclass Importer extends Base\n{\n    public function run(): void\n    {\n        \$this->dispatch(self::EVENT);\n    }\n}\n";
+
+        $sites = new DispatchEdgeTracer()->edgesForSource($source, 'App\Livewire\Panel')['unresolvedSites'];
+
+        $this->assertCount(1, $sites);
+        $this->assertSame(17, $sites[0]['line'], 'the subclass dispatch, not the component one');
+    }
+
+    #[Test]
+    public function a_late_static_bound_constant_keeps_its_site(): void
+    {
+        // `static::` reads the constant off the runtime class, so a subclass can supply a value this
+        // file never shows. Same class, same name, same string — and still recorded, because the
+        // dispatch that runs may not be the one written here.
+        $source = "<?php\nnamespace App\Livewire;\nclass Panel\n{\n    protected const EVENT = 'saved';\n\n    public function save(): void\n    {\n        \$this->dispatch(static::EVENT);\n    }\n}\n";
+
+        $sites = new DispatchEdgeTracer()->edgesForSource($source, 'App\Livewire\Panel')['unresolvedSites'];
+
+        $this->assertCount(1, $sites);
     }
 
     #[Test]

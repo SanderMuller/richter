@@ -105,13 +105,14 @@ final readonly class DispatchEdgeTracer
      */
     public function edgesForMethods(array $classMethods, string $classFqcn, array $classLikes = []): array
     {
-        $stringConstants = $this->stringConstantsOf($classLikes);
+        $stringConstants = $this->stringConstantsByMethod($classLikes);
 
         $edges = [];
         $unresolvedSites = [];
 
         foreach ($classMethods as $method) {
             $dispatcher = ltrim($classFqcn, '\\') . '::' . $method->name->toString();
+            $ownConstants = $stringConstants[spl_object_id($method)] ?? [];
             // Both lanes below read the same body, so it is descended once. Two NodeFinder passes per
             // method — one for the calls, one for the `new`s — cost a second full walk of every
             // method in the app tree for nodes this one already sees.
@@ -149,7 +150,7 @@ final readonly class DispatchEdgeTracer
                 // keeps two opaque items of one `chain()` from reading as two separate places to look.
                 $origin = ['line' => $call->getStartLine(), 'dispatcher' => $dispatcher];
 
-                foreach ($this->jobsFromCall($call, $origin, $unresolvedSites, $stringConstants) as $jobFqcn) {
+                foreach ($this->jobsFromCall($call, $origin, $unresolvedSites, $ownConstants) as $jobFqcn) {
                     $edges[] = ['source' => $dispatcher, 'target' => $jobFqcn . '::handle', 'type' => 'action-to-job'];
                 }
             }
@@ -233,51 +234,53 @@ final readonly class DispatchEdgeTracer
     }
 
     /**
-     * Names of the given class-likes' constants whose value is a string literal — minus any name the
-     * file's class-likes disagree about.
+     * Per method, the string-literal constants its own declaring class declares.
      *
-     * The caller hands over every class-like in the file while the methods arrive as one flat list, so
-     * a name declared twice cannot be attributed to the class the dispatching method belongs to. A
-     * disagreement is therefore dropped rather than resolved: a `self::EVENT` that is a string in one
-     * class and an int in another would otherwise read as a browser event and lose its site, and a
-     * lost site is a diff that reports `determinable` when nothing determined it.
+     * Keyed by method rather than folded into one map per file, because a file may declare several
+     * classes and the methods arrive as one flat list. A name-only map across all of them reads
+     * `self::EVENT` in one class as a string because a sibling declares a string of that name — or
+     * because a parent declares something else entirely — and a suppressed site is a diff that
+     * reports `determinable` when nothing determined it.
      *
      * @param  list<ClassLike>  $classLikes
-     * @return array<string, true>
+     * @return array<int, array<string, true>>
      */
-    private function stringConstantsOf(array $classLikes): array
+    private function stringConstantsByMethod(array $classLikes): array
     {
-        $strings = [];
-        $others = [];
+        $byMethod = [];
 
         foreach ($classLikes as $classLike) {
+            $names = [];
+
             foreach ($classLike->stmts as $stmt) {
                 if (! $stmt instanceof ClassConst) {
                     continue;
                 }
 
                 foreach ($stmt->consts as $const) {
-                    $name = $const->name->toString();
-
                     if ($const->value instanceof String_) {
-                        $strings[$name] = true;
-                    } else {
-                        $others[$name] = true;
+                        $names[$const->name->toString()] = true;
                     }
                 }
             }
+
+            foreach ($classLike->getMethods() as $method) {
+                $byMethod[spl_object_id($method)] = $names;
+            }
         }
 
-        return array_diff_key($strings, $others);
+        return $byMethod;
     }
 
     /**
      * Whether the argument is a string as far as this file can tell — a literal, or one of the
-     * class's own constants holding one.
+     * declaring class's own constants holding one.
      *
-     * Deliberately same-class only. A constant reached through a parent or another class would need
-     * the cross-file map, which is not built when this runs, and guessing would risk dropping a
-     * genuine unfollowable dispatch — the one error direction that costs a project real coverage.
+     * `self::` only, not `static::`: late static binding reads the constant off the runtime class, so
+     * a subclass can supply a different value and nothing here sees it. And a constant reached through
+     * a parent or another class would need the cross-file map, which is not built when this runs.
+     * Both cases stay recorded, because guessing risks dropping a genuine unfollowable dispatch — the
+     * one error direction that costs a project real coverage.
      *
      * @param  array<string, true>  $stringConstants
      */
@@ -291,7 +294,7 @@ final readonly class DispatchEdgeTracer
 
         return $value instanceof ClassConstFetch
             && $value->class instanceof Name
-            && in_array($value->class->toString(), ['self', 'static'], strict: true)
+            && $value->class->toString() === 'self'
             && $value->name instanceof Identifier
             && isset($stringConstants[$value->name->toString()]);
     }
