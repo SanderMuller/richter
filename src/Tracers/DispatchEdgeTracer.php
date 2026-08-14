@@ -164,10 +164,8 @@ final readonly class DispatchEdgeTracer
             // value objects share) is linked only inside a method that actually dispatches; otherwise
             // a `new X(...)` that is merely constructed or returned is object construction, not a
             // dispatch, and must draw no edge — else every DTO-returning method reads as a dispatcher.
-            // Classified with the same constant map the loop above used. Without it a method whose only
-            // dispatch is `$this->dispatch(self::SOME_EVENT)` — a browser event, not a dispatch at all —
-            // reads as dispatching, and that alone is what lets a `new` of some handle()-carrying value
-            // object beside it draw a job edge.
+            // Hence the same constant map as above: a method whose only dispatch is a component event
+            // does not dispatch, and must not unlock this.
             $methodDispatches = array_any(
                 $calls,
                 fn (Node $call): bool => (! $call instanceof CallLike || ! $call->isFirstClassCallable())
