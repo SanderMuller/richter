@@ -299,7 +299,9 @@ final readonly class DispatchEdgeTracer
 
         return $value instanceof ClassConstFetch
             && $value->class instanceof Name
-            && $value->class->toString() === 'self'
+            // Lowercased: `self` is a keyword, so `SELF::EVENT` is the same constant, and a spelling
+            // this failed to match would keep the very site the resolution exists to drop.
+            && $value->class->toLowerString() === 'self'
             && $value->name instanceof Identifier
             && isset($stringConstants[$value->name->toString()]);
     }

@@ -347,6 +347,16 @@ final class DispatchEdgeTracerTest extends TestCase
     }
 
     #[Test]
+    public function the_self_keyword_is_matched_whatever_its_spelling(): void
+    {
+        // `self` is a keyword, so `SELF::EVENT` names the same constant. A case-sensitive match would
+        // keep exactly the site this resolution exists to drop.
+        $source = "<?php\nnamespace App\Livewire;\nclass Panel\n{\n    private const string EVENT = 'saved';\n\n    public function save(): void\n    {\n        \$this->dispatch(SELF::EVENT);\n    }\n}\n";
+
+        $this->assertSame([], new DispatchEdgeTracer()->edgesForSource($source, 'App\Livewire\Panel')['unresolvedSites']);
+    }
+
+    #[Test]
     public function a_late_static_bound_constant_keeps_its_site(): void
     {
         // `static::` reads the constant off the runtime class, so a subclass can supply a value this
