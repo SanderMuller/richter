@@ -32,6 +32,15 @@ restructure the dispatch into a form the tracer can follow (a literal `Job::disp
 `new Job(...)` the tracer can see), which fixes the gap rather than silencing it. A project that
 genuinely needs a dynamic dispatch keeps running its full suite, correctly.
 
+**Some sites cannot be cleared from the application side, and it is worth knowing which before you
+start.** A named constructor on the job's own class — `dispatch(SendInvoice::forOrder($order))` — is
+listed even though the receiver names the job, because nothing in this pass proves that method returns
+an instance of its own class (the edge *is* drawn; only the site stays). Rewriting the call site does
+not help: any form that keeps the factory keeps the site. Since one site is enough to make every run
+report `not determinable`, a project whose remaining sites are all of that kind has a floor it cannot
+reach past, and restructuring the others buys nothing until the last one goes. Check the list for these
+before planning that work.
+
 Three shapes look unfollowable and are not counted, because none of them hides anything:
 
 - An inline closure. `dispatch(function () { … })` queues the closure itself, and its body sits in the
@@ -58,11 +67,6 @@ Three shapes look unfollowable and are not counted, because none of them hides a
   Anything further does not: a constant inherited from a parent, one read off another class, or a
   `static::` reference whose value a subclass can replace. Each of those would need what this pass
   cannot see, and guessing risks dropping a genuine unfollowable dispatch — so they stay listed.
-
-A named constructor — `dispatch(SomeJob::for($x))` — is the one shape that draws its edge and stays
-listed anyway. The receiver names a dispatch target, so a change to that job reaches the dispatching
-member; but nothing in this pass proves the method returns an instance of its own class, and a wrong
-"resolved" would drop a real target from a selection.
 
 ## Untracked files
 
