@@ -333,6 +333,7 @@ The merged graph is identical either way; that is asserted, not assumed. Two thi
 - **It helps a changed file that declares a controller.** A diff touching only services, models or jobs has no controllers to re-trace, so it is refused and costs nothing extra.
 - **Every ambiguous case is refused.** A wrong refusal costs one full build, which is what every run cost before. A wrong acceptance would produce a graph quietly missing edges, which is the failure this package exists to prevent — so `--no-cache` remains the way to force a full analysis if you ever suspect one.
 - **A refusal says which precondition refused.** `--profile` prints it under the timing table as `no scoped rebuild: <reason>` plus the specific input — the differing non-file input, the changed path outside `app/`, the changed file the stored graph attributes nothing to. `no-cache-entry` is the ordinary first run and resolves itself; every other reason names something to look at.
+- **`no-change` compares against the cached graph, not against git.** The refusal means every hashed input matches the entry on disk, which is whatever the last build stored. That covers profiling a tree you just warmed the cache on — and, less obviously, an edit that reproduces content some earlier run already built, which `git diff` still shows as a change. Both are correct refusals: the graph for that content is already cached. To measure a scoped build, make the edit new, and make it after the run that warmed the cache.
 
 ### MCP server
 

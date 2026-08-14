@@ -99,7 +99,7 @@ final class ScopedRebuild
         // entry whole. Reaching here anyway would scope to zero files, which re-emits the previous
         // graph unchanged — a green run against a stale graph, the worst outcome available.
         if ($changed === []) {
-            return ScopedRebuildDecision::refused('no-change', 'every hashed input matches the cached graph');
+            return ScopedRebuildDecision::refused('no-change', 'every hashed input matches the cached graph — the comparison is against the last build, not against a git ref');
         }
 
         $resolved = [];

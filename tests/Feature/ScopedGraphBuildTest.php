@@ -332,7 +332,39 @@ final class ScopedGraphBuildTest extends TestCase
 
         $this->assertSame('full', $phase['path']);
         $this->assertSame('no-change', $phase['reason']);
-        $this->assertSame('every hashed input matches the cached graph', $phase['reasonDetail']);
+        $this->assertSame('every hashed input matches the cached graph — the comparison is against the last build, not against a git ref', $phase['reasonDetail']);
+    }
+
+    #[Test]
+    public function an_edit_reproducing_content_the_cache_already_built_is_no_change(): void
+    {
+        // The subtler shape of the same refusal, and the one that actually misled a reader: the tree DID
+        // change since the last commit, so `git diff` shows an edit and the warning about "profiling the
+        // same tree" reads as inapplicable. But the comparison is against the stored graph's inputs, and
+        // an earlier run had already built these exact bytes — so there is nothing left to scope, which
+        // is correct: the graph for this content is what the cache is holding.
+        $edited = "<?php\n\nnamespace App\\Http\\Controllers;\n\nuse App\\Services\\Publisher;\n\nclass PostController\n{\n    public function store(Publisher \$publisher): void\n    {\n        \$probe = 1;\n        \$publisher->run();\n    }\n}\n";
+        $controller = "{$this->projectRoot}/app/Http/Controllers/PostController.php";
+
+        $cache = resolve(GraphCache::class);
+        $cache->graph($this->projectRoot);
+
+        // First probe: a real edit, built and stored.
+        file_put_contents($controller, $edited);
+        $this->assertSame('scoped', $this->analysePhase()['path']);
+
+        // Second probe: reset and re-apply the same marker, which is what a repeated experiment does.
+        // The mtime is pushed forward explicitly — within one test run the clock would not move enough
+        // to prove anything, and what this pins is that the record hashes CONTENT, so a file rewritten
+        // with the same bytes is the same input however recently it was touched.
+        $this->writeService('run');
+        file_put_contents($controller, $edited);
+        touch($controller, (int) filemtime($controller) + 60);
+
+        $phase = $this->analysePhase(rebuild: true);
+
+        $this->assertSame('full', $phase['path']);
+        $this->assertSame('no-change', $phase['reason']);
     }
 
     #[Test]
