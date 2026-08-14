@@ -21,6 +21,23 @@ final class HtmlFormatterTest extends TestCase
     private const string ENTRY = 'route::GET::/annotated';
 
     /**
+     * The smallest renderable result — nothing reached, nothing changed.
+     *
+     * @return DetectChangesResult
+     */
+    private function minimalResult(): array
+    {
+        return [
+            'changed' => [],
+            'coverage' => [], 'entryPoints' => [], 'entryPointPaths' => [],
+            'entryPointLocations' => [], 'entryPointSecurity' => [], 'entryPointGates' => [],
+            'seeds' => [], 'reach' => [], 'edges' => [], 'impacted' => 0, 'relatedModels' => [],
+            'risk' => RiskLevel::Low, 'lowConfidence' => false, 'coarseCapApplied' => false,
+            'scoredEntryPoints' => 0, 'scoredImpacted' => 0, 'findings' => [],
+        ];
+    }
+
+    /**
      * Every renderable field on at once, plus the graph payload plan 036 added.
      *
      * @param  list<array{source: string, target: string, via: string, depth: int}>|null  $edges
@@ -527,5 +544,27 @@ final class HtmlFormatterTest extends TestCase
 
         $this->assertStringContainsString('n-association', $html);
         $this->assertStringContainsString('Outside impact (association only)', $html);
+    }
+
+    #[Test]
+    public function the_html_report_shows_trait_and_override_reach(): void
+    {
+        // The `--html` report is a supported output, so "shown but not counted" has to hold there too.
+        // It accepted the field before it rendered it, which is the shape of a half-finished fan-out.
+        $html = HtmlFormatter::detectChanges([
+            ...$this->minimalResult(),
+            'traitAndOverrideReach' => ['App\\Builders\\InvoiceBuilder'],
+        ], [], 'main');
+
+        $this->assertStringContainsString('Runs this code without calling it', $html);
+        $this->assertStringContainsString('App\\Builders\\InvoiceBuilder', $html);
+    }
+
+    #[Test]
+    public function the_html_report_omits_the_card_when_there_is_no_such_reach(): void
+    {
+        $html = HtmlFormatter::detectChanges($this->minimalResult(), [], 'main');
+
+        $this->assertStringNotContainsString('Runs this code without calling it', $html);
     }
 }

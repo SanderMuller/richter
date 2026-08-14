@@ -31,8 +31,10 @@ use SanderMuller\Richter\Tracers\DispatchEdgeTracer;
  * `$job = new SomeJob(...); dispatch($job);` is the shape this exists for. The graph already carries
  * the edge — the instantiation is right there in the same method — so recording the dispatch as
  * unfollowable taints every test selection over reach nothing is missing from. Answering "does this
- * variable provably hold a job?" is what lets {@see DispatchEdgeTracer}
- * tell that apart from a variable it genuinely cannot see into.
+ * variable provably hold a job?" is what lets {@see DispatchEdgeTracer} tell that apart from a
+ * variable it genuinely cannot see into.
+ *
+ * @internal
  */
 final class LocallyConstructedJobs
 {

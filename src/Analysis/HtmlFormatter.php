@@ -431,9 +431,32 @@ final class HtmlFormatter
     {
         return self::unresolvedNote($result)
             . self::associationCard($result['associationEntryPoints'] ?? [])
+            . self::traitAndOverrideCard($result['traitAndOverrideReach'] ?? [])
             . self::card('Findings (in the changed source itself)', $result['findings'] === [] ? '<p class="muted">None.</p>' : self::findings($result['findings']))
             . self::card('Test references', self::testReferenceList($rows))
             . ($gateActive && $gate !== null ? self::card('Gate', self::gateBlock($gate)) : '');
+    }
+
+    /**
+     * Classes that run the changed code without calling it, in their own card.
+     *
+     * @param  list<string>  $reach
+     */
+    private static function traitAndOverrideCard(array $reach): string
+    {
+        if ($reach === []) {
+            return '';
+        }
+
+        $items = implode('', array_map(
+            static fn (string $node): string => '<li><code>' . Html::e(NodeLabel::display($node)) . '</code></li>',
+            $reach,
+        ));
+
+        return self::card(
+            'Runs this code without calling it',
+            '<p class="muted">Uses the trait declaring the changed member, or implements the ancestor it overrides — context, not counted toward impact or risk.</p><ul role="list">' . $items . '</ul>',
+        );
     }
 
     /**
