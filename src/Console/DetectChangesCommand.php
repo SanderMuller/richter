@@ -458,9 +458,8 @@ final class DetectChangesCommand extends Command
 
         $errorOutput->writeln(sprintf('  %-24s %6.2fs', 'total', $total));
 
-        // Below the table, not on the phase line: a label reading `full` answers "was it scoped?" and
-        // nothing else, and every precondition an incremental rebuild can fail reads the same from
-        // there. This names which one, and what specifically refused.
+        // Below the table rather than on the phase line: the label answers "was it scoped?" and every
+        // precondition an incremental rebuild can fail reads the same from there.
         if ($refusal !== null) {
             $errorOutput->writeln("  no scoped rebuild: {$refusal['reason']}");
 

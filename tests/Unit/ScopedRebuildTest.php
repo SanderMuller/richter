@@ -244,6 +244,20 @@ final class ScopedRebuildTest extends TestCase
     }
 
     #[Test]
+    public function a_non_file_input_the_cached_record_carries_and_this_one_does_not_is_named(): void
+    {
+        // A record written by a version that hashed an input this one dropped. Reading only the
+        // current record's keys would find nothing differing and print "key order only" — a sentence
+        // saying nothing differs, on the path taken because something did.
+        $previous = $this->record(['app/A.php' => 'h1']);
+        $previous['nonFile']['retired_input'] = 'yes';
+
+        $decision = ScopedRebuild::decide($previous, $this->record(['app/A.php' => 'CHANGED']), $this->root, $this->provenance());
+
+        $this->assertSame('differing non-file inputs: retired_input', $decision->detail);
+    }
+
+    #[Test]
     public function the_non_app_detail_names_the_offending_path(): void
     {
         $decision = ScopedRebuild::decide(

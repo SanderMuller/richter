@@ -154,8 +154,8 @@ final class GraphCache
                 $projectRoot,
                 $onProgress,
                 $base->brainGraph,
-                // A refused base is already a refusal with a reason attached; only when one exists is
-                // there anything for ScopedRebuild to decide about.
+                // A base that refused already carries its own reason; only an available one leaves
+                // ScopedRebuild anything to decide.
                 $base->refusal !== null
                     ? ScopedRebuildDecision::refused($base->refusal, $base->detail)
                     : ScopedRebuild::decide($base->inputs, $record, $projectRoot, $base->provenanceFiles()),

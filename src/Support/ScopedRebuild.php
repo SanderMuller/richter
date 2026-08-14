@@ -127,10 +127,15 @@ final class ScopedRebuild
      */
     private static function nonFileDetail(array $previous, array $current): string
     {
-        $differing = array_keys(array_filter(
-            $current,
-            static fn (mixed $value, string $key): bool => ! array_key_exists($key, $previous) || $previous[$key] !== $value,
-            ARRAY_FILTER_USE_BOTH,
+        // Over the union of both key sets. Iterating only the current record would call a key the
+        // previous one carries and this one dropped "key order only" — a sentence claiming nothing
+        // differs, printed because something did.
+        $keys = array_unique([...array_keys($previous), ...array_keys($current)]);
+        $differing = array_values(array_filter(
+            $keys,
+            static fn (string $key): bool => ! array_key_exists($key, $previous)
+                || ! array_key_exists($key, $current)
+                || $previous[$key] !== $current[$key],
         ));
 
         // Values, not just key names, for the short ones. `config` is a JSON blob whose diff would
