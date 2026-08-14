@@ -50,13 +50,14 @@ Three shapes look unfollowable and are not counted, because none of them hides a
   one line up, and the graph already carries the edge, so there is nothing hidden and nothing to
   restructure. The bar for this is deliberately high: the method must write that variable exactly once,
   at the top level, before the dispatch. A conditional assignment, a reassignment, a `foreach` binding,
-  a by-reference capture or a parameter of the same name all leave the site listed, because the value
-  reaching the dispatch is then no longer provable.
+  a reference alias, a by-reference capture, a parameter of the same name, or a dynamic write anywhere
+  in the method all leave the site listed, because the value reaching the dispatch is then no longer
+  provable.
 - A string argument. `$this->dispatch('some-event')` is not a job dispatch. `DispatchesJobs::dispatch()`
   takes a job *object*, so a string can never be one. The common case is a Livewire component emitting
   a browser event, which has no queue involvement. A constant the dispatching class itself declares as
-  a string (`$this->dispatch(self::SOME_EVENT)`) counts as well — in any declaration form, including a
-  typed one and several names in one `const` statement:
+  a string (`$this->dispatch(self::SOME_EVENT)`) counts as well. A typed constant works, and so does
+  one of several names declared in a single `const` statement:
 
   ```php
   public const string
@@ -66,7 +67,7 @@ Three shapes look unfollowable and are not counted, because none of them hides a
 
   Anything further does not: a constant inherited from a parent, one read off another class, or a
   `static::` reference whose value a subclass can replace. Each of those would need what this pass
-  cannot see, and guessing risks dropping a genuine unfollowable dispatch — so they stay listed.
+  cannot see, and guessing risks dropping a genuine unfollowable dispatch, so they stay listed.
 
 ## Untracked files
 
