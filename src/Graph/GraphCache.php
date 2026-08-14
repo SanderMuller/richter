@@ -97,8 +97,12 @@ final class GraphCache
      * `action-to-job` edge from its receiver, which GROWS the edge set. A 18 entry is stale in both
      * directions: sites blocking a selection that should run, and missing reach into a job named by a
      * static call.
+     * 19 → 20: the graph gained `constructs` edges — `new SomeClass(...)` inside a method links the
+     * building member to `SomeClass::__construct`. Purely additive for identical file inputs, so a 19
+     * entry served to this code lacks that reach and under-selects, the same direction every addition
+     * to the edge set has.
      */
-    private const int FORMAT_VERSION = 19;
+    private const int FORMAT_VERSION = 20;
 
     private ?CodeGraph $memoized = null;
 

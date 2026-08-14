@@ -47,6 +47,8 @@ final class ReferenceEdgeTracerTest extends TestCase
             "use App\Http\Resources\Api\\v2\Post\ReviewResource;\nuse App\Http\Resources\PostResource;",
         );
 
+        // Still two: `PostResource` is not a loadable class in this fixture, so the constructor lane
+        // draws nothing for it — an unresolvable name would otherwise invent a node.
         $this->assertCount(2, $edges);
         $this->assertContains('App\Http\Resources\PostResource', array_column($edges, 'target'));
     }
@@ -169,5 +171,46 @@ final class ReferenceEdgeTracerTest extends TestCase
     public function it_emits_no_edge_for_unrelated_references(): void
     {
         $this->assertSame([], $this->edges('response()->json($review);', 'use App\Models\Review;'));
+    }
+
+    #[Test]
+    public function constructing_an_app_class_links_the_building_member_to_its_constructor(): void
+    {
+        // The lane that was missing when a value object with exactly one statically visible caller
+        // reported zero graph nodes, taking the whole report to `0 entry points, 0 impacted, LOW`.
+        $edges = $this->edges('new PostPublished($post);', 'use App\Events\PostPublished;');
+
+        $this->assertContains(
+            ['source' => self::CONTROLLER . '::show', 'target' => 'App\Events\PostPublished::__construct', 'type' => 'constructs'],
+            $edges,
+        );
+    }
+
+    #[Test]
+    public function the_constructor_link_targets_the_constructor_and_not_the_class(): void
+    {
+        // The choice that makes this lane affordable. A class-level edge would make every method of a
+        // widely-constructed class reach every place that builds one — the saturation shape. Depending
+        // on the constructor is the narrower and truer claim.
+        $targets = array_column($this->edges('new PostPublished($post);', 'use App\Events\PostPublished;'), 'target');
+
+        $this->assertNotContains('App\Events\PostPublished', $targets);
+    }
+
+    #[Test]
+    public function an_unimported_name_that_only_looks_like_an_app_class_is_not_linked(): void
+    {
+        // `new DateTimeImmutable()` without its import resolves against this file's namespace, so it
+        // reads as `App\Http\Controllers\Post\DateTimeImmutable` — inside the app namespace by
+        // spelling and nonexistent in fact. An edge there invents a node.
+        $this->assertSame([], $this->edges('new DateTimeImmutable();', ''));
+    }
+
+    #[Test]
+    public function a_class_constructing_itself_draws_no_edge(): void
+    {
+        $targets = array_column($this->edges('new ReviewController();', ''), 'target');
+
+        $this->assertNotContains(self::CONTROLLER . '::__construct', $targets);
     }
 }

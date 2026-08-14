@@ -15,6 +15,7 @@ Brain traces some of these too (view composition, resource references, queue dis
 - calls through an application facade: a facade is an app class like any other, so `Reports::generate()` otherwise stops at a member the facade does not declare, leaving the class its accessor names reachable from nothing;
 - class-constant and enum-case reads: a change to a constant or enum case pins to the methods that read it (resolved to the declaring class, so an inherited constant still connects), instead of coarsely flagging the whole class;
 - policy references (`$user->can(PostPolicy::UPDATE, …)` and `@can(...)` in Blade);
+- object construction: `new SomeClass(...)` inside a method links that method to `SomeClass::__construct`, so a value object, DTO or element class with no route of its own is still reached from the code that builds it. The target is the CONSTRUCTOR rather than the class on purpose — a class-level link would make every method of a widely-constructed class reach every place that builds one, and depending on a constructor is the narrower and truer claim. An unqualified name that resolves against the file's own namespace without existing (a `new DateTimeImmutable()` missing its import) is left alone rather than pointed at an invented node;
 - API resource composition;
 - custom validation rules;
 - trait usage;

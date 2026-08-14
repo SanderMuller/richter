@@ -13,7 +13,7 @@ use PhpParser\Node\Stmt\ClassMethod;
 use PhpParser\NodeFinder;
 use SanderMuller\Richter\Support\AppFiles;
 use SanderMuller\Richter\Support\AppNamespace;
-use Throwable;
+use SanderMuller\Richter\Support\LoadableClass;
 
 /**
  * Laravel Brain resolves a static call only when it matches a known shape — `Job::dispatch()`, the
@@ -38,9 +38,6 @@ use Throwable;
  */
 final class StaticCallEdgeTracer
 {
-    /** @var array<string, bool> autoload results, memoised for the process */
-    private static array $loadable = [];
-
     /** @return list<array{source: string, target: string, type: string}> */
     public function edgesForSource(string $source): array
     {
@@ -161,21 +158,7 @@ final class StaticCallEdgeTracer
         // namespace by spelling, nonexistent in fact. Drawing that edge invents a node. Nothing real
         // is lost by requiring the class to load: a target richter cannot autoload has no node from
         // any other tracer either, so the edge could only ever point at a phantom.
-        return $this->classIsLoadable($resolved) ? $resolved : null;
-    }
-
-    /**
-     * Memoised per process — the same receiver recurs across a file and across the whole build, and
-     * a miss costs a failed autoload each time. A broken autoloader throwing here is uncertainty
-     * about a class that, by definition, no other tracer could place either: no edge.
-     */
-    private function classIsLoadable(string $fqcn): bool
-    {
-        try {
-            return self::$loadable[$fqcn] ??= class_exists($fqcn) || interface_exists($fqcn) || enum_exists($fqcn);
-        } catch (Throwable) {
-            return self::$loadable[$fqcn] = false;
-        }
+        return LoadableClass::exists($resolved) ? $resolved : null;
     }
 
     /**

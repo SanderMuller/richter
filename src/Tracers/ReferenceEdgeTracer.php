@@ -7,6 +7,7 @@ use PhpParser\Node\Expr\ArrowFunction;
 use PhpParser\Node\Expr\ClassConstFetch;
 use PhpParser\Node\Expr\Closure;
 use PhpParser\Node\Expr\MethodCall;
+use PhpParser\Node\Expr\New_;
 use PhpParser\Node\Expr\StaticCall;
 use PhpParser\Node\Identifier;
 use PhpParser\Node\Name;
@@ -18,6 +19,7 @@ use PhpParser\NodeVisitorAbstract;
 use SanderMuller\Richter\Graph\CodeGraphBuilder;
 use SanderMuller\Richter\Support\AppFiles;
 use SanderMuller\Richter\Support\AppNamespace;
+use SanderMuller\Richter\Support\LoadableClass;
 
 /**
  * Brain has no notion of API resources, transformers, or custom validation rules:
@@ -108,7 +110,7 @@ final class ReferenceEdgeTracer
             $sourceNode = $classFqcn . '::' . $method->name->toString();
             // One descent of the method feeding both lanes. Each used to run its own NodeFinder over
             // the same body — three full walks per method, on every app file in the tree.
-            ['names' => $names, 'calls' => $calls] = $this->namesAndCalls($method);
+            ['names' => $names, 'calls' => $calls, 'instantiations' => $instantiations] = $this->namesAndCalls($method);
 
             foreach ($this->referencesIn($names) as $target => $type) {
                 // A class referencing itself (nested collection of its own type) is not a dependency edge.
@@ -119,6 +121,10 @@ final class ReferenceEdgeTracer
 
             foreach ($this->relationsLoadedIn($calls) as $relationNode) {
                 $edges[] = ['source' => $sourceNode, 'target' => $relationNode, 'type' => 'loads-relation'];
+            }
+
+            foreach ($this->constructorsCalledIn($instantiations, $classFqcn) as $constructor) {
+                $edges[] = ['source' => $sourceNode, 'target' => $constructor, 'type' => 'constructs'];
             }
         }
 
@@ -214,7 +220,7 @@ final class ReferenceEdgeTracer
      * lanes above consume. Pre-order, so each bucket arrives in the same order a per-type NodeFinder
      * produced it and the emitted edges keep their order.
      *
-     * @return array{names: list<Name>, calls: list<MethodCall|StaticCall>}
+     * @return array{names: list<Name>, calls: list<MethodCall|StaticCall>, instantiations: list<New_>}
      */
     private function namesAndCalls(ClassMethod $method): array
     {
@@ -225,12 +231,17 @@ final class ReferenceEdgeTracer
             /** @var list<MethodCall|StaticCall> */
             public array $calls = [];
 
+            /** @var list<New_> */
+            public array $instantiations = [];
+
             public function enterNode(Node $node): null
             {
                 if ($node instanceof Name) {
                     $this->names[] = $node;
                 } elseif ($node instanceof MethodCall || $node instanceof StaticCall) {
                     $this->calls[] = $node;
+                } elseif ($node instanceof New_) {
+                    $this->instantiations[] = $node;
                 }
 
                 return null;
@@ -239,7 +250,46 @@ final class ReferenceEdgeTracer
 
         new NodeTraverser($visitor)->traverse([$method]);
 
-        return ['names' => $visitor->names, 'calls' => $visitor->calls];
+        return ['names' => $visitor->names, 'calls' => $visitor->calls, 'instantiations' => $visitor->instantiations];
+    }
+
+    /**
+     * The constructors an app class is built with here — `new Widget(...)` links the building member to
+     * `Widget::__construct`, and to nothing else.
+     *
+     * The target is the CONSTRUCTOR, not the class, and that is what makes this lane affordable. A
+     * class-level edge would make every method of a widely-constructed class reach every place that
+     * builds one, which is the over-reporting shape {@see NAMESPACE_TYPES} exists to avoid. Depending
+     * on a constructor is the narrower and truer claim: changing it changes what every construction
+     * site gets, and changing some other method of that class does not.
+     *
+     * This is the lane that was missing when a value object with one statically visible caller reported
+     * no graph node at all, taking the whole report to zero.
+     *
+     * @param  list<New_>  $instantiations
+     * @return list<string>
+     */
+    private function constructorsCalledIn(array $instantiations, string $classFqcn): array
+    {
+        $constructors = [];
+
+        foreach ($instantiations as $new) {
+            if (! $new->class instanceof Name) {
+                continue;
+            }
+
+            $constructed = AppFiles::resolveName($new->class);
+
+            // Its own constructor is not a dependency of the class on itself. The loadability check is
+            // the same one the static-call lane needs: an unqualified `new DateTimeImmutable()` with no
+            // import resolves against this file's namespace and reads as an app class that does not
+            // exist ({@see LoadableClass}).
+            if ($constructed !== $classFqcn && AppNamespace::isInApp($constructed) && LoadableClass::exists($constructed)) {
+                $constructors[$constructed . '::__construct'] = true;
+            }
+        }
+
+        return array_keys($constructors);
     }
 
     /**

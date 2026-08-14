@@ -28,6 +28,7 @@ App\Http\Controllers\Post\ReviewController::edit	action-to-view	view::blade__pos
 App\Http\Controllers\Post\ReviewController::show	resource	App\Http\Resources\Api\v2\Post\ReviewResource
 App\Http\Controllers\Post\ReviewController::show	static-call	App\Http\Resources\Api\v2\Post\ReviewResource::make
 App\Http\Controllers\Post\ReviewController::show	action-to-resource	App\Http\Resources\Api\v2\Post\ReviewResource::toArray
+App\Http\Controllers\Post\ReviewController::show	constructs	App\Jobs\ProcessPostJob::__construct
 App\Http\Controllers\Post\ReviewController::show	action-to-job	App\Jobs\ProcessPostJob::handle
 App\Http\Controllers\Post\ReviewController::show	references-constant	App\Models\Post::REVIEWS
 App\Http\Controllers\Post\ReviewController::show	action-to-model	App\Models\Post::load
@@ -40,6 +41,7 @@ App\Http\Resources\Api\v2\Post\ReviewResource	declares	App\Http\Resources\Api\v2
 App\Http\Resources\Api\v2\Post\ReviewResource::toArray	resource	App\Http\Resources\Api\v2\Post\ReviewPlayerResource
 App\Http\Resources\Api\v2\Post\ReviewResource::toArray	static-call	App\Http\Resources\Api\v2\Post\ReviewPlayerResource::make
 App\Http\Resources\Api\v2\Post\ReviewResource::toArray	action-to-resource	App\Http\Resources\Api\v2\Post\ReviewPlayerResource::toArray
+App\Jobs\ProcessPostJob	declares	App\Jobs\ProcessPostJob::__construct
 App\Jobs\ProcessPostJob	declares	App\Jobs\ProcessPostJob::handle
 App\Jobs\ProcessPostJob::handle	model	App\Models\Post::reviews
 App\Listeners\SendPostNotification	declares	App\Listeners\SendPostNotification::handle
