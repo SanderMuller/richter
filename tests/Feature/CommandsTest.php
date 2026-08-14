@@ -3,6 +3,7 @@
 namespace SanderMuller\Richter\Tests\Feature;
 
 use App\Models\User;
+use Illuminate\Filesystem\Filesystem;
 use Illuminate\Foundation\Application;
 use Illuminate\Process\PendingProcess;
 use Illuminate\Support\Facades\Artisan;
@@ -11,6 +12,7 @@ use Illuminate\Support\Facades\Route;
 use Illuminate\Testing\PendingCommand;
 use InvalidArgumentException;
 use PHPUnit\Framework\Attributes\Test;
+use SanderMuller\Richter\Support\RichterConfig;
 use SanderMuller\Richter\Tests\TestCase;
 
 final class CommandsTest extends TestCase
@@ -331,6 +333,33 @@ final class CommandsTest extends TestCase
 
         $this->assertMatchesRegularExpression('/brain-analyze \((full|scoped|scoped-rejected)\)/', $output);
         $this->assertStringContainsString('forced rebuild', $output);
+    }
+
+    #[Test]
+    public function detect_changes_profile_names_why_the_scoped_path_was_not_taken(): void
+    {
+        // The label alone reads the same for a first run, an entry this version cannot revive, and a
+        // precondition that genuinely failed — and those want three different responses. Whichever it
+        // was has to reach the operator, since the process is the only place that knows.
+        $diff = "diff --git a/app/Models/User.php b/app/Models/User.php\n--- a/app/Models/User.php\n+++ b/app/Models/User.php\n@@ -0,0 +1,1 @@\n+    public function added(): void {}\n";
+
+        Process::fake([
+            '*merge-base*' => Process::result("abc123\n"),
+            '*show*' => Process::result(errorOutput: 'bad object', exitCode: 128),
+            '*diff*' => Process::result($diff),
+        ]);
+
+        config()->set('richter.cache.enabled', true);
+        config()->set('richter.cache.directory', sys_get_temp_dir() . '/richter-profile-reason-' . bin2hex(random_bytes(8)));
+
+        $this->withoutMockingConsoleOutput();
+        Artisan::call('richter:detect-changes', ['--base' => 'some-base', '--profile' => true]);
+        $output = Artisan::output();
+
+        $this->assertStringContainsString('no scoped rebuild: no-cache-entry', $output);
+        $this->assertStringContainsString('nothing cached yet', $output);
+
+        new Filesystem()->deleteDirectory(RichterConfig::cacheDirectory());
     }
 
     #[Test]

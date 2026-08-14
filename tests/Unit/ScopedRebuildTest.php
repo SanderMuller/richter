@@ -173,6 +173,126 @@ final class ScopedRebuildTest extends TestCase
     }
 
     #[Test]
+    public function a_reordered_file_list_is_not_an_added_file(): void
+    {
+        // Both records come from one sorted list, so this cannot happen today — but comparing key
+        // ORDER rather than the key SET would report `file-set-changed` for a project where nothing
+        // was added or deleted, and that reason names the one thing Brain actually refuses.
+        $decision = ScopedRebuild::decide(
+            $this->record(['app/B.php' => 'h2', 'app/A.php' => 'h1']),
+            $this->record(['app/A.php' => 'CHANGED', 'app/B.php' => 'h2']),
+            $this->root,
+            $this->provenance(),
+        );
+
+        $this->assertSame(["{$this->root}/app/A.php"], $decision->files);
+    }
+
+    #[Test]
+    public function each_refusal_names_the_precondition_that_said_no(): void
+    {
+        // Six ways to refuse all reported as the same `full` label, which is how "the scoped path
+        // never engages" arrived as a report that could not be diagnosed from outside the process.
+        // The slug is the diagnosis, so it is what these assert.
+        $previous = $this->record(['app/A.php' => 'h1', 'app/B.php' => 'h2', 'routes/web.php' => 'h3']);
+        $withNewerBrain = $this->record(['app/A.php' => 'CHANGED', 'app/B.php' => 'h2', 'routes/web.php' => 'h3'], brain: '2.5.0');
+
+        $this->assertSame('no-merge-base', ScopedRebuild::decide(null, $previous, $this->root, $this->provenance())->reason);
+        $this->assertSame('inputs-changed', ScopedRebuild::decide($previous, $withNewerBrain, $this->root, $this->provenance())->reason);
+        $this->assertSame('file-set-changed', ScopedRebuild::decide(
+            $previous,
+            $this->record(['app/A.php' => 'h1', 'app/B.php' => 'h2', 'routes/web.php' => 'h3', 'app/C.php' => 'h4']),
+            $this->root,
+            $this->provenance(),
+        )->reason);
+        $this->assertSame('non-app-change', ScopedRebuild::decide(
+            $previous,
+            $this->record(['app/A.php' => 'h1', 'app/B.php' => 'h2', 'routes/web.php' => 'CHANGED']),
+            $this->root,
+            $this->provenance(),
+        )->reason);
+        $this->assertSame('no-change', ScopedRebuild::decide($previous, $previous, $this->root, $this->provenance())->reason);
+        $this->assertSame('not-in-provenance', ScopedRebuild::decide(
+            $previous,
+            $this->record(['app/A.php' => 'CHANGED', 'app/B.php' => 'h2', 'routes/web.php' => 'h3']),
+            $this->root,
+            $this->provenance('app/B.php'),
+        )->reason);
+
+        // And the positive case reports no reason at all, so a caller can branch on either field.
+        $accepted = ScopedRebuild::decide(
+            $previous,
+            $this->record(['app/A.php' => 'CHANGED', 'app/B.php' => 'h2', 'routes/web.php' => 'h3']),
+            $this->root,
+            $this->provenance(),
+        );
+        $this->assertNull($accepted->reason);
+        $this->assertNull($accepted->detail);
+    }
+
+    #[Test]
+    public function the_inputs_changed_detail_names_the_input_and_both_versions(): void
+    {
+        $decision = ScopedRebuild::decide(
+            $this->record(['app/A.php' => 'h1'], brain: '2.4.0'),
+            $this->record(['app/A.php' => 'CHANGED'], brain: '2.5.0'),
+            $this->root,
+            $this->provenance(),
+        );
+
+        $this->assertSame('differing non-file inputs: brain (2.4.0 → 2.5.0)', $decision->detail);
+    }
+
+    #[Test]
+    public function the_non_app_detail_names_the_offending_path(): void
+    {
+        $decision = ScopedRebuild::decide(
+            $this->record(['app/A.php' => 'h1', 'routes/web.php' => 'h3']),
+            $this->record(['app/A.php' => 'CHANGED', 'routes/web.php' => 'CHANGED']),
+            $this->root,
+            $this->provenance(),
+        );
+
+        $this->assertSame('routes/web.php differs from the cached graph and sits outside app/', $decision->detail);
+    }
+
+    #[Test]
+    public function the_provenance_detail_shows_the_form_the_previous_graph_knows(): void
+    {
+        // The reason this detail exists. A provenance path differing from the refused one only by
+        // prefix — a resolved `/private/var` against an unresolved `/var`, a symlinked project root —
+        // is indistinguishable from the file being genuinely absent unless both forms are printed
+        // side by side, and the two have nothing in common as problems.
+        $decision = ScopedRebuild::decide(
+            $this->record(['app/A.php' => 'h1']),
+            $this->record(['app/A.php' => 'CHANGED']),
+            $this->root,
+            ["/elsewhere{$this->root}/app/A.php" => true],
+        );
+
+        $this->assertSame(
+            "{$this->root}/app/A.php is absent from the previous graph's provenance, which knows /elsewhere{$this->root}/app/A.php",
+            $decision->detail,
+        );
+    }
+
+    #[Test]
+    public function a_provenance_without_that_basename_says_so_instead_of_naming_an_unrelated_path(): void
+    {
+        $decision = ScopedRebuild::decide(
+            $this->record(['app/A.php' => 'h1']),
+            $this->record(['app/A.php' => 'CHANGED']),
+            $this->root,
+            $this->provenance('app/B.php'),
+        );
+
+        $this->assertSame(
+            "{$this->root}/app/A.php is absent from the previous graph's provenance, which has no path of that name at all",
+            $decision->detail,
+        );
+    }
+
+    #[Test]
     public function an_identical_record_is_a_full_build_rather_than_an_empty_scope(): void
     {
         // Unreachable through `graph()` (identical inputs hash equal and serve the entry whole), but

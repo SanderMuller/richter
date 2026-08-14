@@ -389,27 +389,39 @@ final class DetectChangesCommand extends Command
         /** @var array<string, float> $phases */
         $phases = [];
         $path = null;
+        $refusal = null;
 
         // `rebuild`, not `fresh`: refusing the cache HIT gives something to time, while keeping the
         // merge base means the timings — and the path label — describe the build this project
         // actually gets. `--no-cache` alongside still forces the cold one.
         $graph = $graphs->graph(
             fresh: (bool) $this->option('no-cache'),
-            onProgress: function (string $event, array $data) use (&$phases, &$path): void {
+            onProgress: function (string $event, array $data) use (&$phases, &$path, &$refusal): void {
                 if ($event !== 'richter:phase' || ! is_string($data['phase'] ?? null) || ! is_float($data['seconds'] ?? null)) {
                     return;
                 }
 
                 $phases[$data['phase']] = $data['seconds'];
 
-                if ($data['phase'] === 'brain-analyze' && is_string($data['path'] ?? null)) {
+                if ($data['phase'] !== 'brain-analyze') {
+                    return;
+                }
+
+                if (is_string($data['path'] ?? null)) {
                     $path = $data['path'];
+                }
+
+                if (is_string($data['reason'] ?? null)) {
+                    $refusal = [
+                        'reason' => $data['reason'],
+                        'detail' => is_string($data['reasonDetail'] ?? null) && $data['reasonDetail'] !== '' ? $data['reasonDetail'] : null,
+                    ];
                 }
             },
             rebuild: true,
         );
 
-        $this->printProfile($phases, $path, (bool) $this->option('no-cache'));
+        $this->printProfile($phases, $path, (bool) $this->option('no-cache'), $refusal);
         $this->warnAboutEntryPointCoverage($graph);
 
         return $graph;
@@ -421,8 +433,9 @@ final class DetectChangesCommand extends Command
      *
      * @param  array<string, float>  $phases
      * @param  string|null  $path  which analysis path `brain-analyze` took, when it reported one
+     * @param  array{reason: string, detail: string|null}|null  $refusal  why the scoped path was not taken
      */
-    private function printProfile(array $phases, ?string $path, bool $cold): void
+    private function printProfile(array $phases, ?string $path, bool $cold, ?array $refusal = null): void
     {
         $total = array_sum($phases);
         $errorOutput = $this->getOutput()->getErrorStyle();
@@ -444,6 +457,17 @@ final class DetectChangesCommand extends Command
         }
 
         $errorOutput->writeln(sprintf('  %-24s %6.2fs', 'total', $total));
+
+        // Below the table, not on the phase line: a label reading `full` answers "was it scoped?" and
+        // nothing else, and every precondition an incremental rebuild can fail reads the same from
+        // there. This names which one, and what specifically refused.
+        if ($refusal !== null) {
+            $errorOutput->writeln("  no scoped rebuild: {$refusal['reason']}");
+
+            if ($refusal['detail'] !== null) {
+                $errorOutput->writeln("    {$refusal['detail']}");
+            }
+        }
     }
 
     /** @param  array<string, 'analyzed'|'unresolved'>  $coverage */

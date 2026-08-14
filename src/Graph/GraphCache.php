@@ -3,12 +3,12 @@
 namespace SanderMuller\Richter\Graph;
 
 use Composer\InstalledVersions;
-use LaraMint\LaravelBrain\Analysis\Incremental\GraphProvenance;
 use LaraMint\LaravelBrain\Graph\Graph as BrainGraph;
 use OutOfBoundsException;
 use SanderMuller\Richter\Support\AppNamespace;
 use SanderMuller\Richter\Support\RichterConfig;
 use SanderMuller\Richter\Support\ScopedRebuild;
+use SanderMuller\Richter\Support\ScopedRebuildDecision;
 use SanderMuller\Richter\Tracers\ConfigRegistryTracer;
 use Symfony\Component\Finder\Finder;
 use Throwable;
@@ -153,13 +153,12 @@ final class GraphCache
             $built = $this->builder->buildDetailed(
                 $projectRoot,
                 $onProgress,
-                $base['brainGraph'] ?? null,
-                ScopedRebuild::filesFor(
-                    $base['inputs'] ?? null,
-                    $record,
-                    $projectRoot,
-                    isset($base['brainGraph']) ? array_fill_keys(array_keys(GraphProvenance::of($base['brainGraph'])->byFile), true) : [],
-                ),
+                $base->brainGraph,
+                // A refused base is already a refusal with a reason attached; only when one exists is
+                // there anything for ScopedRebuild to decide about.
+                $base->refusal !== null
+                    ? ScopedRebuildDecision::refused($base->refusal, $base->detail)
+                    : ScopedRebuild::decide($base->inputs, $record, $projectRoot, $base->provenanceFiles()),
             );
 
             $graph = $built->graph;
@@ -368,34 +367,46 @@ final class GraphCache
      * comes from {@see ScopedRebuild} comparing the returned record field by field instead, which is
      * a strictly sharper question than the hash's "same or not".
      *
-     * @return array{brainGraph: BrainGraph, inputs: array{nonFile: array<string, mixed>, files: array<string, string>}}|null
+     * Every refusal carries its own reason ({@see MergeBase}) — a stored graph the codec rejects
+     * repeats on every run forever, while an absent entry fixes itself on the next one, and the two
+     * were indistinguishable while both simply meant "no base".
      */
-    public function mergeBase(): ?array
+    public function mergeBase(): MergeBase
     {
         $file = $this->cacheFile();
 
         if (! is_file($file)) {
-            return null;
+            return MergeBase::refused('no-cache-entry', 'nothing cached yet, so there is no graph to build onto');
         }
 
         try {
             $data = json_decode((string) file_get_contents($file), associative: true, flags: JSON_THROW_ON_ERROR);
-        } catch (Throwable) {
-            return null;
+        } catch (Throwable $throwable) {
+            return MergeBase::refused('cache-unreadable', "{$file}: " . $throwable->getMessage());
         }
 
         if (! is_array($data)) {
-            return null;
+            return MergeBase::refused('cache-unreadable', "{$file} does not decode to an object");
+        }
+
+        // An entry written before this feature carries neither key. That is "no merge base", not an
+        // error — the run simply builds in full, exactly as every run did before.
+        if (! isset($data['brainGraph']) && ! isset($data['inputs'])) {
+            return MergeBase::refused('no-merge-base-stored', 'the cached entry predates incremental analysis; the next write adds one');
         }
 
         $brainGraph = BrainGraphCodec::fromArray($data['brainGraph'] ?? null);
         $inputs = $this->validInputRecord($data['inputs'] ?? null);
 
-        // An entry written before this feature carries neither key. That is "no merge base", not an
-        // error — the run simply builds in full, exactly as every run did before.
-        return $brainGraph instanceof BrainGraph && $inputs !== null
-            ? ['brainGraph' => $brainGraph, 'inputs' => $inputs]
-            : null;
+        if (! $brainGraph instanceof BrainGraph) {
+            return MergeBase::refused('brain-graph-rejected', "the stored Brain graph in {$file} is not a graph this version can revive");
+        }
+
+        if ($inputs === null) {
+            return MergeBase::refused('inputs-rejected', "the stored input record in {$file} is not one this version can revive");
+        }
+
+        return MergeBase::of($brainGraph, $inputs);
     }
 
     /**

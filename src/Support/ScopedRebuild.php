@@ -46,20 +46,37 @@ final class ScopedRebuild
      */
     public static function filesFor(?array $previous, array $current, string $projectRoot, array $provenanceFiles = []): ?array
     {
+        return self::decide($previous, $current, $projectRoot, $provenanceFiles)->files;
+    }
+
+    /**
+     * {@see filesFor()} plus, when the answer is no, which precondition said so.
+     *
+     * @param  array{nonFile: array<string, mixed>, files: array<string, string>}|null  $previous
+     * @param  array{nonFile: array<string, mixed>, files: array<string, string>}  $current
+     * @param  array<string, true>  $provenanceFiles
+     */
+    public static function decide(?array $previous, array $current, string $projectRoot, array $provenanceFiles = []): ScopedRebuildDecision
+    {
         if ($previous === null) {
-            return null;
+            return ScopedRebuildDecision::refused('no-merge-base');
         }
 
         // A version, config or namespace change can alter edges the file hashes never see, so the
         // previous graph is not a base for anything.
         if ($previous['nonFile'] !== $current['nonFile']) {
-            return null;
+            return ScopedRebuildDecision::refused('inputs-changed', self::nonFileDetail($previous['nonFile'], $current['nonFile']));
         }
 
         // Brain names added and deleted files as out of contract, and a key appearing or disappearing
-        // is exactly that — no git plumbing needed to notice.
-        if (array_keys($previous['files']) !== array_keys($current['files'])) {
-            return null;
+        // is exactly that — no git plumbing needed to notice. Compared as SETS: the two records are
+        // both produced from one sorted list, so a difference in iteration order alone says nothing
+        // about the project and must not read as an added file.
+        $added = array_diff_key($current['files'], $previous['files']);
+        $removed = array_diff_key($previous['files'], $current['files']);
+
+        if ($added !== [] || $removed !== []) {
+            return ScopedRebuildDecision::refused('file-set-changed', self::fileSetDetail($added, $removed));
         }
 
         $changed = [];
@@ -72,7 +89,7 @@ final class ScopedRebuild
             // Routes, views and config are re-read in full on every pass anyway, but a change in one
             // can move an edge the scoped pass would never revisit. Out of contract.
             if (! str_starts_with($path, 'app/')) {
-                return null;
+                return ScopedRebuildDecision::refused('non-app-change', "{$path} differs from the cached graph and sits outside app/");
             }
 
             $changed[] = $path;
@@ -82,7 +99,7 @@ final class ScopedRebuild
         // entry whole. Reaching here anyway would scope to zero files, which re-emits the previous
         // graph unchanged — a green run against a stale graph, the worst outcome available.
         if ($changed === []) {
-            return null;
+            return ScopedRebuildDecision::refused('no-change', 'every hashed input matches the cached graph');
         }
 
         $resolved = [];
@@ -95,12 +112,77 @@ final class ScopedRebuild
             // cannot be substituted, and a scope short of one changed file merges a stale version of
             // that file back in. All or nothing.
             if (! isset($provenanceFiles[$absolute])) {
-                return null;
+                return ScopedRebuildDecision::refused('not-in-provenance', self::provenanceDetail($absolute, $provenanceFiles));
             }
 
             $resolved[] = $absolute;
         }
 
-        return $resolved;
+        return ScopedRebuildDecision::scoped($resolved);
+    }
+
+    /**
+     * @param  array<string, mixed>  $previous
+     * @param  array<string, mixed>  $current
+     */
+    private static function nonFileDetail(array $previous, array $current): string
+    {
+        $differing = array_keys(array_filter(
+            $current,
+            static fn (mixed $value, string $key): bool => ! array_key_exists($key, $previous) || $previous[$key] !== $value,
+            ARRAY_FILTER_USE_BOTH,
+        ));
+
+        // Values, not just key names, for the short ones. `config` is a JSON blob whose diff would
+        // swamp the line, and `format` alone already tells the whole story (a version bump).
+        $described = array_map(
+            static fn (string $key): string => in_array($key, ['php', 'richter', 'brain'], strict: true)
+                ? sprintf('%s (%s → %s)', $key, self::scalar($previous[$key] ?? null), self::scalar($current[$key] ?? null))
+                : $key,
+            $differing,
+        );
+
+        return 'differing non-file inputs: ' . ($described === [] ? 'key order only' : implode(', ', $described));
+    }
+
+    /**
+     * @param  array<string, string>  $added
+     * @param  array<string, string>  $removed
+     */
+    private static function fileSetDetail(array $added, array $removed): string
+    {
+        $sample = static fn (array $paths): string => $paths === []
+            ? 'none'
+            : implode(', ', array_slice(array_keys($paths), 0, 3)) . (count($paths) > 3 ? sprintf(' (+%d more)', count($paths) - 3) : '');
+
+        return sprintf('%d added (%s), %d removed (%s)', count($added), $sample($added), count($removed), $sample($removed));
+    }
+
+    /**
+     * The refused path plus, when one exists, a provenance path sharing its basename.
+     *
+     * That sample is what turns this reason into an answer. The two forms differing only by prefix
+     * (a resolved `/private/var` against an unresolved `/var`, a symlinked project root, a
+     * `realpath()` somewhere in the middle) looks identical to the file simply being absent from the
+     * graph — and the remedies are nothing alike.
+     *
+     * @param  array<string, true>  $provenanceFiles
+     */
+    private static function provenanceDetail(string $absolute, array $provenanceFiles): string
+    {
+        $basename = basename($absolute);
+
+        foreach (array_keys($provenanceFiles) as $known) {
+            if (basename($known) === $basename) {
+                return "{$absolute} is absent from the previous graph's provenance, which knows {$known}";
+            }
+        }
+
+        return "{$absolute} is absent from the previous graph's provenance, which has no path of that name at all";
+    }
+
+    private static function scalar(mixed $value): string
+    {
+        return is_scalar($value) ? (string) $value : get_debug_type($value);
     }
 }

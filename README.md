@@ -332,6 +332,7 @@ The merged graph is identical either way; that is asserted, not assumed. Two thi
 
 - **It helps a changed file that declares a controller.** A diff touching only services, models or jobs has no controllers to re-trace, so it is refused and costs nothing extra.
 - **Every ambiguous case is refused.** A wrong refusal costs one full build, which is what every run cost before. A wrong acceptance would produce a graph quietly missing edges, which is the failure this package exists to prevent — so `--no-cache` remains the way to force a full analysis if you ever suspect one.
+- **A refusal says which precondition refused.** `--profile` prints it under the timing table as `no scoped rebuild: <reason>` plus the specific input — the differing non-file input, the changed path outside `app/`, the changed file the stored graph attributes nothing to. `no-cache-entry` is the ordinary first run and resolves itself; every other reason names something to look at.
 
 ### MCP server
 

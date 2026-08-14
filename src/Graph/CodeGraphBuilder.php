@@ -20,6 +20,7 @@ use SanderMuller\Richter\Console\InternalTracerBranchCommand;
 use SanderMuller\Richter\Support\AppFiles;
 use SanderMuller\Richter\Support\AppNamespace;
 use SanderMuller\Richter\Support\RichterConfig;
+use SanderMuller\Richter\Support\ScopedRebuildDecision;
 use SanderMuller\Richter\Tracers\BladeViewTracer;
 use SanderMuller\Richter\Tracers\ClassHierarchyTracer;
 use SanderMuller\Richter\Tracers\ConfigRegistryTracer;
@@ -96,12 +97,12 @@ final class CodeGraphBuilder
      * supplied and Brain accepted them, `scoped-rejected` when it did not, `full` otherwise.
      *
      * @param  (callable(string, array<string, mixed>): void)|null  $onProgress
-     * @param  list<string>|null  $scopedFiles
      * @return array{0: object{fullGraph: BrainGraph}, 1: 'full'|'scoped'|'scoped-rejected'}
      */
-    private function analyse(string $projectRoot, ?callable $onProgress, ?BrainGraph $previousBrainGraph, ?array $scopedFiles): array
+    private function analyse(string $projectRoot, ?callable $onProgress, ?BrainGraph $previousBrainGraph, ?ScopedRebuildDecision $scope): array
     {
         $progress = $onProgress ?? static fn (string $event, array $data): null => null;
+        $scopedFiles = $scope?->files;
 
         if ($scopedFiles === null || ! $previousBrainGraph instanceof BrainGraph) {
             return [new ProjectAnalyzer()->analyze($projectRoot, $progress), 'full'];
@@ -125,19 +126,19 @@ final class CodeGraphBuilder
      * report goes through and needs only the merged graph, while the cache needs Brain's own graph to
      * keep as a later scoped rebuild's merge base.
      *
-     * `$previousBrainGraph` and `$scopedFiles` are supplied together or not at all — a scope without
+     * `$previousBrainGraph` and a scoped `$scope` are supplied together or not at all — a scope without
      * a base has nothing to merge into, and a base without a scope is unused. The caller
      * ({@see GraphCache}) owns the soundness decision via {@see ScopedRebuild}; this method owns only
      * the fallback when Brain rejects the scope it was handed.
      *
      * @param  (callable(string, array<string, mixed>): void)|null  $onProgress
-     * @param  list<string>|null  $scopedFiles  absolute paths to re-trace, or null for a full analysis
+     * @param  ScopedRebuildDecision|null  $scope  the files to re-trace, or the reason not to
      */
     public function buildDetailed(
         ?string $projectRoot = null,
         ?callable $onProgress = null,
         ?BrainGraph $previousBrainGraph = null,
-        ?array $scopedFiles = null,
+        ?ScopedRebuildDecision $scope = null,
     ): BuiltGraph {
         $projectRoot ??= base_path();
 
@@ -150,13 +151,10 @@ final class CodeGraphBuilder
         $phaseStart = $onProgress !== null ? (float) hrtime(true) : 0.0;
 
         [$analysis, $path] = $this->withWidenedBrainPaths(
-            fn (): array => $this->analyse($projectRoot, $onProgress, $previousBrainGraph, $scopedFiles),
+            fn (): array => $this->analyse($projectRoot, $onProgress, $previousBrainGraph, $scope),
         );
 
-        $phaseStart = $this->emitPhase($onProgress, 'brain-analyze', $phaseStart, [
-            'path' => $path,
-            'scopedFiles' => $path === 'scoped' ? count($scopedFiles ?? []) : 0,
-        ]);
+        $phaseStart = $this->emitPhase($onProgress, 'brain-analyze', $phaseStart, $this->analysePhaseExtra($path, $scope));
 
         // One FQCN-keyed id per symbol, read from Brain's own node data — the anti-corruption boundary
         // that lets the post-hoc tracers below address symbols by plain FQCN and join the route chain.
@@ -262,7 +260,7 @@ final class CodeGraphBuilder
 
         $this->emitPhase($onProgress, 'rewrites-and-members', $phaseStart);
 
-        return new BuiltGraph($graph, $analysis->fullGraph, $path, $path === 'scoped' ? count($scopedFiles ?? []) : 0);
+        return new BuiltGraph($graph, $analysis->fullGraph, $path, $path === 'scoped' ? $this->scopedCount($scope) : 0);
     }
 
     /**
@@ -319,6 +317,34 @@ final class CodeGraphBuilder
             'inheritance' => $consolidated['inheritance'],
             'declares' => $consolidated['declares'],
         ];
+    }
+
+    /**
+     * What the `brain-analyze` phase event reports about the analysis it just timed.
+     *
+     * The reason rides along only on the `full` path, and only when a scope decision was made at all:
+     * a scoped run needs no excuse, and a plain {@see build()} passes no decision, so it never asked.
+     *
+     * @param  'full'|'scoped'|'scoped-rejected'  $path
+     * @return array<string, int|string>
+     */
+    private function analysePhaseExtra(string $path, ?ScopedRebuildDecision $scope): array
+    {
+        $extra = [
+            'path' => $path,
+            'scopedFiles' => $path === 'scoped' ? $this->scopedCount($scope) : 0,
+        ];
+
+        if ($path !== 'full' || ! $scope instanceof ScopedRebuildDecision || $scope->reason === null) {
+            return $extra;
+        }
+
+        return [...$extra, 'reason' => $scope->reason, 'reasonDetail' => $scope->detail ?? ''];
+    }
+
+    private function scopedCount(?ScopedRebuildDecision $scope): int
+    {
+        return $scope instanceof ScopedRebuildDecision ? count($scope->files ?? []) : 0;
     }
 
     /**

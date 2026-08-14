@@ -6,6 +6,7 @@ use Illuminate\Filesystem\Filesystem;
 use PHPUnit\Framework\Attributes\Test;
 use SanderMuller\Richter\Graph\CodeGraphBuilder;
 use SanderMuller\Richter\Graph\GraphCache;
+use SanderMuller\Richter\Support\ScopedRebuildDecision;
 use SanderMuller\Richter\Tests\TestCase;
 
 /**
@@ -22,6 +23,9 @@ final class ScopedGraphBuildTest extends TestCase
     private string $base;
 
     private string $projectRoot;
+
+    /** @var array<string, mixed> */
+    private array $phase = [];
 
     protected function setUp(): void
     {
@@ -81,7 +85,7 @@ final class ScopedGraphBuildTest extends TestCase
             $this->projectRoot,
             null,
             $first->brainGraph,
-            ["{$this->projectRoot}/app/Http/Controllers/PostController.php"],
+            ScopedRebuildDecision::scoped(["{$this->projectRoot}/app/Http/Controllers/PostController.php"]),
         );
 
         $full = $builder->buildDetailed($this->projectRoot);
@@ -113,7 +117,7 @@ final class ScopedGraphBuildTest extends TestCase
             $this->projectRoot,
             null,
             $first->brainGraph,
-            ["{$this->projectRoot}/app/Services/Publisher.php"],
+            ScopedRebuildDecision::scoped(["{$this->projectRoot}/app/Services/Publisher.php"]),
         );
 
         $full = $builder->buildDetailed($this->projectRoot);
@@ -204,6 +208,131 @@ final class ScopedGraphBuildTest extends TestCase
         $this->assertSame(['full'], $paths);
     }
 
+    /**
+     * The `brain-analyze` phase payload from one cached run over the current tree.
+     *
+     * @return array<string, mixed>
+     */
+    private function analysePhase(bool $rebuild = false): array
+    {
+        $this->phase = [];
+
+        new GraphCache(new CodeGraphBuilder())->graph($this->projectRoot, onProgress: $this->capturePhase(...), rebuild: $rebuild);
+
+        return $this->phase;
+    }
+
+    /** @param  array<string, mixed>  $data */
+    private function capturePhase(string $event, array $data): void
+    {
+        if ($event === 'richter:phase' && ($data['phase'] ?? null) === 'brain-analyze') {
+            $this->phase = $data;
+        }
+    }
+
+    /**
+     * The cached entry as stored, for tests that damage one key of it.
+     *
+     * @return array<string, mixed>
+     */
+    private function cacheEntry(): array
+    {
+        $decoded = json_decode((string) file_get_contents($this->cacheFile()), associative: true);
+        $this->assertIsArray($decoded);
+
+        /** @var array<string, mixed> $decoded */
+        return $decoded;
+    }
+
+    /** @param  array<string, mixed>  $entry */
+    private function writeCacheEntry(array $entry): void
+    {
+        file_put_contents($this->cacheFile(), json_encode($entry));
+    }
+
+    private function cacheFile(): string
+    {
+        return "{$this->base}/cache/graph.json";
+    }
+
+    #[Test]
+    public function a_first_run_reports_that_there_is_nothing_cached_to_build_onto(): void
+    {
+        // The benign reason, and the one that must not look like the others: it fixes itself on the
+        // next run. Reported all the same, so a reader who sees it stops looking for a bug.
+        $phase = $this->analysePhase();
+
+        $this->assertSame('full', $phase['path']);
+        $this->assertSame('no-cache-entry', $phase['reason']);
+    }
+
+    #[Test]
+    public function a_stored_graph_this_version_cannot_revive_is_reported_as_such(): void
+    {
+        // The reason worth building all of this for. A merge base the codec refuses is permanent —
+        // every run rebuilds in full, forever, and the label said `full` exactly as it does on a
+        // first run. These two being one word apart was the whole diagnostic gap.
+        $cache = resolve(GraphCache::class);
+        $cache->graph($this->projectRoot);
+
+        // A stored graph declaring more nodes than it carries, standing in for every payload
+        // `BrainGraphCodec` refuses whole rather than reviving short.
+        $entry = $this->cacheEntry();
+        $entry['brainGraph'] = ['meta' => ['nodeCount' => 5, 'edgeCount' => 5], 'nodes' => [], 'edges' => []];
+        $this->writeCacheEntry($entry);
+
+        $this->assertSame('brain-graph-rejected', $this->analysePhase(rebuild: true)['reason']);
+    }
+
+    #[Test]
+    public function an_entry_predating_the_feature_is_reported_apart_from_a_corrupt_one(): void
+    {
+        $cache = resolve(GraphCache::class);
+        $cache->graph($this->projectRoot);
+
+        $entry = $this->cacheEntry();
+        unset($entry['brainGraph'], $entry['inputs']);
+        $this->writeCacheEntry($entry);
+
+        $this->assertSame('no-merge-base-stored', $this->analysePhase(rebuild: true)['reason']);
+    }
+
+    #[Test]
+    public function a_change_outside_app_is_reported_with_the_path_that_caused_it(): void
+    {
+        $cache = resolve(GraphCache::class);
+        $cache->graph($this->projectRoot);
+
+        file_put_contents(
+            "{$this->projectRoot}/routes/web.php",
+            "<?php\n\nuse App\\Http\\Controllers\\PostController;\nuse Illuminate\\Support\\Facades\\Route;\n\nRoute::post('/posts', [PostController::class, 'store']);\nRoute::get('/posts', [PostController::class, 'store']);\n",
+        );
+
+        $phase = $this->analysePhase();
+
+        $this->assertSame('non-app-change', $phase['reason']);
+        $this->assertSame('routes/web.php differs from the cached graph and sits outside app/', $phase['reasonDetail']);
+    }
+
+    #[Test]
+    public function a_scoped_run_reports_no_reason(): void
+    {
+        // The counterweight to every assertion above: an engaged scoped rebuild must carry no excuse,
+        // or a reader cannot tell a working run from a refused one by reading the reason at all.
+        $cache = resolve(GraphCache::class);
+        $cache->graph($this->projectRoot);
+
+        file_put_contents(
+            "{$this->projectRoot}/app/Http/Controllers/PostController.php",
+            "<?php\n\nnamespace App\\Http\\Controllers;\n\nuse App\\Services\\Publisher;\n\nclass PostController\n{\n    public function store(Publisher \$publisher): void\n    {\n        \$q = 6;\n        \$publisher->run();\n    }\n}\n",
+        );
+
+        $phase = $this->analysePhase();
+
+        $this->assertSame('scoped', $phase['path']);
+        $this->assertArrayNotHasKey('reason', $phase);
+    }
+
     #[Test]
     public function the_profile_extra_names_the_path_taken(): void
     {
@@ -228,7 +357,7 @@ final class ScopedGraphBuildTest extends TestCase
             $this->projectRoot,
             $collect,
             $first->brainGraph,
-            ["{$this->projectRoot}/app/Http/Controllers/PostController.php"],
+            ScopedRebuildDecision::scoped(["{$this->projectRoot}/app/Http/Controllers/PostController.php"]),
         );
 
         $this->assertCount(1, $events);
