@@ -159,6 +159,7 @@ final class DispatchEdgeTracerTest extends TestCase
         yield 'assigned only below the dispatch' => ['dispatch($job); $job = new ImportJob();'];
         yield 'rebound by a foreach' => ['$job = new ImportJob(); foreach ($queue as $job) { } dispatch($job);'];
         yield 'captured by reference' => ['$job = new ImportJob(); $f = function () use (&$job) { $job = null; }; dispatch($job);'];
+        yield 'rebound through a reference alias' => ['$job = new ImportJob(); $alias = &$job; $alias = $this->factory->make(); dispatch($job);'];
         yield 'constructed inside a closure, dispatched outside' => ['$f = function () { $job = new ImportJob(); }; dispatch($job);'];
         yield 'not a dispatch target at all' => ['$job = new Post(); dispatch($job);'];
     }

@@ -123,7 +123,11 @@ final class LocallyConstructedJobs
 
         foreach (new NodeFinder()->find([$method], static fn (Node $node): bool => true) as $node) {
             match (true) {
-                $node instanceof Assign, $node instanceof AssignRef, $node instanceof AssignOp => array_map($count, self::assignedVariables($node->var)),
+                // Both sides of a reference bind. `$alias =& $job` makes a later `$alias = …` a write
+                // to `$job` as well, and counting only the left side would leave `$job` looking like a
+                // variable written once — the exemption dropping a dispatch whose target moved.
+                $node instanceof AssignRef => array_map($count, [...self::assignedVariables($node->var), ...self::assignedVariables($node->expr)]),
+                $node instanceof Assign, $node instanceof AssignOp => array_map($count, self::assignedVariables($node->var)),
                 $node instanceof Foreach_ => array_map($count, [$node->keyVar, $node->valueVar]),
                 $node instanceof ClosureUse => array_map($count, [$node->var]),
                 $node instanceof Static_ => array_map($count, array_map(static fn (StaticVar $var): Variable => $var->var, $node->vars)),
