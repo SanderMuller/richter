@@ -67,6 +67,12 @@ final class LocallyConstructedJobs
 
         $writes = self::variableWriteCounts($method);
 
+        // A dynamic write (`$$name = …`) names no variable this pass can read, so it could be a write
+        // to any of them. Nothing in this method is provable once one appears.
+        if ($writes === null) {
+            return [];
+        }
+
         return array_filter($candidates, static fn (array $candidate, string $name): bool => ($writes[$name] ?? 0) === 1, ARRAY_FILTER_USE_BOTH);
     }
 
@@ -127,15 +133,26 @@ final class LocallyConstructedJobs
      * different scope, but counting it disqualifies the outer name, and over-counting only ever costs
      * an exemption. Under-counting would cost a test.
      *
-     * @return array<string, int>
+     * Null when the method contains a write this pass cannot attribute to a name — see {@see in()}.
+     *
+     * @return array<string, int>|null
      */
-    private static function variableWriteCounts(ClassMethod $method): array
+    private static function variableWriteCounts(ClassMethod $method): ?array
     {
         $counts = [];
-        $count = static function (?Node $node) use (&$counts): void {
-            if ($node instanceof Variable && is_string($node->name)) {
-                $counts[$node->name] = ($counts[$node->name] ?? 0) + 1;
+        $dynamic = false;
+        $count = static function (?Node $node) use (&$counts, &$dynamic): void {
+            if (! $node instanceof Variable) {
+                return;
             }
+
+            if (is_string($node->name)) {
+                $counts[$node->name] = ($counts[$node->name] ?? 0) + 1;
+
+                return;
+            }
+
+            $dynamic = true;
         };
 
         foreach ($method->params as $param) {
@@ -165,7 +182,7 @@ final class LocallyConstructedJobs
             };
         }
 
-        return $counts;
+        return $dynamic ? null : $counts;
     }
 
     /**
