@@ -131,6 +131,9 @@ final class CodeGraphBuilder
      * ({@see GraphCache}) owns the soundness decision via {@see ScopedRebuild}; this method owns only
      * the fallback when Brain rejects the scope it was handed.
      *
+     * @internal richter's cache plumbing, not a consumer API — the parameters follow what
+     *   {@see GraphCache} needs and change with it.
+     *
      * @param  (callable(string, array<string, mixed>): void)|null  $onProgress
      * @param  ScopedRebuildDecision|null  $scope  the files to re-trace, or the reason not to
      */

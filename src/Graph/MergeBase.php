@@ -13,6 +13,8 @@ use LaraMint\LaravelBrain\Graph\Graph as BrainGraph;
  * stored graph the codec refuses is a bug that repeats on every run forever. Returning `null` for all
  * five made those indistinguishable from outside — which is exactly the state a consumer report of
  * "the scoped path never runs" left this feature in.
+ *
+ * @internal
  */
 final readonly class MergeBase
 {

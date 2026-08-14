@@ -16,6 +16,8 @@ use SanderMuller\Richter\Graph\MergeBase;
  * `$detail` is a full sentence naming the *specific* input that refused: which non-file input
  * differs, which path sits outside `app/`, which changed file the previous graph attributes nothing
  * to. A slug alone moves the guessing one level down instead of ending it.
+ *
+ * @internal
  */
 final readonly class ScopedRebuildDecision
 {

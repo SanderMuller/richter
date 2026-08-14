@@ -233,14 +233,22 @@ final readonly class DispatchEdgeTracer
     }
 
     /**
-     * Names of the given class-likes' constants whose value is a string literal.
+     * Names of the given class-likes' constants whose value is a string literal — minus any name the
+     * file's class-likes disagree about.
+     *
+     * The caller hands over every class-like in the file while the methods arrive as one flat list, so
+     * a name declared twice cannot be attributed to the class the dispatching method belongs to. A
+     * disagreement is therefore dropped rather than resolved: a `self::EVENT` that is a string in one
+     * class and an int in another would otherwise read as a browser event and lose its site, and a
+     * lost site is a diff that reports `determinable` when nothing determined it.
      *
      * @param  list<ClassLike>  $classLikes
      * @return array<string, true>
      */
     private function stringConstantsOf(array $classLikes): array
     {
-        $names = [];
+        $strings = [];
+        $others = [];
 
         foreach ($classLikes as $classLike) {
             foreach ($classLike->stmts as $stmt) {
@@ -249,14 +257,18 @@ final readonly class DispatchEdgeTracer
                 }
 
                 foreach ($stmt->consts as $const) {
+                    $name = $const->name->toString();
+
                     if ($const->value instanceof String_) {
-                        $names[$const->name->toString()] = true;
+                        $strings[$name] = true;
+                    } else {
+                        $others[$name] = true;
                     }
                 }
             }
         }
 
-        return $names;
+        return array_diff_key($strings, $others);
     }
 
     /**

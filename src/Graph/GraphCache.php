@@ -86,8 +86,15 @@ final class GraphCache
      * identical file inputs, so a 16 entry keeps sites the current code would not record — and
      * since that list is what taints a test selection, the very block this release removes would
      * survive the upgrade until some unrelated input happened to change.
+     * 17 → 18: the same list moves again, in both directions. A `self::SOME_EVENT` naming a string
+     * constant of the dispatching file is now resolved the way a bare literal already was, which
+     * REMOVES those sites; and a constant name the file's class-likes disagree about (a string in one,
+     * something else in another) is no longer resolved at all, which ADDS back a site that would
+     * otherwise be dropped. A 17 entry is wrong either way — stale sites blocking a selection that
+     * should run, or a missing site letting one report `determinable` with an unfollowable dispatch in
+     * the diff.
      */
-    private const int FORMAT_VERSION = 17;
+    private const int FORMAT_VERSION = 18;
 
     private ?CodeGraph $memoized = null;
 
@@ -370,6 +377,9 @@ final class GraphCache
      * Every refusal carries its own reason ({@see MergeBase}) — a stored graph the codec rejects
      * repeats on every run forever, while an absent entry fixes itself on the next one, and the two
      * were indistinguishable while both simply meant "no base".
+     *
+     * @internal one half of an incremental build's plumbing, paired with
+     *   {@see CodeGraphBuilder::buildDetailed()} and shaped by it rather than by consumers.
      */
     public function mergeBase(): MergeBase
     {
@@ -392,7 +402,10 @@ final class GraphCache
         // An entry written before this feature carries neither key. That is "no merge base", not an
         // error — the run simply builds in full, exactly as every run did before.
         if (! isset($data['brainGraph']) && ! isset($data['inputs'])) {
-            return MergeBase::refused('no-merge-base-stored', 'the cached entry predates incremental analysis; the next write adds one');
+            // Says what is true of every entry reaching here rather than why: an entry written before
+            // this feature existed carries neither key, and so does one whose keys are present but
+            // null, and the remedy is the same either way.
+            return MergeBase::refused('no-merge-base-stored', 'the cached entry carries no merge base; the next write adds one');
         }
 
         $brainGraph = BrainGraphCodec::fromArray($data['brainGraph'] ?? null);

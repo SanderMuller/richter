@@ -304,6 +304,21 @@ final class DispatchEdgeTracerTest extends TestCase
     }
 
     #[Test]
+    public function two_classes_in_one_file_disagreeing_about_a_constant_keep_the_site(): void
+    {
+        // The constant map covers the whole file while the methods arrive as one flat list, so a name
+        // declared twice cannot be tied to the class that dispatches it. Resolving it by name alone
+        // would read the int below as the string above, drop the site, and hand back a `determinable`
+        // selection that nothing determined — so a disagreement records the site instead.
+        $source = "<?php\nnamespace App\Livewire;\nclass Panel\n{\n    private const string EVENT = 'saved';\n\n    public function save(): void\n    {\n        \$this->dispatch(self::EVENT);\n    }\n}\n\nclass Importer\n{\n    private const int EVENT = 3;\n\n    public function run(): void\n    {\n        \$this->dispatch(self::EVENT);\n    }\n}\n";
+
+        $sites = new DispatchEdgeTracer()->edgesForSource($source, 'App\Livewire\Panel')['unresolvedSites'];
+
+        // Both, not one: which of the two the name belongs to is exactly what this pass cannot tell.
+        $this->assertCount(2, $sites);
+    }
+
+    #[Test]
     public function an_unparseable_source_yields_no_sites(): void
     {
         // The unparseable-file taint is a separate, global signal; a file with no AST must not also
