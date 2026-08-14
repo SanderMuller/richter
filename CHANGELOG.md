@@ -5,6 +5,49 @@ All notable changes to `sandermuller/richter` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.34.0 - 2026-08-14
+
+0.33.0 taught `--profile` to name the analysis path a build took. It turned out that naming the path answered only half the question anyone asks of an incremental rebuild.
+
+### Added
+
+#### `--profile` says why a scoped rebuild did not run
+
+The label reads `full` for eleven different reasons, and they call for opposite responses. Nothing cached yet is an ordinary first run that resolves itself. A stored graph this version cannot revive repeats on every run, forever. A precondition that genuinely fails is a fact about the project. From outside the process all three looked identical, so "the scoped rebuild never engages" was not a diagnosable report.
+
+`--profile` now prints the reason under the timing table, with a sentence naming the specific input:
+
+```
+Build profile (forced rebuild):
+  brain-analyze (full)       1.21s  31.4%
+  …
+  total                      3.85s
+  no scoped rebuild: non-app-change
+    config/services.php differs from the cached graph and sits outside app/
+
+```
+Where a changed file is absent from the stored graph's provenance, the reason also prints a provenance path sharing its basename. Two forms differing only by prefix — a resolved path against an unresolved one, a symlinked project root — otherwise look exactly like a file the graph has never seen, and the two have nothing in common as problems.
+
+One reason is worth knowing in advance: **warming the cache and then profiling the same tree reports `no-change`**, whatever the project looks like. `--profile` refuses the cache hit so there is a build to time, but the stored record still matches the tree byte for byte, and a scope of zero files would re-emit the previous graph unchanged. To see a scoped build, the edit has to come after the run that warmed the cache.
+
+#### An event named by a class constant is no longer an unfollowable dispatch
+
+0.33.0 stopped counting `$this->dispatch('some-event')` — a Livewire browser event, never a job. The same event named through a constant still counted, and the taint is global: one unfollowable dispatch makes every `richter:affected-tests` run report `not determinable`.
+
+`$this->dispatch(self::SOME_EVENT)` is now read the same way, when the dispatching class itself declares that constant as a string. Nothing beyond that: a constant inherited from a parent, one read off another class, or a `static::` reference whose value a subclass can replace all stay listed. Each would need what this pass cannot see, and guessing risks dropping a genuinely unfollowable dispatch — the one error direction that costs a project real test coverage.
+
+Constants are matched against the class that declares them rather than by name across the file, so a file declaring several classes resolves each one's constants for its own methods.
+
+### Upgrading
+
+**Your cached graph rebuilds once on first run.** `GraphCache::FORMAT_VERSION` moves 17 → 18. Resolving a constant-named event shrinks the recorded site list for unchanged files, and nothing the cache fingerprint hashes changed — so without the bump a graph written by 0.33.0 would keep sites this version does not record, and the blocked test selection would survive the upgrade.
+
+**Two internal signatures changed.** `CodeGraphBuilder::buildDetailed()` takes a `ScopedRebuildDecision` as its fourth argument instead of a list of paths, and `GraphCache::mergeBase()` returns a `MergeBase` instead of an array or `null`. Both exist for richter's own graph cache, both arrived in 0.32.0, and both are now marked `@internal`. Code going through the commands, the MCP server, or `CodeGraphBuilder::build()` is unaffected. Note that `^0.33` does not resolve this version, so no project receives it without asking.
+
+No configuration changes.
+
+**Full Changelog**: https://github.com/SanderMuller/richter/compare/v0.33.0...v0.34.0
+
 ## v0.33.0 - 2026-08-14
 
 0.32.0 taught `richter:affected-tests` to name the dispatches it could not follow. The first thing that revealed was how many of them were not dispatches at all.
@@ -64,6 +107,7 @@ It now names every site:
 ```
 the graph contains job dispatches that could not be followed:
 app/Jobs/Fanout.php:88 (App\Jobs\Fanout::handle), app/Services/Importer.php:12 (App\Services\Importer::run)
+
 
 
 ```
@@ -418,6 +462,7 @@ Note: 2 changed file(s) are outside the analysed scope (not PHP under app/, a Bl
 
 
 
+
 ```
 Stderr, like the untracked-file note, so `--json` and `--markdown` stdout stay exactly the report. Frontend sources the configuration declines to scan are not counted: generated Wayfinder output under `frontend.generated_paths` and `.d.ts` declarations were silenced on purpose, and a note that fires loudest on regeneration churn is one people stop reading.
 
@@ -489,6 +534,7 @@ One new advisory lane, and a README that finally leads with what the package is 
   
   
   
+  
   ```
   The count comes off the `route:: → middleware::<group>` edges already in the graph, so it counts endpoints only: a controller-level attachment of the same group does not inflate it. Membership is read from `$middlewareGroups` on a Laravel 10 Kernel or the `->web(append: [...])` form in a Laravel 11+ `bootstrap/app.php`. A member written as an alias resolves through the same alias map, parameters are cut first (`tenant:strict` is one alias with an argument), and a group that names another group is expanded transitively, since Laravel runs the inner group's middleware on the outer group's routes too.
   
@@ -521,6 +567,7 @@ Two silent-failure shapes that richter used to miss: a call through an applicati
   
   ```text
     ! resources/js/Pages/Posts/Create.vue posts to POST /posts and sends 'subtitle', which this diff removes from App\Http\Requests\StorePostRequest::rules() (renamed to 'sub_title'?)
+  
   
   
   
