@@ -60,6 +60,33 @@ final class CommandsTest extends TestCase
     }
 
     #[Test]
+    public function detect_changes_profile_says_so_when_there_was_nothing_to_build(): void
+    {
+        // An empty diff returns before the graph is built, so --profile has no table to print. Silence
+        // there reads as a broken flag: reported from a real run as two attempts that produced no output
+        // at all, on a diff that happened to hold no PHP under app/.
+        $this->withoutMockingConsoleOutput();
+        Artisan::call('richter:detect-changes', ['--base' => 'HEAD', '--profile' => true]);
+
+        $this->assertStringContainsString('Build profile: nothing was built', Artisan::output());
+    }
+
+    #[Test]
+    public function detect_changes_profile_json_says_so_too_and_stays_one_document(): void
+    {
+        $this->withoutMockingConsoleOutput();
+        Artisan::call('richter:detect-changes', ['--base' => 'HEAD', '--profile' => true, '--json' => true]);
+        $output = Artisan::output();
+
+        $this->assertStringContainsString('Build profile: nothing was built', $output);
+        // The note rides on stderr, which the harness folds into one stream — so the payload still has
+        // to decode from the first '{' onward, exactly as the profile table's own test requires.
+        $decoded = json_decode(substr($output, (int) strpos($output, '{')), associative: true);
+        $this->assertIsArray($decoded);
+        $this->assertSame([], $decoded['changed'] ?? null, 'the empty-diff payload, undisturbed by the note');
+    }
+
+    #[Test]
     public function detect_changes_falls_back_to_the_configured_base_ref(): void
     {
         config()->set('richter.default_base', 'HEAD');

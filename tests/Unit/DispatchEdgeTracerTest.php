@@ -347,6 +347,17 @@ final class DispatchEdgeTracerTest extends TestCase
     }
 
     #[Test]
+    public function a_grouped_typed_constant_declaration_resolves_too(): void
+    {
+        // Several names in one typed `const` statement — the form real components tend to use for a set
+        // of related events. It works because the reader walks each statement's own list, but the docs
+        // now say so, and a documented shape needs a test rather than a reading of the code.
+        $source = "<?php\nnamespace App\Livewire;\nclass Panel\n{\n    public const string\n        SUBTITLE_CHANGED = 'subtitle-changed',\n        SUBTITLE_DELETED = 'subtitle-deleted';\n\n    public function save(): void\n    {\n        \$this->dispatch(self::SUBTITLE_CHANGED);\n        \$this->dispatch(self::SUBTITLE_DELETED);\n    }\n}\n";
+
+        $this->assertSame([], new DispatchEdgeTracer()->edgesForSource($source, 'App\Livewire\Panel')['unresolvedSites']);
+    }
+
+    #[Test]
     public function the_self_keyword_is_matched_whatever_its_spelling(): void
     {
         // `self` is a keyword, so `SELF::EVENT` names the same constant. A case-sensitive match would

@@ -40,10 +40,18 @@ Two shapes look unfollowable and are not counted, because neither hides anything
 - A string argument. `$this->dispatch('some-event')` is not a job dispatch. `DispatchesJobs::dispatch()`
   takes a job *object*, so a string can never be one. The common case is a Livewire component emitting
   a browser event, which has no queue involvement. A constant the dispatching class itself declares as
-  a string (`$this->dispatch(self::SOME_EVENT)`) counts as well. Anything further does not: a constant
-  inherited from a parent, one read off another class, or a `static::` reference whose value a subclass
-  can replace. Each of those would need what this pass cannot see, and guessing risks dropping a
-  genuine unfollowable dispatch — so they stay listed.
+  a string (`$this->dispatch(self::SOME_EVENT)`) counts as well — in any declaration form, including a
+  typed one and several names in one `const` statement:
+
+  ```php
+  public const string
+      SUBTITLE_CHANGED = 'subtitle-changed',
+      SUBTITLE_DELETED = 'subtitle-deleted';
+  ```
+
+  Anything further does not: a constant inherited from a parent, one read off another class, or a
+  `static::` reference whose value a subclass can replace. Each of those would need what this pass
+  cannot see, and guessing risks dropping a genuine unfollowable dispatch — so they stay listed.
 
 ## Untracked files
 

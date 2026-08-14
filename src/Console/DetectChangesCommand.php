@@ -269,6 +269,10 @@ final class DetectChangesCommand extends Command
                 $payload['gate'] = $this->gatePayload(false, [], $failOn, $failOnUnresolved);
             }
 
+            // Before the payload, not after: the note shares stderr with the profile table, and a
+            // reader decoding stdout from the first '{' onward would otherwise find this appended
+            // inside the document it is trying to parse.
+            $this->noteNothingToProfile();
             $this->line(JsonPresenter::encode($payload));
 
             return self::SUCCESS;
@@ -300,6 +304,7 @@ final class DetectChangesCommand extends Command
     private function reportEmptyDiff(string $base, ?RiskLevel $failOn, bool $failOnUnresolved, bool $gateActive): int
     {
         $this->info("No changed PHP files under app/ against {$base}.");
+        $this->noteNothingToProfile();
 
         $path = $this->option('html');
         $gate = $gateActive ? ['tripped' => false, 'reasons' => []] : null;
@@ -425,6 +430,22 @@ final class DetectChangesCommand extends Command
         $this->warnAboutEntryPointCoverage($graph);
 
         return $graph;
+    }
+
+    /**
+     * Says so when `--profile` had nothing to measure.
+     *
+     * A diff with no PHP under `app/` returns before the graph is ever built, so the flag produces no
+     * table at all — which reads as a broken flag rather than as an empty diff. Building anyway would
+     * make a no-op run pay for an analysis nothing asked for, so this says what happened instead.
+     *
+     * STDERR, like the table it stands in for, so `--json` stdout stays one document.
+     */
+    private function noteNothingToProfile(): void
+    {
+        if ((bool) $this->option('profile')) {
+            $this->getOutput()->getErrorStyle()->writeln('Build profile: nothing was built — the diff holds nothing the graph is built from.');
+        }
     }
 
     /**
