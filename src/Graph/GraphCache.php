@@ -86,13 +86,11 @@ final class GraphCache
      * identical file inputs, so a 16 entry keeps sites the current code would not record — and
      * since that list is what taints a test selection, the very block this release removes would
      * survive the upgrade until some unrelated input happened to change.
-     * 17 → 18: the same list moves again, in both directions. A `self::SOME_EVENT` naming a string
-     * constant of the dispatching file is now resolved the way a bare literal already was, which
-     * REMOVES those sites; and a constant name the file's class-likes disagree about (a string in one,
-     * something else in another) is no longer resolved at all, which ADDS back a site that would
-     * otherwise be dropped. A 17 entry is wrong either way — stale sites blocking a selection that
-     * should run, or a missing site letting one report `determinable` with an unfollowable dispatch in
-     * the diff.
+     * 17 → 18: the same list moves again. `$this->dispatch(self::SOME_EVENT)` naming a string constant
+     * the dispatching class declares is now read the way a bare literal already was, which REMOVES
+     * those sites. A 17 entry therefore keeps sites this code does not record, and the block the
+     * previous version's fix was meant to lift survives the upgrade — the same failure 16 → 17
+     * existed for.
      */
     private const int FORMAT_VERSION = 18;
 

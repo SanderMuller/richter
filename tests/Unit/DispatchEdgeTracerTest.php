@@ -147,6 +147,18 @@ final class DispatchEdgeTracerTest extends TestCase
     }
 
     #[Test]
+    public function a_component_event_does_not_unlock_the_instantiation_edge(): void
+    {
+        // The instantiation over-approximation is unlocked by a method that actually dispatches. A
+        // component event named by a constant is not one — and it is classified twice, once for the
+        // site and once for this unlocking. Reading the map in only the first place let a browser event
+        // hand a handle()-carrying value object beside it a job edge it has no business having.
+        $source = "<?php\nnamespace App\Livewire;\nuse App\Commands\ArchiveStalePosts;\nclass Panel\n{\n    private const string SAVED = 'saved';\n\n    public function save(): void\n    {\n        \$pending = new ArchiveStalePosts();\n        \$this->dispatch(self::SAVED);\n    }\n}\n";
+
+        $this->assertSame([], new DispatchEdgeTracer()->edgesForSource($source, 'App\Livewire\Panel')['edges']);
+    }
+
+    #[Test]
     public function a_job_constructing_itself_emits_no_self_edge(): void
     {
         $source = "<?php\nnamespace App\Jobs;\nclass ImportJob\n{\n    public function copy(): void\n    {\n        \$clone = new ImportJob();\n    }\n}\n";
