@@ -9,6 +9,7 @@ use PhpParser\Node\Expr;
 use PhpParser\Node\Expr\Array_;
 use PhpParser\Node\Expr\ArrowFunction;
 use PhpParser\Node\Expr\CallLike;
+use PhpParser\Node\Expr\ClassConstFetch;
 use PhpParser\Node\Expr\Closure;
 use PhpParser\Node\Expr\FuncCall;
 use PhpParser\Node\Expr\MethodCall;
@@ -18,6 +19,8 @@ use PhpParser\Node\Expr\Variable;
 use PhpParser\Node\Identifier;
 use PhpParser\Node\Name;
 use PhpParser\Node\Scalar\String_;
+use PhpParser\Node\Stmt\ClassConst;
+use PhpParser\Node\Stmt\ClassLike;
 use PhpParser\Node\Stmt\ClassMethod;
 use PhpParser\NodeFinder;
 use PhpParser\NodeTraverser;
@@ -81,7 +84,13 @@ final readonly class DispatchEdgeTracer
      */
     public function edgesForResolvedAst(array $ast, string $classFqcn): array
     {
-        return $this->edgesForMethods(array_values(new NodeFinder()->findInstanceOf($ast, ClassMethod::class)), $classFqcn);
+        $finder = new NodeFinder();
+
+        return $this->edgesForMethods(
+            array_values($finder->findInstanceOf($ast, ClassMethod::class)),
+            $classFqcn,
+            array_values($finder->findInstanceOf($ast, ClassLike::class)),
+        );
     }
 
     /**
@@ -90,10 +99,14 @@ final readonly class DispatchEdgeTracer
      * bucket, so no tracer re-walks the full tree.
      *
      * @param  list<ClassMethod>  $classMethods  every ClassMethod in the file, any depth
+     * @param  list<ClassLike>  $classLikes  the file's class-likes, read for the string constants that
+     *   let `self::SOME_EVENT` be resolved the same way a bare literal is
      * @return array{edges: list<array{source: string, target: string, type: string}>, unresolvedSites: list<array{line: int, dispatcher: string}>}
      */
-    public function edgesForMethods(array $classMethods, string $classFqcn): array
+    public function edgesForMethods(array $classMethods, string $classFqcn, array $classLikes = []): array
     {
+        $stringConstants = $this->stringConstantsOf($classLikes);
+
         $edges = [];
         $unresolvedSites = [];
 
@@ -136,7 +149,7 @@ final readonly class DispatchEdgeTracer
                 // keeps two opaque items of one `chain()` from reading as two separate places to look.
                 $origin = ['line' => $call->getStartLine(), 'dispatcher' => $dispatcher];
 
-                foreach ($this->jobsFromCall($call, $origin, $unresolvedSites) as $jobFqcn) {
+                foreach ($this->jobsFromCall($call, $origin, $unresolvedSites, $stringConstants) as $jobFqcn) {
                     $edges[] = ['source' => $dispatcher, 'target' => $jobFqcn . '::handle', 'type' => 'action-to-job'];
                 }
             }
@@ -198,9 +211,10 @@ final readonly class DispatchEdgeTracer
     /**
      * @param  array{line: int, dispatcher: string}  $origin  the dispatch statement a site is recorded against
      * @param  list<array{line: int, dispatcher: string}>  $unresolvedSites
+     * @param  array<string, true>  $stringConstants
      * @return list<string>
      */
-    private function jobsFromCall(Node $call, array $origin, array &$unresolvedSites): array
+    private function jobsFromCall(Node $call, array $origin, array &$unresolvedSites, array $stringConstants = []): array
     {
         // A first-class callable (`Job::dispatch(...)`) builds a closure, not a dispatch — and
         // calling getArgs() on it throws. It's not a dispatch site, so skip it.
@@ -208,7 +222,7 @@ final readonly class DispatchEdgeTracer
             return [];
         }
 
-        $site = $this->dispatchSite($call);
+        $site = $this->dispatchSite($call, $stringConstants);
 
         return match ($site['mode'] ?? null) {
             'single' => $this->jobsFromArg($site['arg'], $origin, $unresolvedSites),
@@ -219,11 +233,64 @@ final readonly class DispatchEdgeTracer
     }
 
     /**
+     * Names of the given class-likes' constants whose value is a string literal.
+     *
+     * @param  list<ClassLike>  $classLikes
+     * @return array<string, true>
+     */
+    private function stringConstantsOf(array $classLikes): array
+    {
+        $names = [];
+
+        foreach ($classLikes as $classLike) {
+            foreach ($classLike->stmts as $stmt) {
+                if (! $stmt instanceof ClassConst) {
+                    continue;
+                }
+
+                foreach ($stmt->consts as $const) {
+                    if ($const->value instanceof String_) {
+                        $names[$const->name->toString()] = true;
+                    }
+                }
+            }
+        }
+
+        return $names;
+    }
+
+    /**
+     * Whether the argument is a string as far as this file can tell — a literal, or one of the
+     * class's own constants holding one.
+     *
+     * Deliberately same-class only. A constant reached through a parent or another class would need
+     * the cross-file map, which is not built when this runs, and guessing would risk dropping a
+     * genuine unfollowable dispatch — the one error direction that costs a project real coverage.
+     *
+     * @param  array<string, true>  $stringConstants
+     */
+    private function resolvesToString(?Arg $arg, array $stringConstants): bool
+    {
+        $value = $arg?->value;
+
+        if ($value instanceof String_) {
+            return true;
+        }
+
+        return $value instanceof ClassConstFetch
+            && $value->class instanceof Name
+            && in_array($value->class->toString(), ['self', 'static'], strict: true)
+            && $value->name instanceof Identifier
+            && isset($stringConstants[$value->name->toString()]);
+    }
+
+    /**
      * Classify a call as a dispatch shape, or null when it isn't one.
      *
+     * @param  array<string, true>  $stringConstants
      * @return array{mode: 'single'|'array', arg: Arg|null}|array{mode: 'class', class: string}|null
      */
-    private function dispatchSite(Node $call): ?array
+    private function dispatchSite(Node $call, array $stringConstants = []): ?array
     {
         if ($call instanceof FuncCall) {
             return $call->name instanceof Name && in_array($call->name->toString(), $this->dispatchFunctions, strict: true)
@@ -241,13 +308,17 @@ final readonly class DispatchEdgeTracer
 
             $first = $call->getArgs()[0] ?? null;
 
-            // A string literal is never a job. `DispatchesJobs::dispatch()` takes a job OBJECT, so
+            // A string is never a job. `DispatchesJobs::dispatch()` takes a job OBJECT, so
             // `$this->dispatch('some-event')` is a different method that happens to share the name —
             // Livewire's browser-event dispatch being the common one. Counting it as an unfollowable
             // job dispatch is the same spurious taint the `$x->dispatch($y)` exclusion above avoids,
             // and worse: there is nothing to restructure, so the site would block a test selection
             // permanently with no repair available to the project.
-            return $first?->value instanceof String_ ? null : ['mode' => 'single', 'arg' => $first];
+            //
+            // `self::SOME_EVENT` counts too when the class declares it as a string: naming the event
+            // through a constant is the same call, and testing only for a bare literal just waits for
+            // the next argument shape.
+            return $this->resolvesToString($first, $stringConstants) ? null : ['mode' => 'single', 'arg' => $first];
         }
 
         return $call instanceof StaticCall ? $this->staticDispatchSite($call) : null;

@@ -266,6 +266,44 @@ final class DispatchEdgeTracerTest extends TestCase
     }
 
     #[Test]
+    public function an_event_named_by_a_class_constant_is_not_a_job_dispatch(): void
+    {
+        // The variant that survived the literal-only test: the same Livewire event, named through a
+        // constant instead of inline. Testing only for a bare literal just waits for the next
+        // argument shape, which is what happened.
+        $source = "<?php\nnamespace App\Livewire;\nclass Panel\n{\n    private const string SAVED = 'saved-settings';\n\n    public function save(): void\n    {\n        \$this->dispatch(self::SAVED);\n        \$this->dispatch(self::SAVED, id: 1);\n    }\n}\n";
+
+        $result = new DispatchEdgeTracer()->edgesForSource($source, 'App\Livewire\Panel');
+
+        $this->assertSame([], $result['unresolvedSites']);
+    }
+
+    #[Test]
+    public function a_constant_that_is_not_a_string_still_counts_as_unfollowable(): void
+    {
+        // The guard resolves a constant only when the class declares it as a STRING. Anything else —
+        // here a constant holding a job instance — stays an unfollowable dispatch, because dropping
+        // it would cost a project real test coverage.
+        $source = "<?php\nnamespace App\Http\Controllers;\nclass PostController\n{\n    private const int RETRIES = 3;\n\n    public function store(): void\n    {\n        \$this->dispatch(self::RETRIES);\n    }\n}\n";
+
+        $sites = new DispatchEdgeTracer()->edgesForSource($source, self::DISPATCHER)['unresolvedSites'];
+
+        $this->assertCount(1, $sites);
+    }
+
+    #[Test]
+    public function a_constant_from_another_class_stays_unfollowable(): void
+    {
+        // Same-class only, deliberately: resolving through a parent or a sibling needs the cross-file
+        // map, which does not exist while the tracer runs, and guessing would risk dropping a real one.
+        $source = "<?php\nnamespace App\Http\Controllers;\nuse App\Events\Names;\nclass PostController\n{\n    public function store(): void\n    {\n        \$this->dispatch(Names::SAVED);\n    }\n}\n";
+
+        $sites = new DispatchEdgeTracer()->edgesForSource($source, self::DISPATCHER)['unresolvedSites'];
+
+        $this->assertCount(1, $sites);
+    }
+
+    #[Test]
     public function an_unparseable_source_yields_no_sites(): void
     {
         // The unparseable-file taint is a separate, global signal; a file with no AST must not also

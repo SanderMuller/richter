@@ -422,7 +422,7 @@ final class CodeGraphBuilder
             // Dispatchers → jobs incl. configured custom helpers + the unresolved-dispatch signal
             // (a variable dispatch must make a job read "unknown", not "none"). The target is
             // bounded to "a dispatchable" (S2), so unlike S1 above this IS change-scopeable.
-            $dispatch = $dispatchTracer->edgesForMethods($nodes['classMethods'], $class['fqcn']);
+            $dispatch = $dispatchTracer->edgesForMethods($nodes['classMethods'], $class['fqcn'], $nodes['classLikes']);
 
             // The tracer knows the dispatching member and the line; only this loop knows the file, so
             // it stamps the project-relative path the reports print everywhere else.
