@@ -298,6 +298,44 @@ final class ScopedGraphBuildTest extends TestCase
     }
 
     #[Test]
+    public function a_damaged_entry_and_an_unrevivable_input_record_are_reported_apart(): void
+    {
+        $cache = resolve(GraphCache::class);
+        $cache->graph($this->projectRoot);
+
+        file_put_contents($this->cacheFile(), '{"fingerprint": "abc", "inputs"');
+        $this->assertSame('cache-unreadable', $this->analysePhase(rebuild: true)['reason']);
+
+        $cache->graph($this->projectRoot, fresh: false);
+        $entry = $this->cacheEntry();
+        $entry['inputs'] = 'not a record';
+        $this->writeCacheEntry($entry);
+
+        $this->assertSame('inputs-rejected', $this->analysePhase(rebuild: true)['reason']);
+    }
+
+    #[Test]
+    public function profiling_the_same_tree_the_cache_was_warmed_on_reports_that_nothing_differs(): void
+    {
+        // Warm, then profile without touching anything — the protocol anyone reaches for, and one that
+        // cannot show `scoped` no matter what the project looks like. `--profile` refuses the cache HIT
+        // so there is a build to time, but the stored record still matches the tree byte for byte, and
+        // a zero-file scope re-emits the previous graph unchanged, so it is refused by design.
+        //
+        // Which means the `scoped` label needs an edit made AFTER the warming run, and until this
+        // reason existed, that requirement was invisible: the label read `full` and looked like a
+        // feature that never engages.
+        $cache = resolve(GraphCache::class);
+        $cache->graph($this->projectRoot);
+
+        $phase = $this->analysePhase(rebuild: true);
+
+        $this->assertSame('full', $phase['path']);
+        $this->assertSame('no-change', $phase['reason']);
+        $this->assertSame('every hashed input matches the cached graph', $phase['reasonDetail']);
+    }
+
+    #[Test]
     public function a_change_outside_app_is_reported_with_the_path_that_caused_it(): void
     {
         $cache = resolve(GraphCache::class);
