@@ -70,16 +70,26 @@ final readonly class DispatchEdgeTracer
     /**
      * Whether this source can possibly dispatch — a cheap pre-check before the AST walk.
      *
-     * Two lanes have to be covered, and both spell themselves out. Every dispatch verb this tracer
-     * knows carries `dispatch` in its name, except the `Bus` facade's `chain`/`batch`; and the
-     * instantiation over-approximation needs a `new`. A file with none of the three cannot produce an
-     * edge or a site. Any new verb has to be spelled by one of these tokens, or widen them first.
+     * An instance method rather than a static one, and that is the whole point: the verbs this tracer
+     * answers to include the project's own ({@see RichterConfig::dispatchHelpers()}), and a helper
+     * named `queue_job` spells none of the built-in tokens. A static gate could not know that, and
+     * would have skipped the file — losing both its edges and its unresolved-dispatch site, silently.
+     *
+     * The remaining three tokens cover the rest: every built-in verb carries `dispatch` in its name
+     * except the `Bus` facade's `chain`/`batch`, and the instantiation over-approximation needs a
+     * `new`. That last one is matched on a word boundary, not `'new '` — `new` may be followed by any
+     * whitespace, including a line break, and a missed one costs an edge.
      */
-    public static function mayMatch(string $source): bool
+    public function mayMatch(string $source): bool
     {
-        return stripos($source, 'dispatch') !== false
-            || stripos($source, 'new ') !== false
-            || str_contains($source, 'Bus');
+        if (stripos($source, 'dispatch') !== false || str_contains($source, 'Bus') || preg_match('/\bnew\b/i', $source) === 1) {
+            return true;
+        }
+
+        return array_any(
+            $this->dispatchFunctions,
+            static fn (string $helper): bool => stripos($source, $helper) !== false,
+        );
     }
 
     /** @return array{edges: list<array{source: string, target: string, type: string}>, unresolvedSites: list<array{line: int, dispatcher: string}>} */
