@@ -5,6 +5,50 @@ All notable changes to `sandermuller/richter` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.33.0 - 2026-08-14
+
+0.32.0 taught `richter:affected-tests` to name the dispatches it could not follow. The first thing that revealed was how many of them were not dispatches at all.
+
+### Fixed
+
+#### Two shapes were blocking test selection for no reason
+
+The taint from an unfollowable dispatch is global: one of them makes *every* run report `not determinable`, so the full suite runs. Two of the shapes counted as unfollowable were never hidden in the first place.
+
+**A Livewire component event.** `$this->dispatch('close-modal')` is Livewire's browser-event dispatch, a different method that happens to share a name with the queue one. `DispatchesJobs::dispatch()` takes a job *object*, so a string literal can never be one. These were counted, and unlike a genuinely dynamic dispatch there was nothing a project could do about it: the release's own advice is to restructure the dispatch into a followable form, and a browser event has no followable form because it was never a job.
+
+**An inline closure.** `dispatch(function () { … })` queues the closure itself, and its body sits in the same source the tracers already read, so the work it does already appears as edges out of the dispatching member. Nothing is hidden and there is no target to name. The same now holds for a closure inside a `Bus::chain([...])`.
+
+Reported together as roughly two-thirds of the blocking sites on one production codebase — that is, two-thirds of the cases where the remedy the previous release proposed did not apply.
+
+#### `--profile` could not show the path it was extended to report
+
+0.32.0 added the analysis path (`full`, `scoped`, `scoped-rejected`) to the `brain-analyze` line so you could tell whether the partial rebuild engaged. It could not: `--profile` forced a fully fresh build, which discards the merge base a scoped run needs, so the path was `full` by construction.
+
+It now refuses the cache *hit* — a hit leaves nothing to time — while still reusing the stored merge base, so both the timings and the label describe the build the project actually gets. `--no-cache` alongside `--profile` still measures a cold one.
+
+### Added
+
+#### `--head` analyses a committed tree
+
+`richter:detect-changes --head=<ref>` and `richter:affected-tests --head=<ref>` analyse that ref's committed tree instead of the working tree, for a run in a dirty checkout whose uncommitted work is not the subject. `--head=HEAD` resolves to the commit, so it means the last commit rather than the working tree.
+
+Untracked files are ignored in this mode rather than blocking the selection, since a file never `git add`-ed cannot be part of a committed tree.
+
+#### `unresolvedDispatchSites` in the `affected-tests` payload
+
+The reason string names the sites, but it caps at 15, and that capped sentence was the only place the CLI reported them — a project with more than fifteen could not reach the rest from `--json` at all.
+
+`--json` and the MCP tool now carry the full list as `{file, line, dispatcher}`, uncapped, while the reason stays capped for readability. It lists what blocked *this* selection and is empty when nothing did; for every unfollowable dispatch in the project regardless of the diff, read the `richter://graph/stats` resource.
+
+### Upgrading
+
+**Your cached graph rebuilds once on first run.** `GraphCache::FORMAT_VERSION` moves 16 → 17. The two dispatch fixes above shrink the recorded site list for unchanged files, and nothing the cache fingerprint hashes changed — so without the bump a cache written by 0.32.0 would keep sites this version does not record, and the blocked selection this release fixes would survive the upgrade.
+
+No configuration changes. `AffectedTests::select()` gained a parameter, which affects only code calling it directly rather than going through the commands or the MCP server.
+
+**Full Changelog**: https://github.com/SanderMuller/richter/compare/v0.32.0...v0.33.0
+
 ## v0.32.0 - 2026-08-13
 
 Two features that had been waiting on each other's cache-format change, shipped together so the rebuild happens once: an unfollowable dispatch now tells you where it is, and a warm cache can rebuild only the part of the graph that changed.
@@ -20,6 +64,7 @@ It now names every site:
 ```
 the graph contains job dispatches that could not be followed:
 app/Jobs/Fanout.php:88 (App\Jobs\Fanout::handle), app/Services/Importer.php:12 (App\Services\Importer::run)
+
 
 ```
 The dispatching member and the line were already known at the point the old code incremented a counter, and were simply discarded. The site is the dispatch statement, so two opaque items of one `Bus::chain([...])` are one place to look rather than two; long lists cap at 15. The MCP graph-stats resource carries the same list as `unresolvedDispatchSites`.
@@ -372,6 +417,7 @@ Note: 2 changed file(s) are outside the analysed scope (not PHP under app/, a Bl
 
 
 
+
 ```
 Stderr, like the untracked-file note, so `--json` and `--markdown` stdout stay exactly the report. Frontend sources the configuration declines to scan are not counted: generated Wayfinder output under `frontend.generated_paths` and `.d.ts` declarations were silenced on purpose, and a note that fires loudest on regeneration churn is one people stop reading.
 
@@ -442,6 +488,7 @@ One new advisory lane, and a README that finally leads with what the package is 
   
   
   
+  
   ```
   The count comes off the `route:: → middleware::<group>` edges already in the graph, so it counts endpoints only: a controller-level attachment of the same group does not inflate it. Membership is read from `$middlewareGroups` on a Laravel 10 Kernel or the `->web(append: [...])` form in a Laravel 11+ `bootstrap/app.php`. A member written as an alias resolves through the same alias map, parameters are cut first (`tenant:strict` is one alias with an argument), and a group that names another group is expanded transitively, since Laravel runs the inner group's middleware on the outer group's routes too.
   
@@ -474,6 +521,7 @@ Two silent-failure shapes that richter used to miss: a call through an applicati
   
   ```text
     ! resources/js/Pages/Posts/Create.vue posts to POST /posts and sends 'subtitle', which this diff removes from App\Http\Requests\StorePostRequest::rules() (renamed to 'sub_title'?)
+  
   
   
   
