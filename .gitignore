@@ -26,6 +26,7 @@ _ide_helper_models.php
 
 # Claude Code
 .claude/scheduled_tasks.lock
+.claude/agent-memory/
 
 # Misc
 phpstan.neon
