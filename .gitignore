@@ -34,6 +34,8 @@ phpstan.neon
 
 # Pre-release drafts (notes flow to GitHub release body, never to git history)
 /internal
+/specs
+/plans
 
 # Autoresearch artifacts (benchmarks, progress logs, patches)
 /autoresearch
