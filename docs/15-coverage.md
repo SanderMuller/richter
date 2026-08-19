@@ -19,7 +19,8 @@ Brain traces some of these too (view composition, resource references, queue dis
 - API resource composition;
 - custom validation rules;
 - trait usage;
-- eager-load relation strings;
+- eager-load relation strings, whole paths rather than first segments: `with('comments.author')` links `Post::comments` and `Comment::author`, because the relation index says which model each segment returns. A segment on a model the index knows, naming a relation that model does not have, is reported against that model rather than against every model at once;
+- relations walked in a body: `$this->post->author` links the relation methods it walks. The receiver has to carry a declared type — `$this`, a typed property, or a typed parameter — and the chain ends at the first hop that does not resolve. It also ends after a to-many hop, because `$post->comments` is a collection and what follows it belongs to the collection, not to `Comment`;
 - view-to-view includes;
 - frontend endpoint references: Wayfinder imports, Ziggy calls, endpoint literals in changed TS/JS/Vue files and Blade inline scripts (opt-in, see [Frontend changes](12-frontend.md)).
 
@@ -27,7 +28,7 @@ Brain traces some of these too (view composition, resource references, queue dis
 
 Three limits on that list, all easy to infer past.
 
-Relations are traced as declarations, not traversals. Richter links `Post` to `Comment` because the relation is declared on the model, but it does not follow a method body walking `$this->a->b->c->d` to arrive at one; resolving that needs the type of every hop.
+Relation traversals need a typed root. Richter follows `$this->post->author` hop by hop — a relation names its target in the `hasMany(Comment::class)` argument, so no hop needs type inference — but the value the chain starts from does: `$this`, a typed property, or a typed parameter. An untyped property, a `mixed`, a union type, or a value that came out of a query builder ends the chain before it starts, and how much a codebase gets back therefore depends on how well its properties and parameters are typed.
 
 The second limit used to be larger. A class reached only through a static call had every method body left unread, because Laravel Brain's call-chain analysis is anchored on routes, so a `new SomeDto(...)` inside such a class drew no edge at all. Richter now reads the methods those static calls name, which is enough to connect what they construct and to connect an inherited method's work through the subclass. What stays unread by default is the rest of the class: a method nobody calls statically. Set `richter.second_hop` to `'class'` to read those too — measured at ~8.0s against the default's ~4.5s on a 4,000-file app — or to `false` to trade the reach back for the build time.
 

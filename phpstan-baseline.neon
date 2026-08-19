@@ -1,7 +1,2 @@
 parameters:
-	ignoreErrors:
-		-
-			rawMessage: 'Cognitive complexity for "SanderMuller\Richter\Tracers\ReferenceEdgeTracer::relationsLoadedIn()" is 21, keep it under 20'
-			identifier: complexity.functionLike
-			count: 1
-			path: src/Tracers/ReferenceEdgeTracer.php
+	ignoreErrors: []

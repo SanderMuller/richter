@@ -16,6 +16,7 @@ use SanderMuller\Richter\Console\InternalTracerBranchCommand;
 use SanderMuller\Richter\Support\AppFiles;
 use SanderMuller\Richter\Support\AppNamespace;
 use SanderMuller\Richter\Support\ProviderBindings;
+use SanderMuller\Richter\Support\RelationIndex;
 use SanderMuller\Richter\Support\RichterConfig;
 use SanderMuller\Richter\Support\ScopedRebuildDecision;
 use SanderMuller\Richter\Tracers\BladeViewTracer;
@@ -27,6 +28,7 @@ use SanderMuller\Richter\Tracers\EntryPointTracer;
 use SanderMuller\Richter\Tracers\FacadeEdgeTracer;
 use SanderMuller\Richter\Tracers\PolicyEdgeTracer;
 use SanderMuller\Richter\Tracers\ReferenceEdgeTracer;
+use SanderMuller\Richter\Tracers\RelationTraversalTracer;
 use SanderMuller\Richter\Tracers\StaticCallEdgeTracer;
 use SanderMuller\Richter\Tracers\ViewRenderTracer;
 
@@ -407,6 +409,13 @@ final class CodeGraphBuilder
         // loop below emits, so it can only run once all of them exist. The container keys let it
         // resolve a `return 'reports';` accessor as well as a `::class` one.
         $facadeTracer = new FacadeEdgeTracer($providerBindings->keys);
+        // Which model each relation method returns. Cross-file like the tracers above — a model, the
+        // trait it uses and the code that traverses it are different files — so it accumulates here
+        // and answers once the loop below has collected every class-like.
+        $relationIndex = new RelationIndex();
+        // Bodies that walk a relation (`$this->post->author`). Cross-file for the same reason: the
+        // hops resolve against the index above, which only answers once the loop has finished.
+        $traversalTracer = new RelationTraversalTracer();
         // config/*.php scanned once up front: the registries are the same for every app file, and a
         // per-file rescan of the config directory would be the tracer's whole cost.
         $configTracer = new ConfigRegistryTracer($projectRoot);
@@ -453,6 +462,8 @@ final class CodeGraphBuilder
             $hierarchyTracer->collect($collector->classLikes);
             $constantTracer->collect($collector->classLikes);
             $facadeTracer->collect($collector->classLikes);
+            $relationIndex->collect($collector->classLikes);
+            $traversalTracer->collect($collector->classLikes);
 
             // Dispatchers → jobs incl. configured custom helpers + the unresolved-dispatch signal
             // (a variable dispatch must make a job read "unknown", not "none"). The target is
@@ -502,6 +513,14 @@ final class CodeGraphBuilder
         // so it goes last: a call through a facade is drawn to the facade, and this is the hop that
         // carries it to the code that runs.
         array_push($edges, ...$facadeTracer->resolutionEdges($edges));
+
+        // The segments of a dotted eager-load path after the first, which need the relation index
+        // complete. Appended rather than emitted in the loop, so the first-segment edges above keep
+        // the position they have always had.
+        array_push($edges, ...$referenceTracer->tailEdges($relationIndex));
+
+        // Relations walked in a body, resolved hop by hop against the same index.
+        array_push($edges, ...$traversalTracer->edges($relationIndex));
 
         // Sorted before it leaves the branch: a report that names sites must not reorder between
         // runs, and the cached payload has to be byte-stable or the fingerprint starts flapping.

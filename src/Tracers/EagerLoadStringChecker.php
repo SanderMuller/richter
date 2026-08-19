@@ -13,10 +13,12 @@ use PhpParser\Node\Expr\StaticCall;
 use PhpParser\Node\Identifier;
 use PhpParser\Node\Name;
 use PhpParser\Node\Scalar\String_;
+use PhpParser\Node\Stmt\ClassLike;
 use PhpParser\NodeFinder;
 use SanderMuller\Richter\Support\AppFiles;
 use SanderMuller\Richter\Support\AppNamespace;
 use SanderMuller\Richter\Support\Fqcn;
+use SanderMuller\Richter\Support\RelationIndex;
 use Symfony\Component\Finder\Finder;
 use Throwable;
 
@@ -61,6 +63,9 @@ final class EagerLoadStringChecker
 
     /** A model class that fails to load would shrink the valid set and fire false alarms — degrade to a visible skip note instead. */
     private bool $modelSetIncomplete = false;
+
+    /** Same per-instance, per-run caching as {@see $modelMethodsCache}, and for the same staleness reason. */
+    private ?RelationIndex $relationIndex = null;
 
     /** @param  string|null  $modelsPath  the `app/Models` directory to scan; defaults to the consuming app's */
     public function __construct(private readonly ?string $modelsPath = null) {}
@@ -135,7 +140,8 @@ final class EagerLoadStringChecker
     private function check(Expr $expression): array
     {
         $usesModelConstant = false;
-        $folded = $this->fold($expression, $usesModelConstant);
+        $rootModel = null;
+        $folded = $this->fold($expression, $usesModelConstant, $rootModel);
 
         if ($folded === null || ! $usesModelConstant) {
             return [];
@@ -150,6 +156,9 @@ final class EagerLoadStringChecker
         }
 
         $findings = [];
+        // The model each segment is read against, while the chain still resolves. Null means the
+        // walk lost the receiver, and the union check below stands in from there on.
+        $model = $rootModel;
 
         foreach (explode('.', $folded) as $segment) {
             // `relation:id,name` column selection — the relation is the part before the colon.
@@ -157,12 +166,43 @@ final class EagerLoadStringChecker
             $relation = $beforeColon === false || $beforeColon === '' ? $segment : $beforeColon;
             // An alias form (`relation as alias`) or empty segment is out of scope for this check.
             if ($relation === '') {
+                $model = null;
+
                 continue;
             }
 
             if (str_contains($relation, ' ')) {
+                $model = null;
+
                 continue;
             }
+
+            $resolved = $model === null ? null : $this->relations()->relationOf($model, $relation);
+
+            if ($resolved !== null) {
+                // Resolved against the model that segment really belongs to — an eager-load path
+                // keeps walking through a to-many hop, since `comments.author` does mean the author
+                // of each comment.
+                $model = $resolved['related'];
+
+                continue;
+            }
+
+            if ($model !== null && $this->relations()->declaresAnyRelation($model) && $this->relations()->isRelationName($relation)) {
+                // The receiver is a model this index knows, it has no such relation, and the name IS
+                // a relation somewhere else: the string names a real relation on the wrong model, so
+                // the finding can name the model instead of the whole application.
+                //
+                // The last test is what keeps this from firing on a relation written in a shape the
+                // index cannot read (a string class argument, a macro). Such a method reads as "not
+                // a relation here" too, and a false alarm costs this checker more than a false pass.
+                $findings[] = "eager-load string '{$folded}': segment '{$relation}' is not a relation on {$model} — check the relation name (a broken constant concatenation reads exactly like this)";
+
+                return $findings;
+            }
+
+            // No receiver, or one the index cannot speak for: fall back to the broad check.
+            $model = null;
 
             if (! isset($methods[$relation])) {
                 $findings[] = "eager-load string '{$folded}': segment '{$relation}' is not a method on any model — check the relation name (a broken constant concatenation reads exactly like this)";
@@ -173,19 +213,50 @@ final class EagerLoadStringChecker
     }
 
     /**
+     * The relation map for the app's models, built once per instance from source rather than by
+     * reflection: a relation's target is in the `hasMany(X::class)` argument, which no reflection
+     * call reports. Kept beside {@see modelMethods()} rather than replacing it — that union comes
+     * from `get_class_methods()`, so it sees inherited and vendor-supplied methods this scan cannot.
+     */
+    private function relations(): RelationIndex
+    {
+        if ($this->relationIndex instanceof RelationIndex) {
+            return $this->relationIndex;
+        }
+
+        $index = new RelationIndex();
+        $modelsPath = $this->modelsPath ?? base_path('app/Models');
+
+        if (! is_dir($modelsPath)) {
+            return $this->relationIndex = $index;
+        }
+
+        foreach (Finder::create()->files()->in($modelsPath)->name('*.php') as $file) {
+            $ast = AppFiles::parseResolved((string) file_get_contents($file->getPathname()));
+
+            if ($ast !== null) {
+                $index->collect(array_values(new NodeFinder()->findInstanceOf($ast, ClassLike::class)));
+            }
+        }
+
+        return $this->relationIndex = $index;
+    }
+
+    /**
      * Statically evaluate the expression to its relation string, or null when any part is dynamic.
      * Sets the flag when a model constant participates — the signal that the string targets an app
-     * model and is therefore checkable.
+     * model and is therefore checkable — and names the FIRST such model, which is the receiver the
+     * path's segments resolve against ({@see ReferenceEdgeTracer} reads a receiver the same way).
      */
-    private function fold(Expr $expression, bool &$usesModelConstant): ?string
+    private function fold(Expr $expression, bool &$usesModelConstant, ?string &$rootModel = null): ?string
     {
         if ($expression instanceof String_) {
             return $expression->value;
         }
 
         if ($expression instanceof Concat) {
-            $left = $this->fold($expression->left, $usesModelConstant);
-            $right = $this->fold($expression->right, $usesModelConstant);
+            $left = $this->fold($expression->left, $usesModelConstant, $rootModel);
+            $right = $this->fold($expression->right, $usesModelConstant, $rootModel);
 
             return $left === null || $right === null ? null : $left . $right;
         }
@@ -196,6 +267,7 @@ final class EagerLoadStringChecker
 
             if ($value !== null && str_starts_with($class, $this->modelNamespace())) {
                 $usesModelConstant = true;
+                $rootModel ??= $class;
             }
 
             return $value;

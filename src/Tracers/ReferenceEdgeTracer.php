@@ -20,6 +20,7 @@ use SanderMuller\Richter\Graph\CodeGraphBuilder;
 use SanderMuller\Richter\Support\AppFiles;
 use SanderMuller\Richter\Support\AppNamespace;
 use SanderMuller\Richter\Support\LoadableClass;
+use SanderMuller\Richter\Support\RelationIndex;
 
 /**
  * Brain has no notion of API resources, transformers, or custom validation rules:
@@ -119,7 +120,7 @@ final class ReferenceEdgeTracer
                 }
             }
 
-            foreach ($this->relationsLoadedIn($calls) as $relationNode) {
+            foreach ($this->relationsLoadedIn($calls, $sourceNode) as $relationNode) {
                 $edges[] = ['source' => $sourceNode, 'target' => $relationNode, 'type' => 'loads-relation'];
             }
 
@@ -145,26 +146,82 @@ final class ReferenceEdgeTracer
     }
 
     /**
+     * Dotted eager-load paths whose tail this instance still owes edges for, in the order the files
+     * were read. Source member node, the model its first segment resolved against, and the raw path.
+     *
+     * @var list<array{source: string, model: string, path: string}>
+     */
+    private array $pendingTails = [];
+
+    /**
+     * The edges for every dotted path's segments AFTER the first — `with([Post::COMMENTS_AUTHOR])`
+     * holding `'comments.author'` links `Comment::author` as well as `Post::comments`, so renaming
+     * the far relation lights up its eager-load sites too.
+     *
+     * Runs after the consolidated loop, when {@see RelationIndex} can answer. Each segment resolves
+     * against the model the previous one returned; the first that does not ends that path. A
+     * to-MANY hop does not end it — `with('comments.author')` is valid Laravel and does mean
+     * `Comment::author`, which is where an eager-load path differs from a body traversal.
+     *
+     * @return list<array{source: string, target: string, type: string}>
+     */
+    public function tailEdges(RelationIndex $index): array
+    {
+        $edges = [];
+
+        foreach ($this->pendingTails as $tail) {
+            $model = $tail['model'];
+            $segments = explode('.', $tail['path']);
+            array_shift($segments);
+
+            foreach ($segments as $segment) {
+                $relation = $index->relationOf($model, $this->relationSegment($segment));
+
+                if ($relation === null) {
+                    break;
+                }
+
+                $edges[] = ['source' => $tail['source'], 'target' => "{$relation['owner']}::{$relation['method']}", 'type' => 'loads-relation'];
+                $model = $relation['related'];
+            }
+        }
+
+        return AppFiles::dedupeEdges($edges, byType: true);
+    }
+
+    /**
+     * The relation name inside one path segment: `comments:id,body` selects columns from `comments`.
+     * Applied to the tail only — the first-segment edge keeps the raw value it has always used.
+     */
+    private function relationSegment(string $segment): string
+    {
+        $beforeColon = strstr($segment, ':', before_needle: true);
+
+        return $beforeColon === false || $beforeColon === '' ? $segment : $beforeColon;
+    }
+
+    /**
      * Relation member nodes loaded via a model constant inside a `load`/`with`/`whereHas`-family
      * call: `->with([Review::ANSWERS])` links to `App\Models\Review::answers` — the relation
      * *method* node — so renaming a relation lights up its eager-load call sites. The constant's
      * declaring model stands in for the receiver, which is not statically knowable; the
      * convention that relation constants live on the model declaring the relation makes that sound.
      *
+     * A dotted path's later segments cannot be resolved here: `comments.author` names a relation on
+     * whatever `comments` returns, and that map ({@see RelationIndex}) is only complete once every
+     * file has been collected. Each tail is recorded instead and emitted by {@see tailEdges()} after
+     * the loop, which is also what keeps the first-segment edges in the position they have always
+     * had.
+     *
      * @param  list<MethodCall|StaticCall>  $calls
      * @return list<string>
      */
-    private function relationsLoadedIn(array $calls): array
+    private function relationsLoadedIn(array $calls, string $sourceNode): array
     {
-        $finder = new NodeFinder();
         $relations = [];
 
         foreach ($calls as $call) {
-            if ($call->isFirstClassCallable()) {
-                continue;
-            }
-
-            if (! $call->name instanceof Identifier) {
+            if ($call->isFirstClassCallable() || ! $call->name instanceof Identifier) {
                 continue;
             }
 
@@ -172,47 +229,76 @@ final class ReferenceEdgeTracer
                 continue;
             }
 
-            // Constants inside a constraint closure (`with([X::REL => fn ($q) => $q->select(Y::COL)])`)
-            // are columns, not relation names — collect only the const fetches outside closure bodies.
-            // A nested `->with()` *call* inside the closure is not lost: it is iterated as its own call.
-            $insideClosures = [];
+            foreach ($this->relationConstantsIn($call) as $constant) {
+                $relation = $this->relationIn($constant, $sourceNode);
 
-            foreach ($finder->find($call->getArgs(), static fn (Node $n): bool => $n instanceof Closure || $n instanceof ArrowFunction) as $closure) {
-                foreach ($finder->findInstanceOf($closure, ClassConstFetch::class) as $nested) {
-                    $insideClosures[spl_object_id($nested)] = true;
-                }
-            }
-
-            foreach ($finder->findInstanceOf($call->getArgs(), ClassConstFetch::class) as $constant) {
-                if (isset($insideClosures[spl_object_id($constant)])) {
-                    continue;
-                }
-
-                if (! $constant->class instanceof Name) {
-                    continue;
-                }
-
-                if (! $constant->name instanceof Identifier) {
-                    continue;
-                }
-
-                $model = AppFiles::resolveName($constant->class);
-
-                if (! str_starts_with($model, AppNamespace::qualify('Models\\'))) {
-                    continue;
-                }
-
-                $value = AppFiles::stringConstantValue($model, $constant->name->toString());
-
-                if ($value !== null) {
-                    // A dotted value names a nested path; the constant's own model only declares the first segment.
-                    $firstSegment = strstr($value, '.', before_needle: true);
-                    $relations["{$model}::" . ($firstSegment === false || $firstSegment === '' ? $value : $firstSegment)] = true;
+                if ($relation !== null) {
+                    $relations[$relation] = true;
                 }
             }
         }
 
         return array_keys($relations);
+    }
+
+    /**
+     * The class constants in one call's arguments that may name a relation.
+     *
+     * Constants inside a constraint closure (`with([X::REL => fn ($q) => $q->select(Y::COL)])`) are
+     * columns, not relation names, so they are left out. A nested `->with()` *call* inside the
+     * closure is not lost: it is iterated as its own call.
+     *
+     * @return list<ClassConstFetch>
+     */
+    private function relationConstantsIn(MethodCall|StaticCall $call): array
+    {
+        $finder = new NodeFinder();
+        $insideClosures = [];
+
+        foreach ($finder->find($call->getArgs(), static fn (Node $n): bool => $n instanceof Closure || $n instanceof ArrowFunction) as $closure) {
+            foreach ($finder->findInstanceOf($closure, ClassConstFetch::class) as $nested) {
+                $insideClosures[spl_object_id($nested)] = true;
+            }
+        }
+
+        return array_values(array_filter(
+            $finder->findInstanceOf($call->getArgs(), ClassConstFetch::class),
+            static fn (ClassConstFetch $constant): bool => ! isset($insideClosures[spl_object_id($constant)]),
+        ));
+    }
+
+    /**
+     * The relation member node one model constant names, or null when it names none. A dotted value
+     * names a nested path: the constant's own model declares only the first segment, and the rest is
+     * recorded for {@see tailEdges()}, which can resolve it once the index is complete.
+     */
+    private function relationIn(ClassConstFetch $constant, string $sourceNode): ?string
+    {
+        if (! $constant->class instanceof Name || ! $constant->name instanceof Identifier) {
+            return null;
+        }
+
+        $model = AppFiles::resolveName($constant->class);
+
+        if (! str_starts_with($model, AppNamespace::qualify('Models\\'))) {
+            return null;
+        }
+
+        $value = AppFiles::stringConstantValue($model, $constant->name->toString());
+
+        if ($value === null) {
+            return null;
+        }
+
+        $firstSegment = strstr($value, '.', before_needle: true);
+
+        if ($firstSegment === false || $firstSegment === '') {
+            return "{$model}::{$value}";
+        }
+
+        $this->pendingTails[] = ['source' => $sourceNode, 'model' => $model, 'path' => $value];
+
+        return "{$model}::{$firstSegment}";
     }
 
     /**

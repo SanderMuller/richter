@@ -34,6 +34,32 @@ final class EagerLoadStringCheckerTest extends TestCase
     }
 
     #[Test]
+    public function a_segment_that_names_a_relation_on_the_wrong_model_is_flagged(): void
+    {
+        // `comments` is a real relation — on Post, not on Review. The union check passes it, because
+        // some model does declare it; resolving the path per model is what catches it.
+        $findings = $this->findings('$this->post->load([Post::REVIEWS . \'.comments\']);');
+
+        $this->assertCount(1, $findings);
+        $this->assertStringContainsString('is not a relation on App\\Models\\Review', $findings[0]);
+    }
+
+    #[Test]
+    public function a_resolved_path_reports_nothing_when_every_segment_belongs_to_its_model(): void
+    {
+        $this->assertSame([], $this->findings('$this->post->load([Post::REVIEWS . \'.\' . Review::ANSWERS]);'));
+    }
+
+    #[Test]
+    public function an_unresolvable_receiver_falls_back_to_the_broad_check(): void
+    {
+        // `auditName` is a method on Review and a relation on no model at all, so it reads as a
+        // relation the index cannot speak for rather than as a wrong-model name. The walk stops and
+        // the broad check stands in, which accepts any model method.
+        $this->assertSame([], $this->findings('$this->post->load([Post::REVIEWS . \'.auditName.comments\']);'));
+    }
+
+    #[Test]
     public function a_plain_string_without_a_model_constant_is_not_checked(): void
     {
         $this->assertSame([], $this->findings('$this->post->load([\'definitelyNotARelation\']);'));

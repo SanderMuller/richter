@@ -12,6 +12,7 @@ App\Enums\FeatureToggle	declares	App\Enums\FeatureToggle::isActive
 App\Events\PostPublished	declares	App\Events\PostPublished::__construct
 App\Events\PostPublished::__construct	action-to-listener	App\Listeners\SendPostNotification::handle
 App\Filament\Resources\PostResource	declares	App\Filament\Resources\PostResource::table
+App\Filament\Resources\PostResource::table	loads-relation	App\Models\Post::reviews
 App\Filament\Resources\PostResource::table	model	App\Models\Post::reviews
 App\Http\Controllers\Auth\SocialAuthController	controller-to-action	App\Http\Controllers\Auth\SocialAuthController::login
 App\Http\Controllers\Auth\SocialAuthController	declares	App\Http\Controllers\Auth\SocialAuthController::login
@@ -43,12 +44,14 @@ App\Http\Resources\Api\v2\Post\ReviewResource::toArray	static-call	App\Http\Reso
 App\Http\Resources\Api\v2\Post\ReviewResource::toArray	action-to-resource	App\Http\Resources\Api\v2\Post\ReviewPlayerResource::toArray
 App\Jobs\ProcessPostJob	declares	App\Jobs\ProcessPostJob::__construct
 App\Jobs\ProcessPostJob	declares	App\Jobs\ProcessPostJob::handle
+App\Jobs\ProcessPostJob::handle	loads-relation	App\Models\Post::reviews
 App\Jobs\ProcessPostJob::handle	model	App\Models\Post::reviews
 App\Listeners\SendPostNotification	declares	App\Listeners\SendPostNotification::handle
 App\Listeners\SendPostNotification::handle	model	App\Models\PostContainer::query
 App\Livewire\StatusPanel	declares	App\Livewire\StatusPanel::render
 App\Livewire\StatusPanel::render	view	blade::livewire.status-panel::render
 App\Livewire\StatusPanel::render	action-to-view	view::blade__livewire.status_panel
+App\Models\Comment	declares	App\Models\Comment::post
 App\Models\Concerns\WithAudits	declares	App\Models\Concerns\WithAudits::auditName
 App\Models\Post	declares	App\Models\Post::COMMENTS
 App\Models\Post	declares	App\Models\Post::REVIEWS
@@ -70,6 +73,13 @@ App\Policies\PostPolicy	declares	App\Policies\PostPolicy::UPDATE
 App\Policies\PostPolicy	declares	App\Policies\PostPolicy::update
 App\Policies\UserPolicy	declares	App\Policies\UserPolicy::DELETE
 App\Policies\UserPolicy	declares	App\Policies\UserPolicy::delete
+App\Services\CommentSummariser	declares	App\Services\CommentSummariser::preload
+App\Services\CommentSummariser	declares	App\Services\CommentSummariser::summarise
+App\Services\CommentSummariser::preload	references-constant	App\Models\Post::REVIEWS
+App\Services\CommentSummariser::preload	loads-relation	App\Models\Post::reviews
+App\Services\CommentSummariser::preload	references-constant	App\Models\Review::ANSWERS
+App\Services\CommentSummariser::preload	loads-relation	App\Models\Review::answers
+App\Services\CommentSummariser::summarise	loads-relation	App\Models\Comment::post
 App\Services\FfmpegTranscoder	implements	App\Contracts\PostTranscoder
 App\Services\FfmpegTranscoder	declares	App\Services\FfmpegTranscoder::transcode
 App\Services\GdThumbnailRenderer	implements	App\Contracts\ThumbnailRenderer

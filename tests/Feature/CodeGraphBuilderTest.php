@@ -200,6 +200,42 @@ final class CodeGraphBuilderTest extends TestCase
     }
 
     #[Test]
+    public function the_tail_of_a_dotted_eager_load_path_links_its_own_relation(): void
+    {
+        // `Post::REVIEWS . '.' . Review::ANSWERS` names two relations. The first belongs to Post and
+        // was always linked; the second belongs to whatever `reviews` returns, which needs the
+        // relation index to know at all.
+        $dependencies = $this->directDependenciesOf('App\\Services\\CommentSummariser::preload');
+
+        $this->assertSame('loads-relation', $dependencies['App\\Models\\Post::reviews'] ?? null);
+        $this->assertSame('loads-relation', $dependencies['App\\Models\\Review::answers'] ?? null);
+    }
+
+    #[Test]
+    public function a_relation_walked_in_a_body_links_the_relation_it_walks(): void
+    {
+        // `$comment->post` in CommentSummariser: a typed parameter carries the receiver, and the
+        // index says what `post` returns. Nothing linked this before — the graph knew the relation
+        // only as a declaration on the model.
+        $dependencies = $this->directDependenciesOf('App\\Services\\CommentSummariser::summarise');
+
+        $this->assertSame('loads-relation', $dependencies['App\\Models\\Comment::post'] ?? null);
+    }
+
+    #[Test]
+    public function a_walked_relation_survives_the_second_hop_walk_being_off(): void
+    {
+        // The traversal is drawn by the consolidated per-file pass, not by the second-hop walk, so
+        // trading that walk away for build time must not cost these edges.
+        config()->set('richter.second_hop', false);
+
+        $graph = new CodeGraphBuilder()->build(self::fixtureProjectPath());
+        $hops = $this->hopsByNode($graph->dependenciesOf(['App\\Services\\CommentSummariser::summarise'], 1));
+
+        $this->assertSame('loads-relation', $hops['App\\Models\\Comment::post'] ?? null);
+    }
+
+    #[Test]
     public function a_trait_links_back_to_its_using_class(): void
     {
         $this->assertSame([Review::class => 'uses-trait'], $this->directCallersOf(WithAudits::class));
