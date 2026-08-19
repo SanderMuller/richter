@@ -34,6 +34,8 @@ final class StaticAndInheritedEdgesTest extends TestCase
 
     private const string VALUE_OBJECT = 'Acme\\Support\\ExportTarget';
 
+    private const string SWEEP_SERVICE = 'Acme\\Services\\SweepService';
+
     private static ?CodeGraph $graph = null;
 
     protected function setUp(): void
@@ -122,6 +124,40 @@ final class StaticAndInheritedEdgesTest extends TestCase
 
         $this->assertContains(self::REGISTRY . '::targets', $callers);
         $this->assertContains(self::MIDDLEWARE . '::handle', $callers);
+    }
+
+    #[Test]
+    public function a_method_no_static_call_names_stays_unread_by_default(): void
+    {
+        // `ReportRegistry::sweep()` is called from nowhere, so the default scope never reads its
+        // body and the service it calls is reachable from nothing.
+        $callers = array_column(new ImpactAnalyzer($this->graph())->impact(self::SWEEP_SERVICE . '::run')['callers'], 'node');
+
+        $this->assertNotContains(self::REGISTRY . '::sweep', $callers);
+    }
+
+    #[Test]
+    public function the_class_scope_reads_the_rest_of_a_statically_called_class(): void
+    {
+        config()->set('richter.second_hop', 'class');
+
+        $graph = new CodeGraphBuilder()->build($this->acmeProjectPath());
+        $callers = array_column(new ImpactAnalyzer($graph)->impact(self::SWEEP_SERVICE . '::run')['callers'], 'node');
+
+        $this->assertContains(self::REGISTRY . '::sweep', $callers);
+    }
+
+    #[Test]
+    public function the_class_scope_keeps_what_the_default_scope_already_reached(): void
+    {
+        // Additive, never a replacement: the method a static call named is still read at the wider
+        // scope, even though a sibling method of the same class has its own evidence.
+        config()->set('richter.second_hop', 'class');
+
+        $graph = new CodeGraphBuilder()->build($this->acmeProjectPath());
+        $callers = array_column(new ImpactAnalyzer($graph)->impact(self::SETTINGS_PARENT . '::assemble')['callers'], 'node');
+
+        $this->assertContains(self::REGISTRY . '::boot', $callers);
     }
 
     #[Test]

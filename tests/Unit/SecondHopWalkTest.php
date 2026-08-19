@@ -19,7 +19,7 @@ final class SecondHopWalkTest extends TestCase
     {
         $walk = new RecordingBodyWalk();
 
-        new SecondHopWalk($walk(...), enabled: true)->edgesFor([
+        new SecondHopWalk($walk(...), scope: 'methods')->edgesFor([
             ['source' => 'App\Console\Commands\Sync::handle', 'target' => 'App\Support\Registry::all', 'type' => 'static-call'],
         ], '/project');
 
@@ -34,7 +34,7 @@ final class SecondHopWalkTest extends TestCase
         // entry-point tracer, or by a configured entry-point root.
         $walk = new RecordingBodyWalk();
 
-        new SecondHopWalk($walk(...), enabled: true)->edgesFor([
+        new SecondHopWalk($walk(...), scope: 'methods')->edgesFor([
             ['source' => 'App\Console\Commands\Sync::handle', 'target' => 'App\Support\Registry::all', 'type' => 'static-call'],
             ['source' => 'App\Support\Registry::all', 'target' => 'App\Services\Reporter', 'type' => 'service'],
         ], '/project');
@@ -50,7 +50,7 @@ final class SecondHopWalkTest extends TestCase
         // exists to reach — the bug, rebuilt inside the fix.
         $walk = new RecordingBodyWalk();
 
-        new SecondHopWalk($walk(...), enabled: true)->edgesFor([
+        new SecondHopWalk($walk(...), scope: 'methods')->edgesFor([
             ['source' => 'App\Console\Commands\Sync::handle', 'target' => 'App\Support\Registry::all', 'type' => 'static-call'],
             ['source' => 'App\Support\Registry::all', 'target' => 'App\Jobs\Import::handle', 'type' => 'action-to-job'],
         ], '/project');
@@ -63,7 +63,7 @@ final class SecondHopWalkTest extends TestCase
     {
         $walk = new RecordingBodyWalk();
 
-        $result = new SecondHopWalk($walk(...), enabled: false)->edgesFor([
+        $result = new SecondHopWalk($walk(...), scope: 'none')->edgesFor([
             ['source' => 'App\Console\Commands\Sync::handle', 'target' => 'App\Support\Registry::all', 'type' => 'static-call'],
         ], '/project');
 
@@ -78,7 +78,7 @@ final class SecondHopWalkTest extends TestCase
         // edges, so both targets are candidates from the start.
         $walk = new RecordingBodyWalk();
 
-        new SecondHopWalk($walk(...), enabled: true)->edgesFor([
+        new SecondHopWalk($walk(...), scope: 'methods')->edgesFor([
             ['source' => 'App\Console\Commands\Sync::handle', 'target' => 'App\Support\Registry::all', 'type' => 'static-call'],
             ['source' => 'App\Support\Registry::all', 'target' => 'App\Support\Builder::make', 'type' => 'static-call'],
         ], '/project');
@@ -91,12 +91,65 @@ final class SecondHopWalkTest extends TestCase
     {
         $walk = new RecordingBodyWalk();
 
-        new SecondHopWalk($walk(...), enabled: true)->edgesFor([
+        new SecondHopWalk($walk(...), scope: 'methods')->edgesFor([
             ['source' => 'App\Console\Commands\One::handle', 'target' => 'App\Support\Registry::all', 'type' => 'static-call'],
             ['source' => 'App\Console\Commands\Two::handle', 'target' => 'App\Support\Registry::all', 'type' => 'static-call'],
         ], '/project');
 
         $this->assertSame([['App\Support\Registry::all']], $walk->asked);
+    }
+
+    #[Test]
+    public function the_class_scope_asks_for_the_class_as_well_as_the_called_method(): void
+    {
+        $walk = new RecordingBodyWalk();
+
+        new SecondHopWalk($walk(...), scope: 'class')->edgesFor([
+            ['source' => 'App\Console\Commands\Sync::handle', 'target' => 'App\Support\Registry::all', 'type' => 'static-call'],
+        ], '/project');
+
+        $this->assertSame([['App\Support\Registry', 'App\Support\Registry::all']], $walk->asked);
+    }
+
+    #[Test]
+    public function the_class_scope_still_asks_for_a_called_method_whose_sibling_was_walked(): void
+    {
+        // The subtraction holds member ids. Dropping the class because a SIBLING method has Brain
+        // evidence would drop the very method the static call named — the class part is additive,
+        // never a replacement.
+        $walk = new RecordingBodyWalk();
+
+        new SecondHopWalk($walk(...), scope: 'class')->edgesFor([
+            ['source' => 'App\Console\Commands\Sync::handle', 'target' => 'App\Support\Registry::all', 'type' => 'static-call'],
+            ['source' => 'App\Support\Registry::other', 'target' => 'App\Services\Reporter', 'type' => 'service'],
+        ], '/project');
+
+        $this->assertSame([['App\Support\Registry', 'App\Support\Registry::all']], $walk->asked);
+    }
+
+    #[Test]
+    public function the_class_scope_reads_a_facade_concrete_class_too(): void
+    {
+        $walk = new RecordingBodyWalk();
+
+        new SecondHopWalk($walk(...), scope: 'class')->edgesFor([
+            ['source' => 'App\Facades\Reports::build', 'target' => 'App\Support\ReportBuilder::build', 'type' => 'facade-resolves-to'],
+        ], '/project');
+
+        $this->assertSame([['App\Support\ReportBuilder', 'App\Support\ReportBuilder::build']], $walk->asked);
+    }
+
+    #[Test]
+    public function the_class_scope_reads_nothing_when_no_static_call_placed_a_target(): void
+    {
+        $walk = new RecordingBodyWalk();
+
+        $result = new SecondHopWalk($walk(...), scope: 'class')->edgesFor([
+            ['source' => 'App\Console\Commands\Sync::handle', 'target' => 'App\Services\Reporter', 'type' => 'service'],
+        ], '/project');
+
+        $this->assertSame([], $walk->asked);
+        $this->assertSame(['edges' => [], 'unread' => 0], $result);
     }
 
     #[Test]
@@ -106,7 +159,7 @@ final class SecondHopWalkTest extends TestCase
         // method that calls nothing — so the count has to travel out to be reportable at all.
         $walk = new RecordingBodyWalk(unread: 2);
 
-        $result = new SecondHopWalk($walk(...), enabled: true)->edgesFor([
+        $result = new SecondHopWalk($walk(...), scope: 'methods')->edgesFor([
             ['source' => 'App\Console\Commands\Sync::handle', 'target' => 'App\Support\Registry::all', 'type' => 'static-call'],
         ], '/project');
 
@@ -118,7 +171,7 @@ final class SecondHopWalkTest extends TestCase
     {
         $walk = new RecordingBodyWalk(unread: 7);
 
-        $result = new SecondHopWalk($walk(...), enabled: true)->edgesFor([
+        $result = new SecondHopWalk($walk(...), scope: 'methods')->edgesFor([
             ['source' => 'App\Console\Commands\Sync::handle', 'target' => 'App\Services\Reporter', 'type' => 'service'],
         ], '/project');
 

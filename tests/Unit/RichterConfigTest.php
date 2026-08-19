@@ -12,6 +12,57 @@ use SanderMuller\Richter\Tests\TestCase;
 final class RichterConfigTest extends TestCase
 {
     #[Test]
+    public function the_second_hop_scope_defaults_to_reading_the_called_methods(): void
+    {
+        config()->set('richter.second_hop');
+
+        $this->assertSame('methods', RichterConfig::secondHopScope());
+    }
+
+    #[Test]
+    public function the_second_hop_booleans_keep_their_meanings(): void
+    {
+        // A published config file must keep working: the widening adds a tier, it does not replace
+        // the two values every installation already has.
+        config()->set('richter.second_hop', true);
+        $this->assertSame('methods', RichterConfig::secondHopScope());
+
+        config()->set('richter.second_hop', false);
+        $this->assertSame('none', RichterConfig::secondHopScope());
+    }
+
+    #[Test]
+    public function the_second_hop_class_tier_is_accepted(): void
+    {
+        config()->set('richter.second_hop', 'class');
+
+        $this->assertSame('class', RichterConfig::secondHopScope());
+    }
+
+    #[Test]
+    public function the_default_tier_has_one_spelling_only(): void
+    {
+        // Accepting `'methods'` as well as `true` would let two config files describe one behaviour
+        // two ways, and a reader could not tell which the build used.
+        config()->set('richter.second_hop', 'methods');
+
+        $this->expectException(InvalidArgumentException::class);
+
+        RichterConfig::secondHopScope();
+    }
+
+    #[Test]
+    public function a_second_hop_value_outside_the_set_is_rejected(): void
+    {
+        config()->set('richter.second_hop', 'yes');
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage("must be true, false, or 'class'");
+
+        RichterConfig::secondHopScope();
+    }
+
+    #[Test]
     public function an_explicit_base_option_wins_over_the_config_value(): void
     {
         config()->set('richter.default_base', 'origin/develop');

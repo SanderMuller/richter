@@ -8,6 +8,7 @@ use PhpParser\NodeFinder;
 use PHPUnit\Framework\Attributes\Test;
 use SanderMuller\Richter\Support\AppFiles;
 use SanderMuller\Richter\Support\AppNamespace;
+use SanderMuller\Richter\Support\ProviderBindings;
 use SanderMuller\Richter\Tests\TestCase;
 use SanderMuller\Richter\Tracers\FacadeEdgeTracer;
 
@@ -53,14 +54,106 @@ final class FacadeEdgeTracerTest extends TestCase
     }
 
     #[Test]
-    public function it_draws_nothing_for_a_container_key_accessor(): void
+    public function it_draws_nothing_for_a_container_key_no_provider_binds(): void
     {
-        // Resolving `'reports'` needs a string-keyed binding registry richter does not keep. Silence
-        // beats a guess: the wrong concrete would send a reviewer to the wrong file.
+        // A key the provider scan never saw resolves to nothing. Silence beats a guess: the wrong
+        // concrete would send a reviewer to the wrong file.
         $edges = $this->resolve(
             [$this->facade("return 'reports';")],
             [$this->staticCall(self::FACADE . '::assemble')],
         );
+
+        $this->assertSame([], $edges);
+    }
+
+    #[Test]
+    public function it_carries_a_container_key_accessor_over_through_the_binding_map(): void
+    {
+        $edges = $this->resolve(
+            [$this->facade("return 'reports';")],
+            [$this->staticCall(self::FACADE . '::assemble')],
+            ['reports' => self::CONCRETE],
+        );
+
+        $this->assertSame([[
+            'source' => self::FACADE . '::assemble',
+            'target' => self::CONCRETE . '::assemble',
+            'type' => 'facade-resolves-to',
+        ]], $edges);
+    }
+
+    #[Test]
+    public function a_container_key_containing_a_backslash_is_looked_up_as_a_key(): void
+    {
+        // Not sniffed as a class name: the kind is recorded when the accessor is read, so a key that
+        // looks class-like is still a key.
+        $edges = $this->resolve(
+            [$this->facade("return 'reports\\primary';")],
+            [$this->staticCall(self::FACADE . '::assemble')],
+            ['reports\\primary' => self::CONCRETE],
+        );
+
+        $this->assertSame([[
+            'source' => self::FACADE . '::assemble',
+            'target' => self::CONCRETE . '::assemble',
+            'type' => 'facade-resolves-to',
+        ]], $edges);
+    }
+
+    #[Test]
+    public function an_accessor_naming_a_class_as_a_string_resolves_through_the_class_keyed_binding(): void
+    {
+        // `bind(Reports::class, ReportBuilder::class)` files the binding under the FQCN string, which
+        // is exactly what this accessor returns.
+        $edges = $this->resolve(
+            [$this->facade("return 'Acme\\Contracts\\Reports';")],
+            [$this->staticCall(self::FACADE . '::assemble')],
+            ['Acme\\Contracts\\Reports' => self::CONCRETE],
+        );
+
+        $this->assertSame([[
+            'source' => self::FACADE . '::assemble',
+            'target' => self::CONCRETE . '::assemble',
+            'type' => 'facade-resolves-to',
+        ]], $edges);
+    }
+
+    #[Test]
+    public function a_container_key_bound_to_a_vendor_class_draws_nothing(): void
+    {
+        $edges = $this->resolve(
+            [$this->facade("return 'strings';")],
+            [$this->staticCall(self::FACADE . '::title')],
+            ['strings' => 'Illuminate\\Support\\Str'],
+        );
+
+        $this->assertSame([], $edges);
+    }
+
+    #[Test]
+    public function a_container_key_whose_concrete_lacks_the_method_draws_nothing(): void
+    {
+        $edges = $this->resolve(
+            [$this->facade("return 'reports';")],
+            [$this->staticCall(self::FACADE . '::renderPdf')],
+            ['reports' => self::CONCRETE],
+        );
+
+        $this->assertSame([], $edges);
+    }
+
+    #[Test]
+    public function an_accessor_inherited_from_an_unscanned_base_draws_nothing(): void
+    {
+        // The parent chain stops at the first class richter did not collect, so a vendor base's
+        // accessor is out of reach — and a key map cannot supply what was never read.
+        $subclass = <<<'PHP'
+            <?php
+            namespace Acme\Facades;
+            final class Reports extends \Illuminate\Support\Facades\Facade {}
+            PHP;
+
+        $edges = $this->resolve([$subclass], [$this->staticCall(self::FACADE . '::assemble')], ['reports' => self::CONCRETE]);
 
         $this->assertSame([], $edges);
     }
@@ -203,11 +296,12 @@ final class FacadeEdgeTracerTest extends TestCase
     /**
      * @param  list<string>  $sources  the class-likes the consolidated pass would have collected
      * @param  list<array{source: string, target: string, type: string}>  $edges
+     * @param  array<string, string>  $containerKeys  the map {@see ProviderBindings} would have built
      * @return list<array{source: string, target: string, type: string}>
      */
-    private function resolve(array $sources, array $edges): array
+    private function resolve(array $sources, array $edges, array $containerKeys = []): array
     {
-        $tracer = new FacadeEdgeTracer();
+        $tracer = new FacadeEdgeTracer($containerKeys);
 
         foreach ($sources as $source) {
             $ast = AppFiles::parseResolved($source);

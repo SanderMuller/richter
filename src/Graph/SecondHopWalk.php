@@ -3,6 +3,7 @@
 namespace SanderMuller\Richter\Graph;
 
 use Closure;
+use SanderMuller\Richter\Support\RichterConfig;
 use SanderMuller\Richter\Tracers\EntryPointTracer;
 use SanderMuller\Richter\Tracers\FacadeEdgeTracer;
 use SanderMuller\Richter\Tracers\StaticCallEdgeTracer;
@@ -21,9 +22,10 @@ use SanderMuller\Richter\Tracers\StaticCallEdgeTracer;
  *
  * Scope is a measurement, not a preference. On a 4,159-file application: walking every app class
  * costs ~78s, adding `override` targets ~41s, `static-call` target classes ~8.0s, and the called
- * methods of those classes ~4.5s. Only the last is affordable — and it is also the most precise,
- * since a method nobody calls has no reason to be read. `richter.second_hop` trades that reach back
- * for the build time.
+ * methods of those classes ~4.5s. Only the last two are affordable, and the default is the last —
+ * also the most precise, since a method nobody calls has no reason to be read. `richter.second_hop`
+ * moves between them: `false` gives the reach back for the build time, `'class'` buys the rest of
+ * each target class for the difference.
  *
  * @internal
  */
@@ -52,8 +54,10 @@ final readonly class SecondHopWalk
      *   the body walk itself — {@see EntryPointTracer::traceMembers()} in the build, a stub in tests.
      *   A closure rather than a type: the tracer is `final` by the package's own convention, and one
      *   method does not earn this package its first interface.
+     * @param  'none'|'methods'|'class'  $scope  how much of a target class to read
+     *   ({@see RichterConfig::secondHopScope()}).
      */
-    public function __construct(private Closure $walk, private bool $enabled) {}
+    public function __construct(private Closure $walk, private string $scope) {}
 
     /**
      * The edges the walk adds, plus how many of the methods it tried to read it could not.
@@ -69,13 +73,50 @@ final readonly class SecondHopWalk
      */
     public function edgesFor(array $edges, string $projectRoot): array
     {
-        $candidates = array_values(array_diff($this->candidatesIn($edges), array_keys($this->alreadyWalked($edges))));
+        if ($this->scope === 'none') {
+            return ['edges' => [], 'unread' => 0];
+        }
 
-        if (! $this->enabled || $candidates === []) {
+        $members = $this->candidatesIn($edges);
+        $candidates = array_values(array_diff($members, array_keys($this->alreadyWalked($edges))));
+
+        if ($this->scope === 'class') {
+            $candidates = [...$candidates, ...$this->classesOf($members)];
+        }
+
+        if ($candidates === []) {
             return ['edges' => [], 'unread' => 0];
         }
 
         return ($this->walk)($candidates, $projectRoot);
+    }
+
+    /**
+     * The class part of each member candidate, for the `class` scope — added to the member
+     * candidates, never in place of them.
+     *
+     * The already-walked subtraction is NOT applied here, and cannot be: {@see alreadyWalked()}
+     * holds MEMBER ids, so dropping `App\Support\Registry` because `Registry::other` has Brain
+     * evidence would also drop `Registry::all` — the very method the static call named. A method
+     * the expansion re-reads because another lane already walked it is idempotent, deduped, and
+     * costs the ~4ms this class already accepts for a re-walked Brain class.
+     *
+     * @param  list<string>  $members  `FQCN::method` node ids
+     * @return list<string>
+     */
+    private function classesOf(array $members): array
+    {
+        $classes = [];
+
+        foreach ($members as $member) {
+            $class = strstr($member, '::', before_needle: true);
+
+            if ($class !== false && $class !== '') {
+                $classes[$class] = true;
+            }
+        }
+
+        return array_keys($classes);
     }
 
     /**

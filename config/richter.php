@@ -61,6 +61,10 @@ return [
      * method bodies, so whatever it constructs or calls stays invisible. This walk reads the methods
      * those static calls name. Turn it off to trade that reach for build time — measured at ~4.5s on
      * a 4,000-file application.
+     *
+     * Set it to 'class' to read every traceable method of those classes, not only the ones a static
+     * call names — the rest of such a class is otherwise never read. Measured at ~8.0s against the
+     * ~4.5s above on the same 4,000-file application.
      */
     'second_hop' => true,
 

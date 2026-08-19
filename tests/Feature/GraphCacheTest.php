@@ -160,6 +160,18 @@ final class GraphCacheTest extends TestCase
     }
 
     #[Test]
+    public function the_fingerprint_changes_between_the_two_walk_scopes(): void
+    {
+        // `true` and `'class'` read different amounts of each target class, so an entry built at one
+        // must never be served at the other — it would under-report reach with no sign of it.
+        $before = $this->cache()->fingerprint($this->projectRoot);
+
+        config()->set('richter.second_hop', 'class');
+
+        $this->assertNotSame($before, $this->cache()->fingerprint($this->projectRoot));
+    }
+
+    #[Test]
     public function a_matching_cache_entry_is_served_without_rebuilding(): void
     {
         // The stored marker edges cannot come from a real build of the tiny project — getting them

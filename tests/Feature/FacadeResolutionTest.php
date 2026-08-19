@@ -28,6 +28,10 @@ final class FacadeResolutionTest extends TestCase
 
     private const string VALUE_OBJECT = 'Acme\\Support\\ExportTarget';
 
+    private const string KEYED_FACADE = 'Acme\\Facades\\KeyedReports';
+
+    private const string KEYED_CALLER = 'Acme\\Support\\KeyedClientFactory';
+
     private static ?CodeGraph $graph = null;
 
     protected function setUp(): void
@@ -69,6 +73,17 @@ final class FacadeResolutionTest extends TestCase
         $callers = array_column(new ImpactAnalyzer($this->graph())->impact(self::VALUE_OBJECT)['callers'], 'node');
 
         $this->assertContains(self::CONCRETE . '::assemble', $callers);
+    }
+
+    #[Test]
+    public function a_container_key_accessor_carries_its_callers_through_the_provider_binding(): void
+    {
+        // `KeyedReports::getFacadeAccessor()` returns `'reports'`, which AppServiceProvider binds to
+        // the concrete. Without the provider-binding map this call site reaches nothing.
+        $callers = array_column(new ImpactAnalyzer($this->graph())->impact(self::CONCRETE . '::assemble')['callers'], 'node');
+
+        $this->assertContains(self::KEYED_FACADE . '::assemble', $callers);
+        $this->assertContains(self::KEYED_CALLER . '::create', $callers);
     }
 
     /** Built once per process: the build runs Brain plus every tracer over the fixture tree. */

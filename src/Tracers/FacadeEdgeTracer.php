@@ -3,9 +3,11 @@
 namespace SanderMuller\Richter\Tracers;
 
 use Illuminate\Support\Facades\Facade;
+use PhpParser\Node\Expr;
 use PhpParser\Node\Expr\ClassConstFetch;
 use PhpParser\Node\Identifier;
 use PhpParser\Node\Name;
+use PhpParser\Node\Scalar\String_;
 use PhpParser\Node\Stmt\Class_;
 use PhpParser\Node\Stmt\ClassLike;
 use PhpParser\Node\Stmt\Return_;
@@ -13,6 +15,7 @@ use PhpParser\NodeFinder;
 use SanderMuller\Richter\Graph\CodeGraphBuilder;
 use SanderMuller\Richter\Support\AppFiles;
 use SanderMuller\Richter\Support\AppNamespace;
+use SanderMuller\Richter\Support\ProviderBindings;
 use Throwable;
 
 /**
@@ -32,9 +35,10 @@ use Throwable;
  * Facade-ness is decided by `is_subclass_of()`, not by the base class's name in the `extends`
  * clause: a facade extending an app-side or package-side intermediate base is still a facade. The
  * accessor is read statically — a `getFacadeAccessor()` returning `Concrete::class`, looked up along
- * the recorded parent chain when the class inherits it. A container-key accessor (`return 'reports'`)
- * draws nothing: resolving it needs a string-keyed binding registry, which richter's `binding` lane
- * deliberately does not keep (spec `facade-resolution-edges.md`).
+ * the recorded parent chain when the class inherits it. A container-key accessor
+ * (`return 'reports'`) is resolved through the key map {@see ProviderBindings} builds from
+ * `app/Providers`; a key nothing there binds, or one two providers disagree on, still draws
+ * nothing.
  *
  * Cross-file by nature — the facade and its call sites are different files — so it accumulates every
  * class-like via {@see collect()} across the consolidated AST pass in {@see CodeGraphBuilder} and
@@ -46,11 +50,18 @@ final class FacadeEdgeTracer
 {
     private const string ACCESSOR_METHOD = 'getFacadeAccessor';
 
-    /** @var array<string, array{parent: string|null, accessor: string|null}> keyed by FQCN */
+    /** @var array<string, array{parent: string|null, accessor: array{kind: string, value: string}|null}> keyed by FQCN */
     private array $records = [];
 
     /** @var array<string, bool> reflection results, memoised for the process */
     private static array $reflected = [];
+
+    /**
+     * @param  array<string, string>  $containerKeys  container key => concrete FQCN
+     *   ({@see ProviderBindings::forProject()}). Empty by default, so a caller with no project to
+     *   scan resolves `::class` accessors exactly as before and a key accessor draws nothing.
+     */
+    public function __construct(private array $containerKeys = []) {}
 
     /**
      * Record every class in one file. Fed per file by the consolidated AST loop in
@@ -144,7 +155,7 @@ final class FacadeEdgeTracer
         $concretes = [];
 
         foreach (array_keys($this->records) as $fqcn) {
-            $concrete = $this->accessorFor($fqcn);
+            $concrete = $this->concreteFor($this->accessorFor($fqcn));
 
             if ($concrete !== null && AppNamespace::isInApp($concrete) && $this->isFacade($fqcn)) {
                 $concretes[$fqcn] = $concrete;
@@ -155,12 +166,30 @@ final class FacadeEdgeTracer
     }
 
     /**
+     * The class an accessor names: the `::class` it returned, or what the container binds its key
+     * to. A key the map does not hold — never bound under `app/Providers`, or bound to two
+     * different concretes — yields null, the same silence a facade with no readable accessor gets.
+     *
+     * @param  array{kind: string, value: string}|null  $accessor
+     */
+    private function concreteFor(?array $accessor): ?string
+    {
+        if ($accessor === null) {
+            return null;
+        }
+
+        return $accessor['kind'] === 'class' ? $accessor['value'] : ($this->containerKeys[$accessor['value']] ?? null);
+    }
+
+    /**
      * The accessor a class declares, or the nearest one up its recorded parent chain — the abstract
      * base facade pattern, where subclasses differ only in the accessor they return, still has to
      * find the base's when a subclass declares none. The chain stops at the first class richter did
      * not scan, so a vendor base's accessor is out of reach by the same app-scoping every tracer has.
+     *
+     * @return array{kind: string, value: string}|null
      */
-    private function accessorFor(string $fqcn): ?string
+    private function accessorFor(string $fqcn): ?array
     {
         $seen = [];
 
@@ -178,15 +207,23 @@ final class FacadeEdgeTracer
     }
 
     /**
-     * The one FQCN this class's `getFacadeAccessor()` returns, or null when it declares none,
-     * returns something else, or returns more than one class.
+     * The one answer this class's `getFacadeAccessor()` returns — a `::class` (`kind: 'class'`) or a
+     * container key (`kind: 'key'`) — or null when it declares none, returns something else, or
+     * returns more than one distinct answer.
      *
-     * A method with two `::class` returns picks its concrete at runtime from state this cannot see.
-     * Taking the first would be a guess dressed as a fact — the reader would be sent to one of two
-     * files with no hint that the other exists — so it draws nothing, the same abort the contract
-     * parsers make on an unenumerable key set.
+     * A method with two returns picks its concrete at runtime from state this cannot see. Taking the
+     * first would be a guess dressed as a fact — the reader would be sent to one of two files with
+     * no hint that the other exists — so it draws nothing, the same abort the contract parsers make
+     * on an unenumerable key set. A `::class` and a key are two distinct answers even when the key
+     * happens to be bound to that same class: the pair still proves the method branches.
+     *
+     * The kind is recorded, never inferred from the value. A container key may legally contain a
+     * backslash, so a namespace-separator test would file `'reports\primary'` as a class name and
+     * lose it.
+     *
+     * @return array{kind: string, value: string}|null
      */
-    private function accessorIn(Class_ $node): ?string
+    private function accessorIn(Class_ $node): ?array
     {
         $returned = [];
 
@@ -196,22 +233,40 @@ final class FacadeEdgeTracer
             }
 
             foreach (new NodeFinder()->findInstanceOf($method, Return_::class) as $return) {
-                $expr = $return->expr;
+                $answer = $this->answerIn($return->expr);
 
-                if (! $expr instanceof ClassConstFetch
-                    || ! $expr->name instanceof Identifier
-                    || $expr->name->toString() !== 'class'
-                    || ! $expr->class instanceof Name) {
-                    // A string accessor, a ternary, a match — nothing statically resolvable, and a
-                    // sibling return that IS resolvable must not speak for it either.
+                if ($answer === null) {
+                    // A ternary, a match, a variable — nothing statically resolvable, and a sibling
+                    // return that IS resolvable must not speak for it either.
                     return null;
                 }
 
-                $returned[AppFiles::resolveName($expr->class)] = true;
+                $returned["{$answer['kind']}\0{$answer['value']}"] = $answer;
             }
         }
 
-        return count($returned) === 1 ? array_key_first($returned) : null;
+        return count($returned) === 1 ? array_values($returned)[0] : null;
+    }
+
+    /**
+     * One `return` expression as an accessor answer: `Concrete::class` or a string literal key.
+     *
+     * @return array{kind: string, value: string}|null
+     */
+    private function answerIn(?Expr $expr): ?array
+    {
+        if ($expr instanceof String_) {
+            return ['kind' => 'key', 'value' => $expr->value];
+        }
+
+        if ($expr instanceof ClassConstFetch
+            && $expr->name instanceof Identifier
+            && $expr->name->toString() === 'class'
+            && $expr->class instanceof Name) {
+            return ['kind' => 'class', 'value' => AppFiles::resolveName($expr->class)];
+        }
+
+        return null;
     }
 
     /**

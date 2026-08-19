@@ -101,8 +101,12 @@ final class GraphCache
      * building member to `SomeClass::__construct`. Purely additive for identical file inputs, so a 19
      * entry served to this code lacks that reach and under-selects, the same direction every addition
      * to the edge set has.
+     * 20 → 21: a facade whose `getFacadeAccessor()` returns a container key now resolves through the
+     * bindings registered in `app/Providers`, so the graph gains `facade-resolves-to` edges it drew
+     * nothing for before. Additive for identical file inputs, so a 20 entry under-reports reach
+     * through such a facade.
      */
-    private const int FORMAT_VERSION = 20;
+    private const int FORMAT_VERSION = 21;
 
     private ?CodeGraph $memoized = null;
 
@@ -225,8 +229,9 @@ final class GraphCache
                 'root_namespace' => AppNamespace::root(),
                 'entry_point_roots' => RichterConfig::entryPointRoots(),
                 // Changes which bodies get read, so it changes the edge set — a hit on an entry built
-                // with the walk off would serve a graph the current config would not produce.
-                'second_hop' => RichterConfig::secondHopEnabled(),
+                // at another scope would serve a graph the current config would not produce. The
+                // scope string, not a boolean: all three tiers must fingerprint differently.
+                'second_hop' => RichterConfig::secondHopScope(),
                 'dispatch_helpers' => RichterConfig::dispatchHelpers(),
                 'laravel-brain' => $this->brainConfigInput(),
             ], JSON_THROW_ON_ERROR),

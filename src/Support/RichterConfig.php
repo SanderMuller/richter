@@ -153,25 +153,36 @@ final class RichterConfig
     }
 
     /**
-     * Whether to read the bodies of statically-called methods ({@see SecondHopWalk}).
+     * How much of a statically-called class {@see SecondHopWalk} reads: `none`, `methods` or `class`.
      *
-     * A boolean, not a depth: the static-call tracer runs per file over the whole app, so every
+     * A scope, not a depth: the static-call tracer runs per file over the whole app, so every
      * statically-called method is already known before the walk starts. There is no chain to follow
-     * one hop at a time — one round covers all of them.
+     * one hop at a time — one round covers all of them. What the scope widens is how much of each
+     * class that round reads.
+     *
+     * `false` / `true` keep their meanings (`none` / `methods`) so a published config file keeps
+     * working; `'class'` is the added tier. One spelling per tier — `'methods'` is refused, so two
+     * config files cannot describe the same behaviour two ways.
+     *
+     * @return 'none'|'methods'|'class'
      */
-    public static function secondHopEnabled(): bool
+    public static function secondHopScope(): string
     {
         $value = config('richter.second_hop');
 
-        if ($value === null) {
-            return true;
+        if ($value === null || $value === true) {
+            return 'methods';
         }
 
-        if (! is_bool($value)) {
-            throw new InvalidArgumentException('The richter.second_hop config value must be a boolean.');
+        if ($value === false) {
+            return 'none';
         }
 
-        return $value;
+        if ($value !== 'class') {
+            throw new InvalidArgumentException("The richter.second_hop config value must be true, false, or 'class'.");
+        }
+
+        return 'class';
     }
 
     public static function cacheDirectory(): string

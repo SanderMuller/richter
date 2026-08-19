@@ -15,6 +15,7 @@ use SanderMuller\Richter\Changes\MemberResolver;
 use SanderMuller\Richter\Console\InternalTracerBranchCommand;
 use SanderMuller\Richter\Support\AppFiles;
 use SanderMuller\Richter\Support\AppNamespace;
+use SanderMuller\Richter\Support\ProviderBindings;
 use SanderMuller\Richter\Support\RichterConfig;
 use SanderMuller\Richter\Support\ScopedRebuildDecision;
 use SanderMuller\Richter\Tracers\BladeViewTracer;
@@ -211,7 +212,7 @@ final class CodeGraphBuilder
         // which is what turns a newly-read body into a connection to an inherited method's work.
         // A tracer of its own: `traceMembers()` addresses methods by FQCN and never reads the
         // configured roots, so the branch's instance has nothing to hand over.
-        $secondHop = new SecondHopWalk(new EntryPointTracer()->traceMembers(...), RichterConfig::secondHopEnabled())
+        $secondHop = new SecondHopWalk(new EntryPointTracer()->traceMembers(...), RichterConfig::secondHopScope())
             ->edgesFor($edges, $projectRoot);
 
         foreach ($secondHop['edges'] as $secondHopEdge) {
@@ -281,9 +282,14 @@ final class CodeGraphBuilder
         // which ASTs to retain, and trace() consumes them — same instance, so they can never diverge.
         $entryPointTracer = new EntryPointTracer(RichterConfig::entryPointRoots());
 
+        // One walk of app/Providers, read by both passes: the consolidated one needs its container
+        // keys to resolve a string facade accessor, trace() appends its binding edges. Scanned here
+        // rather than inside trace(), which runs after the facade resolution that consumes the map.
+        $providerBindings = ProviderBindings::forProject($projectRoot);
+
         // One consolidated AST pass feeds the dispatch/policy/reference/interface tracers — each used
         // to re-parse the whole app tree itself, which cost ~30-60s per tracer per build.
-        $consolidated = $this->consolidatedTracerEdges($projectRoot, $entryPointTracer);
+        $consolidated = $this->consolidatedTracerEdges($projectRoot, $entryPointTracer, $providerBindings);
         $edges = $consolidated['edges'];
 
         $phaseStart = $this->emitPhase($onProgress, 'consolidated-tracers', $phaseStart);
@@ -291,7 +297,7 @@ final class CodeGraphBuilder
         // Brain's graph is route-anchored; add queue/console/helper entry points (+ `$listen`
         // event→listener and interface→impl links) Brain misses. Tracer edges are FQCN-keyed, so they
         // join the normalised nodes above directly.
-        foreach ($entryPointTracer->trace($projectRoot, $consolidated['entryPointAsts']) as $entryPointEdge) {
+        foreach ($entryPointTracer->trace($projectRoot, $consolidated['entryPointAsts'], $providerBindings) as $entryPointEdge) {
             $edges[] = $entryPointEdge;
         }
 
@@ -385,7 +391,7 @@ final class CodeGraphBuilder
      *
      * @return array{edges: list<array{source: string, target: string, type: string}>, unparseableFiles: int, unresolvedDispatchSites: list<array{file: string, line: int, dispatcher: string}>, entryPointAsts: array<string, list<Node\Stmt>>, inheritance: array<string, array{parent: string|null, declared: list<string>}>, declares: array<string, list<array{source: string, target: string, type: string}>>}
      */
-    private function consolidatedTracerEdges(string $projectRoot, EntryPointTracer $entryPointTracer): array
+    private function consolidatedTracerEdges(string $projectRoot, EntryPointTracer $entryPointTracer, ProviderBindings $providerBindings): array
     {
         $dispatchTracer = new DispatchEdgeTracer(RichterConfig::dispatchHelpers());
         $policyTracer = new PolicyEdgeTracer();
@@ -398,8 +404,9 @@ final class CodeGraphBuilder
         // reads resolve to the constant's declaring class, which needs the full hierarchy.
         $constantTracer = new ConstantReferenceTracer();
         // Facade → concrete resolution: likewise cross-file, and it reads the static-call edges the
-        // loop below emits, so it can only run once all of them exist.
-        $facadeTracer = new FacadeEdgeTracer();
+        // loop below emits, so it can only run once all of them exist. The container keys let it
+        // resolve a `return 'reports';` accessor as well as a `::class` one.
+        $facadeTracer = new FacadeEdgeTracer($providerBindings->keys);
         // config/*.php scanned once up front: the registries are the same for every app file, and a
         // per-file rescan of the config directory would be the tracer's whole cost.
         $configTracer = new ConfigRegistryTracer($projectRoot);
