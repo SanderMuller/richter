@@ -31,7 +31,7 @@ Risk: MEDIUM (advisory)
 
 What makes it worth installing:
 
-- **Member-level change impact.** A one-method change seeds that method in the code graph, not the whole class. The graph covers routes, controllers, jobs, listeners, policies, resources, Blade views, and Eloquent relations, plus [edges a route-anchored analysis misses](https://sandermuller.github.io/richter/coverage).
+- **Member-level change impact.** A one-method change seeds that method in the code graph, not the whole class. The graph covers routes, controllers, jobs, listeners, policies, resources, Blade views, and Eloquent relations — the ones code walks, not only the ones a model declares — plus [edges a route-anchored analysis misses](https://sandermuller.github.io/richter/coverage).
 - **Honest degradation.** A change the graph cannot place reads **UNRESOLVED**, never a falsely reassuring "no impact". A coverage gap costs reach, but it never causes anything to be reported as unaffected.
 - **Test-coverage prompts.** Every reached entry point is tagged `[test-referenced]` or `[⚠ no test references this]` — a heuristic prompt rather than a coverage verdict.
 - **Blast radius and traces on demand.** `richter:impact` lists a symbol's callers, its dependencies, and the entry surfaces behind them. `richter:trace` answers "how does this even reach that?" with the shortest call chain.
