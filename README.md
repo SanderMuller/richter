@@ -1,4 +1,4 @@
-![Richter: measure the reach of a code change](richter.png)
+[![Richter: measure the reach of a code change](richter.png)](https://sandermuller.github.io/richter/)
 
 # Richter
 
@@ -11,99 +11,7 @@
 
 Measures the magnitude of impact of code changes in a Laravel codebase. Like the Richter scale, but for your PHP.
 
-Run `php artisan richter:detect-changes` on a branch and Richter reports the HTTP/CLI entry points the diff can reach, flags the ones no test references, and attaches a coarse advisory risk level, so review starts from what the change reaches instead of a cold diff. What makes it worth installing:
-
-- **Member-level change impact.** A one-method change seeds that method in the code graph, not the whole class. The graph covers routes, controllers, jobs, listeners, policies, resources, Blade views, and Eloquent relations, plus [edges a route-anchored analysis misses](docs/coverage.md): static calls, facades, container bindings, config-keyed class registries, views rendered outside a route, constant reads, polymorphic overrides, and the classes a method constructs.
-- **Honest degradation.** A change the graph can't place reads **UNRESOLVED**, never a falsely reassuring "no impact", and when *nothing* in the diff could be placed the risk level says so rather than reading as a measurement. A coverage gap costs reach, but it never causes anything to be reported as unaffected.
-- **Test-coverage prompts.** Every reached entry point is tagged `[test-referenced]` or `[⚠ no test references this]`, a heuristic prompt rather than a coverage verdict ([tag details](docs/detect-changes.md#test-reference-tags)). An entry point whose behaviour you changed with nothing referencing it is a place to add a test.
-- **Blast radius and traces on demand.** Before a refactor, `richter:impact` lists a symbol's callers (what breaks if you change it), its dependencies (what it reaches), and the entry surfaces behind those callers. `richter:trace` answers "how does this even reach that?" with the shortest call chain between two symbols.
-- **Affected-test selection.** `richter:affected-tests` turns the diff's reach into a test selection, with an exit-code contract that fails toward running the full suite whenever the selection can't be trusted.
-- **Built for coding agents.** Richter registers a local MCP server exposing every analysis read-only, so an agent can work with the graph mid-review without shelling out. The `--markdown` report is ready to post as a PR comment.
-
-Richter is advisory by default: `richter:detect-changes` exits 0, and a low or empty result is a signal, not a guarantee of no impact. Opt into a CI gate with `--fail-on` / `--fail-on-unresolved` (see [Gating in CI](#gating-in-ci)).
-
-The analysis is static, built on [Laravel Brain](https://github.com/laramint/laravel-brain), and fast enough to run on every branch: it never executes your application's routes, jobs, or commands. It does, however, autoload classes from the analyzed checkout (to resolve constants, relation names, and queue interfaces), and autoloading runs a file's top-level code. Treat a checkout you would not `composer install` on as one you should not analyze either.
-
-## Installation
-
-```bash
-composer require --dev sandermuller/richter
-```
-
-Requires PHP 8.4+ and Laravel 12 or 13.
-
-`laravel/mcp` is optional (it lights up the [MCP server](#mcp-server)), but when present it must
-fall in the supported `^0.8||^0.9` range; Richter declares a conflict with anything outside it.
-`laravel/boost` only pulls a compatible
-`laravel/mcp` from v2, and Composer won't upgrade a package Richter doesn't depend on, so an
-existing `laravel/boost` v1 install has to take that major in the same command, or the
-install fails on the `laravel/mcp` conflict:
-
-```bash
-composer require --dev sandermuller/richter laravel/boost:* -W
-```
-
-Optionally publish the config:
-
-```bash
-php artisan vendor:publish --tag=richter-config
-```
-
-## Set up Richter for your project
-
-Richter is accurate only once it knows your app's shape: which subsystems are entry surfaces, which
-helpers dispatch jobs, your real base branch, your frontend stack. You can set that up two ways.
-
-**With an agent (recommended).** Richter ships two invoke-only skills. `/richter-setup` (or ask your
-agent to "set up Richter") inspects the project, proposes `config/richter.php`, and (only if you say
-yes) scaffolds a CI comment workflow and registers the MCP server in `.mcp.json`. It shows you every
-edit before writing it. `/richter-review` reviews the current branch graph-first: it runs the report,
-triages the reached entry points (unexpected reach, missing test references, security and gate
-annotations), walks the findings, and closes with an advisory verdict. It recommends, never gates. To
-make the skills available: with **boost-core**, add `sandermuller/richter` to `withAllowedVendors([...])` in your
-`boost.php`, then `vendor/bin/boost sync`; with **laravel/boost**, they're discovered as a third-party AI
-package (an existing install may need `boost:update` / package selection).
-
-**Or paste these prompts to any agent** (two, so CI stays opt-in):
-
-_Configure:_
-
-> Set up Richter for this Laravel project. Inspect the code and **propose** edits to `config/richter.php`; show me each change and get my OK, write nothing unasked. Cover: `default_base` (my repo's real default branch), `entry_point_roots` (any `app/` subsystem reached via runtime/vendor dispatch, such as form-builder Forms or registry-dispatched calculators, that `richter:detect-changes` reports `UNRESOLVED`; pick the narrowest dir — this makes the subsystem traceable, it does not turn its classes into entry points), `dispatch_helpers` (custom job-dispatch wrapper functions), frontend roots if there's an Inertia/Wayfinder/Ziggy frontend, and `editor: null` if this is mainly for CI. Also flag any Laravel Brain config (`security.auth_middleware`/`throttle_middleware`, route/command/listener discovery) that would fix mis-classified routes at the source.
-
-_Add the CI advisory comment:_
-
-> Add a GitHub Actions workflow that posts the Richter report as an advisory PR comment. First check whether Richter is already wired into an existing workflow and integrate there instead of adding a duplicate. Make the whole job non-blocking, least-privilege (`permissions: contents: read, pull-requests: write`), triggered on `pull_request` (not `pull_request_target`), checkout with `fetch-depth: 0`, run `php artisan richter:detect-changes --base=<PR base sha> --markdown` and post it as a sticky comment. Show me the file before creating it.
-
-## Usage
-
-### Advisory change impact of the current diff
-
-```bash
-php artisan richter:detect-changes                        # diffs against richter.default_base
-php artisan richter:detect-changes --base=origin/develop
-php artisan richter:detect-changes --head=HEAD            # the committed tree, ignoring uncommitted work
-php artisan richter:detect-changes --explain              # show how each entry point reaches the change
-php artisan richter:detect-changes --json                 # machine-readable, for scripting or CI
-php artisan richter:detect-changes --markdown             # PR-ready markdown, for descriptions and comments
-php artisan richter:detect-changes --html=impact.html     # self-contained visual report (add --open to launch it)
-```
-
-Against the default `HEAD`, the diff is the working tree compared to the merge-base with `--base`: staged and unstaged edits are included, not just what's committed, so running this before you commit still sees your changes. `--head=<ref>` analyses that ref's committed tree instead, for a run in a dirty checkout whose uncommitted work is not the subject. `--head=HEAD` resolves to the commit, so it means the last commit rather than the working tree.
-
-The one gap `git diff` can't close is a brand-new file that was never `git add`-ed: it shows in no diff form, so a stderr-only note flags any such untracked file under `app/`, `resources/views/`, or a configured frontend root. The note never reaches stdout, so `--json`/`--markdown` output stays exactly the report. Under `--head` there is no such note, because a file never added cannot be part of a committed tree.
-
-`--head` is also how you replay history without losing your own configuration. Checking an old commit out reverts every tracked file, `config/richter.php` among them, so a replayed diff silently runs on package-default `risk_thresholds` instead of your tuned ones: the same counts, a different risk level. Pointing `--head` at the commit leaves the working tree alone, and the config with it.
-
-Resolves which class members the branch changed, walks the graph, and reports:
-
-- the entry points the change can reach, each tagged `[test-referenced]` or `[⚠ no test references this]`: routes, commands, jobs, listeners, middleware, and Livewire/Filament/Nova component classes (a Blade-mounted component, a Filament resource/page/widget, a Nova resource — each is a user-facing surface even without a `route::` node);
-- findings in the changed source itself, such as an eager-load or relation string that names no relation on any model. A missing comma between two relation constants is the classic case: `Post::OWNER . User::PROFILE` concatenates to `ownerprofile`, a name Eloquent silently never resolves;
-- a coarse risk level (`low` / `medium` / `high`);
-- honest degradation: a change that cannot be placed in the graph reads **UNRESOLVED**, never as a falsely reassuring "no impact", and an unfollowable dispatch makes a queue job read "unknown", not "none". A file that resolved to no graph node also echoes the FQCN its path derived to (`app/Services/Inspector.php → App\Services\Inspector`), which is what separates a coverage gap from a wrong root namespace. Before a file falls through to UNRESOLVED, one last lane lists the surfaces that file *defines* (a routes file, a legacy `app/Console/Kernel.php`) as touched, without walking them or moving the risk level ([why](docs/detect-changes.md#unplaceable-files-and-the-defined-node-fallback)).
-
-**A report of nothing is a claim about your diff, not only about the code.** Richter resolves changes to class *members*, so an edit that changes a file without changing a member — a comment after the closing brace, a `use` reordering — genuinely seeds nothing and correctly reports nothing. That is the first thing to rule out when a change you expected to light up comes back empty, and it is the most common reason a probe of richter's own behaviour misleads its author.
-
-A member *added* to an existing class seeds nothing: nothing called it before, so it can break nothing. A brand-new **file** is different: the class itself is new, so it seeds on its class node and reports its reach, its own entry surface (a new command, job or listener), and a risk level accordingly, marked `[new file]` in the report. A diff that only adds files can therefore report `medium`/`high` and trip `--fail-on`.
+Run `php artisan richter:detect-changes` on a branch and Richter reports the HTTP and CLI entry points the diff can reach, flags the ones no test references, and attaches a coarse advisory risk level. Review then starts from what the change reaches, instead of from a cold diff.
 
 ```text
 Changed files:
@@ -114,273 +22,79 @@ Entry points reached: 2 (some changed files could not be fully placed — see UN
   - command::categories:sync  (app/Console/Commands/SyncCategories.php)  [test-referenced]
   - route::PATCH::/api/posts/{post}  (routes/api.php:41)  [⚠ no test references this]  [authed]
 
-Related models (association reach — context, not risk): 1
-  - App\Models\Category
-
-Runs this code without calling it (trait users and overrides — context, not risk): 2
-  - App\Builders\InvoiceBuilder
-  - App\Builders\QuoteBuilder
-
 Findings (in the changed source itself):
-  ! app/Models/Post.php: eager-load string 'ownerprofile': segment 'ownerprofile' is not a method on any model — check the relation name (a broken constant concatenation reads exactly like this)
+  ! app/Models/Post.php: eager-load string 'ownerprofile': segment 'ownerprofile' is not a method on any model — check the relation name
 
 Impacted nodes: 7
 Risk: MEDIUM (advisory)
 ```
 
-With `--explain`, each reached entry point carries the shortest call chain down to the changed code. That is the difference between knowing a change reaches `PATCH /api/posts/{post}` and seeing exactly which controller and service carry it there:
+What makes it worth installing:
 
-```text
-Entry points reached: 1
-  - route::PATCH::/api/posts/{post}  [⚠ no test references this]
-      ↳ route::PATCH::/api/posts/{post} →(route-to-controller) App\Http\Controllers\PostController::update →(action-to-service) App\Services\PostPublisher::publish
-```
+- **Member-level change impact.** A one-method change seeds that method in the code graph, not the whole class. The graph covers routes, controllers, jobs, listeners, policies, resources, Blade views, and Eloquent relations, plus [edges a route-anchored analysis misses](https://sandermuller.github.io/richter/coverage).
+- **Honest degradation.** A change the graph cannot place reads **UNRESOLVED**, never a falsely reassuring "no impact". A coverage gap costs reach, but it never causes anything to be reported as unaffected.
+- **Test-coverage prompts.** Every reached entry point is tagged `[test-referenced]` or `[⚠ no test references this]` — a heuristic prompt rather than a coverage verdict.
+- **Blast radius and traces on demand.** `richter:impact` lists a symbol's callers, its dependencies, and the entry surfaces behind them. `richter:trace` answers "how does this even reach that?" with the shortest call chain.
+- **Affected-test selection.** `richter:affected-tests` turns the diff's reach into a test selection, with an exit-code contract that fails toward running the full suite whenever the selection cannot be trusted.
+- **Built for coding agents.** Richter registers a local MCP server exposing every analysis read-only, so an agent can work with the graph mid-review without shelling out. The `--markdown` report is ready to post as a pull-request comment.
 
-The report carries more advisory annotation, none of which feeds the risk level or a `--fail-on` gate; see the [detect-changes reference](docs/detect-changes.md) for the full detail:
+Richter is advisory by default: `richter:detect-changes` exits 0, and a low or empty result is a signal, not a guarantee of no impact. Opt into a CI gate with `--fail-on` / `--fail-on-unresolved`.
 
-- **[Security exposure](docs/detect-changes.md#security-annotations)** per reached route (`[public]`, `[authed]`, …), inherited from Laravel Brain and cross-checked against Richter's own policy edges. Routes only; absence means *not classified*, never "public".
-- **[Pennant feature gates](docs/detect-changes.md#feature-flag-pennant-annotations)**: a gated route renders its flags inline (`[gated: ai-coach]`), and a changed member that itself checks a flag is noted under Findings.
-- **[Payload parity](docs/detect-changes.md#payload-parity)** in three directions: a model field added but never mirrored into its resource, a resource `toArray()` key removed while a frontend consumer still reads it, and a validated field removed while a consumer still sends it — from a form request's `rules()` or from validation written inline in the action. Deliberately no-guess; anything the checker can't statically enumerate is skipped rather than guessed at.
-- **[Middleware group membership](docs/detect-changes.md#middleware-group-membership)**: a changed middleware that routes reach through a group rather than an alias is noted with the group and how many routes it guards (`runs in middleware group 'api', which guards 142 routes`). Expanding the group into edges would make every member report every route in the app as an entry point, so the note supplies the size those edges withhold.
+The analysis is static, built on [Laravel Brain](https://github.com/laramint/laravel-brain), and fast enough to run on every branch: it never executes your application's routes, jobs, or commands. It does, however, autoload classes from the analyzed checkout, and autoloading runs a file's top-level code. Treat a checkout you would not `composer install` on as one you should not analyze either.
 
-Three output formats beyond the text report, [documented in the detect-changes reference](docs/detect-changes.md#--markdown-and---html-output): `--markdown` renders a PR-postable report with a risk badge, entry-point checklist, and collapsed long lists; `--html=<path>` writes one self-contained HTML file with tabbed views of the blast radius (a rendering surface, not a contract); `--json` emits the full report as a single semver-governed document ([key reference](docs/detect-changes.md#--json-output)).
-
-#### Risk levels
-
-Risk is a coarse, advisory signal, deliberately simple so `--fail-on` stays predictable:
-
-| Level | Condition (defaults — see `risk_thresholds`) |
-|---|---|
-| `high` | ≥ 3 entry points reached, **or** ≥ 20 impacted nodes |
-| `medium` | ≥ 1 entry point reached, ≥ 5 impacted nodes, **or** the diff changes an entry-point class (job, listener, command, observer, middleware, or a Livewire/Filament/Nova component) |
-| `low` | everything else |
-
-Association edges (model relationships, trait usage, `declares`) are reach and context, not risk. They never count toward the impacted-node total, so touching a hub model or trait can't saturate a change to `high` on breadth alone. Uncounted is not unreported, though, and the two decisions are separate: a surface reached *only* through a model relation is listed under **Entry surfaces reached only by association**, and the classes that run a changed member without calling it — trait users, override implementors — under **Runs this code without calling it**. Over-approximated *calls* (`override`, `config-registry`) stay in the main entry-point list, since the dispatch is real there and only the target is uncertain.
-
-The thresholds are configurable (`risk_thresholds` in `config/richter.php`). The defaults were calibrated on small-to-mid applications; on a large codebase a routine change reaches thousands of nodes, `impacted >= 20` is met by everything, and a level that is always `high` carries no signal.
-
-**Move the `high` bar before the `medium` one.** Look at how the levels are decided: raising the `high` thresholds leaves the `medium` test untouched, so the most it can do is move a change from `high` down to `medium`. Raising `medium` is the only edit that can push something all the way to `low` — the level a reviewer skips. Whether that costs you a real defect depends on where your bug fixes actually land, and impacted counts measure graph reach rather than how big a change is, so a one-line fix in a widely called method can outrank a broad but shallow one. Don't assume the ordering: if you keep a [benchmark corpus](docs/benchmark.md), run it before and after, since that is the only check that tells you whether a calibration still surfaces the defects you tuned it to catch. (A diff that touches an entry-point class stays `medium` regardless of either bar.) Calibrate against the report's `scoredEntryPoints` / `scoredImpacted` rather than the counts printed beside them — those two come apart wherever a surface joined the entry-point list after the level was scored, or a low-confidence `high` was re-scored on the precise subset, and the report names them whenever they differ.
-
-A separate guard covers low confidence. When a changed member can't be pinned to a graph node and only a coarse class-level seed is available, a resulting `high` is capped to `medium` (`coarseCapApplied`). A low-confidence estimate shouldn't drive the top level on its own.
-
-The thresholds are absolute, not relative to your repo — that is what keeps `--fail-on` predictable, and it has a consequence worth knowing before you gate CI on it. Every release that teaches Richter to follow more edges raises the impacted-node count for the same diff, so a change that sat under `≥ 20` can cross it on an upgrade with nothing in your application having changed. Treat a level shift right after a version bump as a coverage change first and a code change second, and pin the version in CI if you need a `--fail-on` verdict to stay comparable across a release. The counts move upward over time by design: an under-reported blast radius is the failure this package exists to prevent.
-
-### Gating in CI
-
-`detect-changes` is advisory by default (exit 0). Two opt-in flags turn it into a gate:
-
-- `--fail-on=<low|medium|high>` exits non-zero when the reported risk is at least that level (see [Risk levels](#risk-levels)).
-- `--fail-on-unresolved` exits non-zero when any changed file is **UNRESOLVED** (changed code the graph can't place). It works independently of the risk threshold.
-
-Either flag also fails an un-assessable diff (a broken or invalid base ref) rather than letting it pass as "no impact". Add `--json` and stdout carries a `gate` object alongside the report.
-
-A pull-request check that surfaces the blast radius and fails on high-risk or unplaceable changes:
-
-```yaml
-name: Impact
-on: pull_request
-
-jobs:
-  richter:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0   # detect-changes diffs against the base ref, so it must be in history
-      - uses: shivammathur/setup-php@v2
-        with:
-          php-version: '8.4'
-      - run: composer install --no-interaction --prefer-dist
-      - run: cp .env.example .env && php artisan key:generate   # detect-changes boots the app to build the graph
-      - run: php artisan richter:detect-changes --base=${{ github.event.pull_request.base.sha }} --fail-on=high --fail-on-unresolved
-```
-
-No GitHub Action ships with the package. `detect-changes` is a plain Artisan command, so wire it into whatever pipeline you already run.
-
-> **Note:** `detect-changes` runs `php artisan`, so it boots your Laravel application to build the graph. The job needs whatever booting the app normally requires: typically an `.env` (`cp .env.example .env`) and an `APP_KEY` (`php artisan key:generate`), as above. Without them the command fails to boot before it can analyse anything.
-
-The workflow analyzes the pull request's code, and analysis autoloads classes from that checkout (see above). For a public repository, keep the trigger on `pull_request` (never `pull_request_target` with a privileged token) so fork-submitted code runs without access to your secrets.
-
-### Blast radius of a symbol
+## Installation
 
 ```bash
-php artisan richter:impact "App\Services\PostPublisher"
-php artisan richter:impact PostPublisher                     # substrings work too
-php artisan richter:impact "App\Services\PostPublisher" --explain    # chain from each reached entry surface
-php artisan richter:impact "App\Services\PostPublisher" --json       # machine-readable, for scripting
-php artisan richter:impact "App\Services\PostPublisher" --markdown   # PR-ready markdown
+composer require --dev sandermuller/richter
 ```
 
-Prints the symbol's callers (what breaks if you change it) and its dependencies (what it reaches), breadth-first. Each hop shows its depth (`d1`, `d2`, …) and the edge it was reached through, so a caller chain reads back to the entry point one hop at a time:
+Requires PHP 8.4+ and Laravel 12 or 13. `laravel/mcp` is optional and, when present, must fall in the supported `^0.8||^0.9` range; see [Installation](https://sandermuller.github.io/richter/installation) for the `laravel/boost` v1 case.
 
-```text
-Callers (what breaks if you change "App\Services\PostPublisher"):
-  d1  App\Http\Controllers\PostController::publish  (via action-to-service)  — app/Http/Controllers/PostController.php
-  d2  App\Http\Controllers\PostController  (via controller-to-action)  — app/Http/Controllers/PostController.php
-  d3  route::POST::/posts/{post}/publish  (via route-to-controller)  — routes/web.php:24
+Richter is accurate only once it knows your app's shape. Ask your agent to "set up Richter", or follow [Set up your project](https://sandermuller.github.io/richter/project-setup).
 
-Dependencies (what "App\Services\PostPublisher" reaches):
-  d1  App\Events\PostPublished  (via action-to-event)  — app/Events/PostPublished.php
-```
-
-Every hop carries its defining file (and line, when known), project-relative, so you never have to grep for what a report names.
-
-Between the callers and dependencies, the report names the **entry surfaces** the callers walk
-reaches (routes, commands, schedules, and Livewire/Filament/Nova component classes), with the same
-annotations `detect-changes` carries: defining location, `[test-referenced]` /
-`[⚠ no test references this]` tags, security exposure and Pennant gates. A surface connected only by
-a model relation is listed separately here too, as context rather than a caller. `--explain` adds the
-shortest call chain from each surface down to the symbol. The tags are orientation, not verdicts: `impact`
-reports no risk figure at all, and the section reads `(none)` when the walk reaches no surface.
-
-A symbol that matches nothing is a lead rather than a dead end: the report names the nearest graph nodes (ranked by shared identifiers, so a lookup under the wrong root namespace surfaces the real node), or, when nothing in the graph resembles it, how many nodes were scanned.
-
-With `--json`, stdout is a single document (`{target, callers, dependencies, entryPoints,
-associationEntryPoints, entryPointPaths, entryPointLocations, entryPointSecurity, entryPointGates, entryPointAuthGates,
-entryPointTestReferences}`; the entry-point keys share `detect-changes`' vocabulary and shapes,
-so a consumer parses both reports identically, and each hop is `{depth, node, via, file?, line?}`),
-or `{"error": "…"}` on failure.
-
-### Shortest path between two symbols
+## Usage
 
 ```bash
-php artisan richter:trace "App\Http\Controllers\PostController" "App\Services\PostPublisher"
-php artisan richter:trace PostController PostPublisher        # substrings work too
-php artisan richter:trace PostController PostPublisher --json       # machine-readable
-php artisan richter:trace PostController PostPublisher --markdown   # PR-pasteable chain
+php artisan richter:detect-changes                     # advisory impact of the current diff
+php artisan richter:detect-changes --explain           # show how each entry point reaches the change
+php artisan richter:detect-changes --markdown          # PR-ready markdown
+php artisan richter:impact "App\Services\PostPublisher"   # blast radius of one symbol
+php artisan richter:trace PostController PostPublisher    # shortest call chain between two symbols
+php artisan richter:affected-tests                        # the test selection the diff warrants
 ```
 
-Answers "does FROM reach TO, and through which chain?", strictly in call direction; swap the
-arguments to query the reverse. A found path prints as one chain, each arrow labelled with the
-edge type connecting its two hops:
-
-```text
-Path from "PostController" to "App\Services\PostPublisher" (call direction, 1 hop(s)):
-  ↳ App\Http\Controllers\PostController::publish →(action-to-service) App\Services\PostPublisher
-```
-
-`--depth` sets how many hops the search covers (default 6). Raise it when a miss reports a deepest-caller note: that note means the walk ran out of depth, not that no path exists.
-
-No path is a result, not an error (exit 0). The report then names the deepest caller reached
-from the TO side within the depth limit, which tells you how far upstream connectivity extends
-(it is not a pointer toward FROM), or says plainly that the target has no callers. An
-unresolvable symbol *is* an error (an empty trace would read as "no path", a wrong answer rather
-than an empty one), and the error carries the same nearest-graph-nodes lead `impact` renders.
-
-With `--json`, stdout is `{from, to, resolvedFrom, resolvedTo, found, path}`, plus
-`furthestReached` (`{node, depth, file?, line?}`) on a miss whose target has callers, or
-`{"error": "…"}` on failure.
-
-### Affected-test selection
-
-```bash
-php artisan richter:affected-tests                        # human-readable selection
-php artisan richter:affected-tests --base=origin/develop
-php artisan richter:affected-tests --head=HEAD            # select against the committed tree
-php artisan richter:affected-tests --json                 # {base, determinable, reasons, tests, frontendTests, unreferencedEntryPoints, unresolvedDispatchSites}
-php artisan test $(php artisan richter:affected-tests --plain)   # simple form: coarse but safe
-```
-
-Selects the test files that reference any entry point the diff reaches, plus the tests that import
-any changed or reached class ([selection mechanics](docs/affected-tests.md)). Diffs the same
-way `detect-changes` does, so staged and unstaged edits are included. Selection is reference-based
-recall, not proof of coverage.
-
-It fails safe, and the exit code is the contract:
-
-| Exit | Meaning |
-|---|---|
-| `0` | Selection determined (possibly empty). |
-| `2` | **Not determinable: run the full suite.** Any UNRESOLVED file, low-confidence seed, an unparseable app file, an unfollowable dispatch *that a possible dispatch target in the change's reach could hide*, an uncheckable entry point, or an untracked relevant file `git diff` can't see trips this; the reasons are printed (text) or carried in `reasons` (JSON), and an unfollowable dispatch names each site as `file:line (Dispatcher::method)` so it can be restructured rather than only lived with — though [some shapes cannot be](docs/affected-tests.md#unfollowable-dispatches), which is worth checking before planning that work. |
-| `1` | Usage or unexpected error. |
-
-The simple form only ever errs toward running more: both an undetermined selection and a
-determined-but-empty one leave `$(…)` empty, and an argument-less runner executes the full suite.
-To also skip the run when the selection is determined and empty, branch on the exit code:
-
-```bash
-tests=$(php artisan richter:affected-tests --plain); status=$?
-if [ "$status" -eq 0 ] && [ -z "$tests" ]; then echo "No affected tests."
-elif [ "$status" -eq 0 ]; then php artisan test $tests
-else php artisan test; fi   # exit 2: not determinable, run the full suite
-```
-
-### Frontend changes (Wayfinder / Ziggy)
-
-Opt-in: point `frontend.roots` at your frontend source in `config/richter.php`:
-
-```php
-'frontend' => [
-    'roots' => ['resources/js'],
-],
-```
-
-Changed TS/JS/Vue files are then scanned for the backend endpoints they reference (Wayfinder
-imports, Ziggy `route('name')` calls, endpoint string literals), and those routes are reported as
-touched entry points, feeding `richter:affected-tests`, while `risk` and `impacted` stay
-untouched: a frontend edit does not change backend behaviour. The bridge also runs in reverse: a
-changed backend member that renders an Inertia page is noted under Findings with the resolved page
-file. The [frontend reference](docs/frontend.md) covers what is matched, what deliberately
-isn't, and how the scan fails safe.
-
-### Graph cache
-
-Building the code graph is the dominant cost of every command. Richter caches the built graph on disk (default: `storage/framework/cache/richter/graph.json`), keyed by a content fingerprint of everything the build reads: `app/`, `routes/`, `resources/views`, the relevant config, and the package versions. Any input change rebuilds automatically, so a hit can only ever serve the graph the current code produces; there is no TTL to tune and no stale window.
-
-- The cache is on by default; set `richter.cache.enabled` to `false` to disable it.
-- `--no-cache` (on every command) bypasses it for one run, the escape hatch for an input the fingerprint doesn't cover.
-- A corrupt or mismatched cache file reads as a miss and is rebuilt; it never fails a run.
-- `--profile` (on `richter:detect-changes`) forces a build and prints a phase-by-phase timing split to stderr, for judging where build time goes on a given codebase. A cache hit leaves nothing to time, so it refuses one. It still reuses the stored merge base, which keeps the timings representative of the build this project gets. The `brain-analyze` line names the path that ran: `full`, `scoped`, or `scoped-rejected`, and a diff holding nothing the graph is built from says that instead of printing an empty table. Add `--no-cache` to time a cold build instead.
-
-A miss no longer always costs a full analysis. The entry also stores the graph Laravel Brain produced and a record of the inputs it was built from, so a miss can compare the two records and ask which inputs actually differ, rather than only whether any did. When every difference is a changed file under `app/` — nothing added, nothing deleted, no config or package change, nothing outside `app/` — Brain re-traces only the controllers those files declare and merges the result into the stored graph. Everything else is a full build, as before.
-
-The merged graph is identical either way; that is asserted, not assumed. Two things are worth knowing about when it engages:
-
-- **It helps a changed file that declares a controller.** A diff touching only services, models or jobs has no controllers to re-trace, so it is refused and costs nothing extra.
-- **Every ambiguous case is refused.** A wrong refusal costs one full build, which is what every run cost before. A wrong acceptance would produce a graph quietly missing edges, which is the failure this package exists to prevent — so `--no-cache` remains the way to force a full analysis if you ever suspect one.
-- **A refusal says which precondition refused.** `--profile` prints it under the timing table as `no scoped rebuild: <reason>`, followed by the input that refused: the differing non-file input, the changed path outside `app/`, or the changed file the stored graph attributes nothing to. `no-cache-entry` is the ordinary first run and resolves itself; every other reason names something to look at.
-- **`no-change` compares against the cached graph, not against git.** The refusal means every hashed input matches the entry on disk, which is whatever the last build stored. That covers profiling a tree you just warmed the cache on. It also covers a less obvious case: an edit that reproduces content some earlier run already built, which `git diff` still shows as a change. Both are correct refusals: the graph for that content is already cached. To measure a scoped build, make the edit new, and make it after the run that warmed the cache.
-
-### MCP server
-
-When [`laravel/mcp`](https://github.com/laravel/mcp) is installed, Richter registers a local MCP server named `richter` with four read-only tools: `impact` (blast radius plus reached entry surfaces of a symbol), `trace` (shortest call-direction path between two symbols), `detect-changes` (advisory impact of the current branch diff), and `affected-tests` (the test selection the diff warrants). For `affected-tests`, `determinable: false` means run the full suite: every non-determinable cause returns that shape with its reasons, never a tool error. Three read-only resources cover orientation without a tool call:
-
-| Resource | URI | Content |
-|---|---|---|
-| Entry points | `richter://graph/entry-points` | Every statically-known entry surface (routes, commands, schedules, Livewire/Filament/Nova components) with kind and `file:line` where known. |
-| Graph stats | `richter://graph/stats` | Node and edge counts by edge type, plus the honesty flags (`hasUnparseableFiles`, `hasUnresolvedDispatches`) and `unresolvedDispatchSites`, which names each unfollowable dispatch by file, line and dispatching member. |
-| Config | `richter://config` | The effective analysis configuration: base ref, root namespace, entry-point roots, dispatch helpers, feature-gate wrappers, payload-parity settings, the frontend bridge, cache and parallel switches. |
-
-A coding agent can then triage changes without shelling out to Artisan. Because the MCP session holds the graph cache in memory, repeated tool calls in one review don't rebuild the graph. Every tool returns MCP structured content in the same shape as the CLI `--json` output, so an agent can branch on fields instead of parsing prose. The supported range is `laravel/mcp` `^0.8||^0.9`; `composer.json` carries a matching `conflict` entry so an unvalidated release fails at resolution time rather than at boot.
-
-Point Claude Code, Cursor, or any MCP client at the Artisan entry point, e.g. in `.mcp.json`:
-
-```json
-{
-    "mcpServers": {
-        "richter": {
-            "command": "php",
-            "args": ["artisan", "mcp:start", "richter"]
-        }
-    }
-}
-```
-
-## Configuration
-
-Every key in `config/richter.php` (base ref, root namespace, editor links, dispatch helpers,
-feature-gate wrappers, payload parity, second-hop analysis, entry-point roots, the frontend
-bridge, cache and parallel switches, benchmark cases) is documented in the
-[configuration reference](docs/configuration.md).
+Each of these takes `--json` for machine-readable output. `richter:detect-changes` also takes `--html=<path>` for a self-contained visual report.
 
 ## Documentation
 
-- [detect-changes reference](docs/detect-changes.md): annotation lanes, payload parity, output formats, the JSON contract
-- [affected-tests reference](docs/affected-tests.md): selection mechanics and fail-safe behaviour
-- [Frontend changes](docs/frontend.md): the Wayfinder/Ziggy bridge in full
-- [Coverage beyond Laravel Brain](docs/coverage.md): what Richter traces that a route-anchored analysis misses, and its known limits
-- [Configuration reference](docs/configuration.md): every config key
-- [Benchmarking](docs/benchmark.md): scoring accuracy against replayable history
+Read the full documentation at **[sandermuller.github.io/richter](https://sandermuller.github.io/richter/)**.
+
+**Getting started**
+- [Why Richter?](https://sandermuller.github.io/richter/why-richter) — what a report tells you, what it refuses to guess at, and how the analysis runs
+- [Installation](https://sandermuller.github.io/richter/installation) — requirements, the `laravel/mcp` constraint, publishing the config
+- [Set up your project](https://sandermuller.github.io/richter/project-setup) — the setup skill, or two prompts you can paste to any agent
+
+**Change impact**
+- [Detecting change impact](https://sandermuller.github.io/richter/detect-changes) — the main command, which diff is analysed, reading the report, `--explain`
+- [Report annotations](https://sandermuller.github.io/richter/report-annotations) — security exposure, Pennant gates, payload parity, middleware group membership
+- [Output formats](https://sandermuller.github.io/richter/output-formats) — `--markdown`, `--html`, and the `--json` contract
+- [Risk levels](https://sandermuller.github.io/richter/risk-levels) — how the level is decided, calibrating the thresholds, the scored counts
+- [Gating in CI](https://sandermuller.github.io/richter/ci-gating) — `--fail-on`, `--fail-on-unresolved`, and a pull-request workflow
+
+**Commands**
+- [Blast radius of a symbol](https://sandermuller.github.io/richter/impact) — `richter:impact`
+- [Shortest path between symbols](https://sandermuller.github.io/richter/trace) — `richter:trace`
+- [Affected-test selection](https://sandermuller.github.io/richter/affected-tests) — `richter:affected-tests`
+
+**Digging deeper**
+- [Frontend changes](https://sandermuller.github.io/richter/frontend) — the Wayfinder/Ziggy bridge in full
+- [MCP server](https://sandermuller.github.io/richter/mcp-server) — the read-only tools and resources an agent can call
+- [Graph cache](https://sandermuller.github.io/richter/graph-cache) — the fingerprinted cache, profiling, scoped rebuilds
+- [Coverage beyond Laravel Brain](https://sandermuller.github.io/richter/coverage) — the edges a route-anchored analysis misses, and the known limits
+
+**Reference**
+- [Configuration reference](https://sandermuller.github.io/richter/configuration) — every key in `config/richter.php`
+- [Benchmarking](https://sandermuller.github.io/richter/benchmark) — scoring accuracy against replayable history
 
 ## Testing
 
@@ -389,8 +103,7 @@ composer test        # test suite only
 composer qa-check    # read-only pre-push gate: Rector + Pint dry-runs, PHPStan, tests (mirrors CI)
 ```
 
-`composer qa` is the auto-fixing variant: it rewrites the working tree (Rector, Pint), so use
-`qa-check` when you only want to verify.
+`composer qa` is the auto-fixing variant: it rewrites the working tree (Rector, Pint), so use `qa-check` when you only want to verify.
 
 ## Changelog
 

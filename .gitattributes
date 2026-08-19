@@ -38,5 +38,8 @@ workbench/ export-ignore
 plans/ export-ignore
 specs/ export-ignore
 
+# Documentation site source: published to GitHub Pages, never installed with the package.
+docs/ export-ignore
+
 # README banner: Packagist renders the README from the repo, so the dist archive doesn't need the image.
 richter.png export-ignore

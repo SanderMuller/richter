@@ -28,6 +28,11 @@ _ide_helper_models.php
 .claude/scheduled_tasks.lock
 .claude/agent-memory/
 
+# Docs site (VitePress)
+docs/node_modules/
+docs/.vitepress/cache/
+docs/.vitepress/dist/
+
 # Misc
 phpstan.neon
 /coverage

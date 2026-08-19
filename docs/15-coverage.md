@@ -21,7 +21,7 @@ Brain traces some of these too (view composition, resource references, queue dis
 - trait usage;
 - eager-load relation strings;
 - view-to-view includes;
-- frontend endpoint references: Wayfinder imports, Ziggy calls, endpoint literals in changed TS/JS/Vue files and Blade inline scripts (opt-in, see [Frontend changes](frontend.md)).
+- frontend endpoint references: Wayfinder imports, Ziggy calls, endpoint literals in changed TS/JS/Vue files and Blade inline scripts (opt-in, see [Frontend changes](12-frontend.md)).
 
 ## Known limits
 

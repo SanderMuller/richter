@@ -1,6 +1,37 @@
-# `richter:affected-tests` reference
+# Affected-test selection
 
-The [README](../README.md#affected-test-selection) covers the commands, the simple runner form, and the exit-code contract. This page documents how the selection is built.
+`richter:affected-tests` turns the diff's reach into a test selection.
+
+```bash
+php artisan richter:affected-tests                        # human-readable selection
+php artisan richter:affected-tests --base=origin/develop
+php artisan richter:affected-tests --head=HEAD            # select against the committed tree
+php artisan richter:affected-tests --json                 # {base, determinable, reasons, tests, frontendTests, unreferencedEntryPoints, unresolvedDispatchSites}
+php artisan test $(php artisan richter:affected-tests --plain)   # simple form: coarse but safe
+```
+
+It selects the test files that reference any entry point the diff reaches, plus the tests that import any changed or reached class. It diffs the same way [`detect-changes`](04-detect-changes.md#which-diff-is-analysed) does, so staged and unstaged edits are included. Selection is reference-based recall, not proof of coverage.
+
+## The exit-code contract
+
+It fails safe, and the exit code is the contract:
+
+| Exit | Meaning |
+|---|---|
+| `0` | Selection determined (possibly empty). |
+| `2` | **Not determinable: run the full suite.** Any UNRESOLVED file, low-confidence seed, an unparseable app file, an unfollowable dispatch *that a possible dispatch target in the change's reach could hide*, an uncheckable entry point, or an untracked relevant file `git diff` cannot see trips this. The reasons are printed (text) or carried in `reasons` (JSON), and an unfollowable dispatch names each site as `file:line (Dispatcher::method)` so it can be restructured rather than only lived with — though [some shapes cannot be](#unfollowable-dispatches). |
+| `1` | Usage or unexpected error. |
+
+The simple form only ever errs toward running more: both an undetermined selection and a determined-but-empty one leave `$(…)` empty, and an argument-less runner executes the full suite.
+
+To also skip the run when the selection is determined and empty, branch on the exit code:
+
+```bash
+tests=$(php artisan richter:affected-tests --plain); status=$?
+if [ "$status" -eq 0 ] && [ -z "$tests" ]; then echo "No affected tests."
+elif [ "$status" -eq 0 ]; then php artisan test $tests
+else php artisan test; fi   # exit 2: not determinable, run the full suite
+```
 
 ## How tests are selected
 
@@ -75,8 +106,8 @@ An untracked (never `git add`-ed) file under `app/`, `resources/views/`, or a fr
 
 ## `--plain` degradation
 
-In `--plain` mode an undeterminable run prints nothing, so the command-substitution form (`php artisan test $(php artisan richter:affected-tests --plain)`) degrades to the full suite by construction, as does a determined-but-empty selection, which is why the exit-code branch in the README is the precise form.
+In `--plain` mode an undeterminable run prints nothing, so the command-substitution form (`php artisan test $(php artisan richter:affected-tests --plain)`) degrades to the full suite by construction, as does a determined-but-empty selection, which is why the exit-code branch above is the precise form.
 
 ## Frontend tests
 
-Frontend spec files referencing a touched route surface as an advisory `frontendTests` list for the JS runner, never in `--plain` (which feeds the PHP runner), and never a determinability input. See [Frontend changes](frontend.md).
+Frontend spec files referencing a touched route surface as an advisory `frontendTests` list for the JS runner, never in `--plain` (which feeds the PHP runner), and never a determinability input. See [Frontend changes](12-frontend.md).

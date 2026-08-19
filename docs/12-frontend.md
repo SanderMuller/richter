@@ -17,7 +17,7 @@ Changed `.ts`/`.tsx`/`.js`/`.jsx`/`.vue` files are then scanned for the backend 
   names. Wayfinder's generated trees (`actions/`, `routes/`, `wayfinder/` under each root) and
   Ziggy's generated route map (`ziggy.js`) are excluded as regeneration churn, and `.d.ts`
   declaration files are never scanned; see `frontend.generated_paths` in
-  [Configuration](configuration.md).
+  [Configuration](16-configuration.md).
 - **Endpoint strings**, matched against the app's route templates: plain literals
   (`axios.post('/posts')`) and backtick templates whose interpolations wildcard one segment
   (`` fetch(`/posts/${id}`) `` matches `/posts/{post}`). A `/`-leading literal or template only

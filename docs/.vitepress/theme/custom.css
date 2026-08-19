@@ -1,0 +1,180 @@
+/**
+ * Brand palette: the amber of the banner, tuned per mode so link/text usage
+ * keeps contrast (brand-1 = text/links, brand-2 = hover, brand-3 = solid
+ * button background).
+ */
+:root {
+    --vp-c-brand-1: #a16207;
+    --vp-c-brand-2: #854d0e;
+    --vp-c-brand-3: #d97706;
+    --vp-c-brand-soft: rgba(217, 119, 6, 0.14);
+}
+
+.dark {
+    --vp-c-brand-1: #fbbf24;
+    --vp-c-brand-2: #fcd34d;
+    --vp-c-brand-3: #d97706;
+    --vp-c-brand-soft: rgba(217, 119, 6, 0.18);
+}
+
+/* Home hero: gradient wordmark and a soft glow behind the logo. */
+:root {
+    --vp-home-hero-name-color: transparent;
+    --vp-home-hero-name-background: linear-gradient(120deg, #d97706 30%, #f59e0b);
+    --vp-home-hero-image-background-image: linear-gradient(-45deg, rgba(217, 119, 6, 0.5) 40%, rgba(245, 158, 11, 0.5) 60%);
+    --vp-home-hero-image-filter: blur(56px);
+}
+
+.dark {
+    --vp-home-hero-image-background-image: linear-gradient(-45deg, rgba(217, 119, 6, 0.35) 40%, rgba(245, 158, 11, 0.35) 60%);
+}
+
+/**
+ * Solid brand buttons carry white text in both modes, so they use a darker
+ * amber than --vp-c-brand-3: white on #d97706 is 3.15:1, below the 4.5:1 WCAG
+ * AA threshold, while #a16207 reaches 4.83:1.
+ */
+:root {
+    --vp-button-brand-bg: #a16207;
+    --vp-button-brand-hover-bg: #854d0e;
+    --vp-button-brand-active-bg: #713f12;
+}
+
+/**
+ * Call-to-action cards: the "Where to next" grid on the home page
+ * (HomeNextSteps.vue) and the end-of-page "Next" card on every guide page
+ * (NextPageCta.vue). The home cards sit inside .vp-doc, so those selectors
+ * carry the extra class to outrank VitePress's own `.vp-doc a` rules.
+ */
+.doc-cta-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 16px;
+    margin: 24px 0 32px;
+}
+
+.vp-doc .doc-cta-card,
+.doc-cta-card {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 20px 24px;
+    border: 1px solid var(--vp-c-divider);
+    border-radius: 12px;
+    background-color: var(--vp-c-bg-soft);
+    font-weight: 400;
+    text-decoration: none;
+    transition: border-color 0.25s, background-color 0.25s, transform 0.25s;
+}
+
+.vp-doc .doc-cta-card:hover,
+.doc-cta-card:hover {
+    border-color: var(--vp-c-brand-1);
+    background-color: var(--vp-c-bg-elv);
+    text-decoration: none;
+}
+
+.doc-cta-grid .doc-cta-card:hover {
+    transform: translateY(-2px);
+}
+
+.doc-cta-label {
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--vp-c-brand-1);
+}
+
+.doc-cta-title {
+    font-size: 17px;
+    font-weight: 600;
+    color: var(--vp-c-text-1);
+}
+
+.doc-cta-card:hover .doc-cta-title {
+    color: var(--vp-c-brand-1);
+}
+
+.doc-cta-text {
+    font-size: 14px;
+    line-height: 1.6;
+    color: var(--vp-c-text-2);
+}
+
+.doc-cta-footer {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px 20px;
+}
+
+.vp-doc .doc-cta-button {
+    display: inline-block;
+    padding: 10px 20px;
+    border-radius: 20px;
+    background-color: var(--vp-button-brand-bg);
+    color: #fff;
+    font-size: 14px;
+    font-weight: 600;
+    text-decoration: none;
+    transition: background-color 0.25s;
+}
+
+.vp-doc .doc-cta-button:hover {
+    background-color: var(--vp-button-brand-hover-bg);
+    color: #fff;
+    text-decoration: none;
+}
+
+.doc-cta-note {
+    font-size: 14px;
+    color: var(--vp-c-text-2);
+}
+
+/* Marks a card that leaves the site, for sighted readers and screen readers. */
+.doc-cta-external {
+    margin-left: 4px;
+    font-size: 0.85em;
+    color: var(--vp-c-text-2);
+}
+
+.doc-cta-sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+/**
+ * End-of-page card. The card renders into the doc-footer-before slot, which
+ * VitePress puts above the edit link and the pager. Reordering the footer keeps
+ * the two navigation blocks — the card and the pager — next to each other,
+ * instead of the edit link splitting them on narrow screens.
+ */
+.VPDocFooter {
+    display: flex;
+    flex-direction: column;
+}
+
+.VPDocFooter .edit-info {
+    order: 1;
+}
+
+.next-page-cta {
+    order: 2;
+    margin: 0 0 24px;
+}
+
+.VPDocFooter .prev-next {
+    order: 3;
+}
+
+.next-page-cta .doc-cta-title {
+    font-size: 18px;
+}
