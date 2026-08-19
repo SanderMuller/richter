@@ -33,3 +33,4 @@ Measure the magnitude of impact of code changes in a Laravel codebase. For a qui
 
 - [Configuration reference](16-configuration.md) — every key in `config/richter.php`
 - [Benchmarking](17-benchmark.md) — scoring accuracy against replayable history
+- [Troubleshooting](18-troubleshooting.md) — a symptom index: empty reports, UNRESOLVED files, saturated risk levels, exit 2

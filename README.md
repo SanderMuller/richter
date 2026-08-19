@@ -95,6 +95,7 @@ Read the full documentation at **[sandermuller.github.io/richter](https://sander
 **Reference**
 - [Configuration reference](https://sandermuller.github.io/richter/configuration) — every key in `config/richter.php`
 - [Benchmarking](https://sandermuller.github.io/richter/benchmark) — scoring accuracy against replayable history
+- [Troubleshooting](https://sandermuller.github.io/richter/troubleshooting) — a symptom index: empty reports, UNRESOLVED files, saturated risk levels, exit 2
 
 ## Testing
 

@@ -126,6 +126,11 @@ export const sections: DocSection[] = [
                 text: 'Benchmarking',
                 blurb: 'Score accuracy against replayable history before and after a calibration.',
             },
+            {
+                file: '18-troubleshooting',
+                text: 'Troubleshooting',
+                blurb: 'A symptom index: empty reports, UNRESOLVED files, saturated risk levels, exit 2.',
+            },
         ],
     },
 ]

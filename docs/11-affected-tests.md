@@ -44,7 +44,7 @@ A dispatch whose target cannot be seen statically (a variable or a factory call)
 target sits in the change's reach. The reason names every such site as
 `file:line (Dispatcher::method)`:
 
-```
+```text
 the graph contains job dispatches that could not be followed:
 app/Jobs/Fanout.php:88 (App\Jobs\Fanout::handle), app/Services/Importer.php:12 (App\Services\Importer::run)
 ```

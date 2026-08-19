@@ -10,6 +10,12 @@ export default defineConfig({
     cleanUrls: true,
     lastUpdated: true,
 
+    // Lets search engines and agent crawlers enumerate the pages instead of
+    // discovering them only by following links from the home page.
+    sitemap: {
+        hostname: 'https://sandermuller.github.io/richter/',
+    },
+
     head: [
         ['link', { rel: 'icon', type: 'image/svg+xml', href: '/richter/logo.svg' }],
         ['meta', { name: 'theme-color', content: '#d97706' }],
@@ -51,6 +57,7 @@ export default defineConfig({
         nav: [
             { text: 'Guide', link: link('01-why-richter') },
             { text: 'Configuration', link: link('16-configuration') },
+            { text: 'Releases', link: 'https://github.com/SanderMuller/richter/releases' },
             { text: 'Packagist', link: 'https://packagist.org/packages/sandermuller/richter' },
         ],
 

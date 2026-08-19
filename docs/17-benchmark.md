@@ -9,7 +9,7 @@ php artisan richter:benchmark:add abc1234 --control
 
 Replays historical fix commits (configured in `richter.benchmark_cases`) through the report: bug fixtures must resolve and reach an entry point; benign controls cap the risk a harmless change may report. Run it after changing the graph or tracers. A control flipping green→red is a regression in trustworthiness.
 
-`richter:benchmark:add` scaffolds a case from a historical fix commit: it dry-runs the commit through the same replay, reports what it would score today, and prints a paste-ready `benchmark_cases` entry. It never edits the config file.
+`richter:benchmark:add` scaffolds a case from a historical fix commit: it dry-runs the commit through the same replay, reports what it would score today, and prints a paste-ready `benchmark_cases` entry. It never edits the config file. Two flags fill in fields you would otherwise edit by hand: `--key=<key>` sets the case key instead of deriving it from the commit, and `--expect-finding=<substring>` records a substring the replay's findings must contain.
 
 With `--control` it refuses to scaffold anything when the replay already reports HIGH. A control caps the risk a harmless change may report, and HIGH is the top of the scale, so the cap would assert nothing and the case would pass forever. Either the change is not harmless (capture it as a signal by dropping `--control`) or the corpus needs a lower-reach commit for that control. The same trap is why you should never resolve a red control by re-capturing it.
 

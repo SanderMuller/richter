@@ -5,6 +5,7 @@ Building the code graph is the dominant cost of every command. Richter caches th
 Any input change rebuilds automatically, so a hit can only ever serve the graph the current code produces. There is no TTL to tune and no stale window.
 
 - The cache is on by default; set `richter.cache.enabled` to `false` to disable it.
+- Config that changes what the build reads is part of the fingerprint, so switching a value rebuilds instead of serving a graph the current settings would not produce. All three `second_hop` scopes fingerprint differently, so an entry built at one is never served at another.
 - `--no-cache` (on every command) bypasses it for one run, the escape hatch for an input the fingerprint does not cover.
 - A corrupt or mismatched cache file reads as a miss and is rebuilt; it never fails a run.
 
