@@ -19,9 +19,11 @@ use PhpParser\Node\Expr\Variable;
 use PhpParser\Node\Identifier;
 use PhpParser\Node\Name;
 use PhpParser\Node\Scalar\String_;
+use PhpParser\Node\Stmt\Class_;
 use PhpParser\Node\Stmt\ClassConst;
 use PhpParser\Node\Stmt\ClassLike;
 use PhpParser\Node\Stmt\ClassMethod;
+use PhpParser\Node\Stmt\Enum_;
 use PhpParser\NodeFinder;
 use PhpParser\NodeTraverser;
 use PhpParser\NodeVisitorAbstract;
@@ -120,6 +122,67 @@ final readonly class DispatchEdgeTracer
     }
 
     /**
+     * `self`/`static`/`parent` are lexical, not importable, so PHP-Parser's name resolution leaves
+     * them verbatim. A dispatch naming one therefore built its target id out of the literal
+     * (`self::handle`) — a node that names no class, and one that every self-dispatching class in
+     * the application shared. This maps the two resolvable spellings onto the declaring class, the
+     * same fix {@see ConstantReferenceTracer} already applies to a constant owner.
+     *
+     * `static::` resolves to the declaring class too: late static binding can name a subclass at
+     * runtime, and the declaring class is the honest floor — the graph's `override` edges carry a
+     * subclass here exactly as they do for any other inherited call.
+     *
+     * `parent::` is deliberately left alone: the parent FQCN is not known here, and naming the
+     * declaring class would point at the wrong class rather than at no class.
+     *
+     * Applied where the edge is built rather than where the name resolves, so the decision about
+     * WHETHER a dispatch draws an edge — {@see DispatchTarget}, which fails toward could-be for an
+     * unresolvable name — is left exactly as it was. Only the id changes.
+     *
+     * @param  string|null  $scope  the declaring class, or null when the file cannot say which
+     */
+    private static function withDeclaringClass(string $target, ?string $scope): string
+    {
+        return $scope !== null && in_array(strtolower($target), ['self', 'static'], strict: true)
+            ? $scope
+            : $target;
+    }
+
+    /**
+     * The class `self`/`static` may be resolved against for this file, or null when nothing can be
+     * said. Three conditions, each refusing a way the answer would be wrong:
+     *
+     * - **Exactly one class-like.** Methods arrive as one flat list across every class-like in the
+     *   file, so a sibling class or an anonymous `new class` in a method body leaves no way to tell
+     *   which one a given `self::` meant.
+     * - **A class or an enum, never a trait or an interface.** Inside a trait, `self` is the
+     *   CONSUMING class at runtime — resolving it to the trait would name a real class that never
+     *   dispatched, which is worse than naming none.
+     * - **Its name matches the FQCN being traced.** The two arrive from different places; a
+     *   mismatch means the assumption tying them together does not hold here.
+     *
+     * @param  list<ClassLike>  $classLikes
+     */
+    private function lexicalScopeOf(array $classLikes, string $classFqcn): ?string
+    {
+        if (count($classLikes) !== 1) {
+            return null;
+        }
+
+        $only = $classLikes[0];
+        $fqcn = ltrim($classFqcn, '\\');
+
+        if (! $only instanceof Class_ && ! $only instanceof Enum_) {
+            return null;
+        }
+
+        $separator = strrpos($fqcn, '\\');
+        $shortName = $separator === false ? $fqcn : substr($fqcn, $separator + 1);
+
+        return $only->name?->toString() === $shortName ? $fqcn : null;
+    }
+
+    /**
      * Bucket-fed variant of {@see edgesForResolvedAst()}: the consolidated loop in
      * {@see CodeGraphBuilder} collects each file's nodes in one descent and hands every tracer its
      * bucket, so no tracer re-walks the full tree.
@@ -132,6 +195,8 @@ final readonly class DispatchEdgeTracer
     public function edgesForMethods(array $classMethods, string $classFqcn, array $classLikes = []): array
     {
         $stringConstants = $this->stringConstantsByMethod($classLikes);
+
+        $declaringClass = $this->lexicalScopeOf($classLikes, $classFqcn);
 
         $edges = [];
         $unresolvedSites = [];
@@ -178,7 +243,8 @@ final readonly class DispatchEdgeTracer
                 $origin = ['line' => $call->getStartLine(), 'dispatcher' => $dispatcher];
 
                 foreach ($this->jobsFromCall($call, $origin, $unresolvedSites, $ownConstants, $localJobs) as $jobFqcn) {
-                    $edges[] = ['source' => $dispatcher, 'target' => $jobFqcn . '::handle', 'type' => 'action-to-job'];
+                    $target = self::withDeclaringClass($jobFqcn, $declaringClass);
+                    $edges[] = ['source' => $dispatcher, 'target' => $target . '::handle', 'type' => 'action-to-job'];
                 }
             }
 
@@ -205,6 +271,15 @@ final readonly class DispatchEdgeTracer
                 }
 
                 $job = AppFiles::resolveName($new->class);
+
+                // `new self()` constructs the enclosing class, which is not dispatching it — that is
+                // what the FQCN guard below is for, and it could never fire while the target read
+                // `self`. `new static()` is deliberately not folded in: late static binding can
+                // construct a subclass, so it keeps the edge this lane exists to retain.
+                if ($declaringClass !== null && strtolower($job) === 'self') {
+                    continue;
+                }
+
                 if ($job === ltrim($classFqcn, '\\')) {
                     continue;
                 }
@@ -214,7 +289,8 @@ final readonly class DispatchEdgeTracer
                 }
 
                 if ($methodDispatches || DispatchTarget::isIntrinsicOrUnresolvable($job)) {
-                    $edges[] = ['source' => $dispatcher, 'target' => $job . '::handle', 'type' => 'action-to-job'];
+                    $target = self::withDeclaringClass($job, $declaringClass);
+                    $edges[] = ['source' => $dispatcher, 'target' => $target . '::handle', 'type' => 'action-to-job'];
                 }
             }
         }

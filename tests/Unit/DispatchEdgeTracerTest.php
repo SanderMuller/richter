@@ -61,6 +61,157 @@ final class DispatchEdgeTracerTest extends TestCase
     }
 
     /**
+     * A job that dispatches itself names its target with `self::`/`static::`, which PHP-Parser's
+     * name resolution leaves verbatim. Before this resolved, the edge landed on a `self::handle`
+     * node that names no class — one leaf every self-dispatching class in the app shared.
+     *
+     * @return Iterator<string, array{string, string}>
+     */
+    public static function selfReferentialDispatches(): Iterator
+    {
+        yield 'self::dispatch' => ['self::dispatch();', 'App\\Jobs\\ImportJob::handle'];
+        yield 'static::dispatch' => ['static::dispatch();', 'App\\Jobs\\ImportJob::handle'];
+        yield 'self::dispatchSync' => ['self::dispatchSync();', 'App\\Jobs\\ImportJob::handle'];
+    }
+
+    #[Test]
+    #[DataProvider('selfReferentialDispatches')]
+    public function it_resolves_a_self_referential_dispatch_to_the_declaring_class(string $body, string $expected): void
+    {
+        $source = "<?php\nnamespace App\\Jobs;\nclass ImportJob\n{\n    public function run(): void\n    {\n        {$body}\n    }\n\n    public function handle(): void\n    {\n    }\n}\n";
+
+        $edges = new DispatchEdgeTracer()->edgesForSource($source, 'App\\Jobs\\ImportJob')['edges'];
+
+        $this->assertSame([$expected], array_column($edges, 'target'));
+    }
+
+    /**
+     * `self` inside a TRAIT is the consuming class at runtime, never the trait, so resolving it to
+     * the trait's own FQCN would name a real class that never dispatched — the exact failure the
+     * refusal exists to avoid, and a worse answer than naming nothing.
+     */
+    #[Test]
+    public function it_refuses_to_resolve_self_inside_a_trait(): void
+    {
+        $source = "<?php\nnamespace App\\Concerns;\ntrait DispatchesWork\n{\n    public function run(): void\n    {\n        self::dispatch();\n    }\n\n    public function handle(): void\n    {\n    }\n}\n";
+
+        $targets = array_column(new DispatchEdgeTracer()->edgesForSource($source, 'App\\Concerns\\DispatchesWork')['edges'], 'target');
+
+        $this->assertNotContains('App\\Concerns\\DispatchesWork::handle', $targets);
+        $this->assertSame(['self::handle'], $targets);
+    }
+
+    /**
+     * `new static()` can construct a late-bound SUBCLASS, so it is not the self-construction the
+     * guard suppresses. It keeps the edge the instantiation lane exists to retain — with the id
+     * resolved to the declaring class, the honest floor.
+     */
+    #[Test]
+    public function it_keeps_the_instantiation_edge_for_a_bare_new_static(): void
+    {
+        $source = "<?php\nnamespace App\\Jobs;\nuse Illuminate\\Foundation\\Bus\\Dispatchable;\nclass ImportJob\n{\n    use Dispatchable;\n\n    public function run(): static\n    {\n        return new static();\n    }\n\n    public function handle(): void\n    {\n    }\n}\n";
+
+        $targets = array_column(new DispatchEdgeTracer()->edgesForSource($source, 'App\\Jobs\\ImportJob')['edges'], 'target');
+
+        $this->assertSame(['App\\Jobs\\ImportJob::handle'], $targets);
+    }
+
+    /**
+     * The named-constructor lane (`SomeJob::for($x)` as a dispatch argument) resolves its receiver
+     * the same way every other lane does.
+     */
+    #[Test]
+    public function it_resolves_a_dispatched_self_named_constructor(): void
+    {
+        $source = "<?php\nnamespace App\\Jobs;\nclass ImportJob\n{\n    public function run(): void\n    {\n        dispatch(self::forToday());\n    }\n\n    public function handle(): void\n    {\n    }\n}\n";
+
+        $targets = array_column(new DispatchEdgeTracer()->edgesForSource($source, 'App\\Jobs\\ImportJob')['edges'], 'target');
+
+        $this->assertSame(['App\\Jobs\\ImportJob::handle'], $targets);
+    }
+
+    /**
+     * The FQCN being traced is derived from the file's PATH, while the lexical scope comes from the
+     * AST. A file whose declared class name does not match its path — a PSR-4 violation, or a class
+     * renamed without moving the file — makes the two disagree, and resolving `self` to the
+     * path-derived name would point every dispatch at a class this file does not declare.
+     */
+    #[Test]
+    public function it_refuses_to_resolve_self_when_the_declared_class_does_not_match_the_traced_fqcn(): void
+    {
+        $source = "<?php\nnamespace App\\Jobs;\nclass RenamedJob\n{\n    public function run(): void\n    {\n        self::dispatch();\n    }\n\n    public function handle(): void\n    {\n    }\n}\n";
+
+        $targets = array_column(new DispatchEdgeTracer()->edgesForSource($source, 'App\\Jobs\\ImportJob')['edges'], 'target');
+
+        $this->assertNotContains('App\\Jobs\\ImportJob::handle', $targets);
+        $this->assertSame(['self::handle'], $targets);
+    }
+
+    /**
+     * `parent::` is left unresolved on purpose: the parent FQCN is not known where the edge is
+     * built, so naming the declaring class would point at the wrong class rather than at no class.
+     */
+    #[Test]
+    public function it_leaves_a_parent_dispatch_unresolved(): void
+    {
+        $source = "<?php\nnamespace App\\Jobs;\nclass ImportJob extends BaseJob\n{\n    public function run(): void\n    {\n        parent::dispatch();\n    }\n\n    public function handle(): void\n    {\n    }\n}\n";
+
+        $targets = array_column(new DispatchEdgeTracer()->edgesForSource($source, 'App\\Jobs\\ImportJob')['edges'], 'target');
+
+        $this->assertNotContains('App\\Jobs\\ImportJob::handle', $targets);
+        $this->assertSame(['parent::handle'], $targets);
+    }
+
+    /**
+     * Constructing the enclosing class is not dispatching it. The self-construction guard could
+     * never fire while the target read `self`, so resolving it first is what makes `new self()`
+     * skip — the behaviour that guard was written for.
+     */
+    #[Test]
+    public function it_does_not_draw_an_edge_for_a_bare_new_self(): void
+    {
+        $source = "<?php\nnamespace App\\Jobs;\nclass ImportJob\n{\n    public function run(): self\n    {\n        return new self();\n    }\n\n    public function handle(): void\n    {\n    }\n}\n";
+
+        $edges = new DispatchEdgeTracer()->edgesForSource($source, 'App\\Jobs\\ImportJob')['edges'];
+
+        $this->assertSame([], $edges);
+    }
+
+    /**
+     * The other half of that distinction: `new self()` passed to a dispatch verb IS a self-dispatch,
+     * and resolves to the declaring class. Pinned together with the case above so an edit cannot
+     * collapse the two.
+     */
+    #[Test]
+    public function it_resolves_a_dispatched_new_self_to_the_declaring_class(): void
+    {
+        $source = "<?php\nnamespace App\\Jobs;\nclass ImportJob\n{\n    public function run(): void\n    {\n        dispatch(new self());\n    }\n\n    public function handle(): void\n    {\n    }\n}\n";
+
+        $edges = new DispatchEdgeTracer()->edgesForSource($source, 'App\\Jobs\\ImportJob')['edges'];
+
+        $this->assertSame(['App\\Jobs\\ImportJob::handle'], array_column($edges, 'target'));
+    }
+
+    /**
+     * `self` is lexical, so it resolves against whichever class-like encloses it. Methods arrive as
+     * one flat list attributed to the file's class, so a file declaring more than one class-like
+     * cannot say which one a given `self::` meant — and pointing it at the file's class would be a
+     * guess. The ambiguous case is refused: no edge to the enclosing class.
+     */
+    #[Test]
+    public function it_refuses_to_resolve_self_when_the_file_declares_more_than_one_class_like(): void
+    {
+        $source = "<?php\nnamespace App\\Jobs;\nclass ImportJob\n{\n    public function run(): void\n    {\n        \$x = new class {\n            public function go(): void\n            {\n                self::dispatch();\n            }\n        };\n    }\n\n    public function handle(): void\n    {\n    }\n}\n";
+
+        $targets = array_column(new DispatchEdgeTracer()->edgesForSource($source, 'App\\Jobs\\ImportJob')['edges'], 'target');
+
+        // The anonymous class's method arrives attributed to the outer class, so both dispatch
+        // sites are seen — and every one of them stays unresolved.
+        $this->assertNotContains('App\\Jobs\\ImportJob::handle', $targets);
+        $this->assertSame(['self::handle'], array_values(array_unique($targets)));
+    }
+
+    /**
      * @param  list<string>  $expectedTargets
      */
     #[Test]
