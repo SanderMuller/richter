@@ -5,6 +5,42 @@ All notable changes to `sandermuller/richter` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.37.0 - 2026-08-19
+
+Relations are now followed, not only declared. A body that walks `$this->post->author`, a nested eager-load path, and the model a relation returns all draw edges, so a change to a model reaches the code that reads it instead of stopping at the model class. Two other blind spots close with them: a facade whose accessor names a container key, and a class whose statically-called methods were the only ones ever read. The documentation moves to a site of its own.
+
+Impacted counts rise on relation-heavy applications — that is the point of the release, and it is also a reason to re-check `risk_thresholds` before treating a level shift as a regression.
+
+### Added
+
+- **Relation traversals.** `$this->post->author` links the relation methods it walks. A relation names its target in the `hasMany(Comment::class)` argument, so no hop needs type inference — only the start of the chain does: `$this`, a typed property, or a typed parameter. An untyped property, a `mixed`, a union type, or a query-builder result ends the chain before it starts, and a chain also ends after a to-many hop, since `$post->comments` is a collection and what follows belongs to the collection rather than to `Comment`.
+- **Whole eager-load paths.** `with('comments.author')` links `Post::comments` **and** `Comment::author`. Only the first segment was linked before.
+- **Per-model eager-load validation.** A segment is checked against the model that segment actually belongs to, so a name that is a relation on some *other* model is now reported against the model it was written on. Where the receiver cannot be resolved, the previous check against all model methods still applies, and a relation the scan cannot read (a string class argument, a macro) is never reported.
+- **Relation methods link to the models they return** (`relation-to-model`). Brain's model-to-model edge is class to class, which stopped one hop short of the member that reads the relation: changing the model a traversal arrived at reported nothing. On this package's own fixture project the change moves a leaf model from 2 callers and no entry points to 18 and 3.
+- **Container-key facade accessors.** A facade whose `getFacadeAccessor()` returns `'reports'` rather than `Reports::class` resolves through the bindings registered under `app/Providers`. A key nothing binds, or one two providers bind to different classes, still draws nothing.
+- **`second_hop` takes `'class'`.** The walk then reads every traceable method of a statically-called class, not only the methods those calls name — measured at ~8.0s against the default's ~4.5s on a 4,000-file application. `true` and `false` behave exactly as before, and `'methods'` is rejected so each scope keeps one spelling.
+- **Self-referential dispatches resolve to their declaring class.** `self::dispatch()` and `static::dispatch()` no longer produce a node named after the literal keyword. `parent::`, a file declaring more than one class-like, and a trait are refused rather than guessed at, and `new self()` draws nothing while `new static()` keeps its edge.
+- **A documentation site**, published at [sandermuller.github.io/richter](https://sandermuller.github.io/richter/), including a troubleshooting symptom index and an `llms.txt` for agents.
+
+### Compatibility
+
+No breaking changes. Every addition is additive to the graph, and the `--json` contract is unchanged.
+
+Two things to expect on the first run after upgrading:
+
+- **The graph cache rebuilds once.** `FORMAT_VERSION` moves 20 → 22. An older entry under-reports the reach this release adds, so it is discarded rather than served.
+- **Impacted counts and risk levels can rise** wherever code reads relations, since a relation the graph previously ignored now carries reach. Calibrate against a benchmark corpus before changing `risk_thresholds`; a level that shifts right after an upgrade is a coverage change first. See [Risk levels](https://sandermuller.github.io/richter/risk-levels).
+
+New edge types appear in `richter:trace` chains and in graph output: `loads-relation` for a relation a body walks or an eager-load path names, and `relation-to-model` for the model a relation returns.
+
+### Internal
+
+- The provider scan that feeds container bindings is shared with the facade lane, so `app/Providers` is walked once rather than twice.
+- The MCP server inherits its `$tools` type from the framework instead of narrowing it.
+- Rector's `EncapsedStringsToSprintfRector` is no longer skipped.
+
+**Full Changelog**: https://github.com/SanderMuller/richter/compare/v0.36.0...v0.37.0
+
 ## v0.36.0 - 2026-08-14
 
 A class you construct is a class you depend on, and the graph now says so.
@@ -46,6 +82,7 @@ A dispatch whose job the same method just constructed is not an unfollowable dis
 ```php
 $job = new SendInvoice($order);
 dispatch($job);
+
 
 
 ```
@@ -131,6 +168,7 @@ Build profile: nothing was built — the diff holds nothing the graph is built f
 
 
 
+
 ```
 On stderr, like the table it stands in for, and before the payload in `--json` mode so stdout stays one document. Building anyway was the alternative, and it would make a no-op run pay for an analysis nothing asked for.
 
@@ -148,6 +186,7 @@ An event named by a class constant resolves in **any** declaration form, includi
 public const string
     SUBTITLE_CHANGED = 'subtitle-changed',
     SUBTITLE_DELETED = 'subtitle-deleted';
+
 
 
 
@@ -179,6 +218,7 @@ Build profile (forced rebuild):
   total                      3.85s
   no scoped rebuild: non-app-change
     config/services.php differs from the cached graph and sits outside app/
+
 
 
 
@@ -265,6 +305,7 @@ It now names every site:
 ```
 the graph contains job dispatches that could not be followed:
 app/Jobs/Fanout.php:88 (App\Jobs\Fanout::handle), app/Services/Importer.php:12 (App\Services\Importer::run)
+
 
 
 
@@ -627,6 +668,7 @@ Note: 2 changed file(s) are outside the analysed scope (not PHP under app/, a Bl
 
 
 
+
 ```
 Stderr, like the untracked-file note, so `--json` and `--markdown` stdout stay exactly the report. Frontend sources the configuration declines to scan are not counted: generated Wayfinder output under `frontend.generated_paths` and `.d.ts` declarations were silenced on purpose, and a note that fires loudest on regeneration churn is one people stop reading.
 
@@ -702,6 +744,7 @@ One new advisory lane, and a README that finally leads with what the package is 
   
   
   
+  
   ```
   The count comes off the `route:: → middleware::<group>` edges already in the graph, so it counts endpoints only: a controller-level attachment of the same group does not inflate it. Membership is read from `$middlewareGroups` on a Laravel 10 Kernel or the `->web(append: [...])` form in a Laravel 11+ `bootstrap/app.php`. A member written as an alias resolves through the same alias map, parameters are cut first (`tenant:strict` is one alias with an argument), and a group that names another group is expanded transitively, since Laravel runs the inner group's middleware on the outer group's routes too.
   
@@ -734,6 +777,7 @@ Two silent-failure shapes that richter used to miss: a call through an applicati
   
   ```text
     ! resources/js/Pages/Posts/Create.vue posts to POST /posts and sends 'subtitle', which this diff removes from App\Http\Requests\StorePostRequest::rules() (renamed to 'sub_title'?)
+  
   
   
   
