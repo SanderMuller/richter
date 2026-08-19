@@ -141,7 +141,7 @@ final readonly class DispatchEdgeTracer
      *
      * @param  string|null  $scope  the declaring class, or null when the file cannot say which
      */
-    private static function withDeclaringClass(string $target, ?string $scope): string
+    private function withDeclaringClass(string $target, ?string $scope): string
     {
         return $scope !== null && in_array(strtolower($target), ['self', 'static'], strict: true)
             ? $scope
@@ -243,7 +243,7 @@ final readonly class DispatchEdgeTracer
                 $origin = ['line' => $call->getStartLine(), 'dispatcher' => $dispatcher];
 
                 foreach ($this->jobsFromCall($call, $origin, $unresolvedSites, $ownConstants, $localJobs) as $jobFqcn) {
-                    $target = self::withDeclaringClass($jobFqcn, $declaringClass);
+                    $target = $this->withDeclaringClass($jobFqcn, $declaringClass);
                     $edges[] = ['source' => $dispatcher, 'target' => $target . '::handle', 'type' => 'action-to-job'];
                 }
             }
@@ -289,7 +289,7 @@ final readonly class DispatchEdgeTracer
                 }
 
                 if ($methodDispatches || DispatchTarget::isIntrinsicOrUnresolvable($job)) {
-                    $target = self::withDeclaringClass($job, $declaringClass);
+                    $target = $this->withDeclaringClass($job, $declaringClass);
                     $edges[] = ['source' => $dispatcher, 'target' => $target . '::handle', 'type' => 'action-to-job'];
                 }
             }

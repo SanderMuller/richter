@@ -4,7 +4,6 @@ use Rector\Caching\ValueObject\Storage\FileCacheStorage;
 use Rector\Carbon\Rector\FuncCall\TimeFuncCallToCarbonRector;
 use Rector\CodeQuality\Rector\ClassMethod\InlineArrayReturnAssignRector;
 use Rector\CodeQuality\Rector\If_\ExplicitBoolCompareRector;
-use Rector\CodingStyle\Rector\Encapsed\EncapsedStringsToSprintfRector;
 use Rector\CodingStyle\Rector\String_\UseClassKeywordForClassNameResolutionRector;
 use Rector\Config\RectorConfig;
 use Rector\DeadCode\Rector\ClassMethod\RemoveUselessParamTagRector;
@@ -61,7 +60,6 @@ return RectorConfig::configure()
     ->withSkip([
         NullToStrictStringFuncCallArgRector::class,
         AddArrowFunctionReturnTypeRector::class,
-        EncapsedStringsToSprintfRector::class,
         ExplicitBoolCompareRector::class,
         InlineArrayReturnAssignRector::class,
         PrivatizeFinalClassMethodRector::class,
