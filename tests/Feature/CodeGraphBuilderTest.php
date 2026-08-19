@@ -223,6 +223,21 @@ final class CodeGraphBuilderTest extends TestCase
     }
 
     #[Test]
+    public function changing_the_model_a_relation_returns_reaches_the_code_that_walks_it(): void
+    {
+        // The terminus of a traversal. `CommentSummariser::summarise` reads `$comment->post`, so a
+        // change to Post has to reach it. Before the relation-to-model edge the walk stopped at the
+        // Post class node: the traversal names the MEMBER `Comment::post`, and Brain's association
+        // edge is class to class.
+        $this->assertSame('relation-to-model', $this->directCallersOf('App\\Models\\Post')['App\\Models\\Comment::post'] ?? null);
+
+        // And the whole way up: the member that reads the relation, not just the relation itself.
+        $callers = $this->hopsByNode($this->graph()->callersOf(['App\\Models\\Post'], 4));
+
+        $this->assertArrayHasKey('App\\Services\\CommentSummariser::summarise', $callers);
+    }
+
+    #[Test]
     public function a_walked_relation_survives_the_second_hop_walk_being_off(): void
     {
         // The traversal is drawn by the consolidated per-file pass, not by the second-hop walk, so

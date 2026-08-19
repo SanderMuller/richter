@@ -522,6 +522,10 @@ final class CodeGraphBuilder
         // Relations walked in a body, resolved hop by hop against the same index.
         array_push($edges, ...$traversalTracer->edges($relationIndex));
 
+        // Each relation method to the model it returns, so a change to that model reaches the code
+        // that traverses or eager-loads the relation instead of stopping at the model class node.
+        array_push($edges, ...$relationIndex->modelEdges());
+
         // Sorted before it leaves the branch: a report that names sites must not reorder between
         // runs, and the cached payload has to be byte-stable or the fingerprint starts flapping.
         usort(

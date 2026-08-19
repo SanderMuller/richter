@@ -12,6 +12,7 @@ use PhpParser\Node\Stmt\Class_;
 use PhpParser\Node\Stmt\ClassLike;
 use PhpParser\Node\Stmt\TraitUse;
 use PhpParser\NodeFinder;
+use SanderMuller\Richter\Analysis\ImpactAnalyzer;
 use SanderMuller\Richter\Graph\CodeGraphBuilder;
 use SanderMuller\Richter\Tracers\ClassHierarchyTracer;
 use SanderMuller\Richter\Tracers\ConstantReferenceTracer;
@@ -112,6 +113,37 @@ final class RelationIndex
         }
 
         return null;
+    }
+
+    /**
+     * One edge per indexed relation: the relation METHOD to the model it returns.
+     *
+     * Brain's `model-relationship` says two models are related, class to class. That is a different
+     * claim, and it leaves a traversal's terminus unreachable: an edge into `Post::comments` names a
+     * member, so walking back from `Comment` lands on the `Post` class node and stops there, never
+     * reaching the code that read `$post->comments`. Changing the model a traversal ARRIVES at then
+     * reports no callers at all.
+     *
+     * Counted toward risk, unlike the class-level association: `comments()` demonstrably returns a
+     * `Comment` — the `hasMany(Comment::class)` argument says so — so a change to `Comment` really
+     * does affect that method. It is a call-like dependency read from a declaration, neither an
+     * association nor an over-approximation ({@see ImpactAnalyzer}).
+     *
+     * @return list<array{source: string, target: string, type: string}>
+     */
+    public function modelEdges(): array
+    {
+        $this->mergeTraits();
+
+        $edges = [];
+
+        foreach ($this->records as $fqcn => $record) {
+            foreach ($record['relations'] as $method => $relation) {
+                $edges[] = ['source' => "{$fqcn}::{$method}", 'target' => $relation['related'], 'type' => 'relation-to-model'];
+            }
+        }
+
+        return AppFiles::dedupeEdges($edges, byType: true);
     }
 
     /**

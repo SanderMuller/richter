@@ -105,8 +105,12 @@ final class GraphCache
      * bindings registered in `app/Providers`, so the graph gains `facade-resolves-to` edges it drew
      * nothing for before. Additive for identical file inputs, so a 20 entry under-reports reach
      * through such a facade.
+     * 21 → 22: relations gained `loads-relation` edges for traversals and for the tail of a dotted
+     * eager-load path, and `relation-to-model` edges from each relation method to the model it
+     * returns. Additive again, so a 21 entry under-reports every relation the app reads rather than
+     * declares.
      */
-    private const int FORMAT_VERSION = 21;
+    private const int FORMAT_VERSION = 22;
 
     private ?CodeGraph $memoized = null;
 

@@ -197,6 +197,43 @@ final class RelationIndexTest extends TestCase
         $this->assertNull($index->relationOf('App\\Models\\Unknown', 'comments'));
     }
 
+    #[Test]
+    public function each_relation_gets_an_edge_to_the_model_it_returns(): void
+    {
+        $index = $this->index([$this->model('Post', 'public function comments() { return $this->hasMany(\\App\\Models\\Comment::class); }')]);
+
+        $this->assertSame(
+            [['source' => 'App\\Models\\Post::comments', 'target' => 'App\\Models\\Comment', 'type' => 'relation-to-model']],
+            $index->modelEdges(),
+        );
+    }
+
+    #[Test]
+    public function a_trait_relation_edges_from_the_using_class_and_from_the_trait(): void
+    {
+        // Both are real code a change to `Comment` affects: the copy that runs on `Post`, and the
+        // declaration in the trait — which richter already nodes, so that a change to the trait's own
+        // method is placeable rather than unresolvable.
+        $edges = $this->index([$this->commentableTrait(), $this->usingModel('Post')])->modelEdges();
+
+        $this->assertContains(
+            ['source' => 'App\\Models\\Post::comments', 'target' => 'App\\Models\\Comment', 'type' => 'relation-to-model'],
+            $edges,
+        );
+        $this->assertContains(
+            ['source' => 'App\\Models\\Concerns\\Commentable::comments', 'target' => 'App\\Models\\Comment', 'type' => 'relation-to-model'],
+            $edges,
+        );
+    }
+
+    #[Test]
+    public function a_class_with_no_readable_relation_contributes_no_edge(): void
+    {
+        $index = $this->index([$this->model('Post', 'public function commentable() { return $this->morphTo(); }')]);
+
+        $this->assertSame([], $index->modelEdges());
+    }
+
     private function commentableTrait(): string
     {
         return <<<'PHP'

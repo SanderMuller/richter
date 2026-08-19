@@ -20,6 +20,7 @@ Brain traces some of these too (view composition, resource references, queue dis
 - custom validation rules;
 - trait usage;
 - eager-load relation strings, whole paths rather than first segments: `with('comments.author')` links `Post::comments` and `Comment::author`, because the relation index says which model each segment returns. A segment on a model the index knows, naming a relation that model does not have, is reported against that model rather than against every model at once;
+- relation methods to the models they return: `Post::comments` links to `Comment`, so a change to the model a relation arrives at reaches the code that walks or eager-loads it. Brain's model-to-model edge is class to class, which stops one hop short of the member that reads the relation;
 - relations walked in a body: `$this->post->author` links the relation methods it walks. The receiver has to carry a declared type — `$this`, a typed property, or a typed parameter — and the chain ends at the first hop that does not resolve. It also ends after a to-many hop, because `$post->comments` is a collection and what follows it belongs to the collection, not to `Comment`;
 - view-to-view includes;
 - frontend endpoint references: Wayfinder imports, Ziggy calls, endpoint literals in changed TS/JS/Vue files and Blade inline scripts (opt-in, see [Frontend changes](12-frontend.md)).
