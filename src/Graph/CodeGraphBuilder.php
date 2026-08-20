@@ -26,6 +26,7 @@ use SanderMuller\Richter\Tracers\ConstantReferenceTracer;
 use SanderMuller\Richter\Tracers\DispatchEdgeTracer;
 use SanderMuller\Richter\Tracers\EntryPointTracer;
 use SanderMuller\Richter\Tracers\FacadeEdgeTracer;
+use SanderMuller\Richter\Tracers\InstanceCallEdgeTracer;
 use SanderMuller\Richter\Tracers\PolicyEdgeTracer;
 use SanderMuller\Richter\Tracers\ReferenceEdgeTracer;
 use SanderMuller\Richter\Tracers\RelationTraversalTracer;
@@ -206,6 +207,10 @@ final class CodeGraphBuilder
         foreach ($tracerBranch['edges'] as $tracerEdge) {
             $edges[] = $tracerEdge;
         }
+
+        // Before anything reads the merged set: an `instance-call` whose method no app class in the
+        // chain declares names a framework method, not a member of this application.
+        $edges = InstanceCallResolution::keepResolvable($edges, $tracerBranch['inheritance'], $tracerBranch['declares']);
 
         $phaseStart = $onProgress !== null ? (float) hrtime(true) : 0.0;
 
@@ -399,6 +404,7 @@ final class CodeGraphBuilder
         $policyTracer = new PolicyEdgeTracer();
         $referenceTracer = new ReferenceEdgeTracer();
         $staticCallTracer = new StaticCallEdgeTracer();
+        $instanceCallTracer = new InstanceCallEdgeTracer();
         // CHA (plan cha-wire): accumulates class-likes across the whole loop below and flushes its
         // ancestor→override edges once after it — the inverse subclass/implementor map spans files.
         $hierarchyTracer = new ClassHierarchyTracer();
@@ -492,6 +498,7 @@ final class CodeGraphBuilder
             array_push($edges, ...$referenceTracer->edgesForNodes($collector->classMethods, $collector->traitUses, $class['fqcn']));
             array_push($edges, ...$entryPointTracer->interfaceEdgesForClassLikes($collector->classLikes, $class['fqcn']));
             array_push($edges, ...$staticCallTracer->edgesForClassLikes($collector->classLikes));
+            array_push($edges, ...$instanceCallTracer->edgesForClassLikes($collector->classLikes));
             if (ConfigRegistryTracer::mayMatch($source)) {
                 array_push($edges, ...$configTracer->edgesForClassLikes($collector->classLikes));
             }

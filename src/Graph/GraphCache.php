@@ -113,8 +113,12 @@ final class GraphCache
      * static, a `@var` docblock, a local bound to one of those — where only `$this` and a typed
      * property or parameter worked before, so the graph gains `loads-relation` edges for chains it
      * drew nothing for. Additive for identical file inputs, so a 22 entry under-reports them.
+     * 23 → 24: `$this->method()` draws an `instance-call` edge, where an instance call drew nothing
+     * at all before — Brain covers only its route-anchored lanes, so for every class a route does not
+     * reach the call was invisible. Additive again, and the widest of these bumps: a 23 entry
+     * under-reports the caller of every method a class calls on itself.
      */
-    private const int FORMAT_VERSION = 23;
+    private const int FORMAT_VERSION = 24;
 
     private ?CodeGraph $memoized = null;
 

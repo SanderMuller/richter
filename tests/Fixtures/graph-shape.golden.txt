@@ -92,6 +92,9 @@ App\Services\FfmpegTranscoder	implements	App\Contracts\PostTranscoder
 App\Services\FfmpegTranscoder	declares	App\Services\FfmpegTranscoder::transcode
 App\Services\GdThumbnailRenderer	implements	App\Contracts\ThumbnailRenderer
 App\Services\GdThumbnailRenderer	declares	App\Services\GdThumbnailRenderer::render
+App\Services\PostPublisher	declares	App\Services\PostPublisher::notify
+App\Services\PostPublisher	declares	App\Services\PostPublisher::publish
+App\Services\PostPublisher::publish	instance-call	App\Services\PostPublisher::notify
 App\Services\YoutubePublisher	implements	App\Contracts\PostPublisher
 App\Services\YoutubePublisher	declares	App\Services\YoutubePublisher::publish
 route::GET::/auth/login	route-to-controller	App\Http\Controllers\Auth\SocialAuthController
