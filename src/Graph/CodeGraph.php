@@ -19,11 +19,23 @@ final class CodeGraph
     /**
      * Edges that express "is part of / relates to this type", as opposed to "runs this code". A path
      * built only from these reached its end by TYPE STRUCTURE alone, never by a call — which is what
-     * {@see bfs()}'s `override` gate keys on.
+     * {@see bfs()}'s hierarchy gate keys on.
      *
      * @var list<string>
      */
     private const array STRUCTURAL_EDGE_TYPES = ['implements', 'declares', 'inherits', 'uses-trait', 'override'];
+
+    /**
+     * The two edges Class-Hierarchy Analysis draws between one member and its counterpart elsewhere
+     * in a hierarchy, and the only ones {@see bfs()}'s gate refuses. Both fan out by BREADTH — one
+     * ancestor member to every descendant that overrides it, one ancestor member to every descendant
+     * that inherits it — so reaching either end through type structure alone puts the change's
+     * cousins in the report. The other structural edges connect a type to its own parts and do not
+     * multiply.
+     *
+     * @var list<string>
+     */
+    private const array HIERARCHY_EDGE_TYPES = ['override', 'inherits'];
 
     /** @var array<string, list<array{node: string, via: string}>> */
     private array $downstream = [];
@@ -642,16 +654,18 @@ final class CodeGraph
      * scaffolding. Index-pointer queue (not array_shift, which reindexes on every pop) keeps the walk
      * linear; edges append in non-decreasing depth order.
      *
-     * One traversal rule lives here, because every walk needs it to agree: an `override` hop out of a
-     * node whose whole path from the seed was STRUCTURAL is refused. `Class` -[implements]->
-     * `Interface` -[declares]-> `Interface::method` -[override]-> every implementor is how a change to
-     * one class in a wide hierarchy reported every sibling as reached — siblings that neither call nor
-     * run it. The rule reads the PATH, not the arriving edge: a call chain that happens to end on a
-     * `declares` hop (a container `service` edge onto a class node, then its interface method) IS real
-     * polymorphic dispatch, and Class-Hierarchy Analysis exists to follow it. A seed's path is empty,
-     * so a seed-adjacent `override` hop is always legal — that keeps both directions of CHA: a changed
-     * concrete override still climbs to the abstract call site, and a changed abstract still reaches
-     * its overrides.
+     * One traversal rule lives here, because every walk needs it to agree: a hierarchy hop
+     * ({@see HIERARCHY_EDGE_TYPES}) out of a node whose whole path from the seed was STRUCTURAL is
+     * refused. `Class` -[implements]-> `Interface` -[declares]-> `Interface::method` -[override]->
+     * every implementor is how a change to one class in a wide hierarchy reported every sibling as
+     * reached — siblings that neither call nor run it. `inherits` reaches the same cousins from the
+     * other side: every descendant that inherits an ancestor member, rather than every one that
+     * overrides it. The rule reads the PATH, not the arriving edge: a call chain that happens to end
+     * on a `declares` hop (a container `service` edge onto a class node, then its interface method)
+     * IS real polymorphic dispatch, and Class-Hierarchy Analysis exists to follow it. A seed's path
+     * is empty, so a seed-adjacent hierarchy hop is always legal — that keeps both directions of CHA:
+     * a changed concrete override still climbs to the abstract call site, a changed abstract still
+     * reaches its overrides, and a changed member still reaches the ancestor whose body runs.
      *
      * The flag is fixed at first visit, so a node first reached structurally would stay gated even
      * when a call-carrying path arrives later — a silent under-reach that would also depend on
@@ -698,7 +712,7 @@ final class CodeGraph
                     continue;
                 }
 
-                if ($hop['via'] === 'override' && $current['structuralOnly']) {
+                if ($current['structuralOnly'] && in_array($hop['via'], self::HIERARCHY_EDGE_TYPES, strict: true)) {
                     continue;
                 }
 

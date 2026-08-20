@@ -110,6 +110,58 @@ final class OverrideWalkGateTest extends TestCase
     }
 
     #[Test]
+    public function an_inherits_hop_out_of_a_structural_only_path_is_refused_too(): void
+    {
+        // The same cousin shape from the other side: instead of every class that OVERRIDES an
+        // ancestor member, every class that INHERITS it. The changed member overrides the base, so
+        // the base is one legal seed-adjacent hop up; from there its other subclasses are cousins.
+        $graph = new CodeGraph([
+            ['source' => 'App\Reports\BaseExporter::export', 'target' => 'App\Reports\CsvExporter::export', 'type' => 'override'],
+            ['source' => 'App\Reports\PdfExporter::export', 'target' => 'App\Reports\BaseExporter::export', 'type' => 'inherits'],
+            ['source' => 'App\Reports\HtmlExporter::export', 'target' => 'App\Reports\BaseExporter::export', 'type' => 'inherits'],
+        ], hasUnparseableFiles: false);
+
+        $reached = $this->nodes($graph->callersOf(['App\Reports\CsvExporter::export']));
+
+        $this->assertContains('App\Reports\BaseExporter::export', $reached, 'the ancestor it overrides is seed-adjacent');
+        $this->assertNotContains('App\Reports\PdfExporter::export', $reached);
+        $this->assertNotContains('App\Reports\HtmlExporter::export', $reached);
+    }
+
+    #[Test]
+    public function an_inherited_ancestor_is_still_reached_from_the_member_that_inherits_it(): void
+    {
+        // The other direction of the same edge: the body that runs for a changed member lives in the
+        // ancestor, one hop downstream, and stays reachable.
+        $graph = new CodeGraph([
+            ['source' => 'App\Reports\CsvExporter::export', 'target' => 'App\Reports\BaseExporter::export', 'type' => 'inherits'],
+        ], hasUnparseableFiles: false);
+
+        $this->assertContains(
+            'App\Reports\BaseExporter::export',
+            $this->nodes($graph->dependenciesOf(['App\Reports\CsvExporter::export'])),
+        );
+    }
+
+    #[Test]
+    public function a_call_path_still_reaches_every_inheriting_descendant(): void
+    {
+        // The counterpart guard. Walking callers of a helper: the ancestor member calls it, and each
+        // descendant that inherits that member is a real route by which the call arrives.
+        $graph = new CodeGraph([
+            ['source' => 'App\Reports\BaseExporter::export', 'target' => 'App\Services\Formatter::format', 'type' => 'action-to-service'],
+            ['source' => 'App\Reports\CsvExporter::export', 'target' => 'App\Reports\BaseExporter::export', 'type' => 'inherits'],
+            ['source' => 'App\Reports\PdfExporter::export', 'target' => 'App\Reports\BaseExporter::export', 'type' => 'inherits'],
+        ], hasUnparseableFiles: false);
+
+        $reached = $this->nodes($graph->callersOf(['App\Services\Formatter::format']));
+
+        $this->assertContains('App\Reports\BaseExporter::export', $reached);
+        $this->assertContains('App\Reports\CsvExporter::export', $reached);
+        $this->assertContains('App\Reports\PdfExporter::export', $reached);
+    }
+
+    #[Test]
     public function a_three_level_hierarchy_still_reaches_the_grandchild(): void
     {
         // ClassHierarchyTracer emits an edge from EVERY app ancestor, so the root reaches the
