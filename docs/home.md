@@ -4,7 +4,7 @@ layout: home
 hero:
   name: Richter
   text: Measure the reach of a code change
-  tagline: Static impact analysis for Laravel. See the entry points a diff reaches, the ones no test references, and an advisory risk level — before the review starts.
+  tagline: Static impact analysis for Laravel. See the entry points a diff reaches, the ones no test references, and an advisory risk level, before the review starts.
   image:
     src: /logo.svg
     alt: Richter
@@ -24,13 +24,13 @@ features:
     details: A one-method change seeds that method, not the whole class. Routes, controllers, jobs, listeners, policies, resources, Blade views, and Eloquent relations are all in the graph.
     link: /why-richter
   - title: Honest degradation
-    details: A change the graph cannot place reads UNRESOLVED, never a falsely reassuring "no impact". A coverage gap costs reach; it never reports something as unaffected.
+    details: A change the graph cannot place reads UNRESOLVED rather than "no impact". A coverage gap costs reach, and it still reports nothing as unaffected.
     link: /detect-changes#when-a-report-of-nothing-is-correct
   - title: Test-coverage prompts
     details: Every reached entry point is tagged as test-referenced or not. An entry point whose behaviour you changed with nothing referencing it is a place to add a test.
     link: /detect-changes#test-reference-tags
   - title: Blast radius on demand
-    details: Before a refactor, list a symbol's callers, its dependencies, and the entry surfaces behind them — or trace the shortest chain between two symbols.
+    details: Before a refactor, list a symbol's callers, its dependencies, and the entry surfaces behind them, or trace the shortest chain between two symbols.
     link: /impact
   - title: Affected-test selection
     details: Turn the diff's reach into a test selection, with an exit-code contract that fails toward running the full suite whenever it cannot be trusted.

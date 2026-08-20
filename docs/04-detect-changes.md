@@ -27,7 +27,7 @@ The one gap `git diff` cannot close is a brand-new file that was never `git add`
 - The entry points the change can reach, each tagged `[test-referenced]` or `[⚠ no test references this]`: routes, commands, jobs, listeners, middleware, and Livewire/Filament/Nova component classes. A Blade-mounted component, a Filament resource, page or widget, and a Nova resource are each a user-facing surface even without a `route::` node.
 - Findings in the changed source itself, such as an eager-load or relation string that names no relation on any model. A missing comma between two relation constants is the classic case: `Post::OWNER . User::PROFILE` concatenates to `ownerprofile`, a name Eloquent silently never resolves.
 - A coarse [risk level](07-risk-levels.md) (`low` / `medium` / `high`).
-- Honest degradation. A change that cannot be placed in the graph reads **UNRESOLVED**, never as a falsely reassuring "no impact", and an unfollowable dispatch makes a queue job read "unknown", not "none". A file that resolved to no graph node also echoes the FQCN its path derived to (`app/Services/Inspector.php → App\Services\Inspector`), which is what separates a coverage gap from a wrong root namespace.
+- Honest degradation. A change that cannot be placed in the graph reads **UNRESOLVED** rather than "no impact", and an unfollowable dispatch makes a queue job read "unknown" rather than "none". A file that resolved to no graph node also echoes the FQCN its path derived to (`app/Services/Inspector.php → App\Services\Inspector`), which is what separates a coverage gap from a wrong root namespace.
 
 ```text
 Changed files:
@@ -54,7 +54,7 @@ Risk: MEDIUM (advisory)
 
 ## When a report of nothing is correct
 
-**A report of nothing is a claim about your diff, not only about the code.** Richter resolves changes to class *members*, so an edit that changes a file without changing a member — a comment after the closing brace, a `use` reordering — genuinely seeds nothing and correctly reports nothing. That is the first thing to rule out when a change you expected to light up comes back empty, and it is the most common reason a probe of Richter's own behaviour misleads its author.
+**A report of nothing is a claim about your diff, not only about the code.** Richter resolves changes to class *members*, so an edit that changes a file without changing a member (a comment after the closing brace, a `use` reordering) genuinely seeds nothing and correctly reports nothing. That is the first thing to rule out when a change you expected to light up comes back empty, and it is the most common reason a probe of Richter's own behaviour misleads its author.
 
 A member *added* to an existing class seeds nothing: nothing called it before, so it can break nothing. A brand-new **file** is different. The class itself is new, so it seeds on its class node and reports its reach, its own entry surface (a new command, job or listener), and a risk level accordingly, marked `[new file]` in the report. A diff that only adds files can therefore report `medium` or `high` and trip `--fail-on`.
 
@@ -72,7 +72,7 @@ Entry points reached: 1
 
 ## Test-reference tags
 
-Every reached entry point is tagged `[test-referenced]` or `[⚠ no test references this]`. A referenced entry point whose referencing tests contain no behavioural assertion the scan recognises is tagged `[test-referenced — no behavioural assertion found]`.
+Every reached entry point is tagged `[test-referenced]` or `[⚠ no test references this]`. A referenced entry point whose referencing tests contain no behavioural assertion the scan recognises is tagged `[test-referenced, no behavioural assertion found]`.
 
 These are heuristic prompts rather than coverage verdicts. An entry point whose behaviour you changed with nothing referencing it is a place to add a test; the tag flags a missing reference, not proof the code is untested. The `tests/` scan behind the tags only runs when an entry surface was actually reached.
 
@@ -86,7 +86,7 @@ That sentence is accurate about the analyser and misleading about the diff, so t
 Note: 2 changed file(s) are outside the analysed scope (not PHP under app/, a Blade view, or a configured frontend root) and were not analysed: resources/sass/app.scss, vapor.yml
 ```
 
-Up to five names are listed, with a count of the rest. Stderr, like the untracked-file note, so `--json` and `--markdown` stdout stay exactly the report. Frontend files the configuration deliberately declines to scan are not counted — generated Wayfinder output under `frontend.generated_paths` and `.d.ts` declarations were silenced on purpose, and a note that fires loudest on regeneration churn is a note people stop reading.
+Up to five names are listed, with a count of the rest. Stderr, like the untracked-file note, so `--json` and `--markdown` stdout stay exactly the report. Frontend files the configuration deliberately declines to scan are not counted. Generated Wayfinder output under `frontend.generated_paths` and `.d.ts` declarations were silenced on purpose, and a note that fires loudest on regeneration churn is a note people stop reading.
 
 ## Unplaceable files and the defined-node fallback
 
@@ -104,8 +104,8 @@ Entry surfaces reached only by association (context, not callers): 6
 
 The distinction matters most on a model change, where an Eloquent chain can walk from the changed model to admin screens all over the application. Listing those beside real callers made the reached count read far higher than the change warranted and buried the routes that do run the code.
 
-The demoted set is deliberately narrow — `model-relationship` and `model-to-policy`, the two edges that associate rather than invoke. `override` and `config-registry` are over-approximated *calls* (the dispatch is real, only the target is uncertain), so a surface behind one stays in the main list. Association surfaces do not count toward the risk level either, which matches how the impacted total has always treated them.
+The demoted set is deliberately narrow: `model-relationship` and `model-to-policy`, the two edges that associate rather than invoke. `override` and `config-registry` are over-approximated *calls* (the dispatch is real, only the target is uncertain), so a surface behind one stays in the main list. Association surfaces do not count toward the risk level either, which matches how the impacted total has always treated them.
 
 ## More annotation
 
-The report carries more advisory annotation — security exposure, Pennant gates, payload parity, middleware group membership — none of which feeds the risk level or a `--fail-on` gate. See [Report annotations](05-report-annotations.md).
+The report carries more advisory annotation (security exposure, Pennant gates, payload parity, middleware group membership), none of which feeds the risk level or a `--fail-on` gate. See [Report annotations](05-report-annotations.md).

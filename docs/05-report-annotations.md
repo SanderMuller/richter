@@ -41,13 +41,13 @@ A third lane covers the request side. A field removed from a form request's `rul
   ! resources/js/Pages/Posts/Create.vue sends 'subtitle' to POST /posts, which this diff removes from App\Http\Requests\StorePostRequest::rules() (renamed to 'sub_title'?)
 ```
 
-Matching here is send-shaped rather than access-shaped: an object-literal key, a `FormData` `append`/`set` with a literal name, or an assignment onto a payload by dot or bracket. The route's own verb is printed rather than assumed, because a sent field is not always a POST body — a query parameter on a `GET` route is matched the same way. The false positive mirrors the response lane's: a file that both posts to and reads from the endpoint can match on a field it only reads, and the same per-field `ignore` entry (`App\Http\Requests\StorePostRequest::subtitle`) suppresses it.
+Matching here is send-shaped rather than access-shaped: an object-literal key, a `FormData` `append`/`set` with a literal name, or an assignment onto a payload by dot or bracket. The route's own verb is printed rather than assumed, because a sent field is not always a POST body: a query parameter on a `GET` route is matched the same way. The false positive mirrors the response lane's: a file that both posts to and reads from the endpoint can match on a field it only reads, and the same per-field `ignore` entry (`App\Http\Requests\StorePostRequest::subtitle`) suppresses it.
 
 Validation written **inline** is covered by the same lane. A form request is the documented
 convention, not the only place validation lives: an action that validates a handful of fields
 commonly does it in the controller, and those fields are just as removable. Both
 `$request->validate([...])` and the `ValidatesRequests` form `$this->validate($request, [...])` are
-read — the latter only where the class pulls that trait in itself, since `validate` is an ordinary
+read, the latter only where the class pulls that trait in itself, since `validate` is an ordinary
 method name and a class with its own would otherwise have its argument read as request rules. The
 finding is anchored on the **method** that holds the call rather than the file, so a controller's
 other actions are not implicated in a field one of them dropped. The per-field `ignore`

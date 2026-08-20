@@ -19,7 +19,7 @@ It fails safe, and the exit code is the contract:
 | Exit | Meaning |
 |---|---|
 | `0` | Selection determined (possibly empty). |
-| `2` | **Not determinable: run the full suite.** Any UNRESOLVED file, low-confidence seed, an unparseable app file, an unfollowable dispatch *that a possible dispatch target in the change's reach could hide*, an uncheckable entry point, or an untracked relevant file `git diff` cannot see trips this. The reasons are printed (text) or carried in `reasons` (JSON), and an unfollowable dispatch names each site as `file:line (Dispatcher::method)` so it can be restructured rather than only lived with — though [some shapes cannot be](#unfollowable-dispatches). |
+| `2` | **Not determinable: run the full suite.** Any UNRESOLVED file, low-confidence seed, an unparseable app file, an unfollowable dispatch *that a possible dispatch target in the change's reach could hide*, an uncheckable entry point, or an untracked relevant file `git diff` cannot see trips this. The reasons are printed (text) or carried in `reasons` (JSON), and an unfollowable dispatch names each site as `file:line (Dispatcher::method)` so it can be restructured rather than only lived with, though [some shapes cannot be](#unfollowable-dispatches). |
 | `1` | Usage or unexpected error. |
 
 The simple form only ever errs toward running more: both an undetermined selection and a determined-but-empty one leave `$(…)` empty, and an argument-less runner executes the full suite.
@@ -57,14 +57,14 @@ blocked *this* selection and is empty when nothing did; for every unfollowable d
 regardless of the diff, read the `richter://graph/stats` MCP resource.
 
 There is deliberately **no way to acknowledge a site and have it stop blocking**. Suppressing it would
-assert that the hidden edge is harmless, and a wrong assertion under-selects tests — the one direction
+assert that the hidden edge is harmless, and a wrong assertion under-selects tests, the one direction
 this command's exit-code contract exists to prevent. The remedy the named site makes possible is to
 restructure the dispatch into a form the tracer can follow (a literal `Job::dispatch()`, or a
 `new Job(...)` the tracer can see), which fixes the gap rather than silencing it. A project that
 genuinely needs a dynamic dispatch keeps running its full suite, correctly.
 
 **Some sites cannot be cleared from the application side, and it is worth knowing which before you
-start.** A named constructor on the job's own class — `dispatch(SendInvoice::forOrder($order))` — is
+start.** A named constructor on the job's own class, `dispatch(SendInvoice::forOrder($order))`, is
 listed even though the receiver names the job, because nothing in this pass proves that method returns
 an instance of its own class (the edge *is* drawn; only the site stays). Rewriting the call site does
 not help: any form that keeps the factory keeps the site. Since one site is enough to make every run

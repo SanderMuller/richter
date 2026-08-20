@@ -22,7 +22,7 @@ With `--json`, stdout is a single JSON document (the full, uncapped report) with
 | `changed` | object | `{file: graph-node count}` per changed file |
 | `coverage` | object | `{file: "analyzed" \| "unresolved"}` per changed file |
 | `entryPoints` | string[] | entry-point nodes the change reaches through calls, plus the two sets appended after that walk: a changed class that is itself an entry surface (self-listed), and the routes a changed frontend file references. Both are appended after the risk level is scored, which is what `scoredEntryPoints` accounts for |
-| `associationEntryPoints` | string[] | entry surfaces connected only by an association edge (`model-relationship` or `model-to-policy`) — associated with the change, not callers of it, and excluded from `risk` |
+| `associationEntryPoints` | string[] | entry surfaces connected only by an association edge (`model-relationship` or `model-to-policy`); associated with the change, not callers of it, and excluded from `risk` |
 | `entryPointPaths` | object | per reached entry point, the shortest call chain down to the changed code as `{node, via, file?, line?}` hops; a self-listed entry class carries no chain |
 | `entryPointLocations` | object | per entry point, its defining `{file, line?}` (project-relative), when known |
 | `entryPointSecurity` | object | per reached route, Brain's security surface `{exposure, riskLevel, issues[]}` (advisory annotation, routes only, never an input to `risk` or the gate); a Livewire/Filament/Nova/queue entry point has no key here at all, meaning "not classified," never "public" |
@@ -30,12 +30,12 @@ With `--json`, stdout is a single JSON document (the full, uncapped report) with
 | `entryPointTestReferences` | object | per reached entry point, `"referenced"` / `"referenced-no-behavioural-assertion"` / `"unreferenced"`; an entry point whose reference state cannot be determined is omitted from the map (advisory annotation, never an input to `risk`, the gate, or `affected-tests` selection) |
 | `impacted` | int | count of risk-bearing nodes reached |
 | `relatedModels` | string[] | models reached only via association edges (context, not risk) |
-| `traitAndOverrideReach` | string[] | classes that run a changed member without calling it — trait users and override implementors (context, not risk; the report prints these under "Runs this code without calling it") |
+| `traitAndOverrideReach` | string[] | classes that run a changed member without calling it, meaning trait users and override implementors (context, not risk; the report prints these under "Runs this code without calling it") |
 | `risk` | string | `"low"` / `"medium"` / `"high"` |
 | `lowConfidence` | bool | a changed member couldn't be pinned, so part of the estimate is coarse |
-| `coarseCapApplied` | bool | a low-confidence `high` was capped to `medium`. Whether the cap *downgraded*, never whether the rescore ran — `false` on a confirmed `high` that was still re-scored, so it says nothing about the printed counts being the scored ones |
-| `scoredEntryPoints` | int | entry points the `risk` level was decided on — see [Risk levels](07-risk-levels.md#the-counts-the-risk-level-was-decided-on) |
-| `scoredImpacted` | int | risk-bearing nodes the `risk` level was decided on — see [Risk levels](07-risk-levels.md#the-counts-the-risk-level-was-decided-on) |
+| `coarseCapApplied` | bool | a low-confidence `high` was capped to `medium`. Whether the cap *downgraded*, never whether the rescore ran; `false` on a confirmed `high` that was still re-scored, so it says nothing about the printed counts being the scored ones |
+| `scoredEntryPoints` | int | entry points the `risk` level was decided on; see [Risk levels](07-risk-levels.md#the-counts-the-risk-level-was-decided-on) |
+| `scoredImpacted` | int | risk-bearing nodes the `risk` level was decided on; see [Risk levels](07-risk-levels.md#the-counts-the-risk-level-was-decided-on) |
 | `findings` | string[] | source-level findings |
 | `unresolved` | bool | any changed file is UNRESOLVED |
 | `gate` | object | present only under a `--fail-on*` flag (see [Gating in CI](08-ci-gating.md)) |

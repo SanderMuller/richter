@@ -178,3 +178,39 @@
 .next-page-cta .doc-cta-title {
     font-size: 18px;
 }
+
+/**
+ * Wider reading column. VitePress caps the layout at 1440px and the doc
+ * content at 688px, which suits prose but clips the configuration and
+ * `--json` reference tables into a horizontal scroller while the viewport
+ * still has room. The caps below scale with the screen and leave the prose
+ * pages readable, since long paragraphs wrap well before the new maximum.
+ */
+:root {
+    --vp-layout-max-width: 1760px;
+}
+
+@media (min-width: 960px) {
+    .VPDoc:not(.has-sidebar) .content {
+        max-width: 960px;
+    }
+
+    .VPDoc.has-aside .content-container {
+        max-width: none;
+    }
+
+    .VPDoc .container {
+        max-width: 1440px;
+    }
+}
+
+/* A table still wider than the column scrolls, but only the table. */
+.vp-doc table {
+    display: table;
+    width: 100%;
+}
+
+.vp-doc div[class*='language-'] + table,
+.vp-doc table {
+    overflow-x: auto;
+}

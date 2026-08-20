@@ -1,11 +1,15 @@
 # Gating in CI
 
-`richter:detect-changes` is advisory by default (exit 0). Two opt-in flags turn it into a gate:
+`richter:detect-changes` is advisory by default (exit 0), and that is how it is meant to be run. The report tells a reviewer where to look; it does not know whether your change is correct, and a risk level is a coarse signal rather than a verdict. Posting the report on the pull request gets you most of the value with none of the false stops.
+
+Gate only when a specific failure keeps reaching production and you want the build to stop for it. Two opt-in flags do that:
 
 - `--fail-on=<low|medium|high>` exits non-zero when the reported risk is at least that level (see [Risk levels](07-risk-levels.md)).
 - `--fail-on-unresolved` exits non-zero when any changed file is **UNRESOLVED** (changed code the graph cannot place). It works independently of the risk threshold.
 
 Either flag also fails an un-assessable diff (a broken or invalid base ref) rather than letting it pass as "no impact". Add `--json` and stdout carries a `gate` object alongside the report.
+
+Before turning either on, know what you are signing up for. `--fail-on` blocks on reach, not on correctness: a wide but safe refactor trips it while a one-line logic error in a leaf class does not. The thresholds are absolute, so a growing codebase drifts toward the level over time, and every release that follows more edges raises the impacted count for the same diff ([Risk levels](07-risk-levels.md)). Pin the version if a verdict has to stay comparable. `--fail-on-unresolved` is the stricter of the two in practice, since coverage gaps in your own app are what it fires on.
 
 ## A pull-request check
 
@@ -36,7 +40,7 @@ No GitHub Action ships with the package. `detect-changes` is a plain Artisan com
 
 ## Fork safety
 
-The workflow analyzes the pull request's code, and analysis autoloads classes from that checkout (see [How the analysis runs](01-why-richter.md#how-the-analysis-runs)). For a public repository, keep the trigger on `pull_request` — never `pull_request_target` with a privileged token — so fork-submitted code runs without access to your secrets.
+The workflow analyzes the pull request's code, and analysis autoloads classes from that checkout (see [How the analysis runs](01-why-richter.md#how-the-analysis-runs)). For a public repository, keep the trigger on `pull_request` rather than `pull_request_target` with a privileged token, so fork-submitted code runs without access to your secrets.
 
 ## Posting the report instead of gating
 

@@ -8,7 +8,7 @@ Run `php artisan richter:detect-changes` on a branch and it reports the HTTP and
 
 **Member-level change impact.** A one-method change seeds that method in the code graph, not the whole class. The graph covers routes, controllers, jobs, listeners, policies, resources, Blade views, and Eloquent relations, plus [edges a route-anchored analysis misses](15-coverage.md): static calls, facades, container bindings, config-keyed class registries, views rendered outside a route, constant reads, polymorphic overrides, and the classes a method constructs.
 
-**Honest degradation.** A change the graph cannot place reads **UNRESOLVED**, never a falsely reassuring "no impact". When *nothing* in the diff could be placed, the risk level says so rather than reading as a measurement. A coverage gap costs reach, but it never causes anything to be reported as unaffected.
+**Honest degradation.** A change the graph cannot place reads **UNRESOLVED** rather than "no impact". When *nothing* in the diff could be placed, the risk level says so rather than reading as a measurement. A coverage gap costs reach, but it never causes anything to be reported as unaffected.
 
 **Test-coverage prompts.** Every reached entry point is tagged `[test-referenced]` or `[⚠ no test references this]`. This is a heuristic prompt rather than a coverage verdict ([tag details](04-detect-changes.md#test-reference-tags)). An entry point whose behaviour you changed with nothing referencing it is a place to add a test.
 

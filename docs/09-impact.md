@@ -28,7 +28,7 @@ Every hop carries its defining file (and line, when known), project-relative, so
 
 ## Entry surfaces
 
-Between the callers and dependencies, the report names the **entry surfaces** the callers walk reaches (routes, commands, schedules, and Livewire/Filament/Nova component classes), with the same annotations `detect-changes` carries: defining location, `[test-referenced]` / `[⚠ no test references this]` tags, security exposure and Pennant gates. A surface connected only by an association edge — a model relation or a model-to-policy link — is listed separately here too, as context rather than a caller.
+Between the callers and dependencies, the report names the **entry surfaces** the callers walk reaches (routes, commands, schedules, and Livewire/Filament/Nova component classes), with the same annotations `detect-changes` carries: defining location, `[test-referenced]` / `[⚠ no test references this]` tags, security exposure and Pennant gates. A surface connected only by an association edge (a model relation or a model-to-policy link) is listed separately here too, as context rather than a caller.
 
 `--explain` adds the shortest call chain from each surface down to the symbol.
 

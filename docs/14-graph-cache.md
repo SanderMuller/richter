@@ -19,11 +19,11 @@ The `brain-analyze` line names the path that ran: `full`, `scoped`, or `scoped-r
 
 A miss does not always cost a full analysis. The entry also stores the graph Laravel Brain produced and a record of the inputs it was built from, so a miss can compare the two records and ask which inputs actually differ, rather than only whether any did.
 
-When every difference is a changed file under `app/` — nothing added, nothing deleted, no config or package change, nothing outside `app/` — Brain re-traces only the controllers those files declare and merges the result into the stored graph. Everything else is a full build.
+When every difference is a changed file under `app/` (nothing added, nothing deleted, no config or package change, nothing outside `app/`), Brain re-traces only the controllers those files declare and merges the result into the stored graph. Everything else is a full build.
 
-The merged graph is identical either way; that is asserted, not assumed. Two things are worth knowing about when it engages:
+A test asserts that the merged graph is identical either way. Two things are worth knowing about when it engages:
 
 - **It helps a changed file that declares a controller.** A diff touching only services, models or jobs has no controllers to re-trace, so it is refused and costs nothing extra.
-- **Every ambiguous case is refused.** A wrong refusal costs one full build, which is what every run cost before. A wrong acceptance would produce a graph quietly missing edges, which is the failure this package exists to prevent — so `--no-cache` remains the way to force a full analysis if you ever suspect one.
+- **Every ambiguous case is refused.** A wrong refusal costs one full build, which is what a full build costs anyway. A wrong acceptance would produce a graph quietly missing edges, which is the failure this package exists to prevent, so `--no-cache` remains the way to force a full analysis if you ever suspect one.
 - **A refusal says which precondition refused.** `--profile` prints it under the timing table as `no scoped rebuild: <reason>`, followed by the input that refused: the differing non-file input, the changed path outside `app/`, or the changed file the stored graph attributes nothing to. `no-cache-entry` is the ordinary first run and resolves itself; every other reason names something to look at.
 - **`no-change` compares against the cached graph, not against git.** The refusal means every hashed input matches the entry on disk, which is whatever the last build stored. That covers profiling a tree you just warmed the cache on. It also covers a less obvious case: an edit that reproduces content some earlier run already built, which `git diff` still shows as a change. Both are correct refusals: the graph for that content is already cached. To measure a scoped build, make the edit new, and make it after the run that warmed the cache.

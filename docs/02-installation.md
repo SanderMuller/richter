@@ -24,7 +24,7 @@ Optional, and only needed once you want to tune something:
 php artisan vendor:publish --tag=richter-config
 ```
 
-Every key is documented in the [configuration reference](16-configuration.md). Richter runs on its defaults without a published config file, but it is accurate only once it knows your app's shape — see [Set up your project](03-project-setup.md).
+Every key is documented in the [configuration reference](16-configuration.md). Richter runs on its defaults without a published config file, but it is accurate only once it knows your app's shape. See [Set up your project](03-project-setup.md).
 
 ## The commands
 
@@ -40,4 +40,4 @@ php artisan list richter
 | `richter:affected-tests` | [Affected-test selection](11-affected-tests.md) |
 | `richter:benchmark`, `richter:benchmark:add` | [Benchmarking](17-benchmark.md) |
 
-Each one runs through `php artisan`, so it boots your application to build the code graph. That means it needs whatever booting normally requires — an `.env` file and an `APP_KEY` — which matters most [in CI](08-ci-gating.md).
+Each one runs through `php artisan`, so it boots your application to build the code graph. That means it needs whatever booting normally requires, typically an `.env` file and an `APP_KEY`, which matters most [in CI](08-ci-gating.md).
