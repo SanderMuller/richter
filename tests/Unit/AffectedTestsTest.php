@@ -59,6 +59,44 @@ final class AffectedTestsTest extends TestCase
     }
 
     #[Test]
+    public function a_test_file_the_diff_touched_is_selected_without_any_graph_reasoning(): void
+    {
+        $selection = AffectedTests::select(
+            $this->detectResult([]),
+            [$this->changed('app/Services/X.php', 'App\Services\X')],
+            new TestReferenceIndex(),
+            unresolvedDispatchSites: [],
+            changedTests: ['tests/Feature/PremiumTest.php'],
+        );
+
+        $this->assertTrue($selection['determinable']);
+        $this->assertSame(['tests/Feature/PremiumTest.php'], $selection['tests']);
+    }
+
+    #[Test]
+    public function an_undetermined_verdict_still_names_the_tests_it_could_find(): void
+    {
+        // The verdict blocks the selection from being trusted; it does not make the tests it did
+        // find disappear. Reporting nothing reads as "no connection found", which is a different
+        // and wrong statement.
+        $selection = AffectedTests::select(
+            $this->detectResult(['route::GET::/errors/log'], lowConfidence: true),
+            [$this->changed('app/Services/X.php', 'App\Services\X')],
+            $this->index(),
+            unresolvedDispatchSites: [],
+            changedTests: ['tests/Feature/PremiumTest.php'],
+        );
+
+        $this->assertFalse($selection['determinable']);
+        $this->assertSame(['a changed member could not be pinned to a graph node (low confidence)'], $selection['reasons']);
+        $this->assertSame([
+            'tests/Feature/ErrorLogTest.php',
+            'tests/Feature/PremiumTest.php',
+            'tests/Unit/XTest.php',
+        ], $selection['tests']);
+    }
+
+    #[Test]
     public function an_unresolved_file_makes_the_selection_undeterminable_with_a_reason(): void
     {
         $selection = AffectedTests::select(

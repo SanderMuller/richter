@@ -68,15 +68,19 @@ final class AffectedTests
                 )], $untracked);
             }
 
-            $changed = ChangedSymbols::resolve($base, $head);
+            ['changed' => $changed, 'outOfScope' => $outOfScope] = ChangedSymbols::resolveWithScope($base, $head);
         } catch (InvalidArgumentException|RuntimeException $exception) {
             // A diff that can't be taken means the selection can't be determined — fail
             // toward the full suite.
             return self::undeterminedForCurrentDiff(is_string($requestedBase) ? $requestedBase : '', [$exception->getMessage()], $untracked);
         }
 
+        // A test file the diff itself touched is affected by definition — no graph reasoning needed,
+        // and none available: `tests/` is outside every lane the analysis reads.
+        $changedTests = self::runnableOnly($outOfScope);
+
         if ($changed === []) {
-            return ['base' => $base, 'determinable' => true, 'reasons' => [], 'tests' => [], 'frontendTests' => [], 'unreferencedEntryPoints' => 0, 'unresolvedDispatchSites' => [], 'untrackedFiles' => $untracked];
+            return ['base' => $base, 'determinable' => true, 'reasons' => [], 'tests' => $changedTests, 'frontendTests' => [], 'unreferencedEntryPoints' => 0, 'unresolvedDispatchSites' => [], 'untrackedFiles' => $untracked];
         }
 
         $graph = $graphs->graph(fresh: $fresh);
@@ -91,6 +95,7 @@ final class AffectedTests
             $graph,
             self::configuredFrontendTestIndex(),
             $graph->hasUnparseableFiles(),
+            $changedTests,
         );
 
         return ['base' => $base] + $selection + ['untrackedFiles' => $untracked];
@@ -133,9 +138,13 @@ final class AffectedTests
      *   Taken as the sites rather than a flag so the reason can name them: "a dispatch somewhere could
      *   not be followed" leaves a reader with nothing to act on, which is what kept this verdict
      *   permanent for a project that has one.
+     * @param  list<string>  $changedTests  runnable test files the diff itself touched. They are
+     *   affected without any graph reasoning, and no lane here can find them — `tests/` is outside
+     *   every tree the analysis reads. Folded into the selection so an undetermined verdict still
+     *   names something correct instead of nothing.
      * @return array{determinable: bool, reasons: list<string>, tests: list<string>, frontendTests: list<string>, unreferencedEntryPoints: int, unresolvedDispatchSites: list<array{file: string, line: int, dispatcher: string}>}
      */
-    public static function select(array $result, array $changed, TestReferenceIndex $tests, array $unresolvedDispatchSites, ?CodeGraph $graph = null, ?FrontendTestIndex $frontendTests = null, bool $hasUnparseableFiles = false): array
+    public static function select(array $result, array $changed, TestReferenceIndex $tests, array $unresolvedDispatchSites, ?CodeGraph $graph = null, ?FrontendTestIndex $frontendTests = null, bool $hasUnparseableFiles = false, array $changedTests = []): array
     {
         $reasons = [];
 
@@ -166,7 +175,7 @@ final class AffectedTests
             $reasons[] = 'the graph contains job dispatches that could not be followed: ' . self::renderSites($blockingSites);
         }
 
-        $selected = [];
+        $selected = $changedTests;
         $frontendSelected = [];
         $unreferenced = 0;
 

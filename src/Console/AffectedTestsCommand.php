@@ -138,6 +138,19 @@ final class AffectedTestsCommand extends Command
                 $this->line("  ! {$reason}");
             }
 
+            // What the run did name, printed as a floor rather than a selection. It is never enough
+            // on its own — that is what the verdict above says — but "nothing" reads as "the tool
+            // found no connection", which is a different and wrong statement. Stdout stays empty in
+            // `--plain`, so the full-suite fallback a CI script depends on is unchanged.
+            if ($selection['tests'] !== []) {
+                $this->line('');
+                $this->line('Tests this run could still name (a floor, not the selection):');
+
+                foreach ($selection['tests'] as $test) {
+                    $this->line("  - {$test}");
+                }
+            }
+
             return $exit;
         }
 

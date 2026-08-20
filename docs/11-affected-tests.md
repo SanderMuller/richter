@@ -10,7 +10,7 @@ php artisan richter:affected-tests --json                 # {base, determinable,
 php artisan test $(php artisan richter:affected-tests --plain)   # simple form: coarse but safe
 ```
 
-It selects the test files that reference any entry point the diff reaches, plus the tests that import any changed or reached class. It diffs the same way [`detect-changes`](04-detect-changes.md#which-diff-is-analysed) does, so staged and unstaged edits are included. Selection is reference-based recall, not proof of coverage.
+It selects the test files that reference any entry point the diff reaches, plus the tests that import any changed or reached class, plus any test file the diff itself touched — that last one needs no graph reasoning and gets none, since `tests/` is outside every tree the analysis reads. It diffs the same way [`detect-changes`](04-detect-changes.md#which-diff-is-analysed) does, so staged and unstaged edits are included. Selection is reference-based recall, not proof of coverage.
 
 ## The exit-code contract
 
@@ -19,7 +19,7 @@ It fails safe, and the exit code is the contract:
 | Exit | Meaning |
 |---|---|
 | `0` | Selection determined (possibly empty). |
-| `2` | **Not determinable: run the full suite.** Any UNRESOLVED file, low-confidence seed, an unparseable app file, an unfollowable dispatch *that a possible dispatch target in the change's reach could hide*, an uncheckable entry point, or an untracked relevant file `git diff` cannot see trips this. The reasons are printed (text) or carried in `reasons` (JSON), and an unfollowable dispatch names each site as `file:line (Dispatcher::method)` so it can be restructured rather than only lived with, though [some shapes cannot be](#unfollowable-dispatches). |
+| `2` | **Not determinable: run the full suite.** The tests the run did name are still printed, under a heading that calls them a floor rather than the selection, and `--plain` stdout stays empty so a shell fallback still runs everything. Any UNRESOLVED file, low-confidence seed, an unparseable app file, an unfollowable dispatch *that a possible dispatch target in the change's reach could hide*, an uncheckable entry point, or an untracked relevant file `git diff` cannot see trips this. The reasons are printed (text) or carried in `reasons` (JSON), and an unfollowable dispatch names each site as `file:line (Dispatcher::method)` so it can be restructured rather than only lived with, though [some shapes cannot be](#unfollowable-dispatches). |
 | `1` | Usage or unexpected error. |
 
 The simple form only ever errs toward running more: both an undetermined selection and a determined-but-empty one leave `$(…)` empty, and an argument-less runner executes the full suite.

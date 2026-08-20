@@ -50,6 +50,7 @@ final class DispatchEdgeTracerTest extends TestCase
         yield 'aliased Bus facade' => ['QueueBus::dispatch(new ImportJob());', "use App\Jobs\ImportJob;\nuse Illuminate\Support\Facades\Bus as QueueBus;", ['App\Jobs\ImportJob::handle']];
         yield 'Bus::chain — every job' => ['Bus::chain([new ImportJob(), new OtherJob()]);', $twoJobsAndBus, ['App\Jobs\ImportJob::handle', 'App\Jobs\OtherJob::handle']];
         yield 'Bus::batch — every job' => ['Bus::batch([new ImportJob(), new OtherJob()]);', $twoJobsAndBus, ['App\Jobs\ImportJob::handle', 'App\Jobs\OtherJob::handle']];
+        yield 'Bus::batch over a mapped collection' => ['Bus::batch($this->items->map(fn (int $i): ImportJob => new ImportJob())->all());', $twoJobsAndBus, ['App\Jobs\ImportJob::handle']];
         yield 'grouped use import' => ['dispatch_with_retries(new OtherJob());', 'use App\Jobs\{ImportJob, OtherJob};', ['App\Jobs\OtherJob::handle']];
         // A real, loadable class that is not a dispatch target (no handle()/__invoke(), no
         // Dispatchable/ShouldQueue, not \Jobs\) draws no edge. The class must exist: an unloadable
@@ -267,6 +268,14 @@ final class DispatchEdgeTracerTest extends TestCase
         yield 'Bus group with a non-array argument' => ['Bus::batch($pending);', 'use Illuminate\Support\Facades\Bus;', 1];
         yield 'unrelated method ->dispatch is not a job dispatch' => ['$emitter->dispatch($event);', '', 0];
         yield 'Bus::chain tail ->dispatch is no-arg' => ['Bus::chain([new ImportJob()])->dispatch();', "use App\Jobs\ImportJob;\nuse Illuminate\Support\Facades\Bus;", 0];
+        // `map` is total, so the callable's return type IS the batch's item type — the one opaque
+        // argument shape that proves itself instead of needing doubt.
+        yield 'Bus::batch over a mapped collection' => ['Bus::batch($this->items->map(fn (int $i): ImportJob => new ImportJob())->all());', "use App\Jobs\ImportJob;\nuse Illuminate\Support\Facades\Bus;", 0];
+        yield 'Bus::batch over a mapped collection, filtered first' => ['Bus::batch($this->items->filter(fn (int $i): bool => $i > 0)->map(fn (int $i): ImportJob => new ImportJob())->values()->all());', "use App\Jobs\ImportJob;\nuse Illuminate\Support\Facades\Bus;", 0];
+        // A call between the map and the dispatch that can change what the items are gives the proof up.
+        yield 'Bus::batch over a mapped collection then plucked' => ['Bus::batch($this->items->map(fn (int $i): ImportJob => new ImportJob())->pluck("job")->all());', "use App\Jobs\ImportJob;\nuse Illuminate\Support\Facades\Bus;", 1];
+        yield 'Bus::batch over a map whose callable is a variable' => ['Bus::batch($this->items->map($this->builder)->all());', 'use Illuminate\Support\Facades\Bus;', 1];
+        yield 'Bus::batch over a map returning something else' => ['Bus::batch($this->items->map(fn (int $i): ImportJob => $this->build($i))->all());', "use App\Jobs\ImportJob;\nuse Illuminate\Support\Facades\Bus;", 1];
     }
 
     #[Test]

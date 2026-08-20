@@ -31,6 +31,7 @@ use SanderMuller\Richter\Graph\CodeGraphBuilder;
 use SanderMuller\Richter\Support\AppFiles;
 use SanderMuller\Richter\Support\DispatchTarget;
 use SanderMuller\Richter\Support\LocallyConstructedJobs;
+use SanderMuller\Richter\Support\MappedCollectionJobs;
 
 /**
  * Brain resolves the standard dispatch forms — `Job::dispatch()`, `dispatch()`, and, since v2.3.1, the
@@ -528,9 +529,9 @@ final readonly class DispatchEdgeTracer
     private function jobsFromArray(?Expr $value, array $origin, array &$unresolvedSites, array $localJobs = []): array
     {
         if (! $value instanceof Array_) {
-            $unresolvedSites[] = $origin;
-
-            return [];
+            // A mapped collection proves its own item type; anything else is a dispatch this pass
+            // cannot see into.
+            return MappedCollectionJobs::in($value) ?? $this->unfollowable($origin, $unresolvedSites);
         }
 
         $jobs = [];
@@ -608,6 +609,21 @@ final readonly class DispatchEdgeTracer
         $job = AppFiles::resolveName($value->class);
 
         return DispatchTarget::matches($job) ? [$job] : [];
+    }
+
+    /**
+     * Record a dispatch whose target this pass cannot see, and answer with no jobs — so a caller
+     * reads one expression rather than a record-then-return pair.
+     *
+     * @param  array{line: int, dispatcher: string}  $origin
+     * @param  list<array{line: int, dispatcher: string}>  $unresolvedSites
+     * @return list<string>
+     */
+    private function unfollowable(array $origin, array &$unresolvedSites): array
+    {
+        $unresolvedSites[] = $origin;
+
+        return [];
     }
 
     /**
