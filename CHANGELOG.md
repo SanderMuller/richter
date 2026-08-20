@@ -5,6 +5,40 @@ All notable changes to `sandermuller/richter` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.39.0 - 2026-08-20
+
+An instance method call drew no edge in any earlier version. Brain resolves calls along its route-anchored lanes only, and Richter's own tracers covered static calls, constants, relations, facades and dispatches — so for every class no route reaches, `$this->doTheWork()` was invisible. That gap, and three narrower ones beside it, came out of a consumer audit of 0.38 on a 4,000-file application.
+
+Counts move in both directions again. A class that calls its own methods gains callers; an application driven by a dynamic config registry loses entry points it never earned. Re-check `risk_thresholds` against a benchmark corpus before reading a level shift as a regression.
+
+### Added
+
+- **Calls a class makes on itself.** `$this->doTheWork()` links the two members. The receiver is the enclosing class by definition, so this needs no type inference — a call on a property, a parameter or a local is a receiver-typing problem and is still not drawn. The target may be inherited rather than declared, in which case the inherited-method lane connects it to the ancestor whose body runs. A method no app class in the chain declares is a framework method (`$this->hasMany(…)`) and draws nothing: on the audited application, 9,262 such calls resolved to 4,695 real edges and 4,567 framework calls that draw none.
+- **Why each context entry is listed.** The "Runs this code without calling it" section named classes and nothing else, so telling a trait user from an override implementor meant reading the source. Each entry now carries the edge types that put it there, in every format and as `traitAndOverrideReachVia` in `--json`.
+- **A test file the diff itself touched is selected.** It is affected by definition, and no lane could find it — `tests/` sits outside every tree the analysis reads.
+
+### Fixed
+
+- **An inherited method no longer drags in its siblings.** 0.38 stopped a structural path from fanning out through `override` and left `inherits` reaching the same cousins from the other side: every class that inherits an ancestor member rather than overriding it. Both edges are refused out of a structural-only path now. A seed-adjacent hop stays legal, so a changed member still reaches the ancestor whose body runs and a changed ancestor still reaches every descendant.
+- **A batch built by mapping is followed.** `Bus::batch($items->map(fn () => new SomeJob(…))->all())` read as a dispatch whose target could not be followed, which taints `richter:affected-tests` for a whole project — while the graph already carried the edge from the `new` inside the closure. `map` returns one item per item in, so the callable's return type is the item type whatever the source held. Every step is checked: the calls between the map and the dispatch must preserve the item type (`toArray()` does not — it converts an `Arrayable` job into an array), the callable must be written out at the call site, and its single return must be a `new` of a dispatch target. Anything else keeps the doubt it had.
+- **A dynamic registry lookup is context, not a caller.** A `config()` read whose key the build can enumerate names one class, and a surface behind it calls the change. A key it cannot enumerate falls back to every class the config file names, and the surfaces behind that are identical for each of them — so on an engine with hundreds of registered classes, a change to any one reported the same admin pages. Those surfaces move to the association list, which already says context rather than reach. Affected-test selection still walks them: the dispatch is real, and skipping it would under-select.
+- **An undetermined test selection names what it found.** The verdict blocks the selection from being trusted; it does not make the tests it did find disappear. They print under a heading that calls them a floor. `--plain` stdout stays empty and the exit code is unchanged, so a shell fallback still runs the full suite.
+
+### Compatibility
+
+No breaking changes; every public signature is unchanged.
+
+- **The graph cache rebuilds once.** `FORMAT_VERSION` moves 23 → 25. Instance-call edges are additive, so a 0.38 entry under-reports them; the registry split changes an edge's type, so a 0.38 entry would also classify those surfaces the old way.
+- **Entry-point lists shrink on registry-driven applications, and caller counts rise where classes call their own methods.** Both are the intended corrections. See [Risk levels](https://sandermuller.github.io/richter/risk-levels) before adjusting thresholds.
+- **New edge types** appear in `richter:trace` chains and in graph output: `instance-call`, and `config-registry-fanout` beside the existing `config-registry`.
+
+### Internal
+
+- The docs site now publishes a plain-text surface: `llms-full.txt` behind one URL, and each page as `<slug>.md` beside its HTML.
+- Two limits are documented where the code makes the choice: the mapped-batch proof reads method names rather than the receiver's type, so a collection-shaped class with its own `map()` could defeat it; and a trait that calls a method its consuming class supplies draws no edge, since the honest target is one node per consumer.
+
+**Full Changelog**: https://github.com/SanderMuller/richter/compare/v0.38.0...v0.39.0
+
 ## v0.38.0 - 2026-08-20
 
 Two halves of the same promise: reach what the code really runs, and report nothing it does not. Relation traversals now start from any root the source types, so four everyday shapes that drew nothing resolve. In the other direction, a change to one class in a wide interface hierarchy stops reporting every sibling implementor as reached.
@@ -120,6 +154,7 @@ dispatch($job);
 
 
 
+
 ```
 That was recorded as a dispatch whose target could not be followed — and the taint is global, so one of them makes every `richter:affected-tests` run report `not determinable` and fall back to the full suite. The graph has carried the edge for this shape all along: the instantiation is in the same method, right above the dispatch. The site pointed at a place to restructure where nothing was hidden and nothing needed restructuring.
 
@@ -205,6 +240,7 @@ Build profile: nothing was built — the diff holds nothing the graph is built f
 
 
 
+
 ```
 On stderr, like the table it stands in for, and before the payload in `--json` mode so stdout stays one document. Building anyway was the alternative, and it would make a no-op run pay for an analysis nothing asked for.
 
@@ -222,6 +258,7 @@ An event named by a class constant resolves in **any** declaration form, includi
 public const string
     SUBTITLE_CHANGED = 'subtitle-changed',
     SUBTITLE_DELETED = 'subtitle-deleted';
+
 
 
 
@@ -255,6 +292,7 @@ Build profile (forced rebuild):
   total                      3.85s
   no scoped rebuild: non-app-change
     config/services.php differs from the cached graph and sits outside app/
+
 
 
 
@@ -343,6 +381,7 @@ It now names every site:
 ```
 the graph contains job dispatches that could not be followed:
 app/Jobs/Fanout.php:88 (App\Jobs\Fanout::handle), app/Services/Importer.php:12 (App\Services\Importer::run)
+
 
 
 
@@ -709,6 +748,7 @@ Note: 2 changed file(s) are outside the analysed scope (not PHP under app/, a Bl
 
 
 
+
 ```
 Stderr, like the untracked-file note, so `--json` and `--markdown` stdout stay exactly the report. Frontend sources the configuration declines to scan are not counted: generated Wayfinder output under `frontend.generated_paths` and `.d.ts` declarations were silenced on purpose, and a note that fires loudest on regeneration churn is one people stop reading.
 
@@ -786,6 +826,7 @@ One new advisory lane, and a README that finally leads with what the package is 
   
   
   
+  
   ```
   The count comes off the `route:: → middleware::<group>` edges already in the graph, so it counts endpoints only: a controller-level attachment of the same group does not inflate it. Membership is read from `$middlewareGroups` on a Laravel 10 Kernel or the `->web(append: [...])` form in a Laravel 11+ `bootstrap/app.php`. A member written as an alias resolves through the same alias map, parameters are cut first (`tenant:strict` is one alias with an argument), and a group that names another group is expanded transitively, since Laravel runs the inner group's middleware on the outer group's routes too.
   
@@ -818,6 +859,7 @@ Two silent-failure shapes that richter used to miss: a call through an applicati
   
   ```text
     ! resources/js/Pages/Posts/Create.vue posts to POST /posts and sends 'subtitle', which this diff removes from App\Http\Requests\StorePostRequest::rules() (renamed to 'sub_title'?)
+  
   
   
   
