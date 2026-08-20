@@ -4,19 +4,35 @@ namespace SanderMuller\Richter\Tracers;
 
 use PhpParser\Node;
 use PhpParser\Node\Expr;
+use PhpParser\Node\Expr\ArrowFunction;
 use PhpParser\Node\Expr\Assign;
+use PhpParser\Node\Expr\Closure;
+use PhpParser\Node\Expr\Match_;
 use PhpParser\Node\Expr\MethodCall;
 use PhpParser\Node\Expr\New_;
 use PhpParser\Node\Expr\NullsafeMethodCall;
 use PhpParser\Node\Expr\NullsafePropertyFetch;
 use PhpParser\Node\Expr\PropertyFetch;
 use PhpParser\Node\Expr\StaticCall;
+use PhpParser\Node\Expr\Ternary;
 use PhpParser\Node\Expr\Variable;
+use PhpParser\Node\FunctionLike;
 use PhpParser\Node\Identifier;
 use PhpParser\Node\Name;
+use PhpParser\Node\Scalar\Int_;
+use PhpParser\Node\Scalar\String_;
 use PhpParser\Node\Stmt\ClassLike;
 use PhpParser\Node\Stmt\ClassMethod;
+use PhpParser\Node\Stmt\Do_;
+use PhpParser\Node\Stmt\Else_;
+use PhpParser\Node\Stmt\ElseIf_;
+use PhpParser\Node\Stmt\For_;
+use PhpParser\Node\Stmt\Foreach_;
+use PhpParser\Node\Stmt\If_;
+use PhpParser\Node\Stmt\Switch_;
+use PhpParser\Node\Stmt\TryCatch;
 use PhpParser\Node\Stmt\Use_;
+use PhpParser\Node\Stmt\While_;
 use PhpParser\NodeFinder;
 use SanderMuller\Richter\Graph\CodeGraphBuilder;
 use SanderMuller\Richter\Support\AppFiles;
@@ -57,9 +73,19 @@ final class RelationTraversalTracer
      * @var list<string>
      */
     private const array MODEL_RETURNING = [
-        'find', 'findOrFail', 'findOrNew', 'first', 'firstOrFail', 'firstOrNew', 'firstOrCreate',
-        'create', 'forceCreate', 'make', 'sole',
+        'first', 'firstOrFail', 'firstOrNew', 'firstOrCreate', 'firstWhere', 'findSole',
+        'create', 'createQuietly', 'forceCreate', 'forceCreateQuietly', 'updateOrCreate', 'make', 'sole',
     ];
+
+    /**
+     * Statics that return one model for a scalar id and a COLLECTION for an array or `Arrayable` one
+     * (`Builder::find()` hands an array straight to `findMany()`). A chain past `find([1, 2])` reads
+     * the collection, so these resolve only where the argument is a scalar literal — the one shape
+     * that cannot turn out to be an array at runtime.
+     *
+     * @var list<string>
+     */
+    private const array FIND_BY_ID = ['find', 'findOrFail', 'findOrNew'];
 
     /**
      * One entry per method that traverses anything, in file order. Each carries the types the method
@@ -179,13 +205,47 @@ final class RelationTraversalTracer
      */
     private function collectMethod(ClassMethod $method, string $classFqcn, array $properties): void
     {
-        $docblocks = $this->types->docblockTypesIn($method);
-        $seeds = [...$this->types->parameterTypesOf($method), ...$docblocks];
+        $this->collectScope($method, $classFqcn . '::' . $method->name->toString(), $classFqcn, $properties);
+    }
+
+    /**
+     * The steps of one function body. A closure is its own scope, collected separately with only its
+     * own parameters seeded: `function () { $post = Order::find(1); }` beside an outer `$post` must
+     * not retype the outer one, and a variable the closure imports by `use` has a type this cannot
+     * see. Both directions therefore stop at the boundary rather than guess across it.
+     *
+     * @param  array<string, string>  $properties  property name => declared class type
+     */
+    private function collectScope(FunctionLike $scope, string $source, string $classFqcn, array $properties): void
+    {
+        // Docblocks are per assignment, not per scope: `@var` speaks for the statement it sits on.
+        $docblocks = $this->types->docblockTypesIn($scope);
+        $seeds = $this->types->parameterTypesOf($scope);
+
+        $finder = new NodeFinder();
+        // `$scope !== $node` because a closure's own body search finds the closure itself, and
+        // recursing into that is a stack overflow rather than a scope.
+        /** @var list<Closure|ArrowFunction> $closures */
+        $closures = $finder->find($scope, static fn (Node $node): bool => $node !== $scope
+            && ($node instanceof Closure || $node instanceof ArrowFunction));
+        $outermost = array_values(array_filter(
+            $closures,
+            static fn (Node $closure): bool => ! array_any(
+                $closures,
+                static fn (Node $other): bool => $other !== $closure
+                    && $other->getStartFilePos() < $closure->getStartFilePos()
+                    && $other->getEndFilePos() > $closure->getEndFilePos(),
+            ),
+        ));
+
+        foreach ($outermost as $closure) {
+            $this->collectScope($closure, $source, $classFqcn, $properties);
+        }
 
         // One descent for every node kind that can start or continue a chain, then source order:
         // a local's type comes from the line above it, so the steps have to run as written.
         $nodes = new NodeFinder()->find(
-            $method,
+            $scope,
             static fn (Node $node): bool => $node instanceof Assign
                 || $node instanceof PropertyFetch
                 || $node instanceof NullsafePropertyFetch
@@ -193,10 +253,19 @@ final class RelationTraversalTracer
                 || $node instanceof NullsafeMethodCall,
         );
 
+        // A node inside a nested closure belongs to that closure's own scope, not to this one.
+        $nodes = array_values(array_filter($nodes, static fn (Node $node): bool => ! array_any(
+            $outermost,
+            static fn (Node $closure): bool => $node !== $closure
+                && $node->getStartFilePos() >= $closure->getStartFilePos()
+                && $node->getEndFilePos() <= $closure->getEndFilePos(),
+        )));
+
         usort($nodes, static fn (Node $a, Node $b): int => $a->getStartFilePos() <=> $b->getStartFilePos());
 
         $steps = [];
         $handled = [];
+        $branching = $this->branchRanges($scope);
 
         foreach ($nodes as $node) {
             if (isset($handled[spl_object_id($node)])) {
@@ -204,7 +273,16 @@ final class RelationTraversalTracer
             }
 
             if ($node instanceof Assign) {
-                $this->collectAssignment($node, $classFqcn, $properties, $docblocks, $steps, $handled);
+                // A binding under an `if`, a loop, a `try` or a `match` arm may or may not happen, and
+                // a second branch may bind the same name to another model. Source order cannot say
+                // which one the runtime took, so a conditional binding clears the variable instead of
+                // typing it.
+                $conditional = array_any(
+                    $branching,
+                    static fn (array $range): bool => $node->getStartFilePos() >= $range[0] && $node->getEndFilePos() <= $range[1],
+                );
+
+                $this->collectAssignment($node, $classFqcn, $properties, $docblocks, $conditional, $steps, $handled);
 
                 continue;
             }
@@ -221,7 +299,7 @@ final class RelationTraversalTracer
         }
 
         if ($steps !== []) {
-            $this->pending[] = ['source' => $classFqcn . '::' . $method->name->toString(), 'seeds' => $seeds, 'steps' => $steps];
+            $this->pending[] = ['source' => $source, 'seeds' => $seeds, 'steps' => $steps];
         }
     }
 
@@ -230,17 +308,36 @@ final class RelationTraversalTracer
      * `new Post`, and `Post::find(…)` and friends.
      *
      * @param  array<string, string>  $properties
-     * @param  array<string, string>  $docblocks  `@var` types the method states for its locals
+     * @param  array<int, array<string, string>>  $docblocks  `@var` types, keyed by the assignment they annotate
      * @param  list<array{assign: string|null, rootClass: string|null, rootVar: string|null, names: list<string>, stopAfter: int|null}>  $steps
      * @param  array<int, true>  $handled
      */
-    private function collectAssignment(Assign $node, string $classFqcn, array $properties, array $docblocks, array &$steps, array &$handled): void
+    private function collectAssignment(Assign $node, string $classFqcn, array $properties, array $docblocks, bool $conditional, array &$steps, array &$handled): void
     {
         if (! $node->var instanceof Variable || ! is_string($node->var->name)) {
             return;
         }
 
         $target = $node->var->name;
+
+        // An assignment inside another assignment (`$a = helper($a = new Post())`) runs inside out,
+        // and the outer call decides what the name ends up holding. Neither binding is knowable, so
+        // the outer one clears the name and the inner one is not read at all.
+        $nested = new NodeFinder()->findFirstInstanceOf($node->expr, Assign::class);
+
+        if ($nested instanceof Assign) {
+            $handled[spl_object_id($nested)] = true;
+            $steps[] = ['assign' => $target, 'rootClass' => null, 'rootVar' => null, 'names' => [], 'stopAfter' => null];
+
+            return;
+        }
+
+        if ($conditional) {
+            $steps[] = ['assign' => $target, 'rootClass' => $docblocks[spl_object_id($node)][$target] ?? null, 'rootVar' => null, 'names' => [], 'stopAfter' => null];
+
+            return;
+        }
+
         $direct = $this->directTypeOf($node->expr);
 
         if ($direct !== null) {
@@ -265,9 +362,35 @@ final class RelationTraversalTracer
         }
 
         // Assigned from something this cannot type (a helper call, a match, a literal): the variable
-        // stops carrying whatever it carried before, unless a `@var` docblock states what the author
-        // put there — which is the case that shape exists for.
-        $steps[] = ['assign' => $target, 'rootClass' => $docblocks[$target] ?? null, 'rootVar' => null, 'names' => [], 'stopAfter' => null];
+        // stops carrying whatever it carried before, unless the statement's own `@var` docblock states
+        // what the author put there — which is the case that shape exists for.
+        $declared = $docblocks[spl_object_id($node)][$target] ?? null;
+
+        $steps[] = ['assign' => $target, 'rootClass' => $declared, 'rootVar' => null, 'names' => [], 'stopAfter' => null];
+    }
+
+    /**
+     * The source ranges of every branching or repeating construct in one scope. An assignment inside
+     * one of them is conditional: it may not run, and a sibling branch may bind the same name to a
+     * different model.
+     *
+     * @return list<array{0: int, 1: int}>
+     */
+    private function branchRanges(FunctionLike $scope): array
+    {
+        $branching = new NodeFinder()->find($scope, static fn (Node $node): bool => $node instanceof If_
+            || $node instanceof Else_
+            || $node instanceof ElseIf_
+            || $node instanceof For_
+            || $node instanceof Foreach_
+            || $node instanceof While_
+            || $node instanceof Do_
+            || $node instanceof Switch_
+            || $node instanceof Match_
+            || $node instanceof TryCatch
+            || $node instanceof Ternary);
+
+        return array_values(array_map(static fn (Node $node): array => [$node->getStartFilePos(), $node->getEndFilePos()], $branching));
     }
 
     /**
@@ -280,14 +403,31 @@ final class RelationTraversalTracer
             return $this->types->appClass(AppFiles::resolveName($expression->class));
         }
 
-        if ($expression instanceof StaticCall
-            && $expression->class instanceof Name
-            && $expression->name instanceof Identifier
-            && in_array($expression->name->toString(), self::MODEL_RETURNING, true)) {
+        if (! $expression instanceof StaticCall || ! $expression->class instanceof Name || ! $expression->name instanceof Identifier) {
+            return null;
+        }
+
+        $method = $expression->name->toString();
+
+        if (in_array($method, self::MODEL_RETURNING, true)) {
             return $this->types->appClass(AppFiles::resolveName($expression->class));
         }
 
-        return null;
+        return in_array($method, self::FIND_BY_ID, true) && $this->hasScalarId($expression)
+            ? $this->types->appClass(AppFiles::resolveName($expression->class))
+            : null;
+    }
+
+    /** Whether a `find()`-family call names an id that cannot be an array, so it returns one model. */
+    private function hasScalarId(StaticCall $call): bool
+    {
+        if ($call->isFirstClassCallable()) {
+            return false;
+        }
+
+        $argument = $call->getArgs()[0]->value ?? null;
+
+        return $argument instanceof Int_ || $argument instanceof String_;
     }
 
     /**

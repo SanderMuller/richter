@@ -4,7 +4,9 @@ namespace SanderMuller\Richter\Support;
 
 use PhpParser\Comment\Doc;
 use PhpParser\Node;
+use PhpParser\Node\Expr\Assign;
 use PhpParser\Node\Expr\Variable;
+use PhpParser\Node\FunctionLike;
 use PhpParser\Node\Identifier;
 use PhpParser\Node\Name;
 use PhpParser\Node\NullableType;
@@ -37,7 +39,17 @@ final class DeclaredTypes
         $this->aliases = [];
 
         foreach ($uses as $use) {
+            // `use function` and `use const` import no class, so a docblock name they happen to match
+            // is not theirs to resolve.
+            if ($use->type !== Use_::TYPE_NORMAL) {
+                continue;
+            }
+
             foreach ($use->uses as $item) {
+                if ($item->type !== Use_::TYPE_UNKNOWN && $item->type !== Use_::TYPE_NORMAL) {
+                    continue;
+                }
+
                 $alias = $item->alias instanceof Identifier ? $item->alias->toString() : $item->name->getLast();
                 $this->aliases[strtolower($alias)] = $item->name->toString();
             }
@@ -45,29 +57,52 @@ final class DeclaredTypes
     }
 
     /**
-     * Types a `@var` docblock states for a local. The author asserted the type where the language had
-     * no place to declare one, which is the same evidence a parameter type gives; a union or an
-     * unqualified name that is not an app class is skipped like any other unreadable type.
+     * The `@var` types a scope states, mapped to the ASSIGNMENT each one annotates.
      *
-     * @return array<string, string>
+     * Method-wide would be wrong twice over: a later annotation would type an earlier read, and two
+     * annotations for one variable would collapse into whichever came last. A docblock speaks for the
+     * statement it sits on, so it is keyed by the assignment inside that statement.
+     *
+     * @return array<int, array<string, string>> assignment node id => variable => FQCN
      */
-    public function docblockTypesIn(ClassMethod $method): array
+    public function docblockTypesIn(FunctionLike $scope): array
     {
+        $finder = new NodeFinder();
         $types = [];
 
-        foreach (new NodeFinder()->find($method, static fn (Node $node): bool => $node->getDocComment() instanceof Doc) as $node) {
-            $text = $node->getDocComment()?->getText() ?? '';
+        foreach ($finder->find($scope, static fn (Node $node): bool => $node->getDocComment() instanceof Doc) as $node) {
+            $declared = $this->varTagsIn($node->getDocComment()?->getText() ?? '');
 
-            if (preg_match_all('/@var\s+(\S+)\s+\$(\w+)/', $text, $matches, PREG_SET_ORDER) === 0) {
+            if ($declared === []) {
                 continue;
             }
 
-            foreach ($matches as [, $declared, $variable]) {
-                $class = $this->docblockClass($declared);
+            foreach ($finder->findInstanceOf($node, Assign::class) as $assign) {
+                $types[spl_object_id($assign)] = [...$types[spl_object_id($assign)] ?? [], ...$declared];
+            }
+        }
 
-                if ($class !== null) {
-                    $types[$variable] = $class;
-                }
+        return $types;
+    }
+
+    /**
+     * The `@var Type $name` pairs in one docblock, as variable => FQCN.
+     *
+     * @return array<string, string>
+     */
+    private function varTagsIn(string $text): array
+    {
+        if (preg_match_all('/@var\s+(\S+)\s+\$(\w+)/', $text, $matches, PREG_SET_ORDER) === 0) {
+            return [];
+        }
+
+        $types = [];
+
+        foreach ($matches as [, $declared, $variable]) {
+            $class = $this->docblockClass($declared);
+
+            if ($class !== null) {
+                $types[$variable] = $class;
             }
         }
 
@@ -138,11 +173,11 @@ final class DeclaredTypes
     }
 
     /** @return array<string, string> */
-    public function parameterTypesOf(ClassMethod $method): array
+    public function parameterTypesOf(FunctionLike $method): array
     {
         $types = [];
 
-        foreach ($method->params as $parameter) {
+        foreach ($method->getParams() as $parameter) {
             $type = $this->classTypeOf($parameter->type);
 
             if ($type !== null && $parameter->var instanceof Variable && is_string($parameter->var->name)) {

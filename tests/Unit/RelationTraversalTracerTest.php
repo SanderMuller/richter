@@ -469,9 +469,9 @@ final class RelationTraversalTracerTest extends TestCase
             namespace App\Services;
             final class Reporter
             {
-                public function run(\App\Models\Comment $comment): void
+                public function run(): void
                 {
-                    $subject = $comment;
+                    $subject = new \App\Models\Comment();
                     $subject = resolve('something');
                     $name = $subject->author;
                 }
@@ -479,6 +479,45 @@ final class RelationTraversalTracerTest extends TestCase
             PHP);
 
         $this->assertSame([], $targets);
+    }
+
+    #[Test]
+    public function a_closure_binding_a_name_does_not_retype_the_outer_one(): void
+    {
+        // The closure's `$comment` is its own variable. Letting it out would type the outer
+        // `$comment` as a Post and draw an edge to a relation the outer read never reaches.
+        $targets = $this->targets(<<<'PHP'
+            <?php
+            namespace App\Services;
+            final class Reporter
+            {
+                public function run(\App\Models\Comment $comment): void
+                {
+                    $fn = function () { $comment = new \App\Models\Post(); return $comment->comments; };
+                    $name = $comment->author;
+                }
+            }
+            PHP);
+
+        $this->assertSame(['App\\Models\\Post::comments', 'App\\Models\\Comment::author'], $targets);
+    }
+
+    #[Test]
+    public function a_closure_does_not_inherit_the_enclosing_locals(): void
+    {
+        // A variable the closure imports by `use` has a type this cannot follow across the boundary,
+        // so the chain inside stops rather than assuming the outer binding still holds.
+        $this->assertSame([], $this->targets(<<<'PHP'
+            <?php
+            namespace App\Services;
+            final class Reporter
+            {
+                public function run(\App\Models\Comment $comment): void
+                {
+                    $fn = function () use ($comment) { return $comment->author; };
+                }
+            }
+            PHP));
     }
 
     #[Test]
@@ -493,6 +532,154 @@ final class RelationTraversalTracerTest extends TestCase
                 {
                     $name = $comment->author;
                     $comment = new \App\Models\Comment();
+                }
+            }
+            PHP));
+    }
+
+    #[Test]
+    public function a_find_with_an_array_id_is_not_a_root(): void
+    {
+        // `Builder::find()` hands an array to `findMany()`, so the chain would be reading a
+        // collection. Only a scalar literal id cannot turn out to be one.
+        $this->assertSame([], $this->targets(<<<'PHP'
+            <?php
+            namespace App\Services;
+            final class Reporter
+            {
+                public function run(): void
+                {
+                    $name = \App\Models\Comment::find([1, 2])->author;
+                    $other = \App\Models\Comment::find($ids)->author;
+                }
+            }
+            PHP));
+    }
+
+    #[Test]
+    public function a_conditional_binding_clears_the_variable(): void
+    {
+        // Source order cannot say which branch ran, and a sibling branch may bind another model.
+        $this->assertSame([], $this->targets(<<<'PHP'
+            <?php
+            namespace App\Services;
+            final class Reporter
+            {
+                public function run(bool $flag): void
+                {
+                    $subject = new \App\Models\Comment();
+
+                    if ($flag) {
+                        $subject = new \App\Models\Post();
+                    }
+
+                    $name = $subject->author;
+                }
+            }
+            PHP));
+    }
+
+    #[Test]
+    public function a_binding_inside_a_loop_clears_the_variable(): void
+    {
+        $this->assertSame([], $this->targets(<<<'PHP'
+            <?php
+            namespace App\Services;
+            final class Reporter
+            {
+                public function run(array $rows): void
+                {
+                    foreach ($rows as $row) {
+                        $subject = new \App\Models\Comment();
+                    }
+
+                    $name = $subject->author;
+                }
+            }
+            PHP));
+    }
+
+    #[Test]
+    public function a_nested_assignment_types_neither_name(): void
+    {
+        // `$a = helper($a = new Comment())` runs inside out and the outer call decides what the name
+        // holds, which is not knowable here.
+        $this->assertSame([], $this->targets(<<<'PHP'
+            <?php
+            namespace App\Services;
+            final class Reporter
+            {
+                public function run(): void
+                {
+                    $subject = \resolve($subject = new \App\Models\Comment());
+                    $name = $subject->author;
+                }
+            }
+            PHP));
+    }
+
+    #[Test]
+    public function a_later_docblock_does_not_type_an_earlier_read(): void
+    {
+        // A `@var` speaks for its own statement. Applied method-wide, the first read below would be
+        // traced from Post and draw an edge the expression never reaches.
+        $targets = $this->targets(<<<'PHP'
+            <?php
+            namespace App\Services;
+            final class Reporter
+            {
+                public function run(): void
+                {
+                    $subject = resolve('one');
+                    $first = $subject->author;
+
+                    /** @var \App\Models\Post $subject */
+                    $subject = resolve('two');
+                    $second = $subject->comments;
+                }
+            }
+            PHP);
+
+        $this->assertSame(['App\\Models\\Post::comments'], $targets);
+    }
+
+    #[Test]
+    public function an_aliased_import_resolves_a_docblock_name(): void
+    {
+        $targets = $this->targets(<<<'PHP'
+            <?php
+            namespace App\Services;
+            use App\Models\Comment as CommentModel;
+            final class Reporter
+            {
+                public function run(): void
+                {
+                    /** @var CommentModel $subject */
+                    $subject = resolve('subject');
+                    $name = $subject->author;
+                }
+            }
+            PHP);
+
+        $this->assertSame(['App\\Models\\Comment::author'], $targets);
+    }
+
+    #[Test]
+    public function a_function_import_never_resolves_a_docblock_name(): void
+    {
+        // `use function` imports no class, so a docblock that happens to match its name is not its
+        // to answer for.
+        $this->assertSame([], $this->targets(<<<'PHP'
+            <?php
+            namespace App\Services;
+            use function App\Models\Comment;
+            final class Reporter
+            {
+                public function run(): void
+                {
+                    /** @var Comment $subject */
+                    $subject = resolve('subject');
+                    $name = $subject->author;
                 }
             }
             PHP));
