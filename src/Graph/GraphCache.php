@@ -109,8 +109,12 @@ final class GraphCache
      * eager-load path, and `relation-to-model` edges from each relation method to the model it
      * returns. Additive again, so a 21 entry under-reports every relation the app reads rather than
      * declares.
+     * 22 → 23: a relation traversal now starts from any root the source types — a model-returning
+     * static, a `@var` docblock, a local bound to one of those — where only `$this` and a typed
+     * property or parameter worked before, so the graph gains `loads-relation` edges for chains it
+     * drew nothing for. Additive for identical file inputs, so a 22 entry under-reports them.
      */
-    private const int FORMAT_VERSION = 22;
+    private const int FORMAT_VERSION = 23;
 
     private ?CodeGraph $memoized = null;
 
