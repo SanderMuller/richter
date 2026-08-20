@@ -238,6 +238,16 @@ final class CodeGraphBuilderTest extends TestCase
     }
 
     #[Test]
+    public function a_static_root_and_a_local_carry_a_traversal(): void
+    {
+        // `$comment = Comment::first(); $comment->post` states its type in the call, not in a
+        // parameter or a property.
+        $dependencies = $this->directDependenciesOf('App\\Services\\CommentSummariser::latest');
+
+        $this->assertSame('loads-relation', $dependencies['App\\Models\\Comment::post'] ?? null);
+    }
+
+    #[Test]
     public function a_walked_relation_survives_the_second_hop_walk_being_off(): void
     {
         // The traversal is drawn by the consolidated per-file pass, not by the second-hop walk, so

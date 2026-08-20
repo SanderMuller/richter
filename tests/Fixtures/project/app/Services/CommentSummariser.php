@@ -18,4 +18,12 @@ final class CommentSummariser
     {
         $post->load([Post::REVIEWS . '.' . Review::ANSWERS]);
     }
+
+    /** A static root and a local: neither states a type the language records. */
+    public function latest(): string
+    {
+        $comment = Comment::first();
+
+        return (string) $comment->post->title;
+    }
 }

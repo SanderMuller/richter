@@ -463,7 +463,7 @@ final class CodeGraphBuilder
             $constantTracer->collect($collector->classLikes);
             $facadeTracer->collect($collector->classLikes);
             $relationIndex->collect($collector->classLikes);
-            $traversalTracer->collect($collector->classLikes);
+            $traversalTracer->collect($collector->classLikes, $collector->uses);
 
             // Dispatchers → jobs incl. configured custom helpers + the unresolved-dispatch signal
             // (a variable dispatch must make a job read "unknown", not "none"). The target is

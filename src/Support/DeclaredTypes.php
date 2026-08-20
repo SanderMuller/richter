@@ -1,0 +1,171 @@
+<?php declare(strict_types=1);
+
+namespace SanderMuller\Richter\Support;
+
+use PhpParser\Comment\Doc;
+use PhpParser\Node;
+use PhpParser\Node\Expr\Variable;
+use PhpParser\Node\Identifier;
+use PhpParser\Node\Name;
+use PhpParser\Node\NullableType;
+use PhpParser\Node\Stmt\ClassLike;
+use PhpParser\Node\Stmt\ClassMethod;
+use PhpParser\Node\Stmt\Use_;
+use PhpParser\NodeFinder;
+use SanderMuller\Richter\Tracers\RelationTraversalTracer;
+
+/**
+ * The types a method states about the values it handles, read rather than inferred: declared
+ * property, promoted-property and parameter types, plus the `@var` docblocks PHP has no syntax for.
+ *
+ * Split out of {@see RelationTraversalTracer} because reading a type and walking a chain are two
+ * jobs, and only the second one needs the relation index.
+ *
+ * Every reader is app-scoped and refuses a union: two classes mean the value could be either, and a
+ * relation hop taken on the wrong one names a model the code never reaches.
+ *
+ * @internal
+ */
+final class DeclaredTypes
+{
+    /** @var array<string, string> lowercased alias => FQCN, from the file's `use` statements */
+    private array $aliases = [];
+
+    /** @param  list<Use_>  $uses  the file's imports, for the docblock names name resolution never saw */
+    public function readImports(array $uses): void
+    {
+        $this->aliases = [];
+
+        foreach ($uses as $use) {
+            foreach ($use->uses as $item) {
+                $alias = $item->alias instanceof Identifier ? $item->alias->toString() : $item->name->getLast();
+                $this->aliases[strtolower($alias)] = $item->name->toString();
+            }
+        }
+    }
+
+    /**
+     * Types a `@var` docblock states for a local. The author asserted the type where the language had
+     * no place to declare one, which is the same evidence a parameter type gives; a union or an
+     * unqualified name that is not an app class is skipped like any other unreadable type.
+     *
+     * @return array<string, string>
+     */
+    public function docblockTypesIn(ClassMethod $method): array
+    {
+        $types = [];
+
+        foreach (new NodeFinder()->find($method, static fn (Node $node): bool => $node->getDocComment() instanceof Doc) as $node) {
+            $text = $node->getDocComment()?->getText() ?? '';
+
+            if (preg_match_all('/@var\s+(\S+)\s+\$(\w+)/', $text, $matches, PREG_SET_ORDER) === 0) {
+                continue;
+            }
+
+            foreach ($matches as [, $declared, $variable]) {
+                $class = $this->docblockClass($declared);
+
+                if ($class !== null) {
+                    $types[$variable] = $class;
+                }
+            }
+        }
+
+        return $types;
+    }
+
+    /** One class out of a docblock type, or null for a union of two classes, a builtin, or a vendor class. */
+    private function docblockClass(string $declared): ?string
+    {
+        $parts = array_values(array_filter(
+            explode('|', ltrim($declared, '?')),
+            static fn (string $part): bool => $part !== '' && strtolower($part) !== 'null',
+        ));
+
+        if (count($parts) !== 1 || preg_match('/^\\\\?[\w\\\\]+$/', $parts[0]) !== 1) {
+            return null;
+        }
+
+        $declared = $parts[0];
+
+        // A leading backslash is already the answer. Anything else is written the way the file reads
+        // it, so it goes through the same imports the code around it uses.
+        if (str_starts_with($declared, '\\')) {
+            return $this->appClass(ltrim($declared, '\\'));
+        }
+
+        $head = strstr($declared, '\\', before_needle: true);
+        $alias = $this->aliases[strtolower($head === false ? $declared : $head)] ?? null;
+
+        if ($alias !== null) {
+            return $this->appClass($head === false ? $alias : $alias . substr($declared, strlen($head)));
+        }
+
+        return $this->appClass($declared);
+    }
+
+    /**
+     * Declared property types, including promoted constructor properties. A union type names more
+     * than one class and is left out rather than guessed at; a nullable one is its inner type.
+     *
+     * @return array<string, string>
+     */
+    public function propertyTypesOf(ClassLike $node): array
+    {
+        $types = [];
+
+        foreach ($node->getProperties() as $property) {
+            $type = $this->classTypeOf($property->type);
+
+            foreach ($property->props as $prop) {
+                if ($type !== null) {
+                    $types[$prop->name->toString()] = $type;
+                }
+            }
+        }
+
+        $constructor = $node->getMethod('__construct');
+
+        foreach ($constructor instanceof ClassMethod ? $constructor->params : [] as $parameter) {
+            $type = $this->classTypeOf($parameter->type);
+
+            if ($type !== null && $parameter->flags !== 0 && $parameter->var instanceof Variable && is_string($parameter->var->name)) {
+                $types[$parameter->var->name] = $type;
+            }
+        }
+
+        return $types;
+    }
+
+    /** @return array<string, string> */
+    public function parameterTypesOf(ClassMethod $method): array
+    {
+        $types = [];
+
+        foreach ($method->params as $parameter) {
+            $type = $this->classTypeOf($parameter->type);
+
+            if ($type !== null && $parameter->var instanceof Variable && is_string($parameter->var->name)) {
+                $types[$parameter->var->name] = $type;
+            }
+        }
+
+        return $types;
+    }
+
+    /** The app class a declared type names, or null for a union, a builtin, or a vendor class. */
+    private function classTypeOf(?Node $type): ?string
+    {
+        if ($type instanceof NullableType) {
+            return $this->classTypeOf($type->type);
+        }
+
+        return $type instanceof Name ? $this->appClass(AppFiles::resolveName($type)) : null;
+    }
+
+    /** App-scoped like every other lane: a vendor class has no node any hop could continue from. */
+    public function appClass(string $fqcn): ?string
+    {
+        return AppNamespace::isInApp($fqcn) ? $fqcn : null;
+    }
+}

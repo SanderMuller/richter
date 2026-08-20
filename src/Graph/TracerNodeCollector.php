@@ -6,6 +6,7 @@ use PhpParser\Node;
 use PhpParser\Node\Stmt\ClassLike;
 use PhpParser\Node\Stmt\ClassMethod;
 use PhpParser\Node\Stmt\TraitUse;
+use PhpParser\Node\Stmt\Use_;
 use PhpParser\NodeVisitorAbstract;
 use SanderMuller\Richter\Support\AppFiles;
 
@@ -29,6 +30,15 @@ final class TracerNodeCollector extends NodeVisitorAbstract
     /** @var list<ClassLike> */
     public array $classLikes = [];
 
+    /**
+     * The file's `use` statements. Name resolution rewrites Name NODES, so every tracer that reads a
+     * type off the AST needs nothing more — but a type written in a DOCBLOCK is a string the resolver
+     * never saw, and resolving `@var Post $post` needs the aliases the file imported.
+     *
+     * @var list<Use_>
+     */
+    public array $uses = [];
+
     public function enterNode(Node $node): null
     {
         if ($node instanceof ClassMethod) {
@@ -37,6 +47,8 @@ final class TracerNodeCollector extends NodeVisitorAbstract
             $this->traitUses[] = $node;
         } elseif ($node instanceof ClassLike) {
             $this->classLikes[] = $node;
+        } elseif ($node instanceof Use_) {
+            $this->uses[] = $node;
         }
 
         return null;

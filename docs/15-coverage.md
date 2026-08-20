@@ -21,7 +21,7 @@ Brain traces some of these too (view composition, resource references, queue dis
 - trait usage;
 - eager-load relation strings, whole paths rather than first segments: `with('comments.author')` links `Post::comments` and `Comment::author`, because the relation index says which model each segment returns. A segment on a model the index knows, naming a relation that model does not have, is reported against that model rather than against every model at once;
 - relation methods to the models they return: `Post::comments` links to `Comment`, so a change to the model a relation arrives at reaches the code that walks or eager-loads it. Brain's model-to-model edge is class to class, which stops one hop short of the member that reads the relation;
-- relations walked in a body: `$this->post->author` links the relation methods it walks. The receiver has to carry a declared type: `$this`, a typed property, or a typed parameter. The chain ends at the first hop that does not resolve. It also ends after a to-many hop, because `$post->comments` is a collection and what follows it belongs to the collection, not to `Comment`;
+- relations walked in a body: `$this->post->author` links the relation methods it walks. The receiver has to say what it is somewhere in the source: `$this`, a typed property or parameter, `new Post`, a static that returns one model (`Post::find(…)`, `first`, `create` and the rest of that family), a `@var` docblock, or a local bound to any of those. The chain ends at the first hop that does not resolve, and it also ends after a to-many hop, because `$post->comments` is a collection and what follows it belongs to the collection, not to `Comment`;
 - view-to-view includes;
 - frontend endpoint references: Wayfinder imports, Ziggy calls, endpoint literals in changed TS/JS/Vue files and Blade inline scripts (opt-in, see [Frontend changes](12-frontend.md)).
 
@@ -29,7 +29,7 @@ Brain traces some of these too (view composition, resource references, queue dis
 
 Three limits are worth knowing before you read a report against them.
 
-Relation traversals need a typed root. Richter follows `$this->post->author` hop by hop. A relation names its target in the `hasMany(Comment::class)` argument, so no hop needs type inference, but the value the chain starts from does: `$this`, a typed property, or a typed parameter. An untyped property, a `mixed`, a union type, or a value that came out of a query builder ends the chain before it starts, and how much a codebase gets back therefore depends on how well its properties and parameters are typed.
+Relation traversals need a root the source types. Richter follows `$this->post->author` hop by hop, because a relation names its target in the `hasMany(Comment::class)` argument, but the value the chain starts from has to say what it is: `$this`, a typed property or parameter, `new Post`, a model-returning static, a `@var` docblock, or a local bound to one of those. An untyped property, a `mixed`, a union type, and a value taken from a query builder or a collection all end the chain before it starts.
 
 A class reached only through a static call has the methods those calls name read, which connects what they construct and connects an inherited method's work through the subclass. The rest of the class stays unread by default: a method nobody calls statically. Set `richter.second_hop` to `'class'` to read those too, measured at ~8.0s against the default's ~4.5s on a 4,000-file app, or to `false` to trade the reach back for the build time.
 

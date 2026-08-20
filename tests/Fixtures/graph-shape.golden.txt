@@ -79,8 +79,10 @@ App\Policies\PostPolicy	declares	App\Policies\PostPolicy::UPDATE
 App\Policies\PostPolicy	declares	App\Policies\PostPolicy::update
 App\Policies\UserPolicy	declares	App\Policies\UserPolicy::DELETE
 App\Policies\UserPolicy	declares	App\Policies\UserPolicy::delete
+App\Services\CommentSummariser	declares	App\Services\CommentSummariser::latest
 App\Services\CommentSummariser	declares	App\Services\CommentSummariser::preload
 App\Services\CommentSummariser	declares	App\Services\CommentSummariser::summarise
+App\Services\CommentSummariser::latest	loads-relation	App\Models\Comment::post
 App\Services\CommentSummariser::preload	references-constant	App\Models\Post::REVIEWS
 App\Services\CommentSummariser::preload	loads-relation	App\Models\Post::reviews
 App\Services\CommentSummariser::preload	references-constant	App\Models\Review::ANSWERS
