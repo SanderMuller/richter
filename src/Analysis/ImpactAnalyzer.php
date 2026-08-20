@@ -339,6 +339,9 @@ final readonly class ImpactAnalyzer
         // while `richter:impact` on the same member listed every user. Shown, never counted — the same
         // bargain {@see $relatedModels} already strikes for association reach.
         $traitAndOverrideReach = $this->uncountedReachVia($reach, ['uses-trait', 'override']);
+        // Sorted at the source rather than per format: the JSON list, the via map's key order and
+        // every rendered list then read the same way round.
+        sort($traitAndOverrideReach);
         // Why each of them is listed. Without it the section names classes and gives no way to tell a
         // trait user from an override implementor — the reader is left grepping the source to
         // classify what the walk already knew.

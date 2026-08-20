@@ -12,7 +12,7 @@ Risk is a coarse, advisory signal, deliberately simple so `--fail-on` stays pred
 
 Association edges (model relationships, trait usage, `declares`) are reach and context, not risk. They never count toward the impacted-node total, so touching a hub model or trait cannot saturate a change to `high` on breadth alone.
 
-An uncounted surface is still reported. The two decisions are separate. A surface reached *only* through an association edge is listed under **Entry surfaces reached only by association**, and the classes that run a changed member without calling it (trait users, override implementors) under **Runs this code without calling it**. Over-approximated *calls* (`override`, `config-registry`) stay in the main entry-point list, since the dispatch is real there and only the target is uncertain.
+An uncounted surface is still reported. The two decisions are separate. A surface reached *only* through an association edge is listed under **Entry surfaces reached only by association**, and the classes that run a changed member without calling it (trait users, override implementors) under **Runs this code without calling it**. Over-approximated *calls* stay in the main entry-point list, since the dispatch is real there and only the target is uncertain: `override`, and a `config-registry` read whose key the build could enumerate. A registry read whose key it could not (`config-registry-fanout`) links every class its file names, so the surfaces behind it are identical for each of them and join the association list instead.
 
 ## Calibrating the thresholds
 

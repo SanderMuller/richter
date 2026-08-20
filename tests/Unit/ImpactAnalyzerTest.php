@@ -1630,8 +1630,8 @@ final class ImpactAnalyzerTest extends TestCase
         ]);
 
         $this->assertSame([
-            'App\Services\ConcreteExporter::audits' => ['override'],
             'App\Builders\FirstBuilder' => ['uses-trait'],
+            'App\Services\ConcreteExporter::audits' => ['override'],
         ], $result['traitAndOverrideReachVia']);
     }
 
