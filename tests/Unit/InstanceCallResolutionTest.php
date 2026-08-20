@@ -95,6 +95,62 @@ final class InstanceCallResolutionTest extends TestCase
     }
 
     #[Test]
+    public function a_method_a_trait_of_a_trait_declares_is_kept(): void
+    {
+        // Trait composition nests, so stopping at the first level would drop a call to a method the
+        // outer trait really does have.
+        $edges = InstanceCallResolution::keepResolvable(
+            [
+                ['source' => 'App\Support\Reports', 'target' => 'App\Support\Formats', 'type' => 'uses-trait'],
+                ['source' => 'App\Support\Reports::run', 'target' => 'App\Support\Reports::format', 'type' => 'instance-call'],
+            ],
+            [],
+            [
+                'App\Support\Reports' => $this->declares('App\Support\Reports', ['run']),
+                'App\Support\Formats' => $this->declares('App\Support\Formats', ['format']),
+            ],
+        );
+
+        $this->assertSame(['App\Support\Reports::format'], $this->targets($edges));
+    }
+
+    #[Test]
+    public function a_method_no_trait_in_the_chain_declares_is_dropped(): void
+    {
+        // The consuming class may well have it, but naming the trait would name a class that never
+        // ran it.
+        $edges = InstanceCallResolution::keepResolvable(
+            [
+                ['source' => 'App\Support\Reports', 'target' => 'App\Support\Formats', 'type' => 'uses-trait'],
+                ['source' => 'App\Support\Reports::run', 'target' => 'App\Support\Reports::tableName', 'type' => 'instance-call'],
+            ],
+            [],
+            [
+                'App\Support\Reports' => $this->declares('App\Support\Reports', ['run']),
+                'App\Support\Formats' => $this->declares('App\Support\Formats', ['format']),
+            ],
+        );
+
+        $this->assertSame([], $this->targets($edges));
+    }
+
+    #[Test]
+    public function a_trait_cycle_terminates(): void
+    {
+        $edges = InstanceCallResolution::keepResolvable(
+            [
+                ['source' => 'App\Support\A', 'target' => 'App\Support\B', 'type' => 'uses-trait'],
+                ['source' => 'App\Support\B', 'target' => 'App\Support\A', 'type' => 'uses-trait'],
+                ['source' => 'App\Support\A::run', 'target' => 'App\Support\A::missing', 'type' => 'instance-call'],
+            ],
+            [],
+            ['App\Support\A' => $this->declares('App\Support\A', ['run'])],
+        );
+
+        $this->assertSame([], $this->targets($edges));
+    }
+
+    #[Test]
     public function an_inheritance_cycle_terminates(): void
     {
         // A malformed or mis-parsed chain must not hang the build.

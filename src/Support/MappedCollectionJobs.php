@@ -11,7 +11,6 @@ use PhpParser\Node\Expr\New_;
 use PhpParser\Node\Identifier;
 use PhpParser\Node\Name;
 use PhpParser\Node\Stmt\Return_;
-use PhpParser\NodeFinder;
 
 /**
  * The dispatch targets a `Bus::batch($items->map(fn () => new SomeJob(…))->all())` argument provably
@@ -66,55 +65,48 @@ final class MappedCollectionJobs
     }
 
     /**
-     * The dispatch targets a `map` callable returns, or null when it does not provably return
-     * instances. A callable that maps to a DTO answers null rather than "no jobs here": "the batch
-     * holds nothing dispatchable" and "cannot tell" are different answers, and only the second one
-     * may keep the site's doubt.
+     * The dispatch target a `map` callable returns, or null when it does not provably return one.
+     *
+     * EVERY return has to be a dispatch target. A callable that returns a job on one branch and a
+     * DTO on another proves nothing about the batch — some items are not jobs — and "the batch holds
+     * something else too" must keep the site's doubt rather than read as resolved.
      *
      * @return list<string>|null
      */
     private static function jobsReturnedBy(Expr $callable): ?array
     {
-        $returns = self::returnsOf($callable);
+        $returned = self::returnedExpression($callable);
 
-        if ($returns === null || $returns === []) {
+        if (! $returned instanceof New_ || ! $returned->class instanceof Name) {
             return null;
         }
 
-        $jobs = [];
+        $job = AppFiles::resolveName($returned->class);
 
-        foreach ($returns as $return) {
-            if (! $return instanceof New_ || ! $return->class instanceof Name) {
-                return null;
-            }
-
-            $jobs[] = AppFiles::resolveName($return->class);
-        }
-
-        $dispatchable = array_values(array_filter($jobs, DispatchTarget::matches(...)));
-
-        return $dispatchable === [] ? null : $dispatchable;
+        return DispatchTarget::matches($job) ? [$job] : null;
     }
 
     /**
-     * Every expression the callable returns, or null when it is not a literal callable — a variable,
-     * a first-class callable, or a string name says nothing about the item type here.
+     * The one expression the callable always returns, or null when it cannot be proved to return one.
      *
-     * @return list<Expr|null>|null
+     * An arrow function is total by construction: it has exactly one expression and no other path
+     * out. A closure only qualifies when its whole body is a single `return` — anything else can
+     * fall through to an implicit `null`, or return different things on different branches, and
+     * neither proves what the mapped collection holds. Nested callables inside the body are
+     * deliberately not read: a `return` inside one of them belongs to that callable, not this one.
      */
-    private static function returnsOf(Expr $callable): ?array
+    private static function returnedExpression(Expr $callable): ?Expr
     {
         if ($callable instanceof ArrowFunction) {
-            return [$callable->expr];
+            return $callable->expr;
         }
 
-        if (! $callable instanceof Closure) {
+        if (! $callable instanceof Closure || count($callable->stmts) !== 1) {
             return null;
         }
 
-        return array_values(array_map(
-            static fn (Return_ $return): ?Expr => $return->expr,
-            new NodeFinder()->findInstanceOf($callable->stmts, Return_::class),
-        ));
+        $only = $callable->stmts[0];
+
+        return $only instanceof Return_ ? $only->expr : null;
     }
 }

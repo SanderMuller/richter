@@ -67,11 +67,42 @@ final class InstanceCallResolution
                 return true;
             }
 
-            foreach ($traits[$current] ?? [] as $trait) {
-                if (isset($declared[$trait][$method])) {
-                    return true;
-                }
+            if (self::declaredByATrait($current, $method, $declared, $traits)) {
+                return true;
             }
+        }
+
+        return false;
+    }
+
+    /**
+     * Whether a trait the class uses — or one of the traits THAT trait uses, and so on — declares the
+     * method. A trait is copied into whatever uses it, so composition nests, and stopping at the
+     * first level would drop a call to a method the outer trait really does have. The seen-set makes
+     * a malformed cycle terminate rather than hang the build.
+     *
+     * @param  array<string, array<string, true>>  $declared
+     * @param  array<string, list<string>>  $traits
+     */
+    private static function declaredByATrait(string $class, string $method, array $declared, array $traits): bool
+    {
+        $queue = $traits[$class] ?? [];
+        $seen = [];
+
+        for ($head = 0; isset($queue[$head]); ++$head) {
+            $trait = $queue[$head];
+
+            if (isset($seen[$trait])) {
+                continue;
+            }
+
+            $seen[$trait] = true;
+
+            if (isset($declared[$trait][$method])) {
+                return true;
+            }
+
+            $queue = [...$queue, ...$traits[$trait] ?? []];
         }
 
         return false;

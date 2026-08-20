@@ -153,10 +153,11 @@ final class InstanceCallEdgeTracerTest extends TestCase
     }
 
     #[Test]
-    public function a_trait_links_only_the_methods_it_declares(): void
+    public function a_trait_draws_its_calls_and_leaves_the_filtering_to_the_merge_step(): void
     {
-        // Inside a trait, `$this` is the consuming class at runtime. Naming the trait for a method
-        // it does not declare would name a class that never ran it.
+        // Inside a trait, `$this` is the consuming class at runtime, so a method the trait does not
+        // have must not be linked to it. Whether the trait HAS it is a whole-tree question once
+        // traits use other traits, so this lane draws both and `InstanceCallResolution` decides.
         $edges = $this->edges(<<<'PHP'
             trait Audits
             {
@@ -165,11 +166,10 @@ final class InstanceCallEdgeTracerTest extends TestCase
             }
             PHP);
 
-        $this->assertSame([[
-            'source' => 'App\Services\Audits::audit',
-            'target' => 'App\Services\Audits::auditName',
-            'type' => 'instance-call',
-        ]], $edges);
+        $this->assertSame([
+            ['source' => 'App\Services\Audits::audit', 'target' => 'App\Services\Audits::auditName', 'type' => 'instance-call'],
+            ['source' => 'App\Services\Audits::audit', 'target' => 'App\Services\Audits::tableName', 'type' => 'instance-call'],
+        ], $edges);
     }
 
     #[Test]

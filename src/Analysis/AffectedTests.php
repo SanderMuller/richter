@@ -76,8 +76,13 @@ final class AffectedTests
         }
 
         // A test file the diff itself touched is affected by definition — no graph reasoning needed,
-        // and none available: `tests/` is outside every lane the analysis reads.
-        $changedTests = self::runnableOnly($outOfScope);
+        // and none available: `tests/` is outside every lane the analysis reads. A DELETED one is
+        // filtered out: the diff still names it, and handing a path that no longer exists to a test
+        // runner fails the run this selection is meant to shorten.
+        $changedTests = array_values(array_filter(
+            self::runnableOnly($outOfScope),
+            static fn (string $file): bool => is_file(base_path($file)),
+        ));
 
         if ($changed === []) {
             return ['base' => $base, 'determinable' => true, 'reasons' => [], 'tests' => $changedTests, 'frontendTests' => [], 'unreferencedEntryPoints' => 0, 'unresolvedDispatchSites' => [], 'untrackedFiles' => $untracked];
@@ -125,7 +130,7 @@ final class AffectedTests
     }
 
     /**
-     * @param  array{coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, lowConfidence: bool, callers?: list<array{depth: int, node: string, via: string, file?: string, line?: int}>, dependencies?: list<array{depth: int, node: string, via: string, file?: string, line?: int}>, ...}  $result  an {@see ImpactAnalyzer::detectChanges()} result
+     * @param  array{coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, registryEntryPoints?: list<string>, lowConfidence: bool, callers?: list<array{depth: int, node: string, via: string, file?: string, line?: int}>, dependencies?: list<array{depth: int, node: string, via: string, file?: string, line?: int}>, ...}  $result  an {@see ImpactAnalyzer::detectChanges()} result
      * @param  list<ChangedFileSymbols>  $changed
      * @param  CodeGraph|null  $graph  when given, a `schedule::` entry point resolves through its
      *   scheduled command (the schedule node id itself is an opaque hash) instead of blocking
@@ -179,7 +184,11 @@ final class AffectedTests
         $frontendSelected = [];
         $unreferenced = 0;
 
-        foreach ($result['entryPoints'] as $entryPoint) {
+        // Selection walks the registry fan-out surfaces too. They are context in the report, since
+        // they cannot tell one class of a registry from another — but each is a route that really
+        // may dispatch the change, and a selection that skips them under-selects, which is the one
+        // direction this command must never fail in.
+        foreach ([...$result['entryPoints'], ...$result['registryEntryPoints'] ?? []] as $entryPoint) {
             $frontendSelected = [...$frontendSelected, ...$frontendTests?->testsReferencing($entryPoint) ?? []];
             $referencing = self::testsReferencingEntryPoint($entryPoint, $tests, $graph);
 

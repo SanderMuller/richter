@@ -276,6 +276,15 @@ final class DispatchEdgeTracerTest extends TestCase
         yield 'Bus::batch over a mapped collection then plucked' => ['Bus::batch($this->items->map(fn (int $i): ImportJob => new ImportJob())->pluck("job")->all());', "use App\Jobs\ImportJob;\nuse Illuminate\Support\Facades\Bus;", 1];
         yield 'Bus::batch over a map whose callable is a variable' => ['Bus::batch($this->items->map($this->builder)->all());', 'use Illuminate\Support\Facades\Bus;', 1];
         yield 'Bus::batch over a map returning something else' => ['Bus::batch($this->items->map(fn (int $i): ImportJob => $this->build($i))->all());', "use App\Jobs\ImportJob;\nuse Illuminate\Support\Facades\Bus;", 1];
+        // One branch returns a job and the other does not, so some items are not jobs and the batch
+        // proves nothing.
+        yield 'Bus::batch over a map with a non-job branch' => ['Bus::batch($this->items->map(fn (int $i): object => $i > 0 ? new ImportJob() : new ImportSummary())->all());', "use App\Jobs\ImportJob;\nuse Illuminate\Support\Facades\Bus;", 1];
+        // A closure that can fall through returns null for some items; only a single unconditional
+        // return proves the type.
+        yield 'Bus::batch over a map that can fall through' => ['Bus::batch($this->items->map(function (int $i) { if ($i > 0) { return new ImportJob(); } })->all());', "use App\Jobs\ImportJob;\nuse Illuminate\Support\Facades\Bus;", 1];
+        // A `return` inside a nested callable belongs to that callable, not to the map's.
+        yield 'Bus::batch over a map whose only return is nested' => ['Bus::batch($this->items->map(function (int $i) { $make = fn (): ImportJob => new ImportJob(); })->all());', "use App\Jobs\ImportJob;\nuse Illuminate\Support\Facades\Bus;", 1];
+        yield 'Bus::batch over a map with one unconditional return' => ['Bus::batch($this->items->map(function (int $i): ImportJob { return new ImportJob(); })->all());', "use App\Jobs\ImportJob;\nuse Illuminate\Support\Facades\Bus;", 0];
     }
 
     #[Test]

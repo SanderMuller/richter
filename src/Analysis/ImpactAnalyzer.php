@@ -68,22 +68,18 @@ final readonly class ImpactAnalyzer
      * Edges that carry CONTEXT rather than a call, for the purpose of finding entry points.
      *
      * A strict subset of {@see RISK_EXCLUDED_EDGE_TYPES}, and the difference matters. `override` and
-     * `config-registry` are over-approximated CALLS — the dispatch is real, only the target is
-     * uncertain — so an entry point behind one genuinely runs the changed code and belongs in the
-     * list. A model relation and a model→policy link are not calls in any direction: they say two
-     * things are associated, and walking them to an entry point invents a caller.
+     * an ENUMERATED `config-registry` read are over-approximated CALLS — the dispatch is real, only
+     * the target is uncertain — so an entry point behind one genuinely runs the changed code and
+     * belongs in the list. A model relation and a model→policy link are not calls in any direction:
+     * they say two things are associated, and walking them to an entry point invents a caller.
+     *
+     * `config-registry-fanout` sits with them: a registry read whose key cannot be enumerated links
+     * every class its config file names, so the surfaces behind it are identical for every one of
+     * those classes and cannot tell one change from another.
      *
      * `declares` and `uses-trait` stay traversable here on purpose: `declares` is how a changed
      * member reaches its own class node (removing it would cut real reach at the first hop), and a
      * trait's users do run its code.
-     */
-    /**
-     * Edges that associate rather than invoke, so a surface reached ONLY through one is context and
-     * never a caller. `config-registry-fanout` joins the two model edges: a registry read whose key
-     * cannot be enumerated links every class its config file names, so the surfaces behind it are
-     * identical for every one of those classes and cannot tell one change from another. An
-     * enumerated `config-registry` read names ONE class and stays a caller, since that dispatch is
-     * as real as any other.
      *
      * @var list<string>
      */
@@ -162,7 +158,7 @@ final readonly class ImpactAnalyzer
      * draw "nothing changed" without a graph build. {@see JsonPresenter::emptyDetectChanges()} is
      * the separate JSON-shaped equivalent; the two differ in `risk` (enum here, string there).
      *
-     * @return array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, newFiles: list<string>, fqcns: array<string, string>, callers: list<array{depth: int, node: string, via: string}>, dependencies: list<array{depth: int, node: string, via: string}>, seeds: list<string>, reach: array<string, array<string, true>>, edges: list<array{source: string, target: string, via: string, depth: int}>, entryPoints: list<string>, associationEntryPoints: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, SecurityShape>, entryPointGates: array<string, list<string>>, entryPointAuthGates: array<string, list<string>>, entryPointAuthMiddleware: array<string, list<string>>, impacted: int, relatedModels: list<string>, traitAndOverrideReach: list<string>, traitAndOverrideReachVia: array<string, list<string>>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied: bool, scoredEntryPoints: int, scoredImpacted: int, findings: list<string>}
+     * @return array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, newFiles: list<string>, fqcns: array<string, string>, callers: list<array{depth: int, node: string, via: string}>, dependencies: list<array{depth: int, node: string, via: string}>, seeds: list<string>, reach: array<string, array<string, true>>, edges: list<array{source: string, target: string, via: string, depth: int}>, entryPoints: list<string>, associationEntryPoints: list<string>, registryEntryPoints: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, SecurityShape>, entryPointGates: array<string, list<string>>, entryPointAuthGates: array<string, list<string>>, entryPointAuthMiddleware: array<string, list<string>>, impacted: int, relatedModels: list<string>, traitAndOverrideReach: list<string>, traitAndOverrideReachVia: array<string, list<string>>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied: bool, scoredEntryPoints: int, scoredImpacted: int, findings: list<string>}
      */
     public static function emptyDetectChanges(): array
     {
@@ -171,7 +167,7 @@ final readonly class ImpactAnalyzer
             'seeds' => [], 'reach' => [], 'edges' => [], 'entryPoints' => [], 'associationEntryPoints' => [], 'entryPointPaths' => [],
             'entryPointLocations' => [], 'entryPointSecurity' => [], 'entryPointGates' => [],
             'entryPointAuthGates' => [], 'entryPointAuthMiddleware' => [],
-            'impacted' => 0, 'relatedModels' => [], 'traitAndOverrideReach' => [], 'traitAndOverrideReachVia' => [], 'risk' => RiskLevel::Low,
+            'impacted' => 0, 'relatedModels' => [], 'registryEntryPoints' => [], 'traitAndOverrideReach' => [], 'traitAndOverrideReachVia' => [], 'risk' => RiskLevel::Low,
             'lowConfidence' => false, 'coarseCapApplied' => false,
             'scoredEntryPoints' => 0, 'scoredImpacted' => 0, 'findings' => [],
         ];
@@ -202,6 +198,7 @@ final readonly class ImpactAnalyzer
      *     entryPointAuthMiddleware: array<string, list<string>>,
      *     impacted: int,
      *     relatedModels: list<string>,
+     *     registryEntryPoints: list<string>,
      *     traitAndOverrideReach: list<string>,
      *     traitAndOverrideReachVia: array<string, list<string>>,
      *     risk: RiskLevel,
@@ -314,6 +311,15 @@ final readonly class ImpactAnalyzer
         // `relatedModels` below); the entry-point list now draws it too.
         $entryPoints = $this->entryPointsAmong($this->graph->callersOf($seeds, $maxDepth, self::ASSOCIATION_EDGE_TYPES));
         $associationEntryPoints = array_values(array_diff($this->entryPointsAmong($callers), $entryPoints));
+        // A registry fan-out is context in the REPORT — it names every class its config file lists,
+        // so it cannot tell one of them from another — but the dispatch behind it is real, and a
+        // test that drives such a route does exercise the change. Carried separately so
+        // {@see AffectedTests} can select over it without the entry-point list claiming it as a
+        // caller. Internal, like the walk lists above: no output format reads it.
+        $registryEntryPoints = array_values(array_diff(
+            $this->entryPointsAmong($this->graph->callersOf($seeds, $maxDepth, ['model-relationship', 'model-to-policy'])),
+            $entryPoints,
+        ));
         $riskEntryPointCount = count($entryPoints);
 
         // Paths exist only for graph-reached entry points — computed before the self-listing below,
@@ -381,6 +387,7 @@ final readonly class ImpactAnalyzer
             'edges' => $edges,
             'entryPoints' => $entryPoints,
             'associationEntryPoints' => $associationEntryPoints,
+            'registryEntryPoints' => $registryEntryPoints,
             'entryPointPaths' => $entryPointPaths,
             'entryPointLocations' => $entryPointLocations,
             'entryPointSecurity' => $entryPointSecurity,

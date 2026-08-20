@@ -19,11 +19,12 @@ final class AffectedTestsTest extends TestCase
      * @param  list<string>  $entryPoints
      * @param  array<string, 'analyzed'|'unresolved'>  $coverage
      * @param  list<array{depth: int, node: string, via: string}>  $callers
-     * @return array{coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, lowConfidence: bool, callers: list<array{depth: int, node: string, via: string}>, dependencies: list<array{depth: int, node: string, via: string}>}
+     * @param  list<string>  $registryEntryPoints
+     * @return array{coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, registryEntryPoints: list<string>, lowConfidence: bool, callers: list<array{depth: int, node: string, via: string}>, dependencies: list<array{depth: int, node: string, via: string}>}
      */
-    private function detectResult(array $entryPoints, array $coverage = ['app/Services/X.php' => 'analyzed'], bool $lowConfidence = false, array $callers = []): array
+    private function detectResult(array $entryPoints, array $coverage = ['app/Services/X.php' => 'analyzed'], bool $lowConfidence = false, array $callers = [], array $registryEntryPoints = []): array
     {
-        return ['coverage' => $coverage, 'entryPoints' => $entryPoints, 'lowConfidence' => $lowConfidence, 'callers' => $callers, 'dependencies' => []];
+        return ['coverage' => $coverage, 'entryPoints' => $entryPoints, 'registryEntryPoints' => $registryEntryPoints, 'lowConfidence' => $lowConfidence, 'callers' => $callers, 'dependencies' => []];
     }
 
     private function changed(string $file, string $fqcn): ChangedFileSymbols
@@ -56,6 +57,24 @@ final class AffectedTestsTest extends TestCase
         $this->assertSame([], $selection['reasons']);
         $this->assertSame(['tests/Feature/ErrorLogTest.php', 'tests/Unit/XTest.php'], $selection['tests']);
         $this->assertSame(0, $selection['unreferencedEntryPoints']);
+    }
+
+    #[Test]
+    public function a_surface_behind_a_registry_fan_out_still_selects_its_tests(): void
+    {
+        // The report calls it context, because it names every class the config file lists and cannot
+        // tell one from another. The dispatch is real all the same, so a test that drives that route
+        // exercises the change — skipping it would under-select, the one direction this must never
+        // fail in.
+        $selection = AffectedTests::select(
+            $this->detectResult([], registryEntryPoints: ['route::GET::/errors/log']),
+            [$this->changed('app/Services/X.php', 'App\Services\X')],
+            $this->index(),
+            unresolvedDispatchSites: [],
+        );
+
+        $this->assertTrue($selection['determinable']);
+        $this->assertContains('tests/Feature/ErrorLogTest.php', $selection['tests']);
     }
 
     #[Test]

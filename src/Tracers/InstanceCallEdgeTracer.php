@@ -9,8 +9,8 @@ use PhpParser\Node\Expr\Variable;
 use PhpParser\Node\Identifier;
 use PhpParser\Node\Stmt\ClassLike;
 use PhpParser\Node\Stmt\ClassMethod;
-use PhpParser\Node\Stmt\Trait_;
 use PhpParser\NodeFinder;
+use SanderMuller\Richter\Graph\InstanceCallResolution;
 use SanderMuller\Richter\Support\AppFiles;
 
 /**
@@ -32,11 +32,14 @@ use SanderMuller\Richter\Support\AppFiles;
  * referenced `Subclass::method` node to the ancestor whose body runs, which is the lane that exists
  * for exactly this.
  *
- * Two receivers that read as `$this` are refused. Inside an anonymous class `$this` is that class,
+ * One receiver that reads as `$this` is refused: inside an anonymous class `$this` is that class,
  * not the method's own, so a nested call draws nothing rather than a confidently wrong edge — the
- * same rule {@see StaticCallEdgeTracer} applies to `self`/`static`. Inside a TRAIT, `$this` is the
- * consuming class at runtime, so a call is drawn only for a method the trait itself declares; naming
- * the trait for anything else would name a class that never ran it.
+ * same rule {@see StaticCallEdgeTracer} applies to `self`/`static`.
+ *
+ * A trait needs the same care for a different reason — `$this` there is the consuming class at
+ * runtime, so naming the trait for a method it does not have would name a class that never ran it —
+ * but whether the trait HAS the method is a whole-tree question once traits use other traits.
+ * {@see InstanceCallResolution} answers it at the merge step, for classes and traits alike.
  *
  * Dev/CI tooling only.
  */
@@ -65,11 +68,8 @@ final class InstanceCallEdgeTracer
                 continue;
             }
 
-            $declared = array_map(static fn (ClassMethod $method): string => $method->name->toString(), $classLike->getMethods());
-            $ownOnly = $classLike instanceof Trait_;
-
             foreach ($classLike->getMethods() as $method) {
-                foreach ($this->edgesForMethod($method, ltrim($fqcn, '\\'), $declared, $ownOnly) as $edge) {
+                foreach ($this->edgesForMethod($method, ltrim($fqcn, '\\')) as $edge) {
                     $edges[] = $edge;
                 }
             }
@@ -79,11 +79,9 @@ final class InstanceCallEdgeTracer
     }
 
     /**
-     * @param  list<string>  $declared  the method names this class-like writes out
-     * @param  bool  $ownOnly  draw only for a declared method — true inside a trait
      * @return list<array{source: string, target: string, type: string}>
      */
-    private function edgesForMethod(ClassMethod $method, string $fqcn, array $declared, bool $ownOnly): array
+    private function edgesForMethod(ClassMethod $method, string $fqcn): array
     {
         $source = $fqcn . '::' . $method->name->toString();
         $edges = [];
@@ -99,7 +97,7 @@ final class InstanceCallEdgeTracer
 
             // Recursion is not reach: a member that calls itself tells a reader nothing, and the
             // self-edge would draw a loop in every rendered chain through it.
-            if ($target === $source || ($ownOnly && ! in_array($callee, $declared, true))) {
+            if ($target === $source) {
                 continue;
             }
 
