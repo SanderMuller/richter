@@ -81,7 +81,10 @@ final class AffectedTests
         // runner fails the run this selection is meant to shorten.
         $changedTests = array_values(array_filter(
             self::runnableOnly($outOfScope),
-            static fn (string $file): bool => is_file(base_path($file)),
+            // Under `tests/` and still on disk. `$outOfScope` is every changed file no lane read, so
+            // a `tools/SmokeTest.php` reaches here too and is no argument for the suite runner; a
+            // DELETED test is a path that would fail the run this selection exists to shorten.
+            static fn (string $file): bool => str_starts_with($file, 'tests/') && is_file(base_path($file)),
         ));
 
         if ($changed === []) {

@@ -93,6 +93,22 @@ final class AffectedTestsTest extends TestCase
     }
 
     #[Test]
+    public function a_test_named_file_outside_the_tests_tree_is_not_a_runner_argument(): void
+    {
+        // `outOfScope` is every changed file no lane read, so a `tools/SmokeTest.php` reaches the
+        // fallback too. Handing it to the suite runner would run nothing for that path.
+        $selection = AffectedTests::select(
+            $this->detectResult([]),
+            [$this->changed('app/Services/X.php', 'App\Services\X')],
+            new TestReferenceIndex(),
+            unresolvedDispatchSites: [],
+            changedTests: ['tests/Feature/RealTest.php'],
+        );
+
+        $this->assertSame(['tests/Feature/RealTest.php'], $selection['tests']);
+    }
+
+    #[Test]
     public function an_undetermined_verdict_still_names_the_tests_it_could_find(): void
     {
         // The verdict blocks the selection from being trusted; it does not make the tests it did

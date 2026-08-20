@@ -95,6 +95,21 @@ final class InstanceCallResolutionTest extends TestCase
     }
 
     #[Test]
+    public function a_second_named_class_in_one_file_keeps_its_calls(): void
+    {
+        // The declares map keys a file's whole method list under its primary FQCN, so the second
+        // class is absent from it. Class-Hierarchy Analysis records every class-like under its own
+        // name, which is what saves the edge.
+        $edges = InstanceCallResolution::keepResolvable(
+            [['source' => 'App\Services\Second::run', 'target' => 'App\Services\Second::render', 'type' => 'instance-call']],
+            ['App\Services\Second' => ['parent' => null, 'declared' => ['run', 'render']]],
+            ['App\Services\First' => $this->declares('App\Services\First', ['run', 'build', 'render'])],
+        );
+
+        $this->assertSame(['App\Services\Second::render'], $this->targets($edges));
+    }
+
+    #[Test]
     public function a_method_a_trait_of_a_trait_declares_is_kept(): void
     {
         // Trait composition nests, so stopping at the first level would drop a call to a method the

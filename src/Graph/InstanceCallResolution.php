@@ -18,7 +18,14 @@ use SanderMuller\Richter\Tracers\InstanceCallEdgeTracer;
  * Whether an app class declares the method is a whole-tree question, and the merge step is where the
  * whole tree exists: the parent chains from Class-Hierarchy Analysis, and the declared members the
  * tracer branch already parsed per class-like. A method declared by the class itself, by an app
- * ancestor, or by a trait the class uses is kept; anything else is dropped rather than guessed at.
+ * ancestor, or by a trait the class uses (or a trait THAT trait uses) is kept; anything else is
+ * dropped rather than guessed at.
+ *
+ * One valid shape is dropped with the rest: a trait that calls a method its CONSUMING class supplies
+ * (`$this->destination()` in a trait, `destination()` on each class that uses it). The edge would
+ * have to name either a trait member that does not exist, or one node per consuming class — the
+ * second is the honest answer and needs the reverse trait map this pass does not build. Until it
+ * does, that call is not drawn.
  *
  * @internal
  */
@@ -63,7 +70,11 @@ final class InstanceCallResolution
         for ($current = $class; $current !== null && ! isset($seen[$current]); $current = $inheritance[$current]['parent'] ?? null) {
             $seen[$current] = true;
 
-            if (isset($declared[$current][$method])) {
+            // Two sources, because neither is complete on its own: the declares map keys a file's
+            // whole method list under its primary FQCN, so a SECOND named class in that file is
+            // absent from it, while Class-Hierarchy Analysis records every class-like under its own
+            // name but skips traits.
+            if (isset($declared[$current][$method]) || in_array($method, $inheritance[$current]['declared'] ?? [], true)) {
                 return true;
             }
 

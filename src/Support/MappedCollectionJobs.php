@@ -24,10 +24,16 @@ use PhpParser\Node\Stmt\Return_;
  * unfollowable taints `richter:affected-tests` for the whole project — while the graph already
  * carries the edge, drawn from the `new` inside the closure.
  *
- * Everything the proof depends on is checked: the calls between the `map` and the dispatch must
- * preserve the item type, the callable must be written out at the call site, and every return must
- * be a `new` of a resolvable class. Anything else answers null, and the caller doubts the site
- * exactly as before.
+ * Everything the proof depends on is checked, with one exception: the calls between the `map` and
+ * the dispatch must preserve the item type, the callable must be written out at the call site, and
+ * its single return must be a `new` of a dispatch target. Anything else answers null, and the caller
+ * doubts the site exactly as before.
+ *
+ * The exception is the RECEIVER. This reads method names, not types, so an object of its own that
+ * happens to spell `map()` and `all()` differently would be believed. Typing the receiver needs the
+ * inference lane relation traversals use, and it is not wired here; until it is, a custom
+ * collection-shaped class with its own `map()` semantics is the one shape that can hide a dispatch
+ * this pass calls resolved.
  *
  * @internal
  */
