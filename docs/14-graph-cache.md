@@ -17,9 +17,9 @@ The `brain-analyze` line names the path that ran: `full`, `scoped`, or `scoped-r
 
 ## Scoped rebuilds
 
-A miss no longer always costs a full analysis. The entry also stores the graph Laravel Brain produced and a record of the inputs it was built from, so a miss can compare the two records and ask which inputs actually differ, rather than only whether any did.
+A miss does not always cost a full analysis. The entry also stores the graph Laravel Brain produced and a record of the inputs it was built from, so a miss can compare the two records and ask which inputs actually differ, rather than only whether any did.
 
-When every difference is a changed file under `app/` — nothing added, nothing deleted, no config or package change, nothing outside `app/` — Brain re-traces only the controllers those files declare and merges the result into the stored graph. Everything else is a full build, as before.
+When every difference is a changed file under `app/` — nothing added, nothing deleted, no config or package change, nothing outside `app/` — Brain re-traces only the controllers those files declare and merges the result into the stored graph. Everything else is a full build.
 
 The merged graph is identical either way; that is asserted, not assumed. Two things are worth knowing about when it engages:
 
