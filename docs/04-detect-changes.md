@@ -86,7 +86,7 @@ That sentence is accurate about the analyser and misleading about the diff, so t
 Note: 2 changed file(s) are outside the analysed scope (not PHP under app/, a Blade view, or a configured frontend root) and were not analysed: resources/sass/app.scss, vapor.yml
 ```
 
-Up to five names are listed, with a count of the rest. Stderr, like the untracked-file note, so `--json` and `--markdown` stdout stay exactly the report. Frontend files the configuration deliberately declines to scan are not counted. Generated Wayfinder output under `frontend.generated_paths` and `.d.ts` declarations were silenced on purpose, and a note that fires loudest on regeneration churn is a note people stop reading.
+Up to five names are listed, with a count of the rest. Stderr, like the untracked-file note, so `--json` and `--markdown` stdout stay exactly the report. Frontend files the configuration deliberately declines to scan are not counted. Generated Wayfinder and Ziggy output under `frontend.generated_paths` and `.d.ts` declarations were silenced on purpose, and a note that fires loudest on regeneration churn is a note people stop reading.
 
 ## Unplaceable files and the defined-node fallback
 
