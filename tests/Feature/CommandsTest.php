@@ -294,6 +294,38 @@ final class CommandsTest extends TestCase
     }
 
     #[Test]
+    public function affected_tests_names_a_changed_test_file_and_skips_a_deleted_one(): void
+    {
+        // `tests/` is outside every tree the analysis reads, so no lane can find these. A test the
+        // diff touched is affected by definition; a test the diff DELETED is a path a runner would
+        // choke on.
+        $existing = 'tests/Feature/TouchedTest.php';
+        @mkdir(base_path('tests/Feature'), 0777, true);
+        file_put_contents(base_path($existing), "<?php\n");
+        $diff = "diff --git a/{$existing} b/{$existing}\n--- a/{$existing}\n+++ b/{$existing}\n@@ -0,0 +1,1 @@\n+// touched\n"
+            . "diff --git a/tests/Feature/GoneTest.php b/tests/Feature/GoneTest.php\ndeleted file mode 100644\n--- a/tests/Feature/GoneTest.php\n+++ /dev/null\n@@ -1,1 +0,0 @@\n-// gone\n";
+
+        Process::fake([
+            '*merge-base*' => Process::result("abc123\n"),
+            '*show-prefix*' => Process::result(),
+            '*show*' => Process::result(errorOutput: 'bad object', exitCode: 128),
+            '*status*' => Process::result(''),
+            '*diff*' => Process::result($diff),
+        ]);
+
+        $this->withoutMockingConsoleOutput();
+        $exitCode = Artisan::call('richter:affected-tests', ['--base' => 'some-base', '--json' => true]);
+        $output = Artisan::output();
+
+        $this->assertSame(0, $exitCode);
+        $decoded = json_decode(substr($output, (int) strpos($output, '{')), associative: true);
+        $this->assertIsArray($decoded);
+        @unlink(base_path($existing));
+
+        $this->assertSame([$existing], $decoded['tests']);
+    }
+
+    #[Test]
     public function affected_tests_an_unresolvable_head_is_undetermined_not_an_error(): void
     {
         // The exit code is the contract: 2 means "run the full suite", 1 means the command itself

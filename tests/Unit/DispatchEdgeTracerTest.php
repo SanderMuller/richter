@@ -284,6 +284,12 @@ final class DispatchEdgeTracerTest extends TestCase
         yield 'Bus::batch over a map that can fall through' => ['Bus::batch($this->items->map(function (int $i) { if ($i > 0) { return new ImportJob(); } })->all());', "use App\Jobs\ImportJob;\nuse Illuminate\Support\Facades\Bus;", 1];
         // A `return` inside a nested callable belongs to that callable, not to the map's.
         yield 'Bus::batch over a map whose only return is nested' => ['Bus::batch($this->items->map(function (int $i) { $make = fn (): ImportJob => new ImportJob(); })->all());', "use App\Jobs\ImportJob;\nuse Illuminate\Support\Facades\Bus;", 1];
+        // `toArray()` converts an Arrayable item into an array, so the mapped job may not reach the
+        // dispatch as a job at all.
+        yield 'Bus::batch over a mapped collection handed over with toArray' => ['Bus::batch($this->items->map(fn (int $i): ImportJob => new ImportJob())->toArray());', "use App\Jobs\ImportJob;\nuse Illuminate\Support\Facades\Bus;", 1];
+        // `flatMap` spreads an array return across the result, so the one-item-out reasoning does
+        // not carry.
+        yield 'Bus::batch over a flatMapped collection' => ['Bus::batch($this->items->flatMap(fn (int $i): ImportJob => new ImportJob())->all());', "use App\Jobs\ImportJob;\nuse Illuminate\Support\Facades\Bus;", 1];
         yield 'Bus::batch over a map with one unconditional return' => ['Bus::batch($this->items->map(function (int $i): ImportJob { return new ImportJob(); })->all());', "use App\Jobs\ImportJob;\nuse Illuminate\Support\Facades\Bus;", 0];
     }
 

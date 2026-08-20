@@ -88,7 +88,9 @@ final class InstanceCallEdgeTracer
 
         foreach (AppFiles::nodesOwnedByWithNesting($method, $this->isSelfCall(...)) as [$call, $nested]) {
             /** @var MethodCall|NullsafeMethodCall $call */
-            if ($nested || ! $call->name instanceof Identifier) {
+            // A first-class callable (`$this->build(...)`) makes a closure; it does not call the
+            // method, and drawing the edge would report a caller that never runs.
+            if ($nested || $call->isFirstClassCallable() || ! $call->name instanceof Identifier) {
                 continue;
             }
 

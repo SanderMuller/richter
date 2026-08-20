@@ -89,6 +89,22 @@ final class InstanceCallEdgeTracerTest extends TestCase
     }
 
     #[Test]
+    public function a_first_class_callable_draws_nothing(): void
+    {
+        // `$this->build(...)` makes a closure. It does not call the method, so an edge here would
+        // report a caller that never runs.
+        $edges = $this->edges(<<<'PHP'
+            class Reporter
+            {
+                public function run(): callable { return $this->build(...); }
+                public function build(): string { return 'x'; }
+            }
+            PHP);
+
+        $this->assertSame([], $edges);
+    }
+
+    #[Test]
     public function a_call_on_anything_other_than_this_draws_nothing(): void
     {
         // A property, a parameter and a local are receiver-typing problems, and this lane refuses

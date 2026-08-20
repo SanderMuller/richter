@@ -35,12 +35,16 @@ final class MappedCollectionJobs
 {
     /**
      * Collection calls that cannot change what the items ARE: they drop items, reorder them, or hand
-     * the collection over as an array. A call outside this list (`pluck`, `flatten`, `concat`, a
+     * the collection over as a plain array. A call outside this list (`pluck`, `flatten`, `concat`, a
      * macro) can, so the walk stops there rather than trusting the `map` above it.
+     *
+     * `toArray()` is NOT here: it converts an item that implements `Arrayable` into an array, so a
+     * job written that way would reach the dispatch as an array and the proof would be false. `all()`
+     * hands the items over untouched and is the shape this lane is about.
      *
      * @var list<string>
      */
-    private const array ITEM_PRESERVING = ['all', 'toArray', 'values', 'filter', 'reject', 'unique', 'sort', 'sortBy', 'sortByDesc', 'reverse', 'take', 'skip', 'slice', 'shuffle', 'whereNotNull', 'collect'];
+    private const array ITEM_PRESERVING = ['all', 'values', 'filter', 'reject', 'unique', 'sort', 'sortBy', 'sortByDesc', 'reverse', 'take', 'skip', 'slice', 'shuffle', 'whereNotNull', 'collect'];
 
     /** @return list<string>|null the dispatch targets, or null when this is not a provable mapped collection */
     public static function in(?Expr $value): ?array
@@ -48,7 +52,10 @@ final class MappedCollectionJobs
         while ($value instanceof MethodCall && $value->name instanceof Identifier) {
             $method = $value->name->toString();
 
-            if ($method === 'map' || $method === 'flatMap') {
+            // `map` only: it returns one item per input item, so the callable's return type IS the
+            // item type. `flatMap` spreads an array return across the result, so the same reasoning
+            // does not carry.
+            if ($method === 'map') {
                 $callable = $value->args[0] ?? null;
 
                 return $callable instanceof Arg ? self::jobsReturnedBy($callable->value) : null;
