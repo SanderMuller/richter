@@ -204,6 +204,7 @@ final readonly class ImpactAnalyzer
     {
         $preciseSeeds = [];
         $coarseSeeds = [];
+        $coarseDependencySeeds = [];
         $perFileSeeds = [];
         $frontendSeeds = [];
         $summary = [];
@@ -244,10 +245,11 @@ final readonly class ImpactAnalyzer
                 continue;
             }
 
-            ['precise' => $precise, 'coarse' => $coarse, 'declared' => $declared] = $this->seedsForChangedFile($file, $frontendSeeds);
+            ['precise' => $precise, 'coarse' => $coarse, 'coarseDependencies' => $coarseDependencies, 'declared' => $declared] = $this->seedsForChangedFile($file, $frontendSeeds);
 
             $preciseSeeds = [...$preciseSeeds, ...$precise];
             $coarseSeeds = [...$coarseSeeds, ...$coarse];
+            $coarseDependencySeeds = [...$coarseDependencySeeds, ...$coarseDependencies];
             $fileSeeds = [...$precise, ...$coarse];
 
             // Only a real change to an uncharted entry-point class keeps the MEDIUM floor; the additive/cosmetic case returned LOW above.
@@ -276,16 +278,20 @@ final readonly class ImpactAnalyzer
         $preciseSeeds = array_values(array_unique($preciseSeeds));
         $coarseSeeds = array_values(array_unique($coarseSeeds));
         $seeds = array_values(array_unique([...$preciseSeeds, ...$coarseSeeds]));
+        // The dependency walk drops a coarse seed's bare CLASS node — see seedsForChangedFile(). The
+        // caller walk keeps it, because "who uses this class" is the only reach a change that pins to
+        // no member has.
+        $dependencySeeds = array_values(array_unique([...$preciseSeeds, ...$coarseDependencySeeds]));
         // Low confidence only when a coarse seed actually resolved to a node — a coarse change to a class absent from the graph seeds nothing.
         $lowConfidence = $coarseSeeds !== [];
 
         $callers = $this->graph->callersOf($seeds, $maxDepth);
-        $dependencies = $this->graph->dependenciesOf($seeds, $maxDepth);
+        $dependencies = $this->graph->dependenciesOf($dependencySeeds, $maxDepth);
         // The same two walks kept as edges rather than a flat hop list, for consumers that draw the
         // reached region. Merged, not deduplicated: the two walks keep independent seen-sets, so a
         // node reached both ways appears twice at possibly different depths. Collapsing it to the
         // minimum is a presentation decision, left to the renderer.
-        $edges = [...$this->graph->callerEdgesOf($seeds, $maxDepth), ...$this->graph->dependencyEdgesOf($seeds, $maxDepth)];
+        $edges = [...$this->graph->callerEdgesOf($seeds, $maxDepth), ...$this->graph->dependencyEdgesOf($dependencySeeds, $maxDepth)];
 
         // Two walks, because "reached" is two different things. The full walk answers what the
         // change touches; the call-only walk answers what CALLS it. An entry point that exists only
@@ -309,7 +315,7 @@ final readonly class ImpactAnalyzer
         $coverage = $this->withUnresolvedJobFlips($coverage, $changed, $perFileSeeds, $maxDepth, $riskInputsMemo);
 
         // A node only reachable through `model-relationship` is context, not risk — counting it lets touching a hub model saturate to HIGH on relation breadth alone. Any behavioural edge still counts.
-        $reach = $this->graph->reachedViaTypes($seeds, $maxDepth);
+        $reach = $this->graph->reachedViaTypes($seeds, $maxDepth, $dependencySeeds);
         $impacted = count(array_filter($reach, $this->isRiskBearing(...)));
         $relatedModels = $this->uncountedReachVia($reach, ['model-relationship']);
         // Classes that RUN the changed member without calling it: they use the trait declaring it, or
@@ -394,12 +400,20 @@ final readonly class ImpactAnalyzer
      * `$frontendSeeds` is threaded by reference for the annotation lane: an entry-prefixed direct seed
      * (a route an inline `fetch()` calls) is a touched surface, never a walk seed.
      *
+     * `coarseDependencies` is the same coarse set with the bare CLASS node withheld — the half the
+     * dependency walk gets. A coarse seed is a class standing in for a member the graph could not pin,
+     * and walking that class node downstream leaves the change entirely: `implements` reaches an app
+     * interface, `declares` reaches its method, and CHA's `override` edges reach every implementor in
+     * the application. Upstream the same node answers the question the coarse lane exists for — who
+     * uses this class — so it stays a caller seed and is dropped only here. A class with no member
+     * nodes keeps it in both, since withholding it would leave that change unseeded.
+     *
      * `declared` is the same idea reached the other way: surfaces the file itself defines, filled
      * only by the last-resort lane in {@see definedNodes()}. They place the file — so coverage reads
      * `analyzed` — without ever being walked.
      *
      * @param  array<string, list<string>>  $frontendSeeds
-     * @return array{precise: list<string>, coarse: list<string>, declared: list<string>}
+     * @return array{precise: list<string>, coarse: list<string>, coarseDependencies: list<string>, declared: list<string>}
      */
     private function seedsForChangedFile(ChangedFileSymbols $file, array &$frontendSeeds): array
     {
@@ -418,12 +432,12 @@ final readonly class ImpactAnalyzer
         $coarse = $file->needsCoarseSeed() ? $this->seedsFor($file->fqcn) : [];
 
         if ($precise !== [] || $coarse !== []) {
-            return ['precise' => $precise, 'coarse' => $coarse, 'declared' => []];
+            return ['precise' => $precise, 'coarse' => $coarse, 'coarseDependencies' => Fqcn::memberNodesOf($coarse, $file->fqcn), 'declared' => []];
         }
 
         ['seeds' => $seeds, 'declared' => $declared] = $this->definedNodes($file, $frontendSeeds);
 
-        return ['precise' => $seeds, 'coarse' => [], 'declared' => $declared];
+        return ['precise' => $seeds, 'coarse' => [], 'coarseDependencies' => [], 'declared' => $declared];
     }
 
     /**
@@ -712,6 +726,13 @@ final readonly class ImpactAnalyzer
      * The edge-type exclusion is fixed rather than a parameter — the memo is keyed on maxDepth and
      * the seed set, so two callers asking with different exclusions would alias onto one entry.
      * `$alsoChanged` is parameterised, so it is folded into that key for the same reason.
+     *
+     * One seed set, both directions — unlike {@see detectChanges()}, which walks a coarse class node
+     * upstream only. The single call site that consumes the impacted half is the coarse-cap rescore,
+     * and it walks PRECISE seeds, which are symmetric by construction: member nodes for an ordinary
+     * change, and a new file's class node that belongs in both walks. The other two call sites read
+     * the entry-point half and discard the count. So no asymmetric set reaches here, and a parameter
+     * for one would only add a memo-key branch nothing exercises.
      *
      * `$alsoChanged` is the rest of the change: nodes a caller scores a SUBSET of. A walk never
      * reports its own seeds as reached ({@see CodeGraph::reachedViaTypes()} unsets them; the BFS

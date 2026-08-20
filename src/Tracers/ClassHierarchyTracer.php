@@ -26,6 +26,12 @@ use SanderMuller\Richter\Support\AppFiles;
  * reaches the override) — the same inversion the App-interface `implements` edges rely on. It is
  * strictly ADDITIVE: it only adds reachability, never removes it.
  *
+ * The edges are emitted per hierarchy; which of them a WALK may chain is a separate decision that
+ * lives in {@see CodeGraph::bfs()}. An `override` hop out of a node reached only through type
+ * structure (`implements` → `declares` onto an interface method, say) is refused there, so one class
+ * in a wide hierarchy does not drag in every sibling implementor. A path that carries a call still
+ * fans out — that is the dispatch this tracer exists to follow.
+ *
  * CHA is inherently cross-file — the inverse subclass/implementor map spans files — so it accumulates
  * every class-like via {@see collect()} across the whole consolidated AST pass and emits edges once,
  * via {@see overrideEdges()}, after every file has been collected.

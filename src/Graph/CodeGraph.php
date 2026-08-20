@@ -16,6 +16,15 @@ use SanderMuller\Richter\Analysis\ImpactAnalyzer;
  */
 final class CodeGraph
 {
+    /**
+     * Edges that express "is part of / relates to this type", as opposed to "runs this code". A path
+     * built only from these reached its end by TYPE STRUCTURE alone, never by a call — which is what
+     * {@see bfs()}'s `override` gate keys on.
+     *
+     * @var list<string>
+     */
+    private const array STRUCTURAL_EDGE_TYPES = ['implements', 'declares', 'inherits', 'uses-trait', 'override'];
+
     /** @var array<string, list<array{node: string, via: string}>> */
     private array $downstream = [];
 
@@ -456,20 +465,28 @@ final class CodeGraph
      * any traversed edge used to reach it — recorded on every encounter, not just first visit, so a
      * node reachable by both a relationship and a behavioural edge carries both regardless of BFS order.
      *
+     * The two directions may start from DIFFERENT seed sets. A coarse class-level seed answers "who
+     * uses this class", which is a caller question; walking the same class node downstream instead
+     * follows `implements`/`uses-trait` into everything the class is structurally related to. The
+     * caller passes the narrower set as `$dependencySeeds` to keep the second walk on the members it
+     * can actually pin. `null` means "same as `$from`", so every existing call site is unaffected.
+     *
      * @param  list<string>  $from
+     * @param  list<string>|null  $dependencySeeds
      * @return array<string, array<string, true>>
      */
-    public function reachedViaTypes(array $from, int $maxDepth = 6): array
+    public function reachedViaTypes(array $from, int $maxDepth = 6, ?array $dependencySeeds = null): array
     {
+        $dependencySeeds ??= $from;
         $via = [];
 
-        foreach ([$this->upstream, $this->downstream] as $adjacency) {
-            $this->bfs($adjacency, $from, $maxDepth, static function (array $hop, int $depth, bool $firstVisit) use (&$via): void {
+        foreach ([[$this->upstream, $from], [$this->downstream, $dependencySeeds]] as [$adjacency, $seeds]) {
+            $this->bfs($adjacency, $seeds, $maxDepth, static function (array $hop, int $depth, bool $firstVisit) use (&$via): void {
                 $via[$hop['node']][$hop['via']] = true;
             });
         }
 
-        foreach ($from as $seed) {
+        foreach ([...$from, ...$dependencySeeds] as $seed) {
             unset($via[$seed]);
         }
 
@@ -591,6 +608,9 @@ final class CodeGraph
      * a BFS tree rather than the induced subgraph. Seeds sit at depth 0 and are never a reached
      * node; walking callers they still appear as a `target`, since their caller points at them.
      *
+     * A node {@see bfs()} re-reaches on a call-carrying path keeps the first edge that reached it —
+     * see that method's note on what this tree does and does not claim.
+     *
      * @param  array<string, list<array{node: string, via: string}>>  $adjacency
      * @param  list<string>  $from
      * @return list<array{source: string, target: string, via: string, depth: int}>
@@ -622,6 +642,32 @@ final class CodeGraph
      * scaffolding. Index-pointer queue (not array_shift, which reindexes on every pop) keeps the walk
      * linear; edges append in non-decreasing depth order.
      *
+     * One traversal rule lives here, because every walk needs it to agree: an `override` hop out of a
+     * node whose whole path from the seed was STRUCTURAL is refused. `Class` -[implements]->
+     * `Interface` -[declares]-> `Interface::method` -[override]-> every implementor is how a change to
+     * one class in a wide hierarchy reported every sibling as reached — siblings that neither call nor
+     * run it. The rule reads the PATH, not the arriving edge: a call chain that happens to end on a
+     * `declares` hop (a container `service` edge onto a class node, then its interface method) IS real
+     * polymorphic dispatch, and Class-Hierarchy Analysis exists to follow it. A seed's path is empty,
+     * so a seed-adjacent `override` hop is always legal — that keeps both directions of CHA: a changed
+     * concrete override still climbs to the abstract call site, and a changed abstract still reaches
+     * its overrides.
+     *
+     * The flag is fixed at first visit, so a node first reached structurally would stay gated even
+     * when a call-carrying path arrives later — a silent under-reach that would also depend on
+     * adjacency order at equal depth. Such a node is re-enqueued ONCE; the flag only moves
+     * `true` → `false`, so each node is enqueued at most twice.
+     *
+     * The re-enqueue changes REACH only. `$firstVisit` still reports a node's first arrival, so the
+     * parent pointers and edge rows built on it keep the first — shortest — route: that is what makes
+     * {@see callerPathsTo()} shortest-path, holds every chain inside `$maxDepth`, and keeps
+     * {@see walkEdges()} in non-decreasing depth order. The cost is one narrow inconsistency: where a
+     * node is reached structurally first and by a call later, a drawn chain through it can name the
+     * structural route ahead of an `override` hop this walk would refuse on that route. Reach and the
+     * counts stay right; only the explanation of a rare mixed-path node is off. Repointing the parent
+     * was tried and rejected: it returns chains past `$maxDepth` and reorders the edge list, breaking
+     * three contracts to tidy one.
+     *
      * @param  array<string, list<array{node: string, via: string}>>  $adjacency
      * @param  list<string>  $from
      * @param  callable(array{node: string, via: string}, int, bool, string): void  $onEdge
@@ -629,12 +675,15 @@ final class CodeGraph
      */
     private function bfs(array $adjacency, array $from, int $maxDepth, callable $onEdge, array $excludeTypes = []): void
     {
+        /** @var array<string, bool> $structuralOnly whether every edge from the seed to this node was structural */
+        $structuralOnly = [];
         $seen = [];
         $queue = [];
 
         foreach ($from as $start) {
             $seen[$start] = 0;
-            $queue[] = ['node' => $start, 'depth' => 0];
+            $structuralOnly[$start] = false;
+            $queue[] = ['node' => $start, 'depth' => 0, 'structuralOnly' => false];
         }
 
         for ($head = 0; isset($queue[$head]); ++$head) {
@@ -649,17 +698,33 @@ final class CodeGraph
                     continue;
                 }
 
-                $depth = $current['depth'] + 1;
-                $firstVisit = ! isset($seen[$hop['node']]);
-
-                $onEdge($hop, $depth, $firstVisit, $current['node']);
-
-                if (! $firstVisit) {
+                if ($hop['via'] === 'override' && $current['structuralOnly']) {
                     continue;
                 }
 
-                $seen[$hop['node']] = $depth;
-                $queue[] = ['node' => $hop['node'], 'depth' => $depth];
+                $depth = $current['depth'] + 1;
+                $firstVisit = ! isset($seen[$hop['node']]);
+                // Depth 1 takes the edge's own kind: a seed carries `false` so its own override hops
+                // stay legal, and AND-ing against that would clear every path from the start.
+                $isStructural = in_array($hop['via'], self::STRUCTURAL_EDGE_TYPES, strict: true);
+                $hopStructuralOnly = $current['depth'] === 0 ? $isStructural : ($current['structuralOnly'] && $isStructural);
+
+                $onEdge($hop, $depth, $firstVisit, $current['node']);
+
+                if ($firstVisit) {
+                    $seen[$hop['node']] = $depth;
+                    $structuralOnly[$hop['node']] = $hopStructuralOnly;
+                    $queue[] = ['node' => $hop['node'], 'depth' => $depth, 'structuralOnly' => $hopStructuralOnly];
+
+                    continue;
+                }
+
+                // Already seen, but reached before only through type structure: this path carries a
+                // call, so re-walk it once with the gate lifted.
+                if (! $hopStructuralOnly && $structuralOnly[$hop['node']]) {
+                    $structuralOnly[$hop['node']] = false;
+                    $queue[] = ['node' => $hop['node'], 'depth' => $depth, 'structuralOnly' => false];
+                }
             }
         }
     }
