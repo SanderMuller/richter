@@ -5,6 +5,40 @@ All notable changes to `sandermuller/richter` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.38.0 - 2026-08-20
+
+Two halves of the same promise: reach what the code really runs, and report nothing it does not. Relation traversals now start from any root the source types, so four everyday shapes that drew nothing resolve. In the other direction, a change to one class in a wide interface hierarchy stops reporting every sibling implementor as reached.
+
+Counts move both ways in this release. A relation-heavy application gains reach; an application with wide interface or template-method hierarchies loses the sibling fan-out it never earned. Re-check `risk_thresholds` against a benchmark corpus before reading a level shift as a regression.
+
+### Added
+
+- **Relation chains start from any root the source types.** `Post::find(1)->comments`, `new Post`, a local bound from a previous hop, and a `@var` docblock all resolve now, where only `$this` and a typed property or parameter did before. A static that returns one model (`find`, `first`, `create`, `firstWhere`, `findSole`, `updateOrCreate` and the rest of that family) types the chain it starts; `query()` and `where()` return a builder, so a chain through them still stops.
+- **Statements are read in control-flow terms, not source order.** A local carries a type only after the line that bound it. A binding under an `if`, a loop, a `try`, a `match` or a ternary clears the variable instead of typing it, because a sibling branch may bind another model and the source cannot say which one ran. A closure keeps its bindings to itself in both directions. `find`, `findOrFail` and `findOrNew` resolve only for a scalar literal id, since Laravel hands an array id to `findMany()` and returns a collection.
+- **`@var` docblocks are keyed by the assignment they annotate.** They were collected method-wide before, so a later annotation typed an earlier read and two annotations for one variable collapsed into the last. Names in a docblock resolve through the file's imports, including `use function` aliases.
+
+### Fixed
+
+- **A wide hierarchy no longer drags in every sibling.** The walk reached an interface method through `implements` then `declares` and left it through the `override` edges, so a change to one implementor listed every other one under "Runs this code without calling it" and counted them as impacted. On a large application a two-file change listed 473 such cousins and counted 1203 impacted nodes against 631 real ones. An `override` hop out of a node whose whole path from the change was structural is now refused. The rule reads the path, not the last edge: a call chain that happens to end on a `declares` hop is real dispatch and still fans out, which is what Class-Hierarchy Analysis is for. A changed override still climbs to its abstract call site, and a changed abstract still reaches its overrides.
+- **A change that pins to no member no longer walks the class sideways.** A removed method leaves nothing for the graph to seed against, so the class node stands in. Upstream it answers the question that fallback exists for, who uses this class. Downstream it left the change entirely, through `implements` and `uses-trait` into everything the class is merely related to. The dependency walk now starts from the changed class's own members; the caller walk keeps the class node.
+
+### Compatibility
+
+No breaking changes. `CodeGraph::reachedViaTypes()` gained an optional trailing parameter, and every other public signature is unchanged.
+
+Two things to expect on the first run after upgrading:
+
+- **The graph cache rebuilds once.** `FORMAT_VERSION` moves 22 → 23. An entry written by 0.37 under-reports every relation chain the new roots resolve, so it is discarded rather than served.
+- **Counts move in both directions.** Relation-heavy code gains reach; code with hub interfaces or template-method base classes loses the sibling fan-out. See [Risk levels](https://sandermuller.github.io/richter/risk-levels) before adjusting thresholds.
+
+### Internal
+
+- Type reading moved to `Support\DeclaredTypes`: reading a type and walking a relation chain are separate jobs, and only the second needs the relation index.
+- The BFS carries one traversal rule for every walk, so entry points, chains, the drawn region and the impacted count cannot disagree about what the change reaches.
+- [Coverage](https://sandermuller.github.io/richter/coverage) lists the known limits, now including the one this release's walk rule leaves: where a node is reached first through type structure and later through a call, the chain printed for it keeps the first route. Reach, counts and risk are unaffected.
+
+**Full Changelog**: https://github.com/SanderMuller/richter/compare/v0.37.0...v0.38.0
+
 ## v0.37.0 - 2026-08-19
 
 Relations are now followed, not only declared. A body that walks `$this->post->author`, a nested eager-load path, and the model a relation returns all draw edges, so a change to a model reaches the code that reads it instead of stopping at the model class. Two other blind spots close with them: a facade whose accessor names a container key, and a class whose statically-called methods were the only ones ever read. The documentation moves to a site of its own.
@@ -82,6 +116,7 @@ A dispatch whose job the same method just constructed is not an unfollowable dis
 ```php
 $job = new SendInvoice($order);
 dispatch($job);
+
 
 
 
@@ -169,6 +204,7 @@ Build profile: nothing was built — the diff holds nothing the graph is built f
 
 
 
+
 ```
 On stderr, like the table it stands in for, and before the payload in `--json` mode so stdout stays one document. Building anyway was the alternative, and it would make a no-op run pay for an analysis nothing asked for.
 
@@ -186,6 +222,7 @@ An event named by a class constant resolves in **any** declaration form, includi
 public const string
     SUBTITLE_CHANGED = 'subtitle-changed',
     SUBTITLE_DELETED = 'subtitle-deleted';
+
 
 
 
@@ -218,6 +255,7 @@ Build profile (forced rebuild):
   total                      3.85s
   no scoped rebuild: non-app-change
     config/services.php differs from the cached graph and sits outside app/
+
 
 
 
@@ -305,6 +343,7 @@ It now names every site:
 ```
 the graph contains job dispatches that could not be followed:
 app/Jobs/Fanout.php:88 (App\Jobs\Fanout::handle), app/Services/Importer.php:12 (App\Services\Importer::run)
+
 
 
 
@@ -669,6 +708,7 @@ Note: 2 changed file(s) are outside the analysed scope (not PHP under app/, a Bl
 
 
 
+
 ```
 Stderr, like the untracked-file note, so `--json` and `--markdown` stdout stay exactly the report. Frontend sources the configuration declines to scan are not counted: generated Wayfinder output under `frontend.generated_paths` and `.d.ts` declarations were silenced on purpose, and a note that fires loudest on regeneration churn is one people stop reading.
 
@@ -745,6 +785,7 @@ One new advisory lane, and a README that finally leads with what the package is 
   
   
   
+  
   ```
   The count comes off the `route:: → middleware::<group>` edges already in the graph, so it counts endpoints only: a controller-level attachment of the same group does not inflate it. Membership is read from `$middlewareGroups` on a Laravel 10 Kernel or the `->web(append: [...])` form in a Laravel 11+ `bootstrap/app.php`. A member written as an alias resolves through the same alias map, parameters are cut first (`tenant:strict` is one alias with an argument), and a group that names another group is expanded transitively, since Laravel runs the inner group's middleware on the outer group's routes too.
   
@@ -777,6 +818,7 @@ Two silent-failure shapes that richter used to miss: a call through an applicati
   
   ```text
     ! resources/js/Pages/Posts/Create.vue posts to POST /posts and sends 'subtitle', which this diff removes from App\Http\Requests\StorePostRequest::rules() (renamed to 'sub_title'?)
+  
   
   
   
