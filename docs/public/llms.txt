@@ -10,6 +10,11 @@ Key properties an agent should know before using it:
 - **Reference-based, not proof.** Test-reference tags and affected-test selection are recall heuristics, not coverage verdicts.
 - **MCP server.** With `laravel/mcp` installed, every analysis is exposed read-only as a tool (`impact`, `trace`, `detect-changes`, `affected-tests`) plus three orientation resources. Tool output matches the CLI `--json` shape, so branch on fields rather than parsing prose. For `affected-tests`, `determinable: false` means run the full suite.
 
+## Formats
+
+- [llms-full.txt](https://sandermuller.github.io/richter/llms-full.txt): every page below, in reading order, in one fetch
+- Any page is also served as markdown at its own URL plus `.md` (for example [coverage.md](https://sandermuller.github.io/richter/coverage.md))
+
 ## Docs
 
 - [Why Richter?](https://sandermuller.github.io/richter/why-richter): what a report tells you, what it refuses to guess at, how the analysis runs
