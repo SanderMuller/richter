@@ -117,8 +117,11 @@ final class GraphCache
      * at all before — Brain covers only its route-anchored lanes, so for every class a route does not
      * reach the call was invisible. Additive again, and the widest of these bumps: a 23 entry
      * under-reports the caller of every method a class calls on itself.
+     * 24 → 25: a config registry read whose key cannot be enumerated draws `config-registry-fanout`
+     * rather than `config-registry`, so a surface behind it reads as context instead of as a caller.
+     * Not additive — an edge changed type — so a 24 entry would classify those surfaces the old way.
      */
-    private const int FORMAT_VERSION = 24;
+    private const int FORMAT_VERSION = 25;
 
     private ?CodeGraph $memoized = null;
 

@@ -1591,6 +1591,51 @@ final class ImpactAnalyzerTest extends TestCase
     }
 
     #[Test]
+    public function a_surface_behind_a_dynamic_registry_lookup_is_context_not_a_caller(): void
+    {
+        // A registry read whose key cannot be enumerated links every class its config file names, so
+        // the surfaces behind it are identical for each of those classes and cannot tell one change
+        // from another. An enumerated read names ONE class and stays a caller.
+        $analyzer = new ImpactAnalyzer(new CodeGraph([
+            ['source' => 'route::GET::/admin/formulas', 'target' => 'App\Http\Controllers\FormulaController', 'type' => 'route-to-controller'],
+            ['source' => 'App\Http\Controllers\FormulaController', 'target' => 'App\Http\Controllers\FormulaController::index', 'type' => 'controller-to-action'],
+            ['source' => 'App\Http\Controllers\FormulaController::index', 'target' => 'App\Formulas\CarFormula', 'type' => 'config-registry-fanout'],
+            ['source' => 'route::GET::/admin/rates', 'target' => 'App\Http\Controllers\RateController', 'type' => 'route-to-controller'],
+            ['source' => 'App\Http\Controllers\RateController', 'target' => 'App\Http\Controllers\RateController::show', 'type' => 'controller-to-action'],
+            ['source' => 'App\Http\Controllers\RateController::show', 'target' => 'App\Formulas\CarFormula', 'type' => 'config-registry'],
+            ['source' => 'App\Formulas\CarFormula', 'target' => 'App\Formulas\CarFormula::rate', 'type' => 'declares'],
+        ], hasUnparseableFiles: false));
+
+        $result = $analyzer->detectChanges([
+            $this->changedMethod('app/Formulas/CarFormula.php', 'App\Formulas\CarFormula', 'rate'),
+        ]);
+
+        $this->assertSame(['route::GET::/admin/rates'], $result['entryPoints']);
+        $this->assertSame(['route::GET::/admin/formulas'], $result['associationEntryPoints']);
+    }
+
+    #[Test]
+    public function the_listed_nodes_say_why_they_are_listed(): void
+    {
+        // A list of class names alone cannot tell a trait user from an override implementor, which
+        // is the classification the walk already made.
+        $analyzer = new ImpactAnalyzer(new CodeGraph([
+            ['source' => 'App\Builders\FirstBuilder', 'target' => WithAudits::class, 'type' => 'uses-trait'],
+            ['source' => WithAudits::class, 'target' => 'App\Models\Concerns\WithAudits::audits', 'type' => 'declares'],
+            ['source' => 'App\Services\ConcreteExporter::audits', 'target' => 'App\Models\Concerns\WithAudits::audits', 'type' => 'override'],
+        ], hasUnparseableFiles: false));
+
+        $result = $analyzer->detectChanges([
+            $this->changedMethod('app/Models/Concerns/WithAudits.php', WithAudits::class, 'audits'),
+        ]);
+
+        $this->assertSame([
+            'App\Services\ConcreteExporter::audits' => ['override'],
+            'App\Builders\FirstBuilder' => ['uses-trait'],
+        ], $result['traitAndOverrideReachVia']);
+    }
+
+    #[Test]
     public function an_override_implementor_is_reported_the_same_way(): void
     {
         // `override` is excluded for the same over-approximation reason as `uses-trait`, so it had the

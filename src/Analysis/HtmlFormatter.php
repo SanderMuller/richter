@@ -21,7 +21,7 @@ use SanderMuller\Richter\Graph\NodeMetadata;
  * @phpstan-import-type SecurityShape from NodeMetadata
  * @phpstan-import-type Layout from RadialLayout
  * @phpstan-type GateVerdict array{failOn: string|null, failOnUnresolved: bool, tripped: bool, reasons: list<string>}
- * @phpstan-type DetectChangesResult array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, associationEntryPoints?: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, SecurityShape>, entryPointGates: array<string, list<string>>, entryPointAuthGates?: array<string, list<string>>, entryPointAuthMiddleware?: array<string, list<string>>, seeds: list<string>, reach: array<string, array<string, true>>, edges: list<array{source: string, target: string, via: string, depth: int}>, impacted: int, relatedModels: list<string>, traitAndOverrideReach?: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied: bool, scoredEntryPoints: int, scoredImpacted: int, findings: list<string>, ...}
+ * @phpstan-type DetectChangesResult array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, associationEntryPoints?: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, SecurityShape>, entryPointGates: array<string, list<string>>, entryPointAuthGates?: array<string, list<string>>, entryPointAuthMiddleware?: array<string, list<string>>, seeds: list<string>, reach: array<string, array<string, true>>, edges: list<array{source: string, target: string, via: string, depth: int}>, impacted: int, relatedModels: list<string>, traitAndOverrideReach?: list<string>, traitAndOverrideReachVia?: array<string, list<string>>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied: bool, scoredEntryPoints: int, scoredImpacted: int, findings: list<string>, ...}
  */
 final class HtmlFormatter
 {
@@ -431,7 +431,7 @@ final class HtmlFormatter
     {
         return self::unresolvedNote($result)
             . self::associationCard($result['associationEntryPoints'] ?? [])
-            . self::traitAndOverrideCard($result['traitAndOverrideReach'] ?? [])
+            . self::traitAndOverrideCard($result['traitAndOverrideReach'] ?? [], $result['traitAndOverrideReachVia'] ?? [])
             . self::card('Findings (in the changed source itself)', $result['findings'] === [] ? '<p class="muted">None.</p>' : self::findings($result['findings']))
             . self::card('Test references', self::testReferenceList($rows))
             . ($gateActive && $gate !== null ? self::card('Gate', self::gateBlock($gate)) : '');
@@ -441,15 +441,18 @@ final class HtmlFormatter
      * Classes that run the changed code without calling it, in their own card.
      *
      * @param  list<string>  $reach
+     * @param  array<string, list<string>>  $via  the edge types that put each node here
      */
-    private static function traitAndOverrideCard(array $reach): string
+    private static function traitAndOverrideCard(array $reach, array $via = []): string
     {
         if ($reach === []) {
             return '';
         }
 
         $items = implode('', array_map(
-            static fn (string $node): string => '<li><code>' . Html::e(NodeLabel::display($node)) . '</code></li>',
+            static fn (string $node): string => '<li><code>' . Html::e(NodeLabel::display($node)) . '</code>'
+                . (($via[$node] ?? []) === [] ? '' : ' <span class="muted">' . Html::e(implode(', ', $via[$node])) . '</span>')
+                . '</li>',
             $reach,
         ));
 
@@ -479,7 +482,7 @@ final class HtmlFormatter
 
         return self::card(
             'Entry surfaces reached only by association',
-            '<p class="muted">Connected by a model relation, not a caller — context, not reach.</p><ul role="list">' . $items . '</ul>',
+            '<p class="muted">Connected by a model relation or a registry lookup that names no single class, not by a caller — context, not reach.</p><ul role="list">' . $items . '</ul>',
         );
     }
 

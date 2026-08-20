@@ -30,6 +30,7 @@ With `--json`, stdout is a single JSON document (the full, uncapped report) with
 | `entryPointTestReferences` | object | per reached entry point, `"referenced"` / `"referenced-no-behavioural-assertion"` / `"unreferenced"`; an entry point whose reference state cannot be determined is omitted from the map (advisory annotation, never an input to `risk`, the gate, or `affected-tests` selection) |
 | `impacted` | int | count of risk-bearing nodes reached |
 | `relatedModels` | string[] | models reached only via association edges (context, not risk) |
+| `traitAndOverrideReachVia` | object | why each `traitAndOverrideReach` entry is listed, keyed by node: the edge types that reached it (`uses-trait`, `override`) |
 | `traitAndOverrideReach` | string[] | classes that run a changed member without calling it, meaning trait users and override implementors (context, not risk; the report prints these under "Runs this code without calling it") |
 | `risk` | string | `"low"` / `"medium"` / `"high"` |
 | `lowConfidence` | bool | a changed member couldn't be pinned, so part of the estimate is coarse |

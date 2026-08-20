@@ -137,8 +137,15 @@ final class ConfigRegistryTracer
                 $source = $fqcn . '::' . $method->name->toString();
 
                 foreach ($this->configFilesRead($method) as ['file' => $file, 'path' => $path]) {
-                    foreach ($this->targetsFor($file, $path) as $target) {
-                        $edges[] = ['source' => $source, 'target' => $target, 'type' => 'config-registry'];
+                    ['targets' => $targets, 'enumerated' => $enumerated] = $this->targetsFor($file, $path);
+                    // A key this read names exactly is one dispatch to one class. A key it cannot
+                    // enumerate is the whole file standing in for it, and the difference decides
+                    // whether a surface behind the edge is reach or context — so it is carried in
+                    // the edge type rather than lost here.
+                    $type = $enumerated ? 'config-registry' : 'config-registry-fanout';
+
+                    foreach ($targets as $target) {
+                        $edges[] = ['source' => $source, 'target' => $target, 'type' => $type];
                     }
                 }
             }
@@ -162,17 +169,25 @@ final class ConfigRegistryTracer
      * keyed by a constant. Falling back to over-approximation there is the safe direction; the lane
      * adds reach, so drawing nothing would be the under-report.
      *
-     * @return list<string>
+     * `enumerated` says which of the two it was, so the caller can type the edge accordingly: a
+     * surface reached through an enumerated key is reached by a dispatch to one class, while one
+     * reached through the fallback is reached by "this file names it too".
+     *
+     * @return array{targets: list<string>, enumerated: bool}
      */
     private function targetsFor(string $file, ?string $path): array
     {
         $all = $this->registries()[$file] ?? [];
 
         if ($all === [] || $path === null || $path === '') {
-            return $all;
+            return ['targets' => $all, 'enumerated' => false];
         }
 
-        return $this->classesAtPath($file, $path) ?? $all;
+        $named = $this->classesAtPath($file, $path);
+
+        return $named === null
+            ? ['targets' => $all, 'enumerated' => false]
+            : ['targets' => $named, 'enumerated' => true];
     }
 
     /**

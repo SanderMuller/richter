@@ -57,13 +57,14 @@ final class ConfigRegistryTracerTest extends TestCase
     #[Test]
     public function an_interpolated_key_still_names_its_file(): void
     {
-        // The whole point: the key is dynamic, the file is not.
+        // The whole point: the key is dynamic, the file is not. The edge says so in its type — the
+        // read names no single class, so a surface behind it is context rather than a caller.
         $edges = $this->edges('return config("calculators.{$key}");');
 
         $this->assertSame([[
             'source' => self::CALLER . '::resolve',
             'target' => self::TARGET,
-            'type' => 'config-registry',
+            'type' => 'config-registry-fanout',
         ]], $edges);
     }
 
@@ -105,7 +106,7 @@ final class ConfigRegistryTracerTest extends TestCase
         $this->assertSame([[
             'source' => 'Acme\\Support\\SecondaryRegistry::pick',
             'target' => self::TARGET,
-            'type' => 'config-registry',
+            'type' => 'config-registry-fanout',
         ]], $this->edgesForSource($source));
     }
 

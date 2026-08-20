@@ -9,6 +9,7 @@ use SanderMuller\Richter\Graph\CodeGraph;
 use SanderMuller\Richter\Graph\NodeMetadata;
 use SanderMuller\Richter\Support\AppNamespace;
 use SanderMuller\Richter\Support\Fqcn;
+use SanderMuller\Richter\Support\ReachReasons;
 use SanderMuller\Richter\Support\RichterConfig;
 
 /**
@@ -61,7 +62,7 @@ final readonly class ImpactAnalyzer
      * — is exactly what must keep flowing.
      * Reach, coverage, and entry-point discovery still flow through these edges.
      */
-    public const array RISK_EXCLUDED_EDGE_TYPES = ['model-relationship', 'declares', 'uses-trait', 'override', 'model-to-policy', 'config-registry'];
+    public const array RISK_EXCLUDED_EDGE_TYPES = ['model-relationship', 'declares', 'uses-trait', 'override', 'model-to-policy', 'config-registry', 'config-registry-fanout'];
 
     /**
      * Edges that carry CONTEXT rather than a call, for the purpose of finding entry points.
@@ -76,7 +77,17 @@ final readonly class ImpactAnalyzer
      * member reaches its own class node (removing it would cut real reach at the first hop), and a
      * trait's users do run its code.
      */
-    public const array ASSOCIATION_EDGE_TYPES = ['model-relationship', 'model-to-policy'];
+    /**
+     * Edges that associate rather than invoke, so a surface reached ONLY through one is context and
+     * never a caller. `config-registry-fanout` joins the two model edges: a registry read whose key
+     * cannot be enumerated links every class its config file names, so the surfaces behind it are
+     * identical for every one of those classes and cannot tell one change from another. An
+     * enumerated `config-registry` read names ONE class and stays a caller, since that dispatch is
+     * as real as any other.
+     *
+     * @var list<string>
+     */
+    public const array ASSOCIATION_EDGE_TYPES = ['model-relationship', 'model-to-policy', 'config-registry-fanout'];
 
     public function __construct(private CodeGraph $graph) {}
 
@@ -151,7 +162,7 @@ final readonly class ImpactAnalyzer
      * draw "nothing changed" without a graph build. {@see JsonPresenter::emptyDetectChanges()} is
      * the separate JSON-shaped equivalent; the two differ in `risk` (enum here, string there).
      *
-     * @return array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, newFiles: list<string>, fqcns: array<string, string>, callers: list<array{depth: int, node: string, via: string}>, dependencies: list<array{depth: int, node: string, via: string}>, seeds: list<string>, reach: array<string, array<string, true>>, edges: list<array{source: string, target: string, via: string, depth: int}>, entryPoints: list<string>, associationEntryPoints: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, SecurityShape>, entryPointGates: array<string, list<string>>, entryPointAuthGates: array<string, list<string>>, entryPointAuthMiddleware: array<string, list<string>>, impacted: int, relatedModels: list<string>, traitAndOverrideReach: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied: bool, scoredEntryPoints: int, scoredImpacted: int, findings: list<string>}
+     * @return array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, newFiles: list<string>, fqcns: array<string, string>, callers: list<array{depth: int, node: string, via: string}>, dependencies: list<array{depth: int, node: string, via: string}>, seeds: list<string>, reach: array<string, array<string, true>>, edges: list<array{source: string, target: string, via: string, depth: int}>, entryPoints: list<string>, associationEntryPoints: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, SecurityShape>, entryPointGates: array<string, list<string>>, entryPointAuthGates: array<string, list<string>>, entryPointAuthMiddleware: array<string, list<string>>, impacted: int, relatedModels: list<string>, traitAndOverrideReach: list<string>, traitAndOverrideReachVia: array<string, list<string>>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied: bool, scoredEntryPoints: int, scoredImpacted: int, findings: list<string>}
      */
     public static function emptyDetectChanges(): array
     {
@@ -160,7 +171,7 @@ final readonly class ImpactAnalyzer
             'seeds' => [], 'reach' => [], 'edges' => [], 'entryPoints' => [], 'associationEntryPoints' => [], 'entryPointPaths' => [],
             'entryPointLocations' => [], 'entryPointSecurity' => [], 'entryPointGates' => [],
             'entryPointAuthGates' => [], 'entryPointAuthMiddleware' => [],
-            'impacted' => 0, 'relatedModels' => [], 'traitAndOverrideReach' => [], 'risk' => RiskLevel::Low,
+            'impacted' => 0, 'relatedModels' => [], 'traitAndOverrideReach' => [], 'traitAndOverrideReachVia' => [], 'risk' => RiskLevel::Low,
             'lowConfidence' => false, 'coarseCapApplied' => false,
             'scoredEntryPoints' => 0, 'scoredImpacted' => 0, 'findings' => [],
         ];
@@ -192,6 +203,7 @@ final readonly class ImpactAnalyzer
      *     impacted: int,
      *     relatedModels: list<string>,
      *     traitAndOverrideReach: list<string>,
+     *     traitAndOverrideReachVia: array<string, list<string>>,
      *     risk: RiskLevel,
      *     lowConfidence: bool,
      *     coarseCapApplied: bool,
@@ -327,6 +339,10 @@ final readonly class ImpactAnalyzer
         // while `richter:impact` on the same member listed every user. Shown, never counted — the same
         // bargain {@see $relatedModels} already strikes for association reach.
         $traitAndOverrideReach = $this->uncountedReachVia($reach, ['uses-trait', 'override']);
+        // Why each of them is listed. Without it the section names classes and gives no way to tell a
+        // trait user from an override implementor — the reader is left grepping the source to
+        // classify what the walk already knew.
+        $traitAndOverrideReachVia = ReachReasons::forNodes($traitAndOverrideReach, $reach, ['uses-trait', 'override']);
 
         [$risk, $coarseCapApplied, $scoredEntryPoints, $scoredImpacted] = $this->riskWithCoarseCap($impacted, $riskEntryPointCount, $touchesEntryClass, $preciseSeeds, $coarseSeeds, $lowConfidence, $maxDepth, $riskInputsMemo);
 
@@ -371,6 +387,7 @@ final readonly class ImpactAnalyzer
             'impacted' => $impacted,
             'relatedModels' => $this->readableModelLabels($relatedModels),
             'traitAndOverrideReach' => $traitAndOverrideReach,
+            'traitAndOverrideReachVia' => $traitAndOverrideReachVia,
             'risk' => $risk,
             'lowConfidence' => $lowConfidence,
             'coarseCapApplied' => $coarseCapApplied,
