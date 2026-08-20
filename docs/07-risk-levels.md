@@ -56,12 +56,11 @@ co-changed entry surface stop being a seed, and a walk reports every node except
 surface read as *reached* by the half of the change that was still being walked. The rescore is now told
 which nodes the change owns, and counts none of them as reach.) `scoredImpacted` is measured the same
 way but carries no subset relation to the printed `impacted`: the rescore walks a different seed set,
-so it is simply whatever that walk reached.
+so it is whatever that walk reached.
 They are present on every report and equal the printed counts whenever nothing pulled them apart; the
 text, markdown and HTML reports name them only when they differ, since repeating identical numbers
 teaches a reader to skip the line.
 
-This matters for one thing in particular: **calibrate `risk_thresholds` against these, not against
-the printed counts.** Where the two diverge, the printed ones can be an order of magnitude larger, so
+**Calibrate `risk_thresholds` against these rather than the printed counts.** Where the two diverge, the printed ones can be an order of magnitude larger, so
 a threshold pair tuned on them sits far above where the level is actually decided, and since the
 divergence is widest on the broadest diffs, that inverts the ordering rather than merely loosening it.

@@ -8,7 +8,7 @@ Richter ships two invoke-only skills.
 
 `/richter-setup` (or ask your agent to "set up Richter") inspects the project, proposes `config/richter.php`, and, only if you say yes, scaffolds a CI comment workflow and registers the MCP server in `.mcp.json`. It shows you every edit before writing it.
 
-`/richter-review` reviews the current branch graph-first: it runs the report, triages the reached entry points (unexpected reach, missing test references, security and gate annotations), walks the findings, and closes with an advisory verdict. It recommends, never gates.
+`/richter-review` reviews the current branch graph-first: it runs the report, triages the reached entry points (unexpected reach, missing test references, security and gate annotations), walks the findings, and closes with an advisory verdict. It recommends changes and leaves the decision with you.
 
 To make the skills available:
 

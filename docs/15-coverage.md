@@ -27,7 +27,7 @@ Brain traces some of these too (view composition, resource references, queue dis
 
 ## Known limits
 
-Three limits on that list, all easy to infer past.
+Three limits are worth knowing before you read a report against them.
 
 Relation traversals need a typed root. Richter follows `$this->post->author` hop by hop. A relation names its target in the `hasMany(Comment::class)` argument, so no hop needs type inference, but the value the chain starts from does: `$this`, a typed property, or a typed parameter. An untyped property, a `mixed`, a union type, or a value that came out of a query builder ends the chain before it starts, and how much a codebase gets back therefore depends on how well its properties and parameters are typed.
 
