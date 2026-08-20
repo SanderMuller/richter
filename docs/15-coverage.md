@@ -33,6 +33,6 @@ Relation traversals need a typed root. Richter follows `$this->post->author` hop
 
 A class reached only through a static call has the methods those calls name read, which connects what they construct and connects an inherited method's work through the subclass. The rest of the class stays unread by default: a method nobody calls statically. Set `richter.second_hop` to `'class'` to read those too, measured at ~8.0s against the default's ~4.5s on a 4,000-file app, or to `false` to trade the reach back for the build time.
 
-A facade whose `getFacadeAccessor()` does not resolve to one class is the last of the three. A single `::class` is carried over, and a single container key is resolved against the bindings in `app/Providers`. The accessor that picks at runtime is the one left unresolved: two `::class` returns, or a key two providers bind to different classes. The wrong guess sends a reviewer to the wrong file, so richter draws nothing.
+The third limit is an accessor that picks at runtime. A facade's `getFacadeAccessor()` is carried over when it returns a single `::class`, and resolved against the bindings in `app/Providers` when it returns a single container key. Two `::class` returns, or a key two providers bind to different classes, name no one class. The wrong guess sends a reviewer to the wrong file, so richter draws nothing.
 
 A limit here costs reach: fewer edges, so fewer entry points behind a change. None of them makes a change report as unaffected, because a change the graph cannot place reads UNRESOLVED.

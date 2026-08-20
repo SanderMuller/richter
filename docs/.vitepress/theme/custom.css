@@ -180,37 +180,31 @@
 }
 
 /**
- * Wider reading column. VitePress caps the layout at 1440px and the doc
- * content at 688px, which suits prose but clips the configuration and
- * `--json` reference tables into a horizontal scroller while the viewport
- * still has room. The caps below scale with the screen and leave the prose
- * pages readable, since long paragraphs wrap well before the new maximum.
+ * Wider reading column. VitePress caps the doc content at 688px, which suits
+ * prose but clips the configuration and `--json` reference tables into a
+ * horizontal scroller while the viewport still has room.
+ *
+ * The caps below need `!important`: the theme's own rules are scoped
+ * (`.VPDoc.has-aside .content-container[data-v-…]`), so an unscoped selector
+ * of the same shape loses on specificity no matter where it is loaded.
  */
 :root {
     --vp-layout-max-width: 1760px;
 }
 
 @media (min-width: 960px) {
-    .VPDoc:not(.has-sidebar) .content {
-        max-width: 960px;
-    }
-
     .VPDoc.has-aside .content-container {
-        max-width: none;
+        max-width: 1100px !important;
     }
 
-    .VPDoc .container {
-        max-width: 1440px;
+    .VPDoc:not(.has-sidebar) .container {
+        max-width: 1100px !important;
     }
 }
 
-/* A table still wider than the column scrolls, but only the table. */
+/* A table wider than the column scrolls on its own rather than the page. */
 .vp-doc table {
     display: table;
     width: 100%;
-}
-
-.vp-doc div[class*='language-'] + table,
-.vp-doc table {
     overflow-x: auto;
 }
