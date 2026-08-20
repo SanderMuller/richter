@@ -59,7 +59,7 @@ final class CoarseSeedDirectionTest extends TestCase
     #[Test]
     public function a_coarse_seed_no_longer_walks_the_class_nodes_structure_downstream(): void
     {
-        $result = (new ImpactAnalyzer($this->graph()))->detectChanges([
+        $result = new ImpactAnalyzer($this->graph())->detectChanges([
             $this->removedMethod('app/Reports/CsvExporter.php', self::CHANGED_CLASS),
         ]);
 
@@ -79,7 +79,7 @@ final class CoarseSeedDirectionTest extends TestCase
     #[Test]
     public function a_coarse_seed_still_reports_the_changed_classs_callers(): void
     {
-        $result = (new ImpactAnalyzer($this->graph()))->detectChanges([
+        $result = new ImpactAnalyzer($this->graph())->detectChanges([
             $this->removedMethod('app/Reports/CsvExporter.php', self::CHANGED_CLASS),
         ]);
 
@@ -99,7 +99,7 @@ final class CoarseSeedDirectionTest extends TestCase
             ['source' => 'App\Enums\ExportFormat', 'target' => 'App\Services\FormatRegistry', 'type' => 'action-to-service'],
         ], hasUnparseableFiles: false);
 
-        $result = (new ImpactAnalyzer($graph))->detectChanges([
+        $result = new ImpactAnalyzer($graph)->detectChanges([
             new ChangedFileSymbols('app/Enums/ExportFormat.php', 'App\Enums\ExportFormat', [
                 new MemberChange('Csv', MemberChange::KIND_ENUM_CASE, MemberChange::CHANGE_MODIFIED, resolvable: false),
             ], cosmeticOnly: false),
@@ -113,9 +113,9 @@ final class CoarseSeedDirectionTest extends TestCase
     public function a_precise_member_change_keeps_walking_both_directions_from_its_member(): void
     {
         // The split touches the coarse half only: a resolvable member change is symmetric as before.
-        $result = (new ImpactAnalyzer($this->graph([
+        $result = new ImpactAnalyzer($this->graph([
             ['source' => self::CHANGED_CLASS . '::export', 'target' => 'App\Services\Formatter::format', 'type' => 'action-to-service'],
-        ])))->detectChanges([
+        ]))->detectChanges([
             new ChangedFileSymbols('app/Reports/CsvExporter.php', self::CHANGED_CLASS, [
                 new MemberChange('export', MemberChange::KIND_METHOD, MemberChange::CHANGE_MODIFIED, resolvable: true),
             ], cosmeticOnly: false),
@@ -129,9 +129,9 @@ final class CoarseSeedDirectionTest extends TestCase
     #[Test]
     public function a_coarse_change_beside_a_precise_one_keeps_the_precise_members_reach(): void
     {
-        $result = (new ImpactAnalyzer($this->graph([
+        $result = new ImpactAnalyzer($this->graph([
             ['source' => self::CHANGED_CLASS . '::export', 'target' => 'App\Services\Formatter::format', 'type' => 'action-to-service'],
-        ])))->detectChanges([
+        ]))->detectChanges([
             new ChangedFileSymbols('app/Reports/CsvExporter.php', self::CHANGED_CLASS, [
                 new MemberChange('export', MemberChange::KIND_METHOD, MemberChange::CHANGE_MODIFIED, resolvable: true),
                 new MemberChange('formats', MemberChange::KIND_PROPERTY, MemberChange::CHANGE_MODIFIED, resolvable: false),
@@ -151,11 +151,11 @@ final class CoarseSeedDirectionTest extends TestCase
         // capped to MEDIUM and the report names the counts it was actually scored on.
         $edges = [];
 
-        for ($i = 0; $i < 40; $i++) {
+        for ($i = 0; $i < 40; ++$i) {
             $edges[] = ['source' => "App\\Services\\Consumer{$i}::run", 'target' => self::CHANGED_CLASS, 'type' => 'action-to-service'];
         }
 
-        $result = (new ImpactAnalyzer(new CodeGraph($edges, hasUnparseableFiles: false)))->detectChanges([
+        $result = new ImpactAnalyzer(new CodeGraph($edges, hasUnparseableFiles: false))->detectChanges([
             $this->removedMethod('app/Reports/CsvExporter.php', self::CHANGED_CLASS),
         ]);
 
