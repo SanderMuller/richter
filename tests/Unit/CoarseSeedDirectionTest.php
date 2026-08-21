@@ -4,7 +4,6 @@ namespace SanderMuller\Richter\Tests\Unit;
 
 use PHPUnit\Framework\Attributes\Test;
 use SanderMuller\Richter\Analysis\ImpactAnalyzer;
-use SanderMuller\Richter\Analysis\RiskLevel;
 use SanderMuller\Richter\Changes\ChangedFileSymbols;
 use SanderMuller\Richter\Changes\MemberChange;
 use SanderMuller\Richter\Graph\CodeGraph;
@@ -142,27 +141,5 @@ final class CoarseSeedDirectionTest extends TestCase
         $this->assertContains('App\Services\Formatter::format', $this->nodes($result['dependencies']));
         $this->assertNotContains('App\Reports\PdfExporter::export', $this->nodes($result['dependencies']));
         $this->assertTrue($result['lowConfidence']);
-    }
-
-    #[Test]
-    public function the_coarse_cap_and_its_rescored_counts_still_fire(): void
-    {
-        // A coarse change whose caller walk alone clears the HIGH impacted threshold: the level is
-        // capped to MEDIUM and the report names the counts it was actually scored on.
-        $edges = [];
-
-        for ($i = 0; $i < 40; ++$i) {
-            $edges[] = ['source' => "App\\Services\\Consumer{$i}::run", 'target' => self::CHANGED_CLASS, 'type' => 'action-to-service'];
-        }
-
-        $result = new ImpactAnalyzer(new CodeGraph($edges, hasUnparseableFiles: false))->detectChanges([
-            $this->removedMethod('app/Reports/CsvExporter.php', self::CHANGED_CLASS),
-        ]);
-
-        $this->assertTrue($result['lowConfidence']);
-        $this->assertTrue($result['coarseCapApplied']);
-        $this->assertSame(RiskLevel::Medium, $result['risk']);
-        $this->assertSame(40, $result['impacted']);
-        $this->assertSame(0, $result['scoredImpacted']);
     }
 }

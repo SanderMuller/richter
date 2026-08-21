@@ -59,7 +59,7 @@ export const sections: DocSection[] = [
             {
                 file: '07-risk-levels',
                 text: 'Risk levels',
-                blurb: 'How the advisory level is decided, and how to calibrate the thresholds without losing signal.',
+                blurb: 'The hazard tiers, the reach matrix, and the ladder that turns them into a level.',
             },
             {
                 file: '08-ci-gating',
@@ -124,7 +124,7 @@ export const sections: DocSection[] = [
             {
                 file: '17-benchmark',
                 text: 'Benchmarking',
-                blurb: 'Score accuracy against replayable history before and after a calibration.',
+                blurb: 'Score accuracy against replayable history before and after a change to the model.',
             },
             {
                 file: '18-troubleshooting',

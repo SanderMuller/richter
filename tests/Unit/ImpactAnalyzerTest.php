@@ -13,12 +13,12 @@ use App\Models\Tag;
 use App\Models\User;
 use App\Policies\PostPolicy;
 use App\Policies\UserPolicy;
-use InvalidArgumentException;
 use PHPUnit\Framework\Attributes\Test;
 use ReflectionMethod;
 use SanderMuller\Richter\Analysis\ImpactAnalyzer;
 use SanderMuller\Richter\Analysis\ImpactFormatter;
 use SanderMuller\Richter\Analysis\RiskLevel;
+use SanderMuller\Richter\Analysis\TestReferenceIndex;
 use SanderMuller\Richter\Changes\ChangedFileSymbols;
 use SanderMuller\Richter\Changes\ChangedSymbols;
 use SanderMuller\Richter\Changes\MemberChange;
@@ -85,6 +85,85 @@ final class ImpactAnalyzerTest extends TestCase
         return new ChangedFileSymbols($file, $fqcn, [
             new MemberChange('handle', MemberChange::KIND_METHOD, MemberChange::CHANGE_ADDED, resolvable: true),
         ], cosmeticOnly: false, isNewFile: true);
+    }
+
+    /** An index holding one runnable test file that imports the given classes. */
+    private function indexImporting(string ...$fqcns): TestReferenceIndex
+    {
+        $imports = implode("\n", array_map(static fn (string $fqcn): string => "use {$fqcn};", $fqcns));
+        $index = new TestReferenceIndex();
+        $index->addSource("<?php\n{$imports}\nclass SomeTest {}\n", 'tests/Feature/SomeTest.php');
+
+        return $index;
+    }
+
+    #[Test]
+    public function a_changed_class_that_reaches_nothing_is_graded_on_its_own_import(): void
+    {
+        // The reached-entry-point question has no answer here, so the level asks the next best one:
+        // does a runnable test exercise this class at all. Without the fallback every unplaced change
+        // reports MEDIUM forever, with no road to LOW.
+        $result = $this->analyzer()->detectChanges(
+            [$this->changedMethod('app/Support/Slugger.php', 'App\Support\Slugger', 'slugify')],
+            tests: $this->indexImporting('App\Support\Slugger'),
+        );
+
+        $this->assertSame([], $result['entryPoints']);
+        $this->assertSame(RiskLevel::Low, $result['risk']);
+        $this->assertSame(['App\Support\Slugger' => true], $result['verification']);
+    }
+
+    #[Test]
+    public function the_same_class_with_no_test_importing_it_is_medium_and_names_the_gap(): void
+    {
+        $result = $this->analyzer()->detectChanges(
+            [$this->changedMethod('app/Support/Slugger.php', 'App\Support\Slugger', 'slugify')],
+            tests: new TestReferenceIndex(),
+        );
+
+        $this->assertSame(RiskLevel::Medium, $result['risk']);
+        $this->assertStringContainsString('no test referencing them', $result['riskCause']);
+    }
+
+    #[Test]
+    public function a_verification_anchor_never_appears_under_entry_points(): void
+    {
+        // A service class is not an entry surface. Printing it under that heading would change what
+        // the list means in every format, so the fallback lives beside `entryPoints`, never in it.
+        $result = $this->analyzer()->detectChanges(
+            [$this->changedMethod('app/Support/Slugger.php', 'App\Support\Slugger', 'slugify')],
+            tests: new TestReferenceIndex(),
+        );
+
+        $this->assertNotContains('App\Support\Slugger', $result['entryPoints']);
+        $this->assertArrayHasKey('App\Support\Slugger', $result['verification']);
+    }
+
+    #[Test]
+    public function each_changed_class_is_graded_its_own_way_in_one_diff(): void
+    {
+        // The fallback is per class, not per diff: one class reaching routes says nothing about a
+        // sibling that reaches nothing.
+        $result = $this->analyzer()->detectChanges([
+            $this->changedMethod('app/Services/PostPublisher.php', 'App\Services\PostPublisher', 'publish'),
+            $this->changedMethod('app/Support/Slugger.php', 'App\Support\Slugger', 'slugify'),
+        ], tests: new TestReferenceIndex());
+
+        $this->assertSame([self::ROUTE, 'App\Support\Slugger'], array_keys($result['verification']));
+    }
+
+    #[Test]
+    public function disabling_the_hazard_lanes_leaves_the_level_to_the_verification_ladder(): void
+    {
+        // Documented because it changes the LEVEL, not only which section prints.
+        $result = $this->analyzer()->detectChanges(
+            [$this->changedMethod('app/Services/PostPublisher.php', 'App\Services\PostPublisher', 'publish')],
+            tests: $this->indexImporting('App\Services\PostPublisher'),
+            hazardsEnabled: false,
+        );
+
+        $this->assertSame([], $result['hazards']);
+        $this->assertStringContainsString('no hazard', $result['riskCause']);
     }
 
     #[Test]
@@ -563,7 +642,9 @@ final class ImpactAnalyzerTest extends TestCase
 
         $this->assertContains(Comment::class, $this->nodes($result['dependencies']));
         $this->assertSame([], $result['entryPoints']);
-        $this->assertSame(RiskLevel::Low, $result['risk']);
+        // Breadth no longer decides the level: the reached surfaces are graded on whether a test
+        // references them, and this analyzer is built without a test index, so they read unreferenced.
+        $this->assertSame(RiskLevel::Medium, $result['risk']);
     }
 
     #[Test]
@@ -591,9 +672,8 @@ final class ImpactAnalyzerTest extends TestCase
         $this->assertSame([self::ROUTE], $result['entryPoints']);
         // Its reach into existing code counts toward the impacted total.
         $this->assertGreaterThan(0, $result['impacted']);
-        // Precise, not coarse: no low-confidence flag and no capped HIGH.
+        // Precise, not coarse: no low-confidence flag.
         $this->assertFalse($result['lowConfidence']);
-        $this->assertFalse($result['coarseCapApplied']);
     }
 
     #[Test]
@@ -625,16 +705,16 @@ final class ImpactAnalyzerTest extends TestCase
     }
 
     #[Test]
-    public function a_new_entry_point_class_file_is_at_least_medium_and_self_lists(): void
+    public function a_new_entry_point_class_file_self_lists_and_reads_low(): void
     {
-        // A new job has no caller in the graph, so it is its own entry surface — and the entry-class
-        // floor applies, which the additive short-circuit used to skip entirely.
+        // A new job has no caller in the graph, so it is its own entry surface. It still reads LOW:
+        // ladder step 0 — a class nothing has called yet cannot break behaviour that already runs.
         $result = $this->analyzer()->detectChanges([
             $this->changedNewFile('app/Jobs/Post/SomeImportJob.php', 'App\Jobs\Post\SomeImportJob'),
         ]);
 
         $this->assertSame(['App\Jobs\Post\SomeImportJob'], $result['entryPoints']);
-        $this->assertSame(RiskLevel::Medium, $result['risk']);
+        $this->assertSame(RiskLevel::Low, $result['risk']);
     }
 
     #[Test]
@@ -698,36 +778,12 @@ final class ImpactAnalyzerTest extends TestCase
     }
 
     #[Test]
-    public function a_coarse_hub_change_is_capped_at_medium_not_high(): void
+    public function an_addition_only_fillable_edit_is_a_mass_assignment_hazard_not_breadth(): void
     {
-        // 25 controllers load Post — without the cap a coarse $fillable seed would saturate to HIGH.
-        $edges = [];
-        for ($i = 0; $i < 25; ++$i) {
-            $edges[] = ['source' => "App\\Http\\Controllers\\C{$i}::index", 'target' => Post::class, 'type' => 'action-to-model'];
-        }
-
-        $result = new ImpactAnalyzer(new CodeGraph($edges, hasUnparseableFiles: false))->detectChanges([
-            $this->changedCoarse('app/Models/Post.php', Post::class),
-        ]);
-
-        $this->assertTrue($result['lowConfidence']);
-        $this->assertGreaterThanOrEqual(20, $result['impacted']);
-        $this->assertSame(RiskLevel::Medium, $result['risk']);
-        // The cap genuinely bound the result here (coarse fan-out would otherwise be HIGH).
-        $this->assertTrue($result['coarseCapApplied']);
-        // MEDIUM was decided against the precisely-seeded subset, which seeds nothing here — so the
-        // printed impacted count is not the number the level was measured against, and calibrating
-        // `risk_thresholds` on it (as the guidance says) would set the bar against the wrong scale.
-        $this->assertSame(0, $result['scoredImpacted']);
-        $this->assertNotSame($result['impacted'], $result['scoredImpacted']);
-    }
-
-    #[Test]
-    public function an_addition_only_column_config_change_to_a_hub_model_reads_low(): void
-    {
-        // Same 25-controller hub as the coarse test, but here the $fillable edit only ADDS an element.
-        // ChangedSymbols reclassifies an addition-only config edit as additive, so it seeds nothing and stays LOW
-        // instead of the coarse MEDIUM low-confidence estimate.
+        // Same 25-controller hub, and the $fillable edit only ADDS an element. ChangedSymbols still
+        // reclassifies it as additive, so it seeds nothing and the 25 controllers stay out of the
+        // count — but ADDING to $fillable widens the mass-assignment surface, which is a tier-2
+        // hazard. The level comes from the hazard, not from the breadth it never had.
         $edges = [];
         for ($i = 0; $i < 25; ++$i) {
             $edges[] = ['source' => "App\\Http\\Controllers\\C{$i}::index", 'target' => Post::class, 'type' => 'action-to-model'];
@@ -746,41 +802,9 @@ final class ImpactAnalyzerTest extends TestCase
 
         $this->assertSame(0, $result['changed']['app/Models/Post.php']);
         $this->assertFalse($result['lowConfidence']);
-        $this->assertSame(RiskLevel::Low, $result['risk']);
-    }
-
-    #[Test]
-    public function raising_the_risk_thresholds_lets_a_large_repo_get_a_level_that_discriminates(): void
-    {
-        // On a big codebase the defaults report HIGH for everything, and a level that never varies
-        // is one reviewers learn to skip. The same change reads HIGH by default and MEDIUM once the
-        // repo sets a floor that matches its own scale.
-        $edges = [];
-        for ($i = 0; $i < 30; ++$i) {
-            $edges[] = ['source' => "App\\Services\\Caller{$i}::run", 'target' => 'App\\Services\\Big::run', 'type' => 'call'];
-        }
-
-        $analyzer = new ImpactAnalyzer(new CodeGraph($edges, hasUnparseableFiles: false));
-        $changed = [$this->changedMethod('app/Services/Big.php', 'App\\Services\\Big', 'run')];
-
-        $this->assertSame(RiskLevel::High, $analyzer->detectChanges($changed)['risk']);
-
-        config()->set('richter.risk_thresholds.high.impacted', 500);
-        config()->set('richter.risk_thresholds.medium.impacted', 25);
-
-        $this->assertSame(RiskLevel::Medium, $analyzer->detectChanges($changed)['risk']);
-    }
-
-    #[Test]
-    public function a_risk_threshold_below_one_is_rejected_rather_than_making_every_diff_high(): void
-    {
-        config()->set('richter.risk_thresholds.high.impacted', 0);
-
-        $this->expectException(InvalidArgumentException::class);
-
-        new ImpactAnalyzer(new CodeGraph([], hasUnparseableFiles: false))->detectChanges([
-            $this->changedMethod('app/Services/Big.php', 'App\\Services\\Big', 'run'),
-        ]);
+        $this->assertSame(RiskLevel::Medium, $result['risk']);
+        $this->assertSame(['model'], array_column($result['hazards'], 'lane'));
+        $this->assertSame([2], array_column($result['hazards'], 'tier'));
     }
 
     #[Test]
@@ -804,160 +828,6 @@ final class ImpactAnalyzerTest extends TestCase
     }
 
     #[Test]
-    public function the_coarse_cap_does_not_rescore_against_association_reach(): void
-    {
-        // 0.26.0 took association reach out of the entry-point count and left one path uncovered:
-        // the cap's second scoring pass still walked relations. So screens that merely sit beside the
-        // changed model could hold a coarse change at HIGH — the exact regression that split was for —
-        // and the scored count could come out ABOVE the printed one, inverting what the report says
-        // that number is.
-        $edges = [
-            // Nothing calls the changed method: the three routes reach it through Comment's relation.
-            ['source' => Comment::class, 'target' => Review::class . '::publish', 'type' => 'model-relationship'],
-        ];
-
-        for ($i = 0; $i < 3; ++$i) {
-            $edges[] = ['source' => "route::GET::/c{$i}", 'target' => Comment::class, 'type' => 'route-to-controller'];
-        }
-
-        // The co-touched $fillable is what makes the report coarse, and its downstream fan-out is what
-        // rates the whole diff HIGH — so the cap is armed and its rescore decides the level.
-        for ($i = 0; $i < 25; ++$i) {
-            $edges[] = ['source' => Post::class, 'target' => "App\\Services\\S{$i}::run", 'type' => 'call'];
-        }
-
-        $result = new ImpactAnalyzer(new CodeGraph($edges, hasUnparseableFiles: false))->detectChanges([
-            $this->changedCoarse('app/Models/Post.php', Post::class),
-            $this->changedMethod('app/Models/Review.php', Review::class, 'publish'),
-        ]);
-
-        $this->assertSame([], $result['entryPoints']);
-        $this->assertSame(0, $result['scoredEntryPoints']);
-        // The rescore finds no caller, so the coarse HIGH is capped instead of being propped up.
-        $this->assertSame(RiskLevel::Medium, $result['risk']);
-        $this->assertTrue($result['coarseCapApplied']);
-    }
-
-    #[Test]
-    public function the_scored_entry_point_count_never_exceeds_the_printed_list(): void
-    {
-        // Argued in 0.29.0's notes as holding "by construction", then reported broken by a consumer on
-        // a shape the earlier fixtures here could not produce. The last case below IS that shape, and
-        // it failed until the rescore was told about the coarse half of the change: a walk never
-        // reports its own seeds as reached, so narrowing the seeds for scoring un-suppressed a
-        // co-changed entry surface and counted it. These pin the derivation; they do not prove it
-        // globally. Both paths that set the scored count are exercised: the plain one, and the
-        // low-confidence rescore on a narrower seed set.
-        $edges = [
-            ['source' => 'route::GET::/posts', 'target' => 'App\Services\Publisher::run', 'type' => 'route-to-controller'],
-            ['source' => 'App\Services\Publisher::run', 'target' => Post::class, 'type' => 'call'],
-            ['source' => 'App\Jobs\ImportJob::handle', 'target' => Post::class, 'type' => 'call'],
-        ];
-
-        foreach ([
-            [$this->changedMethod('app/Models/Post.php', Post::class, 'publish')],
-            [$this->changedCoarse('app/Models/Post.php', Post::class)],
-            [$this->changedCoarse('app/Models/Post.php', Post::class), $this->changedMethod('app/Jobs/ImportJob.php', 'App\Jobs\ImportJob', 'handle')],
-        ] as $changed) {
-            $result = new ImpactAnalyzer(new CodeGraph($edges, hasUnparseableFiles: false))->detectChanges($changed);
-
-            $this->assertLessThanOrEqual(
-                count($result['entryPoints']),
-                $result['scoredEntryPoints'],
-                'scored counts describe the narrower set the level was measured on, so they can never exceed the printed list',
-            );
-        }
-    }
-
-    #[Test]
-    public function a_co_changed_entry_surface_is_not_counted_as_reached_by_the_rescore(): void
-    {
-        // The reported counterexample, reduced. Every clause of this fixture is load-bearing: the
-        // component's own seeds must reach a route, or the self-listing lane echoes it back into the
-        // printed list (it only echoes a class nothing reaches) and the divergence disappears.
-        $edges = [
-            ['source' => 'route::GET::/dash', 'target' => 'App\Livewire\Dashboard', 'type' => 'route-to-controller'],
-            ['source' => 'App\Livewire\Dashboard', 'target' => 'App\Services\Publisher::run', 'type' => 'call'],
-        ];
-
-        // Fans the diff out past the impacted threshold so the level is HIGH and the rescore runs.
-        for ($i = 0; $i < 25; ++$i) {
-            $edges[] = ['source' => 'App\Services\Publisher::run', 'target' => "App\\Services\\S{$i}::run", 'type' => 'call'];
-        }
-
-        $result = new ImpactAnalyzer(new CodeGraph($edges, hasUnparseableFiles: false))->detectChanges([
-            $this->changedCoarse('app/Livewire/Dashboard.php', 'App\Livewire\Dashboard'),
-            $this->changedMethod('app/Services/Publisher.php', 'App\Services\Publisher', 'run'),
-        ]);
-
-        // The precondition the counterexample needs: a low-confidence HIGH that the rescore did not cap.
-        $this->assertTrue($result['lowConfidence']);
-        $this->assertFalse($result['coarseCapApplied']);
-        $this->assertSame(RiskLevel::High, $result['risk']);
-
-        $this->assertSame(['route::GET::/dash'], $result['entryPoints']);
-        $this->assertSame(1, $result['scoredEntryPoints']);
-        // Same artifact on the other count: the component is changed code, never reach.
-        $this->assertLessThanOrEqual($result['impacted'], $result['scoredImpacted']);
-    }
-
-    #[Test]
-    public function suppressing_co_changed_surfaces_can_let_the_cap_downgrade(): void
-    {
-        // The user-visible half of the fix: the rescore's counts decide the level, so dropping the
-        // co-changed surfaces from them can take a confirmed HIGH down to MEDIUM. A `--fail-on=high`
-        // gate that tripped on this diff no longer does — correctly, since the surface it counted as
-        // reached was part of the change, but it is a level moving, not just a number.
-        $edges = [
-            ['source' => 'App\Livewire\Dashboard', 'target' => 'App\Services\Publisher::run', 'type' => 'call'],
-            ['source' => 'route::GET::/a', 'target' => 'App\Services\Publisher::run', 'type' => 'route-to-controller'],
-            ['source' => 'route::GET::/b', 'target' => 'App\Services\Publisher::run', 'type' => 'route-to-controller'],
-        ];
-
-        // Hung off the COARSE seed, so the full walk clears the impacted threshold while the precise
-        // rescore does not — leaving the entry-point count as the only thing deciding the rescore.
-        for ($i = 0; $i < 25; ++$i) {
-            $edges[] = ['source' => 'App\Livewire\Dashboard', 'target' => "App\\Services\\S{$i}::run", 'type' => 'call'];
-        }
-
-        $result = new ImpactAnalyzer(new CodeGraph($edges, hasUnparseableFiles: false))->detectChanges([
-            $this->changedCoarse('app/Livewire/Dashboard.php', 'App\Livewire\Dashboard'),
-            $this->changedMethod('app/Services/Publisher.php', 'App\Services\Publisher', 'run'),
-        ]);
-
-        // Unsuppressed, the rescore counted Dashboard alongside /a and /b and confirmed HIGH.
-        $this->assertSame(RiskLevel::Medium, $result['risk']);
-        $this->assertTrue($result['coarseCapApplied']);
-        $this->assertSame(2, $result['scoredEntryPoints']);
-    }
-
-    #[Test]
-    public function the_rescore_does_not_read_back_an_unsuppressed_memo_entry(): void
-    {
-        // The suppression is only half the fix; the memo key is the other half. Self-listing asks the
-        // same question about a changed entry class's OWN seeds, unsuppressed, and it runs first — so
-        // when a diff's precise seeds happen to be exactly one entry class's seeds, an unkeyed memo
-        // hands the rescore back the count that still includes the co-changed surface.
-        $edges = [
-            ['source' => 'route::GET::/dash', 'target' => 'App\Livewire\Dashboard', 'type' => 'route-to-controller'],
-            ['source' => 'App\Livewire\Dashboard', 'target' => 'App\Jobs\SyncJob::handle', 'type' => 'call'],
-        ];
-
-        for ($i = 0; $i < 25; ++$i) {
-            $edges[] = ['source' => 'App\Jobs\SyncJob::handle', 'target' => "App\\Services\\S{$i}::run", 'type' => 'call'];
-        }
-
-        $result = new ImpactAnalyzer(new CodeGraph($edges, hasUnparseableFiles: false))->detectChanges([
-            $this->changedCoarse('app/Livewire/Dashboard.php', 'App\Livewire\Dashboard'),
-            $this->changedMethod('app/Jobs/SyncJob.php', 'App\Jobs\SyncJob', 'handle'),
-        ]);
-
-        $this->assertSame(RiskLevel::High, $result['risk']);
-        $this->assertSame(['route::GET::/dash'], $result['entryPoints']);
-        $this->assertSame(1, $result['scoredEntryPoints']);
-    }
-
-    #[Test]
     public function an_over_approximated_call_edge_still_yields_a_real_entry_point(): void
     {
         // `override` and `config-registry` fan out, but the dispatch behind them is real, so a surface
@@ -972,27 +842,6 @@ final class ImpactAnalyzerTest extends TestCase
 
         $this->assertSame(['route::GET::/run'], $result['entryPoints']);
         $this->assertSame([], $result['associationEntryPoints']);
-    }
-
-    #[Test]
-    public function a_precise_high_impact_change_is_not_capped_by_an_unrelated_coarse_change(): void
-    {
-        // A genuine HIGH (25 routes reach the changed service) must survive even when the diff also
-        // touches a $fillable elsewhere — the coarse cap only applies to coarse-driven HIGH.
-        $edges = [['source' => Post::class, 'target' => Comment::class, 'type' => 'model-relationship']];
-        for ($i = 0; $i < 25; ++$i) {
-            $edges[] = ['source' => "route::GET::/r{$i}", 'target' => 'App\Services\Big::run', 'type' => 'route-to-controller'];
-        }
-
-        $result = new ImpactAnalyzer(new CodeGraph($edges, hasUnparseableFiles: false))->detectChanges([
-            $this->changedMethod('app/Services/Big.php', 'App\Services\Big', 'run'),
-            $this->changedCoarse('app/Models/Post.php', Post::class),
-        ]);
-
-        $this->assertTrue($result['lowConfidence']);
-        $this->assertSame(RiskLevel::High, $result['risk']);
-        // Precise seeds drove HIGH, so the cap did NOT fire — the note must not claim it did.
-        $this->assertFalse($result['coarseCapApplied']);
     }
 
     #[Test]
@@ -1231,11 +1080,9 @@ final class ImpactAnalyzerTest extends TestCase
 
         // The sibling's route plus the job's self-listing (its own seeds reached nothing).
         $this->assertSame([self::ROUTE, 'App\Jobs\ImportJob'], $result['entryPoints']);
-        // Self-listed surfaces join the list *after* the level is scored, so the printed count is one
-        // higher than the number the thresholds were compared against. Nothing about this report is
-        // low-confidence — the two counts come apart here for a second, independent reason.
+        // A self-listed surface joins the LIST after the level's own set is frozen, and the level
+        // grades the reached set plus the job's own class anchor — never the printed list.
         $this->assertFalse($result['lowConfidence']);
-        $this->assertSame(1, $result['scoredEntryPoints']);
         $this->assertSame('unresolved', $result['coverage']['app/Jobs/ImportJob.php']);
         $this->assertSame('analyzed', $result['coverage']['app/Services/X.php']);
     }
@@ -1448,7 +1295,9 @@ final class ImpactAnalyzerTest extends TestCase
         ]);
 
         $this->assertSame(0, $result['impacted']);
-        $this->assertSame(RiskLevel::Low, $result['risk']);
+        // Breadth no longer decides the level: the reached surfaces are graded on whether a test
+        // references them, and this analyzer is built without a test index, so they read unreferenced.
+        $this->assertSame(RiskLevel::Medium, $result['risk']);
     }
 
     #[Test]
@@ -1468,7 +1317,9 @@ final class ImpactAnalyzerTest extends TestCase
         ]);
 
         $this->assertSame(0, $result['impacted']);
-        $this->assertSame(RiskLevel::Low, $result['risk']);
+        // Breadth no longer decides the level: the reached surfaces are graded on whether a test
+        // references them, and this analyzer is built without a test index, so they read unreferenced.
+        $this->assertSame(RiskLevel::Medium, $result['risk']);
     }
 
     #[Test]
@@ -1587,7 +1438,9 @@ final class ImpactAnalyzerTest extends TestCase
         $this->assertSame(['App\Builders\FirstBuilder', 'App\Builders\SecondBuilder'], $result['traitAndOverrideReach']);
         // Uncounted, which is the half of the bargain that was never in question.
         $this->assertSame(0, $result['impacted']);
-        $this->assertSame(RiskLevel::Low, $result['risk']);
+        // Breadth no longer decides the level: the reached surfaces are graded on whether a test
+        // references them, and this analyzer is built without a test index, so they read unreferenced.
+        $this->assertSame(RiskLevel::Medium, $result['risk']);
     }
 
     #[Test]
@@ -1790,11 +1643,17 @@ final class ImpactAnalyzerTest extends TestCase
 
             $result = $analyzer->detectChanges([$this->changedPost(['title', 'slug', 'status'], ['status'])]);
 
-            $this->assertCount(1, $result['findings']);
-            $this->assertStringContainsString('status', $result['findings'][0]);
-            $this->assertStringContainsString('ReviewResource.php', $result['findings'][0]);
-            // No model-file prefix — the note names the resource, not app/Models/Post.php.
-            $this->assertStringNotContainsString('app/Models/Post.php:', $result['findings'][0]);
+            // A parity result is a tier-2 HAZARD now, not a finding: a payload field that never
+            // reached the resource mirroring its siblings is a thing that breaks, not a thing richter
+            // failed to see.
+            $this->assertCount(1, $result['hazards']);
+            $this->assertSame('parity', $result['hazards'][0]->lane);
+            $this->assertSame(2, $result['hazards'][0]->tier);
+            $this->assertSame([], $result['findings']);
+            $this->assertStringContainsString('status', $result['hazards'][0]->evidence);
+            $this->assertStringContainsString('ReviewResource.php', $result['hazards'][0]->evidence);
+            // No model-file prefix — the evidence names the resource, not app/Models/Post.php.
+            $this->assertStringNotContainsString('app/Models/Post.php:', $result['hazards'][0]->evidence);
         } finally {
             app()->setBasePath($originalBasePath);
         }
@@ -1836,12 +1695,15 @@ final class ImpactAnalyzerTest extends TestCase
             $enabled = $analyzer->detectChanges([$this->changedPost(['title', 'slug', 'status'], ['status'])]);
             $disabled = $analyzer->detectChanges([$this->changedPost(['title', 'slug', 'status'], ['status'])], payloadParityEnabled: false);
 
-            $this->assertCount(1, $enabled['findings']);
-            $this->assertSame([], $disabled['findings']);
-            // Disabling the lane must never move anything but findings.
-            $this->assertSame($enabled['risk'], $disabled['risk']);
+            $this->assertCount(1, $enabled['hazards']);
+            $this->assertSame([], $disabled['hazards']);
+            // The lane's own key still gates it, unchanged. What moved is the destination — and with
+            // it the level, deliberately: the family's results are hazards now, so silencing them
+            // silences a hazard. Everything the lane never touched stays put.
+            $this->assertSame(RiskLevel::Medium, $enabled['risk']);
             $this->assertSame($enabled['entryPoints'], $disabled['entryPoints']);
             $this->assertSame($enabled['impacted'], $disabled['impacted']);
+            $this->assertSame($enabled['findings'], $disabled['findings']);
         } finally {
             app()->setBasePath($originalBasePath);
         }
@@ -2076,7 +1938,9 @@ final class ImpactAnalyzerTest extends TestCase
 
         $this->assertNotContains('command::reports:sync {--force}', $this->nodes($result['dependencies']));
         $this->assertSame(0, $result['impacted']);
-        $this->assertSame(RiskLevel::Low, $result['risk']);
+        // Breadth no longer decides the level: the reached surfaces are graded on whether a test
+        // references them, and this analyzer is built without a test index, so they read unreferenced.
+        $this->assertSame(RiskLevel::Medium, $result['risk']);
     }
 
     #[Test]
@@ -2142,7 +2006,9 @@ final class ImpactAnalyzerTest extends TestCase
             $this->changedCoarse('app/Console/Kernel.php', 'Acme\\Console\\Kernel'),
         ]);
 
-        $this->assertSame(RiskLevel::Low, $result['risk']);
+        // Breadth no longer decides the level: the reached surfaces are graded on whether a test
+        // references them, and this analyzer is built without a test index, so they read unreferenced.
+        $this->assertSame(RiskLevel::Medium, $result['risk']);
         $this->assertSame(0, $result['impacted']);
         // The breadth is still reported — it is just breadth, not consequence.
         $this->assertCount(16, $result['entryPoints']);

@@ -13,7 +13,7 @@ Measure the magnitude of impact of code changes in a Laravel codebase. For a qui
 - [Detecting change impact](04-detect-changes.md) — the main command, which diff is analysed, reading the report, `--explain`
 - [Report annotations](05-report-annotations.md) — security exposure, Pennant gates, payload parity, middleware group membership
 - [Output formats](06-output-formats.md) — `--markdown`, `--html`, and the `--json` contract
-- [Risk levels](07-risk-levels.md) — how the level is decided, calibrating the thresholds, the scored counts
+- [Risk levels](07-risk-levels.md) — the hazard tiers, the reach matrix, and the ladder that decides the level
 - [Gating in CI](08-ci-gating.md) — `--fail-on`, `--fail-on-unresolved`, and a pull-request workflow
 
 ## Commands

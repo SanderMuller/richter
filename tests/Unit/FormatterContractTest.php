@@ -3,6 +3,7 @@
 namespace SanderMuller\Richter\Tests\Unit;
 
 use PHPUnit\Framework\Attributes\Test;
+use SanderMuller\Richter\Analysis\Hazard;
 use SanderMuller\Richter\Analysis\HtmlFormatter;
 use SanderMuller\Richter\Analysis\ImpactFormatter;
 use SanderMuller\Richter\Analysis\JsonPresenter;
@@ -32,7 +33,7 @@ final class FormatterContractTest extends TestCase
      * unresolved changed file, related models, source findings, and a coarse-capped low-confidence
      * risk — every field either formatter can render, on at once.
      *
-     * @return array{seeds: list<string>, reach: array<string, array<string, true>>, edges: list<array{source: string, target: string, via: string, depth: int}>, changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, array{exposure: string, riskLevel: string, issues: list<array{type: string, severity: string, message: string, file?: string, line?: int}>}>, entryPointGates: array<string, list<string>>, entryPointAuthMiddleware: array<string, list<string>>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied: bool, scoredEntryPoints: int, scoredImpacted: int, findings: list<string>}
+     * @return array{seeds: list<string>, reach: array<string, array<string, true>>, edges: list<array{source: string, target: string, via: string, depth: int}>, changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, array{exposure: string, riskLevel: string, issues: list<array{type: string, severity: string, message: string, file?: string, line?: int}>}>, entryPointGates: array<string, list<string>>, entryPointAuthMiddleware: array<string, list<string>>, impacted: int, relatedModels: list<string>, risk: RiskLevel, riskCause: string, hazards: list<Hazard>, verification: array<string, bool>, lowConfidence: bool, findings: list<string>}
      */
     private function richFixture(): array
     {
@@ -79,9 +80,9 @@ final class FormatterContractTest extends TestCase
             'relatedModels' => ['App\Models\Comment'],
             'risk' => RiskLevel::Medium,
             'lowConfidence' => true,
-            'coarseCapApplied' => true,
-            'scoredEntryPoints' => 1,
-            'scoredImpacted' => 2,
+            'riskCause' => 'tier 3 `auth` hazard on App\\Http\\Controllers\\PostController::update, reach public-write',
+            'hazards' => [new Hazard('auth', 3, 'CWE-862', 'App\Http\Controllers\PostController::update', 'the authorization check `ability:update` is gone from the body', 'ability:update', Hazard::REACH_PUBLIC_WRITE)],
+            'verification' => ['route::GET::/r01' => true, 'route::GET::/r02' => false],
             'findings' => ["app/Exports/X.php: eager-load string 'commentsreviews' matches no relation"],
         ];
     }
@@ -121,7 +122,11 @@ final class FormatterContractTest extends TestCase
         $this->assertStringContainsString('UNRESOLVED', $output);
         $this->assertStringContainsString('… and 5 more', $output);
         $this->assertStringContainsStringIgnoringCase('low confidence', $output);
-        $this->assertStringContainsString('risk capped at MEDIUM', $output);
+        // The hazard section, above Findings: a hazard says something may BREAK.
+        $this->assertStringContainsString('Hazards (1)', $output);
+        $this->assertStringContainsString('public-write', $output);
+        // Every level renders with its cause.
+        $this->assertStringContainsString('reach public-write', $output);
     }
 
     #[Test]
@@ -145,7 +150,11 @@ final class FormatterContractTest extends TestCase
         $this->assertStringContainsString('UNRESOLVED', $output);
         $this->assertStringContainsString('… and 5 more', $output);
         $this->assertStringContainsStringIgnoringCase('low confidence', $output);
-        $this->assertStringContainsString('risk capped at MEDIUM', $output);
+        // The hazard section, above Findings: a hazard says something may BREAK.
+        $this->assertStringContainsString('Hazards (1)', $output);
+        $this->assertStringContainsString('public-write', $output);
+        // Every level renders with its cause.
+        $this->assertStringContainsString('reach public-write', $output);
     }
 
     #[Test]
@@ -156,7 +165,7 @@ final class FormatterContractTest extends TestCase
         foreach ([
             'base', 'changed', 'coverage', 'entryPoints', 'entryPointPaths', 'entryPointLocations',
             'entryPointSecurity', 'entryPointGates', 'entryPointTestReferences', 'impacted',
-            'relatedModels', 'risk', 'lowConfidence', 'coarseCapApplied', 'scoredEntryPoints', 'scoredImpacted', 'findings', 'unresolved',
+            'relatedModels', 'risk', 'riskCause', 'hazards', 'verification', 'lowConfidence', 'findings', 'unresolved',
         ] as $key) {
             $this->assertArrayHasKey($key, $json);
         }
@@ -184,7 +193,9 @@ final class FormatterContractTest extends TestCase
         $this->assertSame('origin/main', $json['base']);
         $this->assertTrue($json['unresolved']);
         $this->assertTrue($json['lowConfidence']);
-        $this->assertTrue($json['coarseCapApplied']);
+        // Every level carries its cause into the machine contract too: a consumer surfacing `risk`
+        // alone would otherwise reproduce the bare render the model exists to prevent.
+        $this->assertNotSame('', $json['riskCause']);
         $this->assertSame('medium', $json['risk']);
         $this->assertCount(20, $json['entryPoints']);
     }
@@ -222,7 +233,8 @@ final class FormatterContractTest extends TestCase
             'beta-feature',
             'test-referenced',
             'coarse class-level estimate',
-            'risk capped at MEDIUM',
+            'Hazards (1)',
+            'public-write',
             'eager-load string &#039;commentsreviews&#039; matches no relation',
             'MEDIUM',
             '<strong>42</strong>',

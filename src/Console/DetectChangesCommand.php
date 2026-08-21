@@ -51,6 +51,8 @@ final class DetectChangesCommand extends Command
         {--fail-on-unresolved : Exit non-zero when any changed PHP file is UNRESOLVED}
         {--no-cache : Build the code graph fresh, bypassing the graph cache}
         {--no-payload-parity : Skip the payload-parity findings lanes (a model field never mirrored in a resource; a removed resource key a frontend consumer still reads)}
+        {--no-hazards : Skip the change-hazard lanes (a guard removed, a mass-assignment surface widened, a validation constraint dropped, a public member removed)}
+        {--fail-on-hazard= : Exit non-zero when any hazard is at least this tier (1|2|3); gates hazards alone, where --fail-on gates the level}
         {--profile : Time each graph-build phase and print the split to stderr (forces a build, and names which analysis path it took; add --no-cache to time a cold one)}
         {--html= : Write a self-contained HTML report to this path (all CSS/JS inline; opens offline)}
         {--open : Open the --html report in the default browser after writing it}';
@@ -100,8 +102,18 @@ final class DetectChangesCommand extends Command
             return $this->emitFailure($json, 'The --fail-on option requires a value: low, medium, or high.');
         }
 
+        $failOnHazardRaw = $this->option('fail-on-hazard');
+
+        if ($failOnHazardRaw !== null && ! in_array((string) $failOnHazardRaw, ['1', '2', '3'], strict: true)) {
+            return $this->emitFailure($json, "Invalid --fail-on-hazard value \"{$failOnHazardRaw}\"; expected one of: 1, 2, 3.");
+        }
+
+        if ($failOnHazardRaw === null && $this->input->hasParameterOption('--fail-on-hazard')) {
+            return $this->emitFailure($json, 'The --fail-on-hazard option requires a value: 1, 2, or 3.');
+        }
+
         $failOnUnresolved = (bool) $this->option('fail-on-unresolved');
-        $gateActive = $failOn instanceof RiskLevel || $failOnUnresolved;
+        $gateActive = $failOn instanceof RiskLevel || $failOnUnresolved || $this->failOnHazard() !== null;
 
         $this->warnAboutRootNamespace();
         $this->warnAboutUntrackedFiles();
@@ -198,15 +210,21 @@ final class DetectChangesCommand extends Command
             return $this->reportEmptyDiff($base, $failOn, $failOnUnresolved, $gateActive);
         }
 
-        $result = new ImpactAnalyzer($this->graph($graphs))->detectChanges($changed, payloadParityEnabled: $this->payloadParityEnabled());
+        $graph = $this->graph($graphs);
+        // Built before the analysis, not after: the level now depends on what a test references, and
+        // the index needs the graph to follow a route to the class that handles it — a Filament page
+        // driven by `livewire(SomePage::class)` matches neither a route name nor a literal URI.
+        $tests = TestReferenceIndex::fromTests(base_path('tests'));
+        $tests->useGraph($graph);
+
+        $result = new ImpactAnalyzer($graph)->detectChanges($changed, payloadParityEnabled: $this->payloadParityEnabled(), tests: $tests, hazardsEnabled: $this->hazardsEnabled());
 
         $markdown = (bool) $this->option('markdown');
-        $tests = TestReferenceIndex::fromTests(base_path('tests'));
         $explain = (bool) $this->option('explain');
         $htmlPath = $this->option('html');
 
         $gate = $gateActive
-            ? Gate::evaluate($result['risk'], $this->unresolvedCount($result['coverage']), $failOn, $failOnUnresolved)
+            ? Gate::evaluate($result['risk'], $this->unresolvedCount($result['coverage']), $failOn, $failOnUnresolved, $result['hazards'], $this->failOnHazard())
             : null;
 
         if ($htmlPath !== null) {
@@ -278,8 +296,11 @@ final class DetectChangesCommand extends Command
             return self::SUCCESS;
         }
 
-        $result = new ImpactAnalyzer($this->graph($graphs))->detectChanges($changed, payloadParityEnabled: $this->payloadParityEnabled());
+        $graph = $this->graph($graphs);
         $tests = TestReferenceIndex::fromTests(base_path('tests'));
+        $tests->useGraph($graph);
+
+        $result = new ImpactAnalyzer($graph)->detectChanges($changed, payloadParityEnabled: $this->payloadParityEnabled(), tests: $tests, hazardsEnabled: $this->hazardsEnabled());
         $payload = JsonPresenter::detectChanges($result, $base, $tests);
 
         if (! $gateActive) {
@@ -288,7 +309,7 @@ final class DetectChangesCommand extends Command
             return self::SUCCESS;
         }
 
-        $gate = Gate::evaluate($result['risk'], $this->unresolvedCount($result['coverage']), $failOn, $failOnUnresolved);
+        $gate = Gate::evaluate($result['risk'], $this->unresolvedCount($result['coverage']), $failOn, $failOnUnresolved, $result['hazards'], $this->failOnHazard());
         $payload['gate'] = $this->gatePayload($gate['tripped'], $gate['reasons'], $failOn, $failOnUnresolved);
 
         $this->line(JsonPresenter::encode($payload));
@@ -363,12 +384,18 @@ final class DetectChangesCommand extends Command
 
     /**
      * @param  list<string>  $reasons
-     * @return array{failOn: string|null, failOnUnresolved: bool, tripped: bool, reasons: list<string>}
+     * Every configured policy is named, not only the ones that tripped. A run gated solely by
+     * `--fail-on-hazard` would otherwise describe itself as ungated — and on an empty diff, where the
+     * gate is never evaluated and `reasons` is empty, the payload is all a consumer has.
+     *
+     * @param  list<string>  $reasons
+     * @return array{failOn: string|null, failOnHazard: int|null, failOnUnresolved: bool, tripped: bool, reasons: list<string>}
      */
     private function gatePayload(bool $tripped, array $reasons, ?RiskLevel $failOn, bool $failOnUnresolved): array
     {
         return [
             'failOn' => $failOn?->value,
+            'failOnHazard' => $this->failOnHazard(),
             'failOnUnresolved' => $failOnUnresolved,
             'tripped' => $tripped,
             'reasons' => $reasons,
@@ -379,6 +406,20 @@ final class DetectChangesCommand extends Command
     private function payloadParityEnabled(): ?bool
     {
         return (bool) $this->option('no-payload-parity') ? false : null;
+    }
+
+    /** null (config decides) unless `--no-hazards` explicitly forces the lanes off. */
+    private function hazardsEnabled(): ?bool
+    {
+        return (bool) $this->option('no-hazards') ? false : null;
+    }
+
+    /** The lowest hazard tier that blocks the build, or null when `--fail-on-hazard` is absent. */
+    private function failOnHazard(): ?int
+    {
+        $raw = $this->option('fail-on-hazard');
+
+        return in_array((string) $raw, ['1', '2', '3'], strict: true) ? (int) $raw : null;
     }
 
     private function graph(GraphCache $graphs): CodeGraph

@@ -359,10 +359,10 @@ final class McpTest extends TestCase
             'traitAndOverrideReach',
             'traitAndOverrideReachVia',
             'risk',
+            'riskCause',
+            'hazards',
+            'verification',
             'lowConfidence',
-            'coarseCapApplied',
-            'scoredEntryPoints',
-            'scoredImpacted',
             'findings',
             'unresolved',
         ], array_keys($detectChangesProperties));

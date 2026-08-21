@@ -34,10 +34,14 @@ never auto-activates.
 
 ## Step 1 — Run the report
 
-Get the branch report (`detect-changes`, JSON + explain). Note `risk`, `lowConfidence`,
-`coarseCapApplied`, and whether any file is UNRESOLVED — these calibrate how much the rest of the
-report can be trusted. Where `scoredEntryPoints` / `scoredImpacted` differ from the printed counts,
-those are what the level was decided on; the wider list is still reach worth reviewing.
+Get the branch report (`detect-changes`, JSON + explain). Read `hazards` FIRST — each one names a
+thing that may break, with its tier and the reach class it was graded at. Then `riskCause`, which
+says in one line why the level is what it is. `lowConfidence` and any UNRESOLVED file calibrate how
+much of the rest can be trusted.
+
+`verification` names exactly what the level graded and whether a test references each entry. The
+printed entry-point list is wider than that on purpose — a frontend file's routes and registry
+surfaces are reach worth reviewing that the level does not grade.
 
 ## Step 2 — Triage the reached entry points
 

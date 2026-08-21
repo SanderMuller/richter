@@ -3,6 +3,7 @@
 namespace SanderMuller\Richter\Changes;
 
 use PhpParser\Node;
+use PhpParser\Node\ArrayItem;
 use PhpParser\Node\Expr\Array_;
 use PhpParser\Node\Expr\ClassConstFetch;
 use PhpParser\Node\Expr\ConstFetch;
@@ -119,6 +120,36 @@ final class EloquentConfig
 
         // Addition-only: every base entry survives unchanged in head (head may add more).
         return array_all($baseMap, fn (string $value, string $key): bool => array_key_exists($key, $headMap) && $headMap[$key] === $value);
+    }
+
+    /**
+     * One config member's canonical key→value map, for a lane that needs to compare CONTENTS rather
+     * than ask whether an edit was addition-only. Deliberately NOT routed through
+     * {@see CONFIG_PROPERTIES}: that constant decides which members read as additive, and widening it
+     * would reclassify changes this method only wants to read. Null when the member is absent or
+     * anything in it is non-enumerable — the no-guess rule the rest of this class keeps.
+     *
+     * @return array<string, string>|null
+     */
+    public static function configMap(string $source, string $name, string $kind): ?array
+    {
+        $node = self::memberNodeFor($source, $name, $kind);
+
+        if ($node === null) {
+            return null;
+        }
+
+        $array = self::arrayOf($node, $kind);
+
+        // A spread hides an unknown number of entries behind one element. {@see toMap()} canonicalises
+        // the spread's own expression as if it were a value, which is harmless for the addition-only
+        // question this class was built for but not for a caller comparing CONTENTS: the entries
+        // behind it are simply not there to compare.
+        if (array_any($array->items, static fn (ArrayItem $item): bool => $item->unpack)) {
+            return null;
+        }
+
+        return self::toMap($array);
     }
 
     private static function memberNodeFor(string $source, string $name, string $kind): Property|ClassMethod|null

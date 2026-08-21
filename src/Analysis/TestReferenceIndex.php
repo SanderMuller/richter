@@ -6,6 +6,7 @@ use Illuminate\Routing\Route as RoutingRoute;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Str;
+use SanderMuller\Richter\Graph\CodeGraph;
 use SanderMuller\Richter\Support\AppNamespace;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Finder\Finder;
@@ -53,10 +54,23 @@ final class TestReferenceIndex
 
     private bool $routerUnavailable = false;
 
+    private ?CodeGraph $graph = null;
+
     /**
      * @param  string|null  $projectRoot  when given, recorded test-file paths are made relative to
      *   it — the form a test-runner invocation (`php artisan test <file>`) expects
      */
+    /**
+     * The graph the route-to-handler fallback walks. Optional and set after construction: the index
+     * is built from `tests/` alone and stays useful without a graph, and a caller that has one
+     * (`detect-changes`, `affected-tests`) hands it over so a class-driven surface stops reading as
+     * unreferenced.
+     */
+    public function useGraph(CodeGraph $graph): void
+    {
+        $this->graph = $graph;
+    }
+
     public static function fromTests(string $testsDir, ?string $projectRoot = null): self
     {
         $index = new self();
@@ -296,9 +310,33 @@ final class TestReferenceIndex
             return ['referenced' => true, 'tests' => $this->unique($tests)];
         }
 
+        // Neither the name nor the URI appears in any test — but a Livewire component or a Filament
+        // page is not driven by either. `livewire(SomePage::class)` names the CLASS, so follow the
+        // route to whatever handles it and let a test importing that class count.
+        $viaHandler = $this->graph instanceof CodeGraph
+            ? new RouteHandlerReferences($this->graph)->testsDriving($node, $this->classes)
+            : [];
+
+        if ($viaHandler !== []) {
+            return ['referenced' => true, 'tests' => $viaHandler];
+        }
+
         // With the router unavailable, name-based matching never ran — a miss here means "couldn't
         // check", not "unreferenced".
         return $this->routerUnavailable ? null : ['referenced' => false, 'tests' => []];
+    }
+
+    /**
+     * Only a conventionally-named test file counts as a reference. Shared with
+     * {@see AffectedTests}, which filters the same way and for the same reason: a helper, trait or
+     * fixture under tests/ imports app classes too, and it proves nothing about behaviour.
+     *
+     * @param  list<string>  $files
+     * @return list<string>
+     */
+    public static function runnableOnly(array $files): array
+    {
+        return array_values(array_filter($files, static fn (string $file): bool => str_ends_with($file, 'Test.php')));
     }
 
     /** @return array{referenced: bool, tests: list<string>}|null */

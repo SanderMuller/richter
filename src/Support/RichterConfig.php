@@ -242,49 +242,25 @@ final class RichterConfig
         return self::stringList('richter.payload_parity.ignore') ?? [];
     }
 
-    /**
-     * The counts at which the advisory risk level steps up, defaults applied per key.
-     *
-     * Configurable because the defaults saturate on a large codebase: where a routine change reaches
-     * thousands of nodes, `impacted >= 20` is met by everything and the level stops discriminating.
-     * They stay ABSOLUTE rather than becoming a percentile of the graph — a gate whose meaning shifts
-     * with the repo's own distribution is not a gate anyone can reason about in CI.
-     *
-     * Calibrate `high` before `medium`: raising `high` leaves the `medium` arm of {@see
-     * ImpactAnalyzer::risk()} untouched, so it can only demote to `medium`, while raising `medium` is
-     * the only edit that can reach `low`. Documented at the config key, because that is where someone
-     * about to get it wrong looks.
-     *
-     * @return array{high: array{entry_points: int, impacted: int}, medium: array{entry_points: int, impacted: int}}
-     */
-    public static function riskThresholds(): array
+    public static function hazardsEnabled(): bool
     {
-        return [
-            'high' => [
-                'entry_points' => self::positiveThreshold('richter.risk_thresholds.high.entry_points', 3),
-                'impacted' => self::positiveThreshold('richter.risk_thresholds.high.impacted', 20),
-            ],
-            'medium' => [
-                'entry_points' => self::positiveThreshold('richter.risk_thresholds.medium.entry_points', 1),
-                'impacted' => self::positiveThreshold('richter.risk_thresholds.medium.impacted', 5),
-            ],
-        ];
-    }
-
-    /** A threshold must be a positive int: zero would make every diff meet it, including an empty one. */
-    private static function positiveThreshold(string $key, int $default): int
-    {
-        $value = config($key);
+        $value = config('richter.hazards.enabled');
 
         if ($value === null) {
-            return $default;
+            return true;
         }
 
-        if (! is_int($value) || $value < 1) {
-            throw new InvalidArgumentException("The {$key} config value must be an integer of 1 or more.");
+        if (! is_bool($value)) {
+            throw new InvalidArgumentException('The richter.hazards.enabled config value must be a boolean.');
         }
 
         return $value;
+    }
+
+    /** @return list<string> */
+    public static function hazardsIgnore(): array
+    {
+        return self::stringList('richter.hazards.ignore') ?? [];
     }
 
     /** @return list<BenchmarkCase> */

@@ -154,12 +154,12 @@ On yes:
 - Suggest a first run: `php artisan richter:detect-changes` on the current branch, and check the
   reached entry points and any `UNRESOLVED` files against what was expected — that's the fastest way to
   spot a still-missing `entry_point_roots` entry.
-- If you calibrate `risk_thresholds`, move the `high` bar before the `medium` one: raising `high` can
-  only demote a change to `medium`, while raising `medium` is the only edit that can push one to
-  `low`. Calibrate against the report's `scoredEntryPoints` / `scoredImpacted` rather than the counts
-  printed beside them — those two come apart wherever a surface joined the entry-point list after the
-  level was scored, or a low-confidence `high` was re-scored on the precise subset. Run the benchmark
-  corpus before and after if the project has one; that is the only check that says whether the
+- There is nothing to calibrate: `risk_thresholds` is deprecated and no longer read. The level is
+  decided by the hazard a change carries and, where it carries none, by whether a test references what
+  it reaches. If a level looks wrong, read its `riskCause` — the fix is usually coverage
+  (`entry_point_roots`, `root_namespace`) rather than a knob. Use `hazards.ignore` to silence one
+  hazard a project knows is safe. Run the benchmark
+  corpus before and after any such change if the project has one; that is the only check that says whether the
   calibration still surfaces real defects.
 - Testing any config key against historical diffs has a trap: `richter:detect-changes` has no `--head`,
   so a replay checks out each ref, and a tracked `config/richter.php` reverts to that ref's version
@@ -172,6 +172,7 @@ On yes:
   Disabling the hook does not make the checkout harmless, though: `composer.json`, `composer.lock` and
   a tracked `config/richter.php` all revert to each replayed ref while `vendor/` keeps the version
   under test. The measurements stay valid — artisan runs off `vendor/` — but a version bump made on
-  the branch is silently undone, and so is any tuned `risk_thresholds`, so every level in a replay is
-  produced on package defaults. Fine for comparing versions against each other; misleading if what you
-  are checking is your own calibration. Re-check the manifest and the config, not just the hook.
+  the branch is silently undone, and so is any tuned `hazards.ignore` or `payload_parity` setting, so
+  every replay runs on package defaults. Fine for comparing versions against each other; misleading if
+  what you are checking is your own configuration. Re-check the manifest and the config, not just the
+  hook.

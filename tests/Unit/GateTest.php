@@ -4,6 +4,7 @@ namespace SanderMuller\Richter\Tests\Unit;
 
 use PHPUnit\Framework\Attributes\Test;
 use SanderMuller\Richter\Analysis\Gate;
+use SanderMuller\Richter\Analysis\Hazard;
 use SanderMuller\Richter\Analysis\RiskLevel;
 use SanderMuller\Richter\Tests\TestCase;
 
@@ -54,6 +55,47 @@ final class GateTest extends TestCase
 
         $this->assertTrue($gate['tripped']);
         $this->assertSame(['risk high ≥ medium', '1 changed file UNRESOLVED'], $gate['reasons']);
+    }
+
+    #[Test]
+    public function the_hazard_gate_trips_on_its_own_flag(): void
+    {
+        // Blocking a removed guard and blocking a missing test are different policies, so a team can
+        // gate the first without gating the second.
+        $verdict = Gate::evaluate(RiskLevel::Low, 0, null, false, [$this->hazard(3)], 3);
+
+        $this->assertTrue($verdict['tripped']);
+        $this->assertSame(['1 hazard at tier 3 or above'], $verdict['reasons']);
+    }
+
+    #[Test]
+    public function the_hazard_gate_ignores_a_hazard_below_its_tier(): void
+    {
+        $verdict = Gate::evaluate(RiskLevel::Low, 0, null, false, [$this->hazard(1), $this->hazard(2)], 3);
+
+        $this->assertFalse($verdict['tripped']);
+    }
+
+    #[Test]
+    public function the_hazard_gate_counts_every_blocking_hazard(): void
+    {
+        $verdict = Gate::evaluate(RiskLevel::Low, 0, null, false, [$this->hazard(2), $this->hazard(3)], 2);
+
+        $this->assertSame(['2 hazards at tier 2 or above'], $verdict['reasons']);
+    }
+
+    #[Test]
+    public function the_level_gate_and_the_hazard_gate_are_independent(): void
+    {
+        // A LOW level with a tier-3 hazard still blocks under --fail-on-hazard, and a HIGH level with
+        // no hazard still blocks under --fail-on. Neither flag implies the other.
+        $this->assertFalse(Gate::evaluate(RiskLevel::High, 0, null, false, [], 3)['tripped']);
+        $this->assertTrue(Gate::evaluate(RiskLevel::Low, 0, RiskLevel::Low, false, [])['tripped']);
+    }
+
+    private function hazard(int $tier): Hazard
+    {
+        return new Hazard('auth', $tier, null, 'App\Services\Publisher::publish', 'evidence', reach: Hazard::REACH_GATED);
     }
 
     #[Test]

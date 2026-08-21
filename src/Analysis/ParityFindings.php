@@ -11,7 +11,12 @@ use SanderMuller\Richter\Support\RichterConfig;
  * budget): one gate (`payload_parity.enabled` / `--no-payload-parity`) constructs every
  * checker, and one per-file call fans out to whichever lane the file triggers — added
  * model fields to the model→resource lane, removed resource keys to the frontend-consumer
- * lane, removed `rules()` fields to the request lane. Findings only, in every direction.
+ * lane, removed `rules()` fields to the request lane.
+ *
+ * These are HAZARDS, at tier 2. A payload key a consumer still reads, a model field that never
+ * reached the resource mirroring its siblings, a form-request field that stopped being validated —
+ * each names something that BREAKS, which is what separates a hazard from a finding. The predicates
+ * are unchanged and the `payload_parity` config keys still gate them; only the destination moved.
  */
 final readonly class ParityFindings
 {
@@ -40,20 +45,38 @@ final readonly class ParityFindings
     }
 
     /**
-     * No file prefix on these — unlike the source-checker findings, each names the
-     * OTHER side of the parity pair (the resource a model change affects, the consumer
-     * file a resource or form-request change strands), not the changed file itself.
+     * No file prefix on these — each names the OTHER side of the parity pair (the resource a model
+     * change affects, the consumer file a resource or form-request change strands) in its evidence,
+     * while `member` anchors on the changed file itself. The reach lane needs something it can look
+     * up in the graph; the evidence carries the rest.
      *
-     * @return list<string>
+     * @return list<Hazard>
      */
     public static function for(ChangedFileSymbols $file, ?PayloadParityChecker $modelLane, ?FrontendConsumerParityChecker $consumerLane, ?RequestFieldParityChecker $requestLane): array
     {
-        return [
-            ...(! $modelLane instanceof PayloadParityChecker || $file->addedModelFields === [] ? [] : $modelLane->findingsFor($file->fqcn, $file->modelFieldSet, $file->addedModelFields)),
-            ...(! $consumerLane instanceof FrontendConsumerParityChecker || $file->removedResourceKeys === [] ? [] : $consumerLane->findingsFor($file->fqcn, $file->removedResourceKeys, $file->addedResourceKeys)),
-            ...(! $requestLane instanceof RequestFieldParityChecker || $file->removedRequestFields === [] ? [] : $requestLane->findingsFor($file->fqcn, $file->removedRequestFields, $file->addedRequestFields)),
-            ...self::inlineRequestFindings($file, $requestLane),
+        $hazards = [
+            ...self::hazards($file->fqcn, ! $modelLane instanceof PayloadParityChecker || $file->addedModelFields === [] ? [] : $modelLane->findingsFor($file->fqcn, $file->modelFieldSet, $file->addedModelFields)),
+            ...self::hazards($file->fqcn, ! $consumerLane instanceof FrontendConsumerParityChecker || $file->removedResourceKeys === [] ? [] : $consumerLane->findingsFor($file->fqcn, $file->removedResourceKeys, $file->addedResourceKeys)),
+            ...self::hazards($file->fqcn, ! $requestLane instanceof RequestFieldParityChecker || $file->removedRequestFields === [] ? [] : $requestLane->findingsFor($file->fqcn, $file->removedRequestFields, $file->addedRequestFields)),
         ];
+
+        foreach (self::inlineRequestFindingsByMember($file, $requestLane) as $member => $findings) {
+            $hazards = [...$hazards, ...self::hazards($member, $findings)];
+        }
+
+        return $hazards;
+    }
+
+    /**
+     * @param  list<string>  $findings
+     * @return list<Hazard>
+     */
+    private static function hazards(string $member, array $findings): array
+    {
+        return array_map(
+            static fn (string $finding): Hazard => new Hazard('parity', 2, null, $member, $finding),
+            $findings,
+        );
     }
 
     /**
@@ -62,9 +85,9 @@ final readonly class ParityFindings
      * validates something else entirely. The parser hands over fully qualified member ids, so a file
      * declaring two classes anchors each on its own.
      *
-     * @return list<string>
+     * @return array<string, list<string>>
      */
-    private static function inlineRequestFindings(ChangedFileSymbols $file, ?RequestFieldParityChecker $requestLane): array
+    private static function inlineRequestFindingsByMember(ChangedFileSymbols $file, ?RequestFieldParityChecker $requestLane): array
     {
         if (! $requestLane instanceof RequestFieldParityChecker) {
             return [];
@@ -73,7 +96,11 @@ final readonly class ParityFindings
         $findings = [];
 
         foreach ($file->inlineRequestFields as $member => [$removed, $added]) {
-            $findings = [...$findings, ...$requestLane->findingsFor($member, $removed, $added)];
+            $memberFindings = $requestLane->findingsFor($member, $removed, $added);
+
+            if ($memberFindings !== []) {
+                $findings[$member] = $memberFindings;
+            }
         }
 
         return $findings;

@@ -40,17 +40,19 @@ An absent tag means *not classified*, and only routes are classified at all.
 
 ## Risk levels
 
-### Every change reports `high`
+### Every change reports `medium`
 
-The thresholds are absolute, not relative to your repo, and the defaults were calibrated on small-to-mid applications. On a large codebase a routine change reaches thousands of nodes, so `impacted >= 20` is met by everything.
+On an application whose subsystems are dispatched through a config-keyed registry, most changes reach no entry point richter can name, and "could not place what this reaches" is `medium` by design. It is not evidence of safety, so it does not read `low`.
 
-Recalibrate with the ordering in mind: raising `high` can only move a change down to `medium`, and `medium` is the only bar that reaches `low`. See [Calibrating the thresholds](07-risk-levels.md#calibrating-the-thresholds).
+The discrimination is in the cause line, not the level. Read it: `could not place` and `no test referencing them` are different problems with different fixes. `--fail-on-hazard` gates the changes that carry an actual hazard, whatever their level.
 
-### The risk level does not match the counts printed beside it
+If the registry is one richter could follow, teaching it the dispatch is the real fix — see [Configuration](16-configuration.md).
 
-That is expected, and the report names both figures whenever they differ. The entry-point list gains surfaces *after* the level is scored, and a low-confidence `high` is re-scored against the precisely-seeded part of the change.
+### The risk level does not match the `Impact` counts beside it
 
-Calibrate against `scoredEntryPoints` and `scoredImpacted` rather than the printed counts. See [why they come apart](07-risk-levels.md#the-counts-the-risk-level-was-decided-on).
+It is not meant to. `Impact` describes how far the change reaches; the level says what to do about it. A one-line change that removes an authorization guard reports `high` with an `Impact` of one surface, and a broad refactor whose every surface is test-referenced reports `low`.
+
+The `Risk:` line always names its own cause. Read that before the counts. See [Risk levels](07-risk-levels.md).
 
 ### The level changed after upgrading, with no code change
 

@@ -2,6 +2,9 @@
 
 namespace SanderMuller\Richter\Changes;
 
+use SanderMuller\Richter\Analysis\Hazard;
+use SanderMuller\Richter\Analysis\HazardFindings;
+use SanderMuller\Richter\Analysis\Hazards\HazardLanes;
 use SanderMuller\Richter\Analysis\ImpactAnalyzer;
 use SanderMuller\Richter\Analysis\PayloadParityChecker;
 use SanderMuller\Richter\Analysis\ResourceKeyParser;
@@ -46,6 +49,12 @@ final readonly class ChangedFileSymbols
      *   stay apart
      * @param  list<string>  $addedRequestFields  the inverse diff (head − base), feeding that finding's
      *   rename hint
+     * @param  list<Hazard>  $hazards  this file's change hazards, already parsed from both sides by
+     *   {@see HazardLanes} — source text is not carried, so a lane that ran later would have nothing
+     *   left to compare. Still unfiltered: {@see HazardFindings} runs the whole-diff
+     *   moved-not-removed guard over them.
+     * @param  list<string>  $addedHazardTokens  the guard tokens this file ADDED, which suppress a
+     *   matching removal reported by any other file in the same diff
      */
     public function __construct(
         public string $file,
@@ -63,6 +72,8 @@ final readonly class ChangedFileSymbols
         public array $removedRequestFields = [],
         public array $addedRequestFields = [],
         public array $inlineRequestFields = [],
+        public array $hazards = [],
+        public array $addedHazardTokens = [],
     ) {}
 
     /** @return list<MemberChange> */

@@ -121,7 +121,30 @@ final class MarkdownFormatter
     }
 
     /**
-     * @param  array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, newFiles?: list<string>, fqcns?: array<string, string>, entryPoints: list<string>, associationEntryPoints?: list<string>, entryPointPaths?: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations?: array<string, array{file: string, line?: int}>, entryPointSecurity?: array<string, SecurityShape>, entryPointGates?: array<string, list<string>>, entryPointAuthGates?: array<string, list<string>>, entryPointAuthMiddleware?: array<string, list<string>>, impacted: int, relatedModels: list<string>, traitAndOverrideReach?: list<string>, traitAndOverrideReachVia?: array<string, list<string>>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied?: bool, scoredEntryPoints?: int, scoredImpacted?: int, findings?: list<string>, ...}  $result
+     * The hazards as a table, worst tier first. Above the changed-file list and above `Findings`: a
+     * hazard says something may BREAK, a finding says something could not be SEEN.
+     *
+     * @param  list<Hazard>  $hazards
+     * @return list<string>
+     */
+    private static function hazardSection(array $hazards): array
+    {
+        if ($hazards === []) {
+            return [];
+        }
+
+        $lines = ['', '### Hazards (' . count($hazards) . ')', '', '| Tier | Lane | Member | What changed | Reach |', '|---:|---|---|---|---|'];
+
+        foreach ($hazards as $hazard) {
+            $lane = $hazard->cwe === null ? $hazard->lane : "{$hazard->lane} ({$hazard->cwe})";
+            $lines[] = "| {$hazard->tier} | {$lane} | `{$hazard->member}` | {$hazard->evidence} | {$hazard->reach} |";
+        }
+
+        return $lines;
+    }
+
+    /**
+     * @param  array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, newFiles?: list<string>, fqcns?: array<string, string>, entryPoints: list<string>, associationEntryPoints?: list<string>, entryPointPaths?: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations?: array<string, array{file: string, line?: int}>, entryPointSecurity?: array<string, SecurityShape>, entryPointGates?: array<string, list<string>>, entryPointAuthGates?: array<string, list<string>>, entryPointAuthMiddleware?: array<string, list<string>>, impacted: int, relatedModels: list<string>, traitAndOverrideReach?: list<string>, traitAndOverrideReachVia?: array<string, list<string>>, risk: RiskLevel, riskCause?: string, hazards?: list<Hazard>, lowConfidence: bool, findings?: list<string>, ...}  $result
      * @param  bool  $gateActive  when a `--fail-on*` gate is active the command appends its own verdict, so the advisory suffix is dropped to avoid contradicting it
      * @param  bool  $explain  render the call chain from each reached entry point down to the changed symbol
      * @param  string|null  $notice  a caveat about the analysis to render inside the document (the
@@ -133,12 +156,18 @@ final class MarkdownFormatter
 
         $lines = ['## Richter change impact', ''];
         $lines[] = sprintf(
-            '**Risk:** %s%s · **Entry points reached:** %d · **Impacted nodes:** %d',
+            '**Risk:** %s%s%s',
             self::riskBadge($result['risk']),
             $gateActive ? '' : ' _(advisory)_',
+            ($result['riskCause'] ?? '') === '' ? '' : ' — ' . $result['riskCause'],
+        );
+        // Breadth, decoupled from the level: it describes the change, it no longer grades it.
+        $lines[] = sprintf(
+            '**Impact:** %d entry point(s) · %d impacted node(s)',
             count($result['entryPoints']),
             $result['impacted'],
         );
+        $lines = [...$lines, ...self::hazardSection($result['hazards'] ?? [])];
 
         // This document travels — a PR comment, a CI artifact — where the command's stderr notes do not.
         // A caveat about the analysis itself (an unmatched root namespace) has to ride along, or the
@@ -149,16 +178,8 @@ final class MarkdownFormatter
         }
 
         if ($result['lowConfidence']) {
-            $cap = ($result['coarseCapApplied'] ?? false) ? ' (risk capped at MEDIUM)' : '';
             $lines[] = '';
-            $lines[] = "> ⚠️ Low confidence: a changed member could not be pinned to a graph node, so part of this is a coarse class-level estimate{$cap}.";
-        }
-
-        $scored = ImpactFormatter::scoredCountsNote($result);
-
-        if ($scored !== '') {
-            $lines[] = '';
-            $lines[] = "> ℹ️ {$scored}";
+            $lines[] = '> ⚠️ Low confidence: a changed member could not be pinned to a graph node, so part of this is a coarse class-level estimate.';
         }
 
         if (ImpactFormatter::hasFrontendFiles($result['changed'])) {

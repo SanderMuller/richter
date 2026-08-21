@@ -32,8 +32,8 @@ final class HtmlFormatterTest extends TestCase
             'coverage' => [], 'entryPoints' => [], 'entryPointPaths' => [],
             'entryPointLocations' => [], 'entryPointSecurity' => [], 'entryPointGates' => [],
             'seeds' => [], 'reach' => [], 'edges' => [], 'impacted' => 0, 'relatedModels' => [],
-            'risk' => RiskLevel::Low, 'lowConfidence' => false, 'coarseCapApplied' => false,
-            'scoredEntryPoints' => 0, 'scoredImpacted' => 0, 'findings' => [],
+            'risk' => RiskLevel::Low, 'riskCause' => 'no hazard; every reached surface is referenced by a test', 'hazards' => [], 'lowConfidence' => false,
+            'verification' => [], 'findings' => [],
         ];
     }
 
@@ -80,9 +80,9 @@ final class HtmlFormatterTest extends TestCase
             'relatedModels' => ['App\Models\Comment'],
             'risk' => RiskLevel::Medium,
             'lowConfidence' => true,
-            'coarseCapApplied' => true,
-            'scoredEntryPoints' => 1,
-            'scoredImpacted' => 1,
+            'riskCause' => 'no hazard; 1 of 2 reached surfaces have no test referencing them',
+            'hazards' => [],
+            'verification' => [],
             'findings' => ['app/Exports/X.php: eager-load string matches no relation'],
         ];
     }
@@ -227,19 +227,15 @@ final class HtmlFormatterTest extends TestCase
 
         $this->assertStringContainsString('drives the coarse class-level seed', $html);
         $this->assertStringContainsString('coarse class-level estimate', $html);
-        $this->assertStringContainsString('risk capped at MEDIUM', $html);
         // The fixture's level was decided on 1 impacted node while the report prints 2, so the note
         // that names the difference has to be here — silently printing the wrong calibration input
         // is the whole failure this line exists to stop.
-        $this->assertStringContainsString('Risk was scored on 1 entry point(s) and 1 impacted node(s)', $html);
     }
 
     #[Test]
     public function a_report_whose_counts_match_carries_no_scored_note(): void
     {
         $result = $this->fixture();
-        $result['scoredEntryPoints'] = count($result['entryPoints']);
-        $result['scoredImpacted'] = $result['impacted'];
 
         $this->assertStringNotContainsString('Risk was scored on', HtmlFormatter::detectChanges($result, $this->changedFiles(), 'origin/main'));
     }
@@ -258,7 +254,7 @@ final class HtmlFormatterTest extends TestCase
     #[Test]
     public function the_gate_block_renders_only_when_a_gate_is_active(): void
     {
-        $gate = ['failOn' => 'medium', 'failOnUnresolved' => true, 'tripped' => true, 'reasons' => ['risk medium is at or above medium']];
+        $gate = ['failOn' => 'medium', 'failOnHazard' => 3, 'failOnUnresolved' => true, 'tripped' => true, 'reasons' => ['risk medium is at or above medium']];
 
         $this->assertStringContainsString('TRIPPED', $this->render(gateActive: true, gate: $gate));
         $this->assertStringContainsString('risk medium is at or above medium', $this->render(gateActive: true, gate: $gate));
@@ -273,8 +269,8 @@ final class HtmlFormatterTest extends TestCase
             'coverage' => [], 'entryPoints' => [], 'entryPointPaths' => [],
             'entryPointLocations' => [], 'entryPointSecurity' => [], 'entryPointGates' => [],
             'seeds' => [], 'reach' => [], 'edges' => [], 'impacted' => 0, 'relatedModels' => [],
-            'risk' => RiskLevel::Low, 'lowConfidence' => false, 'coarseCapApplied' => false,
-            'scoredEntryPoints' => 0, 'scoredImpacted' => 0, 'findings' => [],
+            'risk' => RiskLevel::Low, 'riskCause' => 'no hazard; every reached surface is referenced by a test', 'hazards' => [], 'lowConfidence' => false,
+            'verification' => [], 'findings' => [],
         ], [], 'origin/main');
 
         $this->assertStringContainsString('<strong>0</strong>', $html);
@@ -311,9 +307,9 @@ final class HtmlFormatterTest extends TestCase
             'relatedModels' => [],
             'risk' => RiskLevel::Low,
             'lowConfidence' => false,
-            'coarseCapApplied' => false,
-            'scoredEntryPoints' => 0,
-            'scoredImpacted' => 0,
+            'riskCause' => 'no hazard; every reached surface is referenced by a test',
+            'hazards' => [],
+            'verification' => [],
             'findings' => ['app/X.php: <b>bad</b> & worse'],
         ], [
             new ChangedFileSymbols('app/Weird<name>&"x".php', 'App\Weird<T>', [
@@ -359,9 +355,9 @@ final class HtmlFormatterTest extends TestCase
             'relatedModels' => [],
             'risk' => RiskLevel::Low,
             'lowConfidence' => false,
-            'coarseCapApplied' => false,
-            'scoredEntryPoints' => 0,
-            'scoredImpacted' => 0,
+            'riskCause' => 'no hazard; every reached surface is referenced by a test',
+            'hazards' => [],
+            'verification' => [],
             'findings' => [],
         ], [
             new ChangedFileSymbols('app/We"ird<x>&.php', 'App\Weird', [

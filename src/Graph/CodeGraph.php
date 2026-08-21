@@ -151,8 +151,9 @@ final class CodeGraph
     }
 
     /**
-     * Brain's security surface for a route node — exposure, risk level, issues. Annotation only:
-     * it never feeds the risk model or the walks.
+     * Brain's security surface for a route node — exposure, risk level, issues. It never feeds the
+     * walks. It does reach the risk level, through one narrow door: a `PUBLIC_WRITE` issue on a route
+     * that reaches a hazardous member makes that hazard's reach class `public-write`.
      *
      * @return SecurityShape|null
      */

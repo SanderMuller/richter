@@ -43,10 +43,14 @@ final class ParityFindingsTest extends TestCase
     #[Test]
     public function a_removed_rules_field_reaches_the_request_lane(): void
     {
-        $findings = ParityFindings::for($this->changedRequest(['subtitle'], []), null, null, $this->requestLane());
+        $hazards = ParityFindings::for($this->changedRequest(['subtitle'], []), null, null, $this->requestLane());
 
-        $this->assertCount(1, $findings);
-        $this->assertStringContainsString("sends 'subtitle'", $findings[0]);
+        // A parity result is a tier-2 hazard now: a form-request field that stopped being validated
+        // while a consumer still sends it is a thing that breaks, not a thing richter could not see.
+        $this->assertCount(1, $hazards);
+        $this->assertSame('parity', $hazards[0]->lane);
+        $this->assertSame(2, $hazards[0]->tier);
+        $this->assertStringContainsString("sends 'subtitle'", $hazards[0]->evidence);
     }
 
     #[Test]

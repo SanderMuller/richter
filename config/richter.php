@@ -139,45 +139,24 @@ return [
     ],
 
     /*
-     * The counts at which the advisory risk level steps up. Absolute, never relative to the graph,
-     * so a `--fail-on` verdict means the same thing on every run and across releases — that is the
-     * whole reason they are numbers and not percentiles.
+     * DEPRECATED and no longer read. The risk level is decided by the hazard a change carries and by
+     * whether anything would catch a regression in what it reaches — not by how many nodes it
+     * touches. Those counts are still reported, under `Impact`, where they describe the change
+     * instead of grading it.
      *
-     * The defaults were calibrated on small-to-mid applications. On a large one they saturate: a
-     * codebase where a routine change reaches thousands of nodes will report `high` for everything,
-     * and a level that is always `high` carries no signal and trains reviewers to skip the line.
-     * Move the `high` bar before the `medium` one. Raising `high` leaves the `medium` test untouched,
-     * so the most it can do is move a change from `high` to `medium`; raising `medium` is the only
-     * edit that can push something to `low`, the level a reviewer skips. Whether that costs you a
-     * real defect depends on where your bug fixes land, and these counts measure graph REACH rather
-     * than how big a change is — a one-line fix in a widely called method can outrank a broad but
-     * shallow one, so do not assume defects sit below routine changes. A benchmark corpus run before
-     * and after is the only check that answers it.
-     * If you keep a benchmark corpus, run it afterwards: it is the check that a calibration has not
-     * quietly demoted the defects it was meant to surface.
-     *
-     * Calibrate against `scoredEntryPoints` / `scoredImpacted`, not the counts printed beside them.
-     * They are usually the same number, but the entry-point list gains surfaces after the level is
-     * scored (a changed class that is itself an entry surface, a frontend file's routes) and a
-     * low-confidence `high` is re-scored on the precisely-seeded subset. Where they come apart the
-     * printed count can be an order of magnitude larger, so a threshold set against it sits far above
-     * where the level is actually decided. The report names the scored counts whenever they differ.
-     *
-     * Note these interact with coverage: every release that teaches Richter to follow more edges
-     * raises the impacted count for an unchanged diff, so a level that shifts right after an upgrade
-     * is a coverage change before it is a code change.
+     * The key is accepted and ignored for one release so an upgrade does not fail on it. Remove it.
      */
-    'risk_thresholds' => [
-        'high' => ['entry_points' => 3, 'impacted' => 20],
-        'medium' => ['entry_points' => 1, 'impacted' => 5],
-    ],
+    'risk_thresholds' => [],
 
     /*
      * Advisory-only payload-parity checks, both directions: a model field ($fillable/$casts/
      * casts()) added but never added to a resource that mirrors its other fields, and a resource
      * toArray() key REMOVED while a frontend consumer of the routes it reaches still reads it —
-     * the two shapes behind a payload field silently going missing. Never feeds risk, --fail-on,
-     * or affected-tests; only the findings list.
+     * the two shapes behind a payload field silently going missing.
+     *
+     * These are HAZARDS, not findings: a payload key a consumer still reads is a break, so it is
+     * reported beside the other tier-2 hazards and it does move the risk level. `enabled` and
+     * `ignore` keep working exactly as before; only the destination changed.
      */
     'payload_parity' => [
         'enabled' => true,
@@ -191,6 +170,26 @@ return [
         // against the member holding the call ('App\Http\Controllers\PostController::store::subtitle').
         // A whole resource, request or member suppresses all of its fields
         // ('App\Http\Resources\Api\InternalResource' — both directions).
+        'ignore' => [],
+    ],
+
+    /*
+     * Change hazards: the tiered properties of a diff that say it may break something — an
+     * authorization guard removed, `$hidden` narrowed, a mass-assignment surface widened, a
+     * validation constraint dropped, a queued payload changed, a public member removed. Every
+     * predicate is exact: a lane that cannot read both sides of a comparison in full reports
+     * nothing rather than guessing, because a false "authorization removed" is worse than no
+     * hazard at all.
+     *
+     * The tiers themselves are not configurable. A tier is a fact about the change, and a project
+     * that could re-tier one would be grading its own risk before reading it.
+     */
+    'hazards' => [
+        'enabled' => true,
+        // Suppress one hazard, named as payload_parity.ignore is: the member it sits on
+        // ('App\Http\Controllers\PostController::update'), a model's config member
+        // ('App\Models\Post::$fillable'), or an inline-validated field
+        // ('App\Http\Controllers\PostController::store::subtitle').
         'ignore' => [],
     ],
 ];

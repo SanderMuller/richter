@@ -1,8 +1,13 @@
 # Report annotations
 
-`richter:detect-changes` renders four advisory lanes beside the reach it reports: security exposure per route, Pennant feature gates, payload-parity breaks, and middleware group membership.
+`richter:detect-changes` renders four lanes beside the reach it reports: security exposure per route, Pennant feature gates, payload-parity breaks, and middleware group membership.
 
-Every lane on this page is annotation only. None of it feeds the [risk level](07-risk-levels.md), a `--fail-on` gate, or the [affected-test selection](11-affected-tests.md).
+Two of them are annotation only — **Pennant gates** and **middleware group membership** feed nothing, not the [risk level](07-risk-levels.md), a gate, or the [affected-test selection](11-affected-tests.md).
+
+The other two do reach the level, each through one narrow door:
+
+- **Payload parity** results are tier-2 [hazards](07-risk-levels.md#hazards). A payload key a consumer still reads is a thing that breaks, so it is graded like any other hazard. They print under `Hazards`, not `Findings`.
+- **Security exposure** decides a hazard's reach class: a `PUBLIC_WRITE` route with no guard richter can point at, reaching a hazardous member, makes that hazard `public-write`. The annotation itself is still inherited from Brain and still seeds nothing.
 
 ## Security annotations
 
@@ -25,7 +30,7 @@ Pennant feature gating is annotated the same way. A route guarded by `EnsureFeat
 
 ## Payload parity
 
-A model field added to `$fillable`/`$casts`/`casts()` but never added to a resource that otherwise mirrors the model's other fields is noted under Findings (`AppResource.php mirrors App\Models\X but does not expose <field> added to App\Models\X`), the exact shape behind a payload field silently going missing after an otherwise-correct edit. The lane is deliberately no-guess: the default `mirror_threshold` requires an exact match against the candidate's pre-existing fields before it counts as a mirror, candidate resources are matched by graph wiring first and only by name when nothing is wired, and anything the checker can't statically enumerate (a dynamic `toArray()` key, a spread, an unparseable resource) is silently skipped rather than guessed at. On by default; disable it for one run with `--no-payload-parity` or globally via `payload_parity.enabled` (see [Configuration](16-configuration.md)).
+A model field added to `$fillable`/`$casts`/`casts()` but never added to a resource that otherwise mirrors the model's other fields is reported as a tier-2 hazard (`AppResource.php mirrors App\Models\X but does not expose <field> added to App\Models\X`), the exact shape behind a payload field silently going missing after an otherwise-correct edit. The lane is deliberately no-guess: the default `mirror_threshold` requires an exact match against the candidate's pre-existing fields before it counts as a mirror, candidate resources are matched by graph wiring first and only by name when nothing is wired, and anything the checker can't statically enumerate (a dynamic `toArray()` key, a spread, an unparseable resource) is silently skipped rather than guessed at. On by default; disable it for one run with `--no-payload-parity` or globally via `payload_parity.enabled` (see [Configuration](16-configuration.md)).
 
 The same lane runs in the consumer direction: a `toArray()` key the diff *removes* from a resource is flagged when a frontend file that consumes one of the routes the resource reaches still reads it.
 

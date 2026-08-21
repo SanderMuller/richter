@@ -20,8 +20,8 @@ use SanderMuller\Richter\Graph\NodeMetadata;
  *
  * @phpstan-import-type SecurityShape from NodeMetadata
  * @phpstan-import-type Layout from RadialLayout
- * @phpstan-type GateVerdict array{failOn: string|null, failOnUnresolved: bool, tripped: bool, reasons: list<string>}
- * @phpstan-type DetectChangesResult array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, associationEntryPoints?: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, SecurityShape>, entryPointGates: array<string, list<string>>, entryPointAuthGates?: array<string, list<string>>, entryPointAuthMiddleware?: array<string, list<string>>, seeds: list<string>, reach: array<string, array<string, true>>, edges: list<array{source: string, target: string, via: string, depth: int}>, impacted: int, relatedModels: list<string>, traitAndOverrideReach?: list<string>, traitAndOverrideReachVia?: array<string, list<string>>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied: bool, scoredEntryPoints: int, scoredImpacted: int, findings: list<string>, ...}
+ * @phpstan-type GateVerdict array{failOn: string|null, failOnHazard: int|null, failOnUnresolved: bool, tripped: bool, reasons: list<string>}
+ * @phpstan-type DetectChangesResult array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, associationEntryPoints?: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, SecurityShape>, entryPointGates: array<string, list<string>>, entryPointAuthGates?: array<string, list<string>>, entryPointAuthMiddleware?: array<string, list<string>>, seeds: list<string>, reach: array<string, array<string, true>>, edges: list<array{source: string, target: string, via: string, depth: int}>, impacted: int, relatedModels: list<string>, traitAndOverrideReach?: list<string>, traitAndOverrideReachVia?: array<string, list<string>>, risk: RiskLevel, riskCause?: string, hazards?: list<Hazard>, lowConfidence: bool, findings: list<string>, ...}
  */
 final class HtmlFormatter
 {
@@ -100,7 +100,7 @@ final class HtmlFormatter
     {
         return self::statRow($result)
             . self::lowConfidenceNote($result)
-            . self::scoredCountsNote($result)
+            . self::hazardSection($result['hazards'] ?? [])
             . '<div class="cards">'
             . self::card('Entry points reached', self::entryPointList($rows, $editor))
             . self::card('What to focus on', self::focusList($result, $rows))
@@ -274,18 +274,31 @@ final class HtmlFormatter
             return '';
         }
 
-        $cap = $result['coarseCapApplied'] ? ' (risk capped at MEDIUM)' : '';
-
-        return '<p class="note warn">Low confidence: a changed member could not be pinned to a graph node, so part of this is a coarse class-level estimate'
-            . Html::e($cap) . '. The Changes tab names the members.</p>';
+        return '<p class="note warn">Low confidence: a changed member could not be pinned to a graph node, so part of this is a coarse class-level estimate. The Changes tab names the members.</p>';
     }
 
-    /** @param  DetectChangesResult  $result */
-    private static function scoredCountsNote(array $result): string
+    /**
+     * The hazards, above everything else in the overview. A hazard says something may BREAK; the
+     * cards below say how far the change reaches. The first is what a reviewer opens this for.
+     *
+     * @param  list<Hazard>  $hazards
+     */
+    private static function hazardSection(array $hazards): string
     {
-        $note = ImpactFormatter::scoredCountsNote($result);
+        if ($hazards === []) {
+            return '';
+        }
 
-        return $note === '' ? '' : '<p class="note">' . Html::e($note) . '</p>';
+        $rows = '';
+
+        foreach ($hazards as $hazard) {
+            $cwe = $hazard->cwe === null ? '' : ' ' . Html::e($hazard->cwe);
+            $rows .= '<li><strong>[tier ' . $hazard->tier . ' ' . Html::e($hazard->lane) . $cwe . ']</strong> '
+                . Html::e($hazard->member) . ' — ' . Html::e($hazard->evidence)
+                . ' <em>reach: ' . Html::e($hazard->reach ?? Hazard::REACH_NO_KNOWN_PATH) . '</em></li>';
+        }
+
+        return '<div class="card"><h3>Hazards (' . count($hazards) . ')</h3><ul>' . $rows . '</ul></div>';
     }
 
     // --------------------------------------------------------------- paths
@@ -500,6 +513,7 @@ final class HtmlFormatter
             : '<strong>not tripped</strong>';
 
         return '<p class="gate">' . $state . ' <span class="muted">fail-on <code>' . Html::e($gate['failOn'] ?? 'none')
+            . '</code> · fail-on-hazard <code>' . Html::e($gate['failOnHazard'] === null ? 'none' : 'tier ' . $gate['failOnHazard'])
             . '</code> · fail-on-unresolved <code>' . ($gate['failOnUnresolved'] ? 'yes' : 'no') . '</code></span></p>'
             . ($reasons === '' ? '' : '<ul role="list">' . $reasons . '</ul>');
     }

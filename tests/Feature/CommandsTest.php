@@ -888,20 +888,23 @@ final class CommandsTest extends TestCase
     {
         // End-to-end consumer parity: the fixture's review-consumer.ts fetches the
         // reviews route and reads `.summary`; the faked diff removes 'summary' from the
-        // resource that route's controller composes. The finding is advisory — the risk
-        // level must be identical with the lane switched off.
+        // resource that route's controller composes. It is a tier-2 HAZARD — a payload key a
+        // consumer still reads is a thing that breaks — so switching the lane off removes it.
         $withLane = $this->detectChangesJsonForRemovedResourceKey();
         $withoutLane = $this->detectChangesJsonForRemovedResourceKey(noPayloadParity: true);
 
-        $findings = $withLane['findings'] ?? null;
-        $this->assertIsArray($findings);
+        $hazards = $withLane['hazards'] ?? null;
+        $this->assertIsArray($hazards);
         $expected = "resources/js/review-consumer.ts references GET /posts/{post}/reviews and reads 'summary', which this diff removes from App\\Http\\Resources\\Api\\v2\\Post\\ReviewResource";
-        $this->assertContains($expected, $findings);
+        $this->assertContains($expected, array_column($hazards, 'evidence'));
+        $this->assertContains('parity', array_column($hazards, 'lane'));
+        $this->assertContains(2, array_column($hazards, 'tier'));
 
-        $withoutFindings = $withoutLane['findings'] ?? null;
-        $this->assertIsArray($withoutFindings);
-        $this->assertNotContains($expected, $withoutFindings);
-        $this->assertSame($withoutLane['risk'], $withLane['risk']);
+        $withoutHazards = $withoutLane['hazards'] ?? null;
+        $this->assertIsArray($withoutHazards);
+        $this->assertNotContains($expected, array_column($withoutHazards, 'evidence'));
+        // The lane's own findings list is untouched either way — what moved is the destination.
+        $this->assertSame($withoutLane['findings'], $withLane['findings']);
     }
 
     #[Test]
@@ -1759,6 +1762,106 @@ final class CommandsTest extends TestCase
     }
 
     #[Test]
+    public function detect_changes_fails_the_hazard_gate_end_to_end(): void
+    {
+        // A guard the head side no longer runs. `--fail-on-hazard` blocks on the hazard alone, with
+        // no `--fail-on` in sight: gating a removed guard and gating a missing test are different
+        // policies, so each gets its own flag.
+        $this->fakeGuardRemovalDiff();
+
+        $this->withoutMockingConsoleOutput();
+        $exitCode = Artisan::call('richter:detect-changes', ['--base' => 'some-base', '--fail-on-hazard' => '3']);
+        $output = Artisan::output();
+
+        $this->assertSame(1, $exitCode);
+        $this->assertStringContainsString('Gate: FAIL', $output);
+        $this->assertStringContainsString('tier 3 or above', $output);
+        $this->assertStringContainsString('Hazards (', $output);
+    }
+
+    #[Test]
+    public function the_hazard_gate_passes_when_no_hazard_reaches_its_tier(): void
+    {
+        $this->fakeGuardRemovalDiff();
+
+        $this->withoutMockingConsoleOutput();
+        $exitCode = Artisan::call('richter:detect-changes', ['--base' => 'some-base', '--no-hazards' => true, '--fail-on-hazard' => '3']);
+
+        $this->assertSame(0, $exitCode);
+    }
+
+    #[Test]
+    public function the_gate_payload_names_the_hazard_policy_it_was_configured_with(): void
+    {
+        // A run gated solely by --fail-on-hazard would otherwise describe itself as ungated, and on an
+        // empty diff — where the gate is never evaluated and `reasons` is empty — the payload is all a
+        // consumer has to read the policy from.
+        $this->fakeGuardRemovalDiff();
+
+        $this->withoutMockingConsoleOutput();
+        Artisan::call('richter:detect-changes', ['--base' => 'some-base', '--json' => true, '--fail-on-hazard' => '2']);
+        $payload = json_decode(Artisan::output(), true);
+
+        $this->assertIsArray($payload);
+        $this->assertIsArray($payload['gate']);
+        $this->assertSame(2, $payload['gate']['failOnHazard']);
+        $this->assertNull($payload['gate']['failOn']);
+        $this->assertTrue($payload['gate']['tripped']);
+    }
+
+    #[Test]
+    public function an_invalid_fail_on_hazard_value_is_a_usage_error(): void
+    {
+        $this->withoutMockingConsoleOutput();
+        $exitCode = Artisan::call('richter:detect-changes', ['--base' => 'some-base', '--fail-on-hazard' => 'bogus']);
+
+        $this->assertSame(1, $exitCode);
+        $this->assertStringContainsString('Invalid --fail-on-hazard value', Artisan::output());
+    }
+
+    /**
+     * A diff whose head side drops the ability check its base side ran — the smallest end-to-end
+     * tier-3 hazard.
+     *
+     * The head side is read from the FILESYSTEM, not from git (`ChangedSymbols::headSource()` special
+     * cases `HEAD`), so this points the app at the fixture project and derives the base by adding a
+     * guard to the real file on disk. Faking only `git show` would leave head empty, which is a
+     * deletion — a different comparison entirely.
+     */
+    private function fakeGuardRemovalDiff(): void
+    {
+        $app = $this->app;
+        $this->assertInstanceOf(Application::class, $app);
+        $app->setBasePath(self::fixtureProjectPath());
+
+        $file = 'app/Http/Controllers/Post/ReviewController.php';
+        $head = (string) file_get_contents(self::fixtureProjectPath() . '/' . $file);
+        $base = str_replace(
+            '        $post->load([Post::REVIEWS]);',
+            "        \$this->authorize('view', \$post);\n\n        \$post->load([Post::REVIEWS]);",
+            $head,
+        );
+        $this->assertNotSame($head, $base);
+
+        $line = array_search('        $post->load([Post::REVIEWS]);', explode("\n", $head), true);
+        $this->assertIsInt($line);
+        ++$line;
+
+        $diff = "diff --git a/{$file} b/{$file}\n--- a/{$file}\n+++ b/{$file}\n"
+            . "@@ -{$line},2 +{$line},1 @@\n"
+            . "-        \$this->authorize('view', \$post);\n"
+            . "-\n"
+            . "+        \$post->load([Post::REVIEWS]);\n";
+
+        Process::fake([
+            '*cat-file*' => Process::result(),
+            '*merge-base*' => Process::result("abc123\n"),
+            '*diff*' => Process::result($diff),
+            '*show*' => Process::result($base),
+        ]);
+    }
+
+    #[Test]
     public function detect_changes_json_gate_object_reports_a_trip(): void
     {
         $diff = "diff --git a/app/Models/User.php b/app/Models/User.php\n--- a/app/Models/User.php\n+++ b/app/Models/User.php\n@@ -0,0 +1,1 @@\n+    public function added(): void {}\n";
@@ -1834,9 +1937,12 @@ final class CommandsTest extends TestCase
         $this->assertIsInt($changedLine);
         ++$changedLine;
 
-        // Two reached routes from the modified action, a third from the added controller: three
-        // entry points is the HIGH threshold, and both seeds are precise so the coarse cap (which
-        // holds a class-level change at MEDIUM however wide its reach) cannot mask it.
+        // HIGH comes from a HAZARD, not from breadth: the head side drops the ability check the base
+        // side ran, which is a tier-3 `auth` hazard and therefore HIGH at every reach class. Breadth
+        // cannot reach HIGH any more — it does not decide the level at all.
+        $head = str_replace("        request()->user()?->can(PostPolicy::UPDATE, \$post);\n\n", '', $source);
+        $this->assertNotSame($source, $head);
+
         $added = 'app/Http/Controllers/Post/DashboardSearchController.php';
 
         $diff = "diff --git a/{$file} b/{$file}\n--- a/{$file}\n+++ b/{$file}\n"
@@ -1852,7 +1958,10 @@ final class CommandsTest extends TestCase
             '*log*' => Process::result("Rework the post model\n"),
             '*merge-base*' => Process::result("base123\n"),
             '*diff*' => Process::result($diff),
-            '*show*' => Process::result($source),
+            // Base and head must differ, or every hazard predicate — each of them a comparison —
+            // has nothing to compare. Ordered ahead of the catch-all `*show*`, which is the head side.
+            '*show*base123:*' => Process::result($source),
+            '*show*' => Process::result($head),
         ]);
     }
 

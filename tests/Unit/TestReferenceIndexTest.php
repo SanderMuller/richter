@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Artisan;
 use Override;
 use PHPUnit\Framework\Attributes\Test;
 use SanderMuller\Richter\Analysis\TestReferenceIndex;
+use SanderMuller\Richter\Graph\CodeGraph;
 use SanderMuller\Richter\Tests\TestCase;
 
 final class TestReferenceIndexTest extends TestCase
@@ -33,6 +34,62 @@ final class TestReferenceIndexTest extends TestCase
         $index->addSource($testSource);
 
         return $index;
+    }
+
+    #[Test]
+    public function a_class_driven_surface_is_referenced_through_its_handler_edge(): void
+    {
+        // `livewire(SomePage::class)` names neither a route name nor a literal URI, so name-and-URI
+        // matching alone grades a Filament page unreferenced while a test does exercise it. Following
+        // the route to the class that handles it is what closes that gap.
+        $index = new TestReferenceIndex();
+        $index->addSource("<?php\nuse App\\Filament\\Pages\\ReportsPage;\nclass ReportsPageTest { public function test_it(): void { livewire(ReportsPage::class); } }\n", 'tests/Feature/ReportsPageTest.php');
+        $index->useGraph(new CodeGraph([
+            ['source' => 'route::GET::/admin/reports', 'target' => 'App\Filament\Pages\ReportsPage', 'type' => 'filament-route-to-page'],
+        ], hasUnparseableFiles: false));
+
+        $this->assertTrue($index->hasReference('route::GET::/admin/reports'));
+        $this->assertSame(['tests/Feature/ReportsPageTest.php'], $index->testsReferencing('route::GET::/admin/reports'));
+    }
+
+    #[Test]
+    public function a_filament_resource_route_resolves_over_two_hops(): void
+    {
+        // A resource route arrives as `filament-route-to-resource` and needs the second hop to reach
+        // the page class — one hop would leave it unreferenced.
+        $index = new TestReferenceIndex();
+        $index->addSource("<?php\nuse App\\Filament\\Resources\\PostResource\\Pages\\EditPost;\nclass EditPostTest { public function test_it(): void {} }\n", 'tests/Feature/EditPostTest.php');
+        $index->useGraph(new CodeGraph([
+            ['source' => 'route::GET::/admin/posts/{record}/edit', 'target' => 'App\Filament\Resources\PostResource', 'type' => 'filament-route-to-resource'],
+            ['source' => 'App\Filament\Resources\PostResource', 'target' => 'App\Filament\Resources\PostResource\Pages\EditPost', 'type' => 'filament-resource-to-page'],
+        ], hasUnparseableFiles: false));
+
+        $this->assertTrue($index->hasReference('route::GET::/admin/posts/{record}/edit'));
+    }
+
+    #[Test]
+    public function a_fixture_importing_the_handler_does_not_make_the_route_referenced(): void
+    {
+        // Raising recall must not lower precision: `fromTests()` indexes every PHP file under tests/,
+        // and letting a fixture grade a surface "referenced" would open a false LOW.
+        $index = new TestReferenceIndex();
+        $index->addSource("<?php\nuse App\\Filament\\Pages\\ReportsPage;\nclass ReportsPageFactory {}\n", 'tests/Fixtures/ReportsPageFactory.php');
+        $index->useGraph(new CodeGraph([
+            ['source' => 'route::GET::/admin/reports', 'target' => 'App\Filament\Pages\ReportsPage', 'type' => 'filament-route-to-page'],
+        ], hasUnparseableFiles: false));
+
+        $this->assertFalse($index->hasReference('route::GET::/admin/reports'));
+    }
+
+    #[Test]
+    public function the_handler_fallback_never_runs_without_a_graph(): void
+    {
+        // The index is built from tests/ alone and stays useful without a graph — a caller that has
+        // one hands it over, and one that does not gets the name-and-URI answer unchanged.
+        $index = new TestReferenceIndex();
+        $index->addSource("<?php\nuse App\\Filament\\Pages\\ReportsPage;\nclass ReportsPageTest {}\n", 'tests/Feature/ReportsPageTest.php');
+
+        $this->assertFalse($index->hasReference('route::GET::/admin/reports'));
     }
 
     #[Test]

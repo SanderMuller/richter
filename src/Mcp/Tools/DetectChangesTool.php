@@ -80,20 +80,20 @@ final class DetectChangesTool extends Tool
             'entryPointLocations' => $schema->object()
                 ->description('Entry-point node => {file, line?} defining location, when known. Empty map serializes as [].'),
             'entryPointSecurity' => $schema->object()
-                ->description('Entry-point route => Brain security surface {exposure, riskLevel, issues[]}. Advisory annotation inherited from laravel-brain; routes only, never an input to risk or the gate. Empty map serializes as [].'),
+                ->description('Entry-point route => Brain security surface {exposure, riskLevel, issues[]}. Inherited from laravel-brain; routes only. A PUBLIC_WRITE issue here is what makes a hazard reachable through this route grade reach public-write, so it does reach the risk level. Empty map serializes as [].'),
             'entryPointGates' => $schema->object()
                 ->description('Entry-point route => Pennant feature flags gating it (EnsureFeaturesAreActive middleware). Advisory annotation; never an input to risk or the gate. Empty map serializes as [].'),
             'entryPointTestReferences' => $schema->object()
-                ->description('Entry-point node => "referenced" | "referenced-no-behavioural-assertion" | "unreferenced". A node whose reference state could not be determined is omitted. Advisory annotation; never an input to risk, the gate, or affected-tests selection. Empty map serializes as [].'),
+                ->description('Entry-point node => "referenced" | "referenced-no-behavioural-assertion" | "unreferenced". A node whose reference state could not be determined is omitted here; the risk level reads that state as unverified. Where a change carries no hazard the level is decided on this, so it is not advisory-only — see `verification` for the exact set graded. Never an input to affected-tests selection. Empty map serializes as [].'),
             'impacted' => $schema->integer()->description('Distinct impacted graph nodes.'),
             'relatedModels' => $schema->array()->items($schema->string()),
             'traitAndOverrideReach' => $schema->array()->items($schema->string())->description('Classes that run the changed member without calling it — they use the trait declaring it, or implement the ancestor it overrides. Deliberately not counted toward impacted or risk (a hub trait would saturate the level on breadth), and reported because excluding them from the count is not a reason to exclude them from the report.'),
             'traitAndOverrideReachVia' => $schema->object()->description("Why each entry of traitAndOverrideReach is listed, keyed by node: the edge types that reached it (`uses-trait`, `override`). Read off the walk's own via-type map, so it cannot disagree with the list it annotates."),
-            'risk' => $schema->string()->description('low, medium or high.'),
+            'risk' => $schema->string()->description('low, medium or high. Decided by the HAZARD the change carries and, where it carries none, by whether anything would catch a regression in what it reaches — never by how many nodes it touches. impacted and the entryPoints count describe the change; they do not grade it.'),
+            'riskCause' => $schema->string()->description('Why the level is what it is, in one line. Always present: a level without its cause is not a usable verdict.'),
+            'hazards' => $schema->array()->items($schema->object())->description('Tiered properties of the diff that say it may break something: {lane, tier, cwe, member, reach, evidence}. Tier 3 is a guard removed or a disclosure widened and is HIGH at every reach; tier 2 is a broken contract or payload; tier 1 is a signature change a default may absorb. reach is public-write, gated, or no-known-path — and no-known-path means unmeasured, never proven-internal.'),
+            'verification' => $schema->object()->description('What the level graded => whether a test references it. Entry-point nodes, plus a changed class itself where it reached no entry point (a runnable test importing that class counts). A state that could not be checked reads false: "could not check" must never open the LOW path. Empty map serializes as [].'),
             'lowConfidence' => $schema->boolean(),
-            'coarseCapApplied' => $schema->boolean(),
-            'scoredEntryPoints' => $schema->integer()->description("Entry points the risk level was decided on. Lower than the entryPoints list wherever a surface joined it after scoring (a self-listed entry class, a frontend file's routes) or a low-confidence high was re-scored on the precise subset. Calibrate risk_thresholds against this, not the printed count."),
-            'scoredImpacted' => $schema->integer()->description('Impacted nodes the risk level was decided on. Differs from impacted when a low-confidence high was re-scored against the precisely-seeded subset.'),
             'findings' => $schema->array()->items($schema->string()),
             'unresolved' => $schema->boolean()->description('True when any changed file could not be placed in the graph.'),
         ];

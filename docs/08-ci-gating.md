@@ -5,11 +5,16 @@
 Gate only when a specific failure keeps reaching production and you want the build to stop for it. Two opt-in flags do that:
 
 - `--fail-on=<low|medium|high>` exits non-zero when the reported risk is at least that level (see [Risk levels](07-risk-levels.md)).
-- `--fail-on-unresolved` exits non-zero when any changed file is **UNRESOLVED** (changed code the graph cannot place). It works independently of the risk threshold.
+- `--fail-on-hazard=<1|2|3>` exits non-zero when any [hazard](07-risk-levels.md#hazards) reaches that tier, whatever the level. Blocking a removed guard and blocking a missing test are different policies, so they get a flag each.
+- `--fail-on-unresolved` exits non-zero when any changed file is **UNRESOLVED** (changed code the graph cannot place). It works independently of both.
 
 Either flag also fails an un-assessable diff (a broken or invalid base ref) rather than letting it pass as "no impact". Add `--json` and stdout carries a `gate` object alongside the report.
 
-Before turning either on, know what you are signing up for. `--fail-on` blocks on reach, not on correctness: a wide but safe refactor trips it while a one-line logic error in a leaf class does not. The thresholds are absolute, so a growing codebase drifts toward the level over time, and every release that follows more edges raises the impacted count for the same diff ([Risk levels](07-risk-levels.md)). Pin the version if a verdict has to stay comparable. `--fail-on-unresolved` trips on any UNRESOLVED changed file, so what it fires on is your app's own coverage: a subsystem the graph cannot place fails every build that touches it until `entry_point_roots` or `root_namespace` covers it ([Troubleshooting](18-troubleshooting.md#a-changed-file-reads-unresolved)).
+Before turning any of them on, know what you are signing up for.
+
+`--fail-on-hazard=3` is the narrowest useful gate and the one to start with: tier 3 is a guard removed or a disclosure widened, and on a real corpus it fires rarely. `--fail-on` is broader — it blocks on the level, which on an application richter cannot place well reads `medium` for most changes, so `--fail-on=medium` there is close to blocking everything. Neither blocks on correctness: a one-line logic error in a leaf class trips nothing.
+
+A level can also move without your code changing. Reach class and verification state both improve as richter learns to follow more edges, and both push levels UP ([Risk levels](07-risk-levels.md#what-drifts-and-in-which-direction)). Pin the version if a verdict has to stay comparable across a release. `--fail-on-unresolved` trips on any UNRESOLVED changed file, so what it fires on is your app's own coverage: a subsystem the graph cannot place fails every build that touches it until `entry_point_roots` or `root_namespace` covers it ([Troubleshooting](18-troubleshooting.md#a-changed-file-reads-unresolved)).
 
 ## A pull-request check
 

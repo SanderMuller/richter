@@ -8,6 +8,7 @@ use App\Models\Post;
 use Iterator;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
+use SanderMuller\Richter\Analysis\Hazard;
 use SanderMuller\Richter\Analysis\ImpactAnalyzer;
 use SanderMuller\Richter\Analysis\ImpactFormatter;
 use SanderMuller\Richter\Analysis\RiskLevel;
@@ -29,9 +30,10 @@ final class ImpactFormatterTest extends TestCase
     /**
      * @param  list<string>  $entryPoints
      * @param  list<string>  $relatedModels
-     * @return array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, newFiles?: list<string>, fqcns?: array<string, string>, entryPoints: list<string>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied: bool, scoredEntryPoints: int, scoredImpacted: int}
+     * @param  list<Hazard>  $hazards
+     * @return array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, newFiles?: list<string>, fqcns?: array<string, string>, entryPoints: list<string>, impacted: int, relatedModels: list<string>, risk: RiskLevel, riskCause: string, hazards: list<Hazard>, lowConfidence: bool}
      */
-    private function summary(array $entryPoints, array $relatedModels = [], bool $lowConfidence = false, RiskLevel $risk = RiskLevel::Low, bool $coarseCapApplied = false, ?int $scoredEntryPoints = null, ?int $scoredImpacted = null): array
+    private function summary(array $entryPoints, array $relatedModels = [], bool $lowConfidence = false, RiskLevel $risk = RiskLevel::Low, array $hazards = []): array
     {
         return [
             'changed' => ['app/Models/Post.php' => 1],
@@ -41,9 +43,8 @@ final class ImpactFormatterTest extends TestCase
             'relatedModels' => $relatedModels,
             'risk' => $risk,
             'lowConfidence' => $lowConfidence,
-            'coarseCapApplied' => $coarseCapApplied,
-            'scoredEntryPoints' => $scoredEntryPoints ?? count($entryPoints),
-            'scoredImpacted' => $scoredImpacted ?? count($entryPoints),
+            'riskCause' => 'no hazard; every reached surface is referenced by a test',
+            'hazards' => $hazards,
         ];
     }
 
@@ -209,37 +210,6 @@ final class ImpactFormatterTest extends TestCase
         $this->assertStringContainsString('low confidence', $text);
         $this->assertStringContainsString('Related models', $text);
         $this->assertStringContainsString(Comment::class, $text);
-    }
-
-    #[Test]
-    public function the_scored_counts_are_named_only_when_they_differ_from_the_printed_ones(): void
-    {
-        // The configuration guidance says to calibrate `risk_thresholds` against the report's own
-        // counts. Where the level was decided on a different set, that instruction is false unless
-        // the report says which set — and where it is true, repeating the numbers is noise.
-        $diverged = ImpactFormatter::detectChanges(
-            $this->summary(['route::GET::/r', 'App\Jobs\ImportJob'], scoredEntryPoints: 1, scoredImpacted: 1),
-        );
-        $this->assertStringContainsString('Risk was scored on 1 entry point(s) and 1 impacted node(s)', $diverged);
-
-        $this->assertStringNotContainsString('Risk was scored on', ImpactFormatter::detectChanges($this->summary(['route::GET::/r'])));
-    }
-
-    #[Test]
-    public function the_cap_note_only_claims_a_cap_when_one_actually_fired(): void
-    {
-        // Capped HIGH→MEDIUM: the note explains the cap.
-        $capped = ImpactFormatter::detectChanges(
-            $this->summary(['route::GET::/r'], lowConfidence: true, risk: RiskLevel::Medium, coarseCapApplied: true),
-        );
-        $this->assertStringContainsString('risk capped at MEDIUM', $capped);
-
-        // Low-confidence but precise seeds drove HIGH — the cap did not fire, so it must not be claimed.
-        $notCapped = ImpactFormatter::detectChanges(
-            $this->summary(['route::GET::/r'], lowConfidence: true, risk: RiskLevel::High),
-        );
-        $this->assertStringContainsString('low confidence', $notCapped);
-        $this->assertStringNotContainsString('capped at MEDIUM', $notCapped);
     }
 
     #[Test]

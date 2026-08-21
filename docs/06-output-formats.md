@@ -21,7 +21,7 @@ With `--json`, stdout is a single JSON document (the full, uncapped report) with
 | `base` | string | the ref the diff was taken against |
 | `changed` | object | `{file: graph-node count}` per changed file |
 | `coverage` | object | `{file: "analyzed" \| "unresolved"}` per changed file |
-| `entryPoints` | string[] | entry-point nodes the change reaches through calls, plus the two sets appended after that walk: a changed class that is itself an entry surface (self-listed), and the routes a changed frontend file references. Both are appended after the risk level is scored, which is what `scoredEntryPoints` accounts for |
+| `entryPoints` | string[] | entry-point nodes the change reaches through calls, plus the two sets appended after that walk: a changed class that is itself an entry surface (self-listed), and the routes a changed frontend file references. Neither appended set is graded by the risk level; `verification` names exactly what is |
 | `associationEntryPoints` | string[] | entry surfaces connected only by an association edge (`model-relationship` or `model-to-policy`); associated with the change, not callers of it, and excluded from `risk` |
 | `entryPointPaths` | object | per reached entry point, the shortest call chain down to the changed code as `{node, via, file?, line?}` hops; a self-listed entry class carries no chain |
 | `entryPointLocations` | object | per entry point, its defining `{file, line?}` (project-relative), when known |
@@ -32,11 +32,11 @@ With `--json`, stdout is a single JSON document (the full, uncapped report) with
 | `relatedModels` | string[] | models reached only via association edges (context, not risk) |
 | `traitAndOverrideReachVia` | object | why each `traitAndOverrideReach` entry is listed, keyed by node: the edge types that reached it (`uses-trait`, `override`) |
 | `traitAndOverrideReach` | string[] | classes that run a changed member without calling it, meaning trait users and override implementors (context, not risk; the report prints these under "Runs this code without calling it") |
-| `risk` | string | `"low"` / `"medium"` / `"high"` |
+| `risk` | string | `"low"` / `"medium"` / `"high"`; see [Risk levels](07-risk-levels.md) |
+| `riskCause` | string | why the level is what it is, in one line. Always present — a level without its cause is not a usable verdict |
+| `hazards` | object[] | `{lane, tier, cwe, member, reach, evidence}` per hazard, worst tier first. `reach` is `public-write`, `gated` or `no-known-path`, and `no-known-path` means unmeasured, never proven-internal |
+| `verification` | object | what the level graded, mapped to whether a test references it: reached entry points, plus a changed class itself where it reached none. A state that could not be checked reads `false` |
 | `lowConfidence` | bool | a changed member couldn't be pinned, so part of the estimate is coarse |
-| `coarseCapApplied` | bool | a low-confidence `high` was capped to `medium`. Whether the cap *downgraded*, never whether the rescore ran; `false` on a confirmed `high` that was still re-scored, so it says nothing about the printed counts being the scored ones |
-| `scoredEntryPoints` | int | entry points the `risk` level was decided on; see [Risk levels](07-risk-levels.md#the-counts-the-risk-level-was-decided-on) |
-| `scoredImpacted` | int | risk-bearing nodes the `risk` level was decided on; see [Risk levels](07-risk-levels.md#the-counts-the-risk-level-was-decided-on) |
 | `findings` | string[] | source-level findings |
 | `unresolved` | bool | any changed file is UNRESOLVED |
 | `gate` | object | present only under a `--fail-on*` flag (see [Gating in CI](08-ci-gating.md)) |

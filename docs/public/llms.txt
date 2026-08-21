@@ -23,7 +23,7 @@ Key properties an agent should know before using it:
 - [Detecting change impact](https://sandermuller.github.io/richter/detect-changes): the main command, which diff is analysed, reading the report, `--explain`
 - [Report annotations](https://sandermuller.github.io/richter/report-annotations): security exposure, Pennant gates, payload parity, middleware group membership — all advisory, none feed risk or the gate
 - [Output formats](https://sandermuller.github.io/richter/output-formats): `--markdown`, `--html`, and the semver-governed `--json` key reference
-- [Risk levels](https://sandermuller.github.io/richter/risk-levels): how the level is decided, why `scoredEntryPoints`/`scoredImpacted` differ from the printed counts, how to calibrate
+- [Risk levels](https://sandermuller.github.io/richter/risk-levels): the hazard tiers, the reach matrix, and the ladder that decides the level
 - [Gating in CI](https://sandermuller.github.io/richter/ci-gating): `--fail-on`, `--fail-on-unresolved`, a pull-request workflow, fork safety
 - [Blast radius of a symbol](https://sandermuller.github.io/richter/impact): `richter:impact` — callers, dependencies, reached entry surfaces
 - [Shortest path between symbols](https://sandermuller.github.io/richter/trace): `richter:trace` — call-direction chains and depth

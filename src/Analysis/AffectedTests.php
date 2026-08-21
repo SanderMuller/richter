@@ -80,7 +80,7 @@ final class AffectedTests
         // filtered out: the diff still names it, and handing a path that no longer exists to a test
         // runner fails the run this selection is meant to shorten.
         $changedTests = array_values(array_filter(
-            self::runnableOnly($outOfScope),
+            TestReferenceIndex::runnableOnly($outOfScope),
             // Under `tests/` and still on disk. `$outOfScope` is every changed file no lane read, so
             // a `tools/SmokeTest.php` reaches here too and is no argument for the suite runner; a
             // DELETED test is a path that would fail the run this selection exists to shorten.
@@ -207,7 +207,7 @@ final class AffectedTests
                 continue;
             }
 
-            $runnable = self::runnableOnly($referencing);
+            $runnable = TestReferenceIndex::runnableOnly($referencing);
 
             if ($runnable === []) {
                 // A route/command reference inside a support trait or helper is a real coverage
@@ -227,7 +227,7 @@ final class AffectedTests
         // unlike the entry-point axis, non-runnable files (fixtures import app classes too) simply
         // filter out without blocking determination.
         foreach (self::classesToMatch($result, $changed) as $class) {
-            $selected = [...$selected, ...self::runnableOnly($tests->testsImporting($class))];
+            $selected = [...$selected, ...TestReferenceIndex::runnableOnly($tests->testsImporting($class))];
         }
 
         $selected = array_values(array_unique($selected));
@@ -321,22 +321,6 @@ final class AffectedTests
         }
 
         return array_keys($classes);
-    }
-
-    /**
-     * Only conventionally-named test files are runnable arguments to a test runner — a helper,
-     * trait, or fixture under tests/ would make `php artisan test $(…)` execute nothing for that
-     * path.
-     *
-     * @param  list<string>  $files
-     * @return list<string>
-     */
-    private static function runnableOnly(array $files): array
-    {
-        return array_values(array_filter(
-            $files,
-            static fn (string $file): bool => str_ends_with($file, 'Test.php'),
-        ));
     }
 
     /**

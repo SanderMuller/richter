@@ -80,7 +80,7 @@ final class ImpactFormatter
     }
 
     /**
-     * @param  array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, newFiles?: list<string>, fqcns?: array<string, string>, entryPoints: list<string>, associationEntryPoints?: list<string>, entryPointPaths?: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations?: array<string, array{file: string, line?: int}>, entryPointSecurity?: array<string, SecurityShape>, entryPointGates?: array<string, list<string>>, entryPointAuthGates?: array<string, list<string>>, entryPointAuthMiddleware?: array<string, list<string>>, impacted: int, relatedModels: list<string>, traitAndOverrideReach?: list<string>, traitAndOverrideReachVia?: array<string, list<string>>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied?: bool, scoredEntryPoints?: int, scoredImpacted?: int, findings?: list<string>, ...}  $result
+     * @param  array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, newFiles?: list<string>, fqcns?: array<string, string>, entryPoints: list<string>, associationEntryPoints?: list<string>, entryPointPaths?: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations?: array<string, array{file: string, line?: int}>, entryPointSecurity?: array<string, SecurityShape>, entryPointGates?: array<string, list<string>>, entryPointAuthGates?: array<string, list<string>>, entryPointAuthMiddleware?: array<string, list<string>>, impacted: int, relatedModels: list<string>, traitAndOverrideReach?: list<string>, traitAndOverrideReachVia?: array<string, list<string>>, risk: RiskLevel, riskCause?: string, hazards?: list<Hazard>, lowConfidence: bool, findings?: list<string>, ...}  $result
      * @param  bool  $gateActive  when a `--fail-on*` gate is active the command prints its own verdict, so the advisory suffix is dropped to avoid contradicting it
      * @param  bool  $explain  render the call chain from each reached entry point down to the changed symbol
      */
@@ -138,6 +138,8 @@ final class ImpactFormatter
             ))];
         }
 
+        $lines = [...$lines, ...self::hazardLines($result['hazards'] ?? [])];
+
         if (($result['findings'] ?? []) !== []) {
             $lines[] = '';
             $lines[] = 'Findings (in the changed source itself):';
@@ -148,8 +150,10 @@ final class ImpactFormatter
         }
 
         $lines[] = '';
-        $lines[] = 'Impacted nodes: ' . $result['impacted'];
-        $lines[] = 'Risk: ' . Str::upper($result['risk']->value) . ($gateActive ? '' : ' (advisory)');
+        $lines[] = 'Risk:   ' . Str::upper($result['risk']->value) . ($gateActive ? '' : ' (advisory)')
+            . (($result['riskCause'] ?? '') === '' ? '' : ' — ' . $result['riskCause']);
+        // Breadth, decoupled. It describes the change; it no longer grades it.
+        $lines[] = 'Impact: ' . count($result['entryPoints']) . ' entry point(s) · ' . $result['impacted'] . ' impacted node(s)';
 
         // A level computed over nothing is not a level. When NOT ONE changed file could be placed, the
         // figures above describe the search rather than the change, and LOW is what a reviewer takes
@@ -161,16 +165,7 @@ final class ImpactFormatter
         }
 
         if ($result['lowConfidence']) {
-            // Only claim the cap when it actually bound the result — when precise seeds genuinely
-            // drove HIGH, the risk was not capped and saying so would contradict the printed level.
-            $cap = ($result['coarseCapApplied'] ?? false) ? ' (risk capped at MEDIUM)' : '';
-            $lines[] = "Note: low confidence — a changed member could not be pinned to a graph node, so part of this is a coarse class-level estimate{$cap}.";
-        }
-
-        $scored = self::scoredCountsNote($result);
-
-        if ($scored !== '') {
-            $lines[] = "Note: {$scored}";
+            $lines[] = 'Note: low confidence — a changed member could not be pinned to a graph node, so part of this is a coarse class-level estimate.';
         }
 
         // A LOW on a frontend-heavy diff is easily misread as "nothing to see" — say what the
@@ -245,28 +240,28 @@ final class ImpactFormatter
     }
 
     /**
-     * The counts the risk level was decided on, when they are not the ones printed beside it —
-     * otherwise ''. Two things pull them apart: the entry-point list gains self-listed and frontend
-     * surfaces after the level is scored, and a low-confidence HIGH is re-scored on the precisely
-     * seeded subset. Only where they differ, because `risk_thresholds` is calibrated against these
-     * and a report repeating identical numbers teaches its reader to skip the line.
+     * The hazards, worst tier first, each with its CWE where it has one and its reach class. Above
+     * `Findings` deliberately: a hazard says something may BREAK, a finding says something could not
+     * be SEEN, and the first is what a reviewer must read.
      *
-     * @param  array{entryPoints: list<string>, impacted: int, scoredEntryPoints?: int, scoredImpacted?: int, ...}  $result
+     * @param  list<Hazard>  $hazards
+     * @return list<string>
      */
-    public static function scoredCountsNote(array $result): string
+    private static function hazardLines(array $hazards): array
     {
-        $entryPoints = $result['scoredEntryPoints'] ?? null;
-        $impacted = $result['scoredImpacted'] ?? null;
-
-        if ($entryPoints === null || $impacted === null) {
-            return '';
+        if ($hazards === []) {
+            return [];
         }
 
-        if ($entryPoints === count($result['entryPoints']) && $impacted === $result['impacted']) {
-            return '';
+        $lines = ['', 'Hazards (' . count($hazards) . '):'];
+
+        foreach ($hazards as $hazard) {
+            $cwe = $hazard->cwe === null ? '' : " {$hazard->cwe}";
+            $lines[] = "  ! [tier {$hazard->tier} {$hazard->lane}{$cwe}] {$hazard->member} — {$hazard->evidence}";
+            $lines[] = '      reach: ' . ($hazard->reach ?? Hazard::REACH_NO_KNOWN_PATH);
         }
 
-        return "Risk was scored on {$entryPoints} entry point(s) and {$impacted} impacted node(s), not the counts above — calibrate risk_thresholds against these.";
+        return $lines;
     }
 
     /**
@@ -295,8 +290,8 @@ final class ImpactFormatter
      * given — an explain chain under each entry showing how it reaches the changed symbol. Chain
      * sub-lines don't count toward the cap, and a path-less entry (a self-listed entry class) renders
      * its bullet alone. Each entry carries its defining location when known, and a route classified
-     * by Brain's security surface carries its exposure plus any issues — inherited advisory
-     * annotation, never an input to the risk level.
+     * by Brain's security surface carries its exposure plus any issues, inherited from Brain. A
+     * `PUBLIC_WRITE` issue there is also what makes a hazard's reach class `public-write`.
      *
      * @param  list<string>  $entryPoints
      * @param  array<string, list<array{node: string, via: string, file?: string, line?: int}>>  $paths  keyed by entry-point node; empty when not explaining

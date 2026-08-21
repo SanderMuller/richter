@@ -11,7 +11,7 @@
 
 Measures the magnitude of impact of code changes in a Laravel codebase. Like the Richter scale, but for your PHP.
 
-Run `php artisan richter:detect-changes` on a branch and Richter reports the HTTP and CLI entry points the diff can reach, flags the ones no test references, and attaches a coarse advisory risk level. Review then starts from what the change reaches, instead of from a cold diff.
+Run `php artisan richter:detect-changes` on a branch and Richter reports the HTTP and CLI entry points the diff can reach, flags the ones no test references, and names the hazards the change carries — a guard removed, a payload key a consumer still reads, a validation constraint dropped. Review then starts from what the change reaches, instead of from a cold diff.
 
 ```text
 Changed files:
@@ -22,11 +22,15 @@ Entry points reached: 2 (some changed files could not be fully placed — see UN
   - command::categories:sync  (app/Console/Commands/SyncCategories.php)  [test-referenced]
   - route::PATCH::/api/posts/{post}  (routes/api.php:41)  [⚠ no test references this]  [authed]
 
+Hazards (1):
+  ! [tier 2 model CWE-915] App\Models\Post::$fillable — $fillable gained owner_id
+      reach: gated
+
 Findings (in the changed source itself):
   ! app/Models/Post.php: eager-load string 'ownerprofile': segment 'ownerprofile' is not a method on any model — check the relation name
 
-Impacted nodes: 7
-Risk: MEDIUM (advisory)
+Risk:   MEDIUM (advisory) — tier 2 `model` hazard on App\Models\Post::$fillable, reach gated
+Impact: 2 entry point(s) · 7 impacted node(s)
 ```
 
 What makes it worth installing:
@@ -78,7 +82,7 @@ Read the full documentation at **[sandermuller.github.io/richter](https://sander
 - [Detecting change impact](https://sandermuller.github.io/richter/detect-changes) — the main command, which diff is analysed, reading the report, `--explain`
 - [Report annotations](https://sandermuller.github.io/richter/report-annotations) — security exposure, Pennant gates, payload parity, middleware group membership
 - [Output formats](https://sandermuller.github.io/richter/output-formats) — `--markdown`, `--html`, and the `--json` contract
-- [Risk levels](https://sandermuller.github.io/richter/risk-levels) — how the level is decided, calibrating the thresholds, the scored counts
+- [Risk levels](https://sandermuller.github.io/richter/risk-levels) — the hazard tiers, the reach matrix, and the ladder that decides the level
 - [Gating in CI](https://sandermuller.github.io/richter/ci-gating) — `--fail-on`, `--fail-on-unresolved`, and a pull-request workflow
 
 **Commands**
@@ -95,7 +99,7 @@ Read the full documentation at **[sandermuller.github.io/richter](https://sander
 **Reference**
 - [Configuration reference](https://sandermuller.github.io/richter/configuration) — every key in `config/richter.php`
 - [Benchmarking](https://sandermuller.github.io/richter/benchmark) — scoring accuracy against replayable history
-- [Troubleshooting](https://sandermuller.github.io/richter/troubleshooting) — a symptom index: empty reports, UNRESOLVED files, saturated risk levels, exit 2
+- [Troubleshooting](https://sandermuller.github.io/richter/troubleshooting) — a symptom index: empty reports, UNRESOLVED files, a level that reads medium everywhere, exit 2
 
 ## Testing
 

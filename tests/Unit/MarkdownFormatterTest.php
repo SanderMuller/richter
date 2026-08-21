@@ -3,6 +3,7 @@
 namespace SanderMuller\Richter\Tests\Unit;
 
 use PHPUnit\Framework\Attributes\Test;
+use SanderMuller\Richter\Analysis\Hazard;
 use SanderMuller\Richter\Analysis\MarkdownFormatter;
 use SanderMuller\Richter\Analysis\RiskLevel;
 use SanderMuller\Richter\Analysis\TestReferenceIndex;
@@ -14,7 +15,8 @@ final class MarkdownFormatterTest extends TestCase
      * @param  list<string>  $entryPoints
      * @param  array<string, 'analyzed'|'unresolved'>  $coverage
      * @param  list<string>  $relatedModels
-     * @return array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, newFiles?: list<string>, entryPoints: list<string>, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied: bool, scoredEntryPoints: int, scoredImpacted: int}
+     * @param  list<Hazard>  $hazards
+     * @return array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, newFiles?: list<string>, entryPoints: list<string>, impacted: int, relatedModels: list<string>, risk: RiskLevel, riskCause: string, hazards: list<Hazard>, lowConfidence: bool}
      */
     private function summary(
         array $entryPoints,
@@ -22,9 +24,7 @@ final class MarkdownFormatterTest extends TestCase
         array $relatedModels = [],
         bool $lowConfidence = false,
         RiskLevel $risk = RiskLevel::Low,
-        bool $coarseCapApplied = false,
-        ?int $scoredEntryPoints = null,
-        ?int $scoredImpacted = null,
+        array $hazards = [],
     ): array {
         return [
             'changed' => array_map(static fn (): int => 1, $coverage),
@@ -34,21 +34,9 @@ final class MarkdownFormatterTest extends TestCase
             'relatedModels' => $relatedModels,
             'risk' => $risk,
             'lowConfidence' => $lowConfidence,
-            'coarseCapApplied' => $coarseCapApplied,
-            'scoredEntryPoints' => $scoredEntryPoints ?? count($entryPoints),
-            'scoredImpacted' => $scoredImpacted ?? count($entryPoints),
+            'riskCause' => 'no hazard; every reached surface is referenced by a test',
+            'hazards' => $hazards,
         ];
-    }
-
-    #[Test]
-    public function the_scored_counts_are_named_only_when_they_differ_from_the_printed_ones(): void
-    {
-        $diverged = MarkdownFormatter::detectChanges(
-            $this->summary(['route::GET::/r', 'App\\Jobs\\ImportJob'], scoredEntryPoints: 1, scoredImpacted: 1),
-        );
-        $this->assertStringContainsString('Risk was scored on 1 entry point(s) and 1 impacted node(s)', $diverged);
-
-        $this->assertStringNotContainsString('Risk was scored on', MarkdownFormatter::detectChanges($this->summary(['route::GET::/r'])));
     }
 
     #[Test]
@@ -327,22 +315,6 @@ final class MarkdownFormatterTest extends TestCase
 
         $this->assertStringContainsString('### Findings (in the changed source itself)', $output);
         $this->assertStringContainsString("- ⚠️ app/Exports/X.php: eager-load string 'commentsreviews' matches no relation", $output);
-    }
-
-    #[Test]
-    public function a_low_confidence_result_renders_a_blockquote_note_with_the_cap_only_when_it_fired(): void
-    {
-        $capped = MarkdownFormatter::detectChanges(
-            $this->summary(['route::GET::/r'], lowConfidence: true, risk: RiskLevel::Medium, coarseCapApplied: true),
-        );
-        $this->assertStringContainsString('> ⚠️ Low confidence', $capped);
-        $this->assertStringContainsString('risk capped at MEDIUM', $capped);
-
-        $notCapped = MarkdownFormatter::detectChanges(
-            $this->summary(['route::GET::/r'], lowConfidence: true, risk: RiskLevel::High),
-        );
-        $this->assertStringContainsString('> ⚠️ Low confidence', $notCapped);
-        $this->assertStringNotContainsString('capped at MEDIUM', $notCapped);
     }
 
     #[Test]

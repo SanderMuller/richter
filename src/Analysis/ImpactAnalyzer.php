@@ -10,12 +10,13 @@ use SanderMuller\Richter\Graph\NodeMetadata;
 use SanderMuller\Richter\Support\AppNamespace;
 use SanderMuller\Richter\Support\Fqcn;
 use SanderMuller\Richter\Support\ReachReasons;
-use SanderMuller\Richter\Support\RichterConfig;
 
 /**
  * Over a {@see CodeGraph}: impact(symbol) blast radius + detectChanges(files) reached entry points/risk.
- * Advisory only: risk is a coarse signal, not a gate. Node locations and Brain's per-route security
- * surface are carried through as annotation — they inform the reader, never the risk model.
+ * Advisory by default: the level is a signal, not a verdict, and only a `--fail-on*` flag makes it
+ * gate. It is decided by the HAZARD a change carries and, failing that, by whether a test references
+ * what it reaches — never by how many nodes it touches. Node locations stay pure annotation; Brain's
+ * per-route security surface feeds a hazard's reach class ({@see HazardReach}).
  *
  * @phpstan-import-type SecurityShape from NodeMetadata
  */
@@ -88,9 +89,9 @@ final readonly class ImpactAnalyzer
     public function __construct(private CodeGraph $graph) {}
 
     /**
-     * The entry-point annotations reuse {@see detectChanges()}'s own composition — same
-     * definition, same advisory framing (security is routes-only annotation, never a risk
-     * input; `impact()` reports no risk at all).
+     * The entry-point annotations reuse {@see detectChanges()}'s own composition — same definition,
+     * same routes-only security surface. `impact()` analyses a symbol rather than a diff, so it has no
+     * base side, carries no hazards, and reports no level.
      *
      * @return array{
      *     target: string,
@@ -158,7 +159,7 @@ final readonly class ImpactAnalyzer
      * draw "nothing changed" without a graph build. {@see JsonPresenter::emptyDetectChanges()} is
      * the separate JSON-shaped equivalent; the two differ in `risk` (enum here, string there).
      *
-     * @return array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, newFiles: list<string>, fqcns: array<string, string>, callers: list<array{depth: int, node: string, via: string}>, dependencies: list<array{depth: int, node: string, via: string}>, seeds: list<string>, reach: array<string, array<string, true>>, edges: list<array{source: string, target: string, via: string, depth: int}>, entryPoints: list<string>, associationEntryPoints: list<string>, registryEntryPoints: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, SecurityShape>, entryPointGates: array<string, list<string>>, entryPointAuthGates: array<string, list<string>>, entryPointAuthMiddleware: array<string, list<string>>, impacted: int, relatedModels: list<string>, traitAndOverrideReach: list<string>, traitAndOverrideReachVia: array<string, list<string>>, risk: RiskLevel, lowConfidence: bool, coarseCapApplied: bool, scoredEntryPoints: int, scoredImpacted: int, findings: list<string>}
+     * @return array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, newFiles: list<string>, fqcns: array<string, string>, callers: list<array{depth: int, node: string, via: string}>, dependencies: list<array{depth: int, node: string, via: string}>, seeds: list<string>, reach: array<string, array<string, true>>, edges: list<array{source: string, target: string, via: string, depth: int}>, entryPoints: list<string>, associationEntryPoints: list<string>, registryEntryPoints: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, SecurityShape>, entryPointGates: array<string, list<string>>, entryPointAuthGates: array<string, list<string>>, entryPointAuthMiddleware: array<string, list<string>>, impacted: int, relatedModels: list<string>, traitAndOverrideReach: list<string>, traitAndOverrideReachVia: array<string, list<string>>, risk: RiskLevel, riskCause: string, hazards: list<Hazard>, verification: array<string, bool>, lowConfidence: bool, findings: list<string>}
      */
     public static function emptyDetectChanges(): array
     {
@@ -168,8 +169,11 @@ final readonly class ImpactAnalyzer
             'entryPointLocations' => [], 'entryPointSecurity' => [], 'entryPointGates' => [],
             'entryPointAuthGates' => [], 'entryPointAuthMiddleware' => [],
             'impacted' => 0, 'relatedModels' => [], 'registryEntryPoints' => [], 'traitAndOverrideReach' => [], 'traitAndOverrideReachVia' => [], 'risk' => RiskLevel::Low,
-            'lowConfidence' => false, 'coarseCapApplied' => false,
-            'scoredEntryPoints' => 0, 'scoredImpacted' => 0, 'findings' => [],
+            // Ladder step 0: nothing was analysed, which is not the same fact as "analysed and could
+            // not be placed". An empty diff has always reported LOW and still does.
+            'riskCause' => 'no analysable change: this diff touches nothing richter analyses',
+            'hazards' => [], 'verification' => [],
+            'lowConfidence' => false, 'findings' => [],
         ];
     }
 
@@ -178,6 +182,11 @@ final readonly class ImpactAnalyzer
      *
      * @param  bool|null  $payloadParityEnabled  overrides `richter.payload_parity.enabled` (e.g. the
      *   command's `--no-payload-parity` flag); null defers to config
+     * @param  TestReferenceIndex|null  $tests  the level's verification input. Absent behaves exactly
+     *   as an empty index does — every surface grades unreferenced — rather than as a fourth state:
+     *   "could not check" must never open the LOW path.
+     * @param  bool|null  $hazardsEnabled  overrides `richter.hazards.enabled` (the command's
+     *   `--no-hazards`); null defers to config
      * @return array{
      *     changed: array<string, int>,
      *     coverage: array<string, 'analyzed'|'unresolved'>,
@@ -202,14 +211,14 @@ final readonly class ImpactAnalyzer
      *     traitAndOverrideReach: list<string>,
      *     traitAndOverrideReachVia: array<string, list<string>>,
      *     risk: RiskLevel,
+     *     riskCause: string,
+     *     hazards: list<Hazard>,
+     *     verification: array<string, bool>,
      *     lowConfidence: bool,
-     *     coarseCapApplied: bool,
-     *     scoredEntryPoints: int,
-     *     scoredImpacted: int,
      *     findings: list<string>,
      * }
      */
-    public function detectChanges(array $changed, int $maxDepth = 6, ?bool $payloadParityEnabled = null): array
+    public function detectChanges(array $changed, int $maxDepth = 6, ?bool $payloadParityEnabled = null, ?TestReferenceIndex $tests = null, ?bool $hazardsEnabled = null): array
     {
         $preciseSeeds = [];
         $coarseSeeds = [];
@@ -320,7 +329,11 @@ final readonly class ImpactAnalyzer
             $this->entryPointsAmong($this->graph->callersOf($seeds, $maxDepth, ['model-relationship', 'model-to-policy'])),
             $entryPoints,
         ));
-        $riskEntryPointCount = count($entryPoints);
+        // The set the LEVEL grades, frozen before the two joins below. A frontend file's routes and a
+        // self-listed entry class are appended to the LIST afterwards so they carry their annotations
+        // and feed test selection, and neither has ever fed the level: `withFrontendEntryPoints()` and
+        // `config/richter.php`'s frontend note both promise that a frontend change does not move it.
+        $reachedEntryPoints = $entryPoints;
 
         // Paths exist only for graph-reached entry points — computed before the self-listing below,
         // so a self-listed entry class (which IS the entry surface, not reached from the change)
@@ -353,18 +366,19 @@ final readonly class ImpactAnalyzer
         // classify what the walk already knew.
         $traitAndOverrideReachVia = ReachReasons::forNodes($traitAndOverrideReach, $reach, ['uses-trait', 'override']);
 
-        [$risk, $coarseCapApplied, $scoredEntryPoints, $scoredImpacted] = $this->riskWithCoarseCap($impacted, $riskEntryPointCount, $touchesEntryClass, $preciseSeeds, $coarseSeeds, $lowConfidence, $maxDepth, $riskInputsMemo);
-
         $findings = $newFileFindings;
         [$modelParityLane, $consumerParityLane, $requestParityLane] = ParityFindings::checkers($this->graph, $payloadParityEnabled);
         $groupLane = new MiddlewareGroupFindings($this->graph);
+        // The parity family's results are tier-2 hazards now, not findings. They join the lanes'
+        // output before the reach class is attached, so every hazard is graded the same way.
+        $parityHazards = [];
 
         foreach ($changed as $file) {
             foreach ($file->findings as $finding) {
                 $findings[] = "{$file->file}: {$finding}";
             }
 
-            $findings = [...$findings, ...ParityFindings::for($file, $modelParityLane, $consumerParityLane, $requestParityLane)];
+            $parityHazards = [...$parityHazards, ...ParityFindings::for($file, $modelParityLane, $consumerParityLane, $requestParityLane)];
             $findings = [...$findings, ...$groupLane->findingsFor($file->fqcn)];
         }
 
@@ -372,6 +386,16 @@ final readonly class ImpactAnalyzer
         $crossCheck = new PublicWriteAuthCrossCheck($this->graph);
         $entryPointAuthGates = $crossCheck->gatesByEntryPoint($entryPointSecurity, $maxDepth);
         $entryPointAuthMiddleware = $crossCheck->authMiddlewareByEntryPoint($entryPointSecurity);
+
+        // The level is decided LAST, because it needs all three of the above: the hazards from the
+        // findings pass, the reach class from the security annotations, and the entry-point set the
+        // verification lane grades. The old breadth score could run early precisely because it needed
+        // none of them — it only counted.
+        $hazards = new HazardReach($this->graph, $entryPointPaths, $entryPointSecurity, $entryPointAuthGates, $entryPointAuthMiddleware, $maxDepth)
+            ->attach(HazardFindings::for($changed, $hazardsEnabled, $parityHazards));
+        $graded = new VerificationSet($reachedEntryPoints, $changed, $perFileSeeds);
+        $members = $graded->members(fn (array $seeds): int => $this->riskInputs($seeds, $maxDepth, $riskInputsMemo)[0]);
+        [$risk, $riskCause, $verification] = RiskLadder::decide($hazards, $graded->analysesExistingCode(), $members, $tests);
 
         return [
             'changed' => $summary,
@@ -399,10 +423,10 @@ final readonly class ImpactAnalyzer
             'traitAndOverrideReach' => $traitAndOverrideReach,
             'traitAndOverrideReachVia' => $traitAndOverrideReachVia,
             'risk' => $risk,
+            'riskCause' => $riskCause,
+            'hazards' => $hazards,
+            'verification' => $verification,
             'lowConfidence' => $lowConfidence,
-            'coarseCapApplied' => $coarseCapApplied,
-            'scoredEntryPoints' => $scoredEntryPoints,
-            'scoredImpacted' => $scoredImpacted,
             'findings' => $findings,
         ];
     }
@@ -497,37 +521,6 @@ final readonly class ImpactAnalyzer
         $frontendSeeds[$file->file] = [...$frontendSeeds[$file->file] ?? [], ...$declared];
 
         return ['seeds' => array_values(array_diff($defined, $declared)), 'declared' => $declared];
-    }
-
-    /**
-     * Cap a coarse low-confidence HIGH to MEDIUM only when precise seeds alone don't already justify HIGH (so a genuine method change isn't masked by a co-touched $fillable). Second element: whether the cap actually downgraded.
-     *
-     * The last two elements are the counts the returned level was actually decided on, which the
-     * report has no other way to name. On the cap path that is a second, narrower set. Off it they are
-     * the arguments as given — and `$entryPoints` is already the pre-augmentation count, since the
-     * caller extends its list with self-listed and frontend surfaces only after scoring.
-     *
-     * The rescore narrows the SEEDS, never what counts as changed — hence `$coarseSeeds`, the half it
-     * stops walking from but must still not read as reached ({@see riskInputs()}).
-     *
-     * @param  list<string>  $preciseSeeds
-     * @param  list<string>  $coarseSeeds
-     * @param  array<string, array{0: int, 1: int}>  $riskInputsMemo
-     * @return array{0: RiskLevel, 1: bool, 2: int, 3: int}
-     */
-    private function riskWithCoarseCap(int $impacted, int $entryPoints, bool $touchesEntryClass, array $preciseSeeds, array $coarseSeeds, bool $lowConfidence, int $maxDepth, array &$riskInputsMemo): array
-    {
-        $risk = $this->risk($impacted, $entryPoints, $touchesEntryClass);
-
-        if (! $lowConfidence || $risk !== RiskLevel::High) {
-            return [$risk, false, $entryPoints, $impacted];
-        }
-
-        [$preciseEntryPoints, $preciseImpacted] = $this->riskInputs($preciseSeeds, $maxDepth, $riskInputsMemo, $coarseSeeds);
-
-        return $this->risk($preciseImpacted, $preciseEntryPoints, $touchesEntryClass) === RiskLevel::High
-            ? [RiskLevel::High, false, $preciseEntryPoints, $preciseImpacted]
-            : [RiskLevel::Medium, true, $preciseEntryPoints, $preciseImpacted];
     }
 
     /**
@@ -1054,22 +1047,5 @@ final readonly class ImpactAnalyzer
     private function isEntryPointClass(string $file): bool
     {
         return Str::contains(Fqcn::fromPath($file), self::ENTRY_POINT_NAMESPACES);
-    }
-
-    /**
-     * The coarse advisory level. Thresholds come from config ({@see RichterConfig::riskThresholds()})
-     * because the defaults saturate on a large codebase: where a routine change reaches thousands of
-     * nodes, `impacted >= 20` is met by everything and the level stops telling the reader anything.
-     * They stay absolute, so a `--fail-on` verdict keeps one meaning across runs and repos.
-     */
-    private function risk(int $impacted, int $entryPoints, bool $touchesEntryClass): RiskLevel
-    {
-        $thresholds = RichterConfig::riskThresholds();
-
-        return match (true) {
-            $entryPoints >= $thresholds['high']['entry_points'] || $impacted >= $thresholds['high']['impacted'] => RiskLevel::High,
-            $entryPoints >= $thresholds['medium']['entry_points'] || $impacted >= $thresholds['medium']['impacted'] || $touchesEntryClass => RiskLevel::Medium,
-            default => RiskLevel::Low,
-        };
     }
 }

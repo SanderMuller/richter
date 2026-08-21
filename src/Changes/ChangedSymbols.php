@@ -4,6 +4,7 @@ namespace SanderMuller\Richter\Changes;
 
 use Illuminate\Support\Facades\Process;
 use RuntimeException;
+use SanderMuller\Richter\Analysis\Hazards\HazardLanes;
 use SanderMuller\Richter\Analysis\RequestFieldParser;
 use SanderMuller\Richter\Analysis\ResourceKeyParser;
 use SanderMuller\Richter\Graph\BladeViews;
@@ -297,8 +298,9 @@ final class ChangedSymbols
         [$removedResourceKeys, $addedResourceKeys] = ResourceKeyParser::diffFor($file, $isNew, $headSrc, $baseSrc);
         [$removedRequestFields, $addedRequestFields] = RequestFieldParser::diffFor($file, $isNew, $headSrc, $baseSrc);
         $inlineRequestFields = RequestFieldParser::inlineDiffFor($file, $isNew, $headSrc, $baseSrc);
+        [$hazards, $addedHazardTokens] = HazardLanes::for($file, $isNew, $headSrc, $baseSrc);
 
-        return new ChangedFileSymbols($file, Fqcn::fromPath($file), $members, $members === [], findings: self::sourceFindings($members, $head['members'], $headSrc, $eagerLoadChecker, $featureGateChecker, $inertiaPageChecker), modelFieldSet: $modelFieldSet, addedModelFields: $addedModelFields, isNewFile: $isNew, removedResourceKeys: $removedResourceKeys, addedResourceKeys: $addedResourceKeys, removedRequestFields: $removedRequestFields, addedRequestFields: $addedRequestFields, inlineRequestFields: $inlineRequestFields);
+        return new ChangedFileSymbols($file, Fqcn::fromPath($file), $members, $members === [], findings: self::sourceFindings($members, $head['members'], $headSrc, $eagerLoadChecker, $featureGateChecker, $inertiaPageChecker), modelFieldSet: $modelFieldSet, addedModelFields: $addedModelFields, isNewFile: $isNew, removedResourceKeys: $removedResourceKeys, addedResourceKeys: $addedResourceKeys, removedRequestFields: $removedRequestFields, addedRequestFields: $addedRequestFields, inlineRequestFields: $inlineRequestFields, hazards: $hazards, addedHazardTokens: $addedHazardTokens);
     }
 
     /**
