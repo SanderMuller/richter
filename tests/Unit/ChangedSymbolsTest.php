@@ -904,6 +904,75 @@ final class ChangedSymbolsTest extends TestCase
     }
 
     /** A minimal one-line-addition diff for a single file, enough for the scope branches to classify it. */
+    #[Test]
+    public function a_changed_route_file_is_compared_rather_than_reported_as_out_of_scope(): void
+    {
+        $head = "<?php\nuse App\\Http\\Controllers\\PostController;\nuse Illuminate\\Support\\Facades\\Route;\nRoute::get('/posts/{post}/edit', [PostController::class, 'edit']);\n";
+        $base = str_replace("'edit']);", "'edit'])->middleware('auth');", $head);
+
+        Process::fake([
+            '*merge-base*' => Process::result("abc123\n"),
+            '*rev-parse*' => Process::result("\n"),
+            '*diff*' => Process::result($this->addedLineDiff('routes/web.php')),
+            '*abc123:routes/web.php*' => Process::result($base),
+            '*show*' => Process::result($head),
+        ]);
+
+        $resolved = ChangedSymbols::resolveWithScope('base-ref', 'head-ref');
+
+        $this->assertSame([], $resolved['outOfScope']);
+        $this->assertCount(1, $resolved['changed']);
+
+        $hazards = $resolved['changed'][0]->hazards;
+        $this->assertCount(1, $hazards);
+        $this->assertSame(3, $hazards[0]->tier);
+        $this->assertSame('App\Http\Controllers\PostController::edit', $hazards[0]->member);
+    }
+
+    #[Test]
+    public function the_middleware_bootstrap_contributes_arrivals_and_no_hazard(): void
+    {
+        // A guard moved out of a route file and into a middleware group. The group side raises
+        // nothing of its own; without its arrival the move reads as a tier-3 removal.
+        $head = "<?php\nreturn Application::configure()->withMiddleware(function (\$middleware): void {\n    \$middleware->web(append: ['auth']);\n})->create();\n";
+        $base = str_replace("append: ['auth']", 'append: []', $head);
+
+        Process::fake([
+            '*merge-base*' => Process::result("abc123\n"),
+            '*rev-parse*' => Process::result("\n"),
+            '*diff*' => Process::result($this->addedLineDiff('bootstrap/app.php')),
+            '*abc123:bootstrap/app.php*' => Process::result($base),
+            '*show*' => Process::result($head),
+        ]);
+
+        $resolved = ChangedSymbols::resolveWithScope('base-ref', 'head-ref');
+
+        $this->assertSame([], $resolved['outOfScope']);
+        $this->assertSame([], $resolved['changed'][0]->hazards);
+        $this->assertSame(['middleware:auth'], $resolved['changed'][0]->addedHazardTokens);
+    }
+
+    #[Test]
+    public function a_guard_removed_from_the_bootstrap_middleware_group_is_a_hazard(): void
+    {
+        $base = "<?php\nreturn Application::configure()->withMiddleware(function (\$middleware): void {\n    \$middleware->web(append: ['auth']);\n})->create();\n";
+        $head = str_replace("append: ['auth']", 'append: []', $base);
+
+        Process::fake([
+            '*merge-base*' => Process::result("abc123\n"),
+            '*rev-parse*' => Process::result("\n"),
+            '*diff*' => Process::result($this->addedLineDiff('bootstrap/app.php')),
+            '*abc123:bootstrap/app.php*' => Process::result($base),
+            '*show*' => Process::result($head),
+        ]);
+
+        $hazards = ChangedSymbols::resolveWithScope('base-ref', 'head-ref')['changed'][0]->hazards;
+
+        $this->assertCount(1, $hazards);
+        $this->assertSame(3, $hazards[0]->tier);
+        $this->assertSame('middleware-group:web', $hazards[0]->suppressionKey());
+    }
+
     private function addedLineDiff(string $file): string
     {
         return "diff --git a/{$file} b/{$file}\n--- a/{$file}\n+++ b/{$file}\n@@ -0,0 +1,1 @@\n+x\n";

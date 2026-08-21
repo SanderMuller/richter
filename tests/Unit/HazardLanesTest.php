@@ -6,6 +6,7 @@ use PHPUnit\Framework\Attributes\Test;
 use SanderMuller\Richter\Analysis\Hazard;
 use SanderMuller\Richter\Analysis\HazardFindings;
 use SanderMuller\Richter\Analysis\Hazards\HazardLanes;
+use SanderMuller\Richter\Analysis\Hazards\MiddlewareGroupHazards;
 use SanderMuller\Richter\Changes\ChangedFileSymbols;
 use SanderMuller\Richter\Tests\TestCase;
 
@@ -711,7 +712,7 @@ final class HazardLanesTest extends TestCase
     {
         $source = "<?php\nnamespace App\\Models;\nclass Post\n{\n    protected \$fillable = ['title'];\n}\n";
 
-        $this->assertSame([[], []], HazardLanes::for('app/Models/Post.php', isNew: true, headSrc: $source, baseSrc: null));
+        $this->assertSame([[], [], []], HazardLanes::for('app/Models/Post.php', isNew: true, headSrc: $source, baseSrc: null));
     }
 
     #[Test]
@@ -732,5 +733,255 @@ final class HazardLanesTest extends TestCase
             "<?php\nRoute::get('/posts', [PostController::class, 'index']);\n",
             "<?php\nRoute::get('/posts', [PostController::class, 'index'])->middleware('auth');\n",
         ));
+    }
+
+    #[Test]
+    public function the_middleware_kernel_contributes_arrivals_and_no_hazard(): void
+    {
+        // A Laravel 10 Kernel composes middleware groups. A guard moved out of a route and into one
+        // of them lands here, and without the arrival the move reads as a tier-3 removal. The file
+        // raises nothing of its own: group composition decides which routes a middleware runs on,
+        // not whether one is guarded.
+        $kernel = "<?php\nnamespace App\\Http;\nclass Kernel\n{\n    protected \$middlewareGroups = ['web' => [%s]];\n}\n";
+
+        [$hazards, $added] = HazardLanes::for('app/Http/Kernel.php', isNew: false,
+            headSrc: sprintf($kernel, "'auth'"), baseSrc: sprintf($kernel, ''));
+
+        $this->assertSame([], $hazards);
+        $this->assertSame(['middleware:auth'], $added);
+    }
+
+    #[Test]
+    public function a_guard_gone_from_a_middleware_group_is_tier_three(): void
+    {
+        // The other direction a route's guard can leave. Removing `auth` from the `web` group unguards
+        // every route in that group at once, and reading only the route files would say nothing.
+        $kernel = "<?php\nnamespace App\\Http;\nclass Kernel\n{\n    protected \$middlewareGroups = ['web' => [%s]];\n}\n";
+
+        [$hazards, $added] = HazardLanes::for('app/Http/Kernel.php', isNew: false,
+            headSrc: sprintf($kernel, ''), baseSrc: sprintf($kernel, "'auth'"));
+
+        $this->assertCount(1, $hazards);
+        $this->assertSame(3, $hazards[0]->tier);
+        $this->assertSame('CWE-306', $hazards[0]->cwe);
+        $this->assertSame(['middleware:auth'], $hazards[0]->removedTokens);
+        $this->assertSame('middleware-group:web', $hazards[0]->suppressionKey());
+        $this->assertSame([], $added);
+    }
+
+    #[Test]
+    public function swapping_a_group_alias_for_its_middleware_class_is_not_a_removal(): void
+    {
+        // The reason the group reader is shape-aware rather than literal: a group lists its members as
+        // classes far more often than as aliases, and this refactor changes nothing about who may
+        // reach the routes behind it.
+        $kernel = "<?php\nnamespace App\\Http;\nuse Illuminate\\Auth\\Middleware\\Authenticate;\nclass Kernel\n{\n    protected \$middlewareGroups = ['web' => [%s]];\n}\n";
+
+        [$hazards] = HazardLanes::for('app/Http/Kernel.php', isNew: false,
+            headSrc: sprintf($kernel, 'Authenticate::class'), baseSrc: sprintf($kernel, "'auth'"));
+
+        $this->assertSame([], $hazards);
+    }
+
+    #[Test]
+    public function a_group_losing_a_guard_while_another_gains_one_still_reports_the_loss(): void
+    {
+        // Two groups are two surfaces, not one guard moving. Without the exclusion the arrival would
+        // enter the whole-diff union and suppress the loss beside it.
+        $kernel = "<?php\nnamespace App\\Http;\nclass Kernel\n{\n    protected \$middlewareGroups = ['web' => [%s], 'api' => [%s]];\n}\n";
+
+        [$hazards, $added] = HazardLanes::for('app/Http/Kernel.php', isNew: false,
+            headSrc: sprintf($kernel, '', "'auth'"), baseSrc: sprintf($kernel, "'auth'", ''));
+
+        $this->assertCount(1, $hazards);
+        $this->assertSame([], $added);
+        $this->assertCount(1, HazardFindings::for([
+            new ChangedFileSymbols('app/Http/Kernel.php', '', [], cosmeticOnly: false, hazards: $hazards, addedHazardTokens: $added),
+        ]));
+    }
+
+    #[Test]
+    public function a_guard_no_longer_removed_is_an_arrival(): void
+    {
+        // Dropping the `remove` entry puts the guard back. Nothing in the file's literals changed, so
+        // only the group comparison can see it — and the arrival is what stops the reverse edit
+        // elsewhere in the diff reading as a removal.
+        $bootstrap = "<?php\nreturn Application::configure()->withMiddleware(function (\$middleware): void {\n    \$middleware->appendToGroup('web', ['auth']);%s\n})->create();\n";
+
+        [$hazards, $added] = MiddlewareGroupHazards::for('bootstrap/app.php',
+            sprintf($bootstrap, ''), sprintf($bootstrap, "\n    \$middleware->web(remove: ['auth']);"));
+
+        $this->assertSame([], $hazards);
+        $this->assertSame(['middleware:auth'], $added);
+    }
+
+    #[Test]
+    public function removefromgroup_and_replaceingroup_are_removals(): void
+    {
+        $bootstrap = "<?php\nreturn Application::configure()->withMiddleware(function (\$middleware): void {\n    %s\n})->create();\n";
+        $base = sprintf($bootstrap, "\$middleware->appendToGroup('web', ['auth']);");
+
+        [$removed] = MiddlewareGroupHazards::for('bootstrap/app.php',
+            sprintf($bootstrap, "\$middleware->appendToGroup('web', ['auth']);\n    \$middleware->removeFromGroup('web', ['auth']);"), $base);
+
+        $this->assertSame(['middleware:auth'], $removed[0]->removedTokens);
+
+        [$replaced] = MiddlewareGroupHazards::for('bootstrap/app.php',
+            sprintf($bootstrap, "\$middleware->appendToGroup('web', ['auth']);\n    \$middleware->replaceInGroup('web', 'auth', 'verified');"), $base);
+
+        $this->assertSame(['middleware:auth'], $replaced[0]->removedTokens);
+    }
+
+    #[Test]
+    public function a_remove_list_arriving_for_a_guard_the_group_ran_is_a_removal(): void
+    {
+        // `remove` subtracts from a default set richter does not model, so it counts only for a guard
+        // the base group actually ran. Here it did, and the removal unguards every route in the group.
+        $bootstrap = "<?php\nreturn Application::configure()->withMiddleware(function (\$middleware): void {\n    \$middleware->appendToGroup('web', ['auth']);%s\n})->create();\n";
+
+        [$hazards] = MiddlewareGroupHazards::for('bootstrap/app.php',
+            sprintf($bootstrap, "\n    \$middleware->web(remove: ['auth']);"), sprintf($bootstrap, ''));
+
+        $this->assertCount(1, $hazards);
+        $this->assertSame(['middleware:auth'], $hazards[0]->removedTokens);
+        $this->assertSame("middleware group 'web'", $hazards[0]->member);
+    }
+
+    #[Test]
+    public function a_guard_removed_and_then_restored_in_the_same_file_is_not_a_removal(): void
+    {
+        // These calls are a sequence, and the final state is what the group runs. Reading the guard as
+        // "removed and also present" would report a tier-3 removal for a group that still guards.
+        $bootstrap = "<?php\nreturn Application::configure()->withMiddleware(function (\$middleware): void {\n%s\n})->create();\n";
+
+        [$hazards] = MiddlewareGroupHazards::for('bootstrap/app.php',
+            sprintf($bootstrap, "    \$middleware->web(remove: ['auth']);\n    \$middleware->appendToGroup('web', ['auth']);"),
+            sprintf($bootstrap, "    \$middleware->appendToGroup('web', ['auth']);"));
+
+        $this->assertSame([], $hazards);
+    }
+
+    #[Test]
+    public function a_newly_added_middleware_kernel_still_contributes_arrivals(): void
+    {
+        $kernel = "<?php\nnamespace App\\Http;\nclass Kernel\n{\n    protected \$middlewareGroups = ['web' => ['auth']];\n}\n";
+
+        [$hazards, $added] = HazardLanes::for('app/Http/Kernel.php', isNew: true, headSrc: $kernel, baseSrc: null);
+
+        $this->assertSame([], $hazards);
+        $this->assertSame(['middleware:auth'], $added);
+    }
+
+    #[Test]
+    public function replacing_a_guard_middleware_in_a_group_is_a_removal(): void
+    {
+        // `replace` is a map, and reading only its values would leave the replaced guard in the
+        // running set — the removal it just made would report nothing.
+        $bootstrap = "<?php\nnamespace Boot;\nuse Illuminate\\Auth\\Middleware\\Authenticate;\nuse App\\Http\\Middleware\\Custom;\nreturn Application::configure()->withMiddleware(function (\$middleware): void {\n    \$middleware->appendToGroup('web', [Authenticate::class]);%s\n})->create();\n";
+
+        [$hazards] = MiddlewareGroupHazards::for('bootstrap/app.php',
+            sprintf($bootstrap, "\n    \$middleware->web(replace: [Authenticate::class => Custom::class]);"), sprintf($bootstrap, ''));
+
+        $this->assertCount(1, $hazards);
+        $this->assertSame(['middleware:auth'], $hazards[0]->removedTokens);
+    }
+
+    #[Test]
+    public function the_http_kernel_still_runs_the_other_hazard_lanes(): void
+    {
+        // The group reader is added to what the lanes find, never instead of it. The Kernel is a class
+        // whose members can lose a guard like any other, and replacing the lanes would switch that
+        // analysis off for the one file in `app/` most likely to hold one.
+        $kernel = "<?php\nnamespace App\\Http;\nuse Illuminate\\Support\\Facades\\Gate;\nclass Kernel\n{\n    protected \$middlewareGroups = ['web' => []];\n    public function terminate()\n    {\n%s    }\n}\n";
+
+        [$hazards] = HazardLanes::for('app/Http/Kernel.php', isNew: false,
+            headSrc: sprintf($kernel, ''), baseSrc: sprintf($kernel, "        Gate::authorize('manage');\n"));
+
+        $this->assertCount(1, $hazards);
+        $this->assertSame('App\Http\Kernel::terminate', $hazards[0]->member);
+    }
+
+    #[Test]
+    public function a_guard_joining_a_group_as_a_class_is_still_an_arrival(): void
+    {
+        // The literal scan finds no `'auth'` string here, so only the parsed groups can report the
+        // arrival — and without it the route or controller the guard moved FROM stays reported as a
+        // tier-3 removal.
+        $kernel = "<?php\nnamespace App\\Http;\nuse Illuminate\\Auth\\Middleware\\Authenticate;\nclass Kernel\n{\n    protected \$middlewareGroups = ['web' => [%s]];\n}\n";
+
+        [, $added] = MiddlewareGroupHazards::for('app/Http/Kernel.php',
+            sprintf($kernel, 'Authenticate::class'), sprintf($kernel, ''));
+
+        $this->assertSame(['middleware:auth'], $added);
+    }
+
+    #[Test]
+    public function an_unrelated_call_named_like_a_group_helper_configures_nothing(): void
+    {
+        // Only calls inside a `withMiddleware` closure configure middleware. Matching the name
+        // anywhere would let an unrelated object invent or suppress an authentication hazard.
+        $bootstrap = "<?php\nreturn Application::configure()->withMiddleware(function (\$middleware): void {\n    \$middleware->appendToGroup('web', ['auth']);\n})->create();\n%s";
+
+        [$hazards] = MiddlewareGroupHazards::for('bootstrap/app.php',
+            sprintf($bootstrap, "\$client->api(append: ['auth']);\n"), sprintf($bootstrap, ''));
+
+        $this->assertSame([], $hazards);
+    }
+
+    #[Test]
+    public function removing_a_guard_the_group_never_ran_is_not_a_removal(): void
+    {
+        // Laravel's default `web` group does not run `auth`, so writing `web(remove: ['auth'])` on a
+        // configuration that never appended it unguards nothing. Calling that tier 3 would assert
+        // something about framework defaults this reader cannot see.
+        $bootstrap = "<?php\nreturn Application::configure()->withMiddleware(function (\$middleware): void {\n    \$middleware->api(append: ['throttle:api']);%s\n})->create();\n";
+
+        [$hazards] = MiddlewareGroupHazards::for('bootstrap/app.php',
+            sprintf($bootstrap, "\n    \$middleware->web(remove: ['auth']);"), sprintf($bootstrap, ''));
+
+        $this->assertSame([], $hazards);
+    }
+
+    #[Test]
+    public function a_group_rewritten_into_a_shape_richter_cannot_read_is_not_a_removal(): void
+    {
+        // The guard is still named in the file, and no shape this reader knows accounts for it. That
+        // is a refactor it cannot follow, not an authentication removal.
+        $base = "<?php\nreturn Application::configure()->withMiddleware(function (\$middleware): void {\n    \$middleware->web(append: ['auth']);\n})->create();\n";
+        $head = "<?php\nreturn Application::configure()->withMiddleware(function (\$middleware): void {\n    \$middleware->group('web', ['auth']);\n})->create();\n";
+
+        [$hazards, , $findings] = MiddlewareGroupHazards::for('bootstrap/app.php', $head, $base);
+
+        $this->assertSame([], $hazards);
+        $this->assertCount(1, $findings);
+    }
+
+    #[Test]
+    public function deleting_the_last_group_declaration_is_still_a_removal(): void
+    {
+        // The head file parses and names no group at all. That is a real comparison — the guards that
+        // group ran are gone — not a shape richter could not read.
+        $base = "<?php\nreturn Application::configure()->withMiddleware(function (\$middleware): void {\n    \$middleware->web(append: ['auth']);\n})->create();\n";
+        $head = "<?php\nreturn Application::configure()->create();\n";
+
+        [$hazards, , $findings] = MiddlewareGroupHazards::for('bootstrap/app.php', $head, $base);
+
+        $this->assertSame(['middleware:auth'], $hazards[0]->removedTokens);
+        $this->assertSame([], $findings);
+    }
+
+    #[Test]
+    public function a_middleware_group_shape_richter_cannot_read_reports_a_finding(): void
+    {
+        // Through the dispatch, not the reader directly: the finding has to survive the lane contract
+        // and reach `ChangedFileSymbols`, or the normal analysis reports neither hazard nor warning.
+        $head = "<?php\nnamespace App\\Http;\nclass Kernel\n{\n    protected \$groups = [];\n}\n";
+        $base = "<?php\nnamespace App\\Http;\nclass Kernel\n{\n    protected \$groups = ['auth'];\n}\n";
+
+        [$hazards, , $findings] = HazardLanes::for('app/Http/Kernel.php', isNew: false, headSrc: $head, baseSrc: $base);
+
+        $this->assertSame([], $hazards);
+        $this->assertCount(1, $findings);
+        $this->assertStringContainsString('a shape richter does not read', $findings[0]);
     }
 }

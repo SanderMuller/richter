@@ -15,6 +15,7 @@ use App\Policies\PostPolicy;
 use App\Policies\UserPolicy;
 use PHPUnit\Framework\Attributes\Test;
 use ReflectionMethod;
+use SanderMuller\Richter\Analysis\Hazard;
 use SanderMuller\Richter\Analysis\ImpactAnalyzer;
 use SanderMuller\Richter\Analysis\ImpactFormatter;
 use SanderMuller\Richter\Analysis\RiskLevel;
@@ -2069,5 +2070,82 @@ final class ImpactAnalyzerTest extends TestCase
         ]);
 
         $this->assertSame('unresolved', $result['coverage']['app/Console/Kernel.php']);
+    }
+
+    #[Test]
+    public function a_route_file_hazard_reaches_the_report_with_its_own_reach_and_level(): void
+    {
+        // A route file carries no member and seeds no walk, so the ladder's first step would read it
+        // as "nothing to assess" — a route that lost its authentication middleware reporting LOW. The
+        // hazard is what stops it, and it has to survive a file shaped like nothing else in the diff.
+        $result = $this->analyzer()->detectChanges([
+            new ChangedFileSymbols('routes/web.php', '', [], cosmeticOnly: false, hazards: [
+                new Hazard('auth', 3, 'CWE-306', 'App\Http\Controllers\PostController::publish',
+                    'the `auth` middleware is gone from the POST /posts/{post}/publish route'),
+            ]),
+        ], tests: new TestReferenceIndex());
+
+        $this->assertSame(RiskLevel::High, $result['risk']);
+        $this->assertCount(1, $result['hazards']);
+        $this->assertSame(Hazard::REACH_NO_GUARD_FOUND, $result['hazards'][0]->reach);
+        $this->assertStringContainsString('tier 3 `auth` hazard', $result['riskCause']);
+    }
+
+    #[Test]
+    public function a_route_file_edit_carrying_no_hazard_still_reads_as_nothing_to_assess(): void
+    {
+        // Renaming a URI or adding a route changes no code the graph charts. Before route files were
+        // read at all this was an out-of-scope note and no level; it must stay that way, because a
+        // file that is now "changed" but seeds nothing would otherwise grade MEDIUM on every diff that
+        // touches `routes/web.php`.
+        $result = $this->analyzer()->detectChanges([
+            new ChangedFileSymbols('routes/web.php', '', [], cosmeticOnly: false),
+        ], tests: new TestReferenceIndex());
+
+        $this->assertSame(RiskLevel::Low, $result['risk']);
+        $this->assertStringContainsString('nothing in this diff seeds a walk', $result['riskCause']);
+        $this->assertSame(['routes/web.php' => 'analyzed'], $result['coverage']);
+        $this->assertSame(['routes/web.php' => ''], $result['fqcns']);
+    }
+
+    #[Test]
+    public function a_removed_member_of_an_entry_surface_class_is_reached_by_that_class(): void
+    {
+        // The declaring class IS the entry surface. A Livewire page has no caller in application code
+        // — the framework calls it — so classifying only its callers graded a removed member on a
+        // user-facing page `no-known-path`, and a tier-1 hazard on it `low`, the one LOW cell in the
+        // matrix. The report already listed that same class as a reached entry surface whenever the
+        // changed member was pinned rather than removed.
+        $page = 'App\Livewire\Post\PostIndex';
+        $analyzer = new ImpactAnalyzer(new CodeGraph([
+            ['source' => $page, 'target' => $page . '::mount', 'type' => 'controller-to-action'],
+        ], hasUnparseableFiles: false));
+
+        $result = $analyzer->detectChanges([
+            new ChangedFileSymbols('app/Livewire/Post/PostIndex.php', $page, [], cosmeticOnly: false, hazards: [
+                new Hazard('contract', 1, null, $page . '::mount', 'the signature of `mount()` changed'),
+            ]),
+        ], tests: new TestReferenceIndex());
+
+        $this->assertSame(Hazard::REACH_NO_GUARD_FOUND, $result['hazards'][0]->reach);
+        $this->assertSame(RiskLevel::Medium, $result['risk']);
+    }
+
+    #[Test]
+    public function a_removed_member_of_a_plain_class_still_answers_no_known_path(): void
+    {
+        // The fix must not turn every declaring class into an entry surface. A service is not one.
+        $analyzer = new ImpactAnalyzer(new CodeGraph([
+            ['source' => 'App\Support\Slugger', 'target' => 'App\Support\Slugger::slugify', 'type' => 'controller-to-action'],
+        ], hasUnparseableFiles: false));
+
+        $result = $analyzer->detectChanges([
+            new ChangedFileSymbols('app/Support/Slugger.php', 'App\Support\Slugger', [], cosmeticOnly: false, hazards: [
+                new Hazard('contract', 1, null, 'App\Support\Slugger::slugify', 'the signature changed'),
+            ]),
+        ], tests: new TestReferenceIndex());
+
+        $this->assertSame(Hazard::REACH_NO_KNOWN_PATH, $result['hazards'][0]->reach);
+        $this->assertSame(RiskLevel::Low, $result['risk']);
     }
 }

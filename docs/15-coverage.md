@@ -28,7 +28,7 @@ Brain traces some of these too (view composition, resource references, queue dis
 
 ## Known limits
 
-Six limits are worth knowing before you read a report against them.
+Seven limits are worth knowing before you read a report against them.
 
 Relation traversals need a root the source types. Richter follows `$this->post->author` hop by hop, because a relation names its target in the `hasMany(Comment::class)` argument, but the value the chain starts from has to say what it is: `$this`, a typed property or parameter, `new Post`, a model-returning static, a `@var` docblock on the statement, or a local bound to one of those. An untyped property, a `mixed`, a union type, and a value taken from a query builder or a collection all end the chain before it starts.
 
@@ -50,6 +50,26 @@ the route helpers rather than the provider — so a provider change with real be
 it reads `medium`, "no test referencing them". The statement is true about what richter can see. The
 fix is coverage, not a cap: until an edge connects the two, a test that names the class is the only
 thing that changes the answer, and shaping tests to satisfy the tool is the wrong trade.
+
+A route file is compared for guards, not for exposure. `routes/*.php` is read route by route for the
+guard middleware a route lost, which is a hazard. What it does not do is grade the route's exposure at
+base against its exposure at head — Brain classifies the head graph only, and the base side would need
+a second graph build. So a route that was authenticated and is now public is caught by the middleware
+it lost, and not by the exposure it gained. A closure route in a prefixed group also grades
+`no-known-path`, because the URI written in the file is not the URI that was registered. Two routes
+that share a verb and a URI as written — the same path under two different `prefix()` or `domain()`
+groups — have their guards read together, so a guard dropped from one while the other keeps it is
+missed. And a guard lost in one route file while another route file gains one — `routes/web.php` and
+`routes/api.php` in the same diff — reads as the same guard moving and is suppressed. A middleware
+group written in a shape richter does not read reports a finding rather than a comparison, and an
+application subclass of a framework guard middleware matches no name in a group.
+
+An application that schedules through a legacy `app/Console/Kernel.php` gets no `schedule::` nodes at
+all. Brain models the schedule from the Laravel 11+ `routes/console.php` form; from a Console Kernel
+it yields command nodes only. So a change to the schedule itself — a cron time, a frequency — reaches
+no entry point and grades on the `Kernel` class, and every schedule-shaped answer richter can give is
+invisible on that structure. `php artisan schedule:list` still shows the schedule; the graph does not
+carry it.
 
 The last limit costs an explanation rather than reach. Where a node is reached first through type structure and later through a call, the chain the report prints for it keeps the first route, which can name an override hop the walk refuses on that route. The reached set, the impacted count and the risk level are unaffected; only the chain drawn through such a node is.
 

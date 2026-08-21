@@ -255,4 +255,39 @@ final class HazardReachTest extends TestCase
 
         $this->assertSame(Hazard::REACH_NO_KNOWN_PATH, $reach[0]->reach);
     }
+
+    #[Test]
+    public function a_route_file_hazard_named_by_its_route_node_resolves_through_that_route(): void
+    {
+        // A closure route has no action to name, so the route-file lane makes the route's own node id
+        // the member. The reach lane matches it against the entry-point set directly — the branch that
+        // exists because an entry point's own chain may not repeat it.
+        $hazards = new HazardReach(
+            new CodeGraph([], hasUnparseableFiles: false),
+            ['route::GET::/ping' => [['node' => 'route::GET::/ping', 'via' => '']]],
+            ['route::GET::/ping' => ['exposure' => 'authed', 'riskLevel' => 'low', 'issues' => []]],
+            [],
+            [],
+            6,
+        )->attach([new Hazard('auth', 3, 'CWE-306', 'route::GET::/ping', 'the `auth` middleware is gone')]);
+
+        $this->assertSame(Hazard::REACH_GATED, $hazards[0]->reach);
+    }
+
+    #[Test]
+    public function a_route_node_member_no_entry_point_matches_is_an_admission_not_a_guess(): void
+    {
+        // A group prefix makes the declared URI something other than the registered one. The honest
+        // answer is that richter cannot see what reaches it — never that nothing does.
+        $hazards = new HazardReach(
+            new CodeGraph([], hasUnparseableFiles: false),
+            ['route::GET::/admin/ping' => [['node' => 'route::GET::/admin/ping', 'via' => '']]],
+            [],
+            [],
+            [],
+            6,
+        )->attach([new Hazard('auth', 3, 'CWE-306', 'route::GET::/ping', 'the `auth` middleware is gone')]);
+
+        $this->assertSame(Hazard::REACH_NO_KNOWN_PATH, $hazards[0]->reach);
+    }
 }

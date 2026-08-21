@@ -2,12 +2,12 @@
 
 `richter:detect-changes` renders four lanes beside the reach it reports: security exposure per route, Pennant feature gates, payload-parity breaks, and middleware group membership.
 
-Two of them are annotation only — **Pennant gates** and **middleware group membership** feed nothing, not the [risk level](07-risk-levels.md), a gate, or the [affected-test selection](11-affected-tests.md).
+Two of them are annotation only. Pennant gates and middleware group membership feed nothing: not the [risk level](07-risk-levels.md), not a gate, and not the [affected-test selection](11-affected-tests.md).
 
 The other two do reach the level, each through one narrow door:
 
-- **Payload parity** results are tier-2 [hazards](07-risk-levels.md#hazards). A payload key a consumer still reads is a thing that breaks, so it is graded like any other hazard. They print under `Hazards`, not `Findings`.
-- **Security exposure** decides a hazard's reach class: a `PUBLIC_WRITE` route with no guard richter can point at, reaching a hazardous member, makes that hazard `public-write`. The annotation itself is still inherited from Brain and still seeds nothing.
+- Payload-parity results are tier-2 [hazards](07-risk-levels.md#hazards). A payload key a consumer still reads is a thing that breaks, so it is graded like any other hazard. It prints under `Hazards`, not `Findings`.
+- Security exposure decides a hazard's reach class. A `PUBLIC_WRITE` route with no guard richter can point at, reaching a hazardous member, makes that hazard `public-write`. The annotation itself is still inherited from Brain and still seeds nothing.
 
 ## Security annotations
 
@@ -18,7 +18,7 @@ Reached routes inherit [Laravel Brain](https://github.com/laramint/laravel-brain
       ⚠ PUBLIC_WRITE (high): POST route with no auth middleware
 ```
 
-It exists for routes only (Brain classifies nothing else), and false positives are suppressed where Brain's own config says so (`laravel-brain.security.trusted_route_names` / `trusted_route_uris`). A Livewire, Filament, Nova or queue entry point never carries one of these tags at all; that absence means *not classified*, never "public" or "unauthenticated", and its real exposure comes from mount-time `authorize()` calls, middleware, or route placement the graph doesn't model.
+It exists for routes only (Brain classifies nothing else), and false positives are suppressed where Brain's own config says so (`laravel-brain.security.trusted_route_names` / `trusted_route_uris`). A Livewire, Filament, Nova or queue entry point never carries one of these tags at all; that absence means the surface was not classified, never "public" or "unauthenticated", and its real exposure comes from mount-time `authorize()` calls, middleware, or route placement the graph doesn't model.
 
 Brain classifies exposure from the route's static middleware surface, so it can flag a `PUBLIC_WRITE` on a route that is in fact gated by a policy-constant check (`Gate::authorize(PostPolicy::UPDATE, …)`) it cannot see. Richter cross-checks such a finding against its own `authorizes` edges: when the route's reach authorizes a policy, it adds a note pointing at that policy. The note is evidence for you to verify rather than a suppression, and Brain's finding stays shown.
 
@@ -30,15 +30,15 @@ Pennant feature gating is annotated the same way. A route guarded by `EnsureFeat
 
 ## Payload parity
 
-A model field added to `$fillable`/`$casts`/`casts()` but never added to a resource that otherwise mirrors the model's other fields is reported as a tier-2 hazard (`AppResource.php mirrors App\Models\X but does not expose <field> added to App\Models\X`), the exact shape behind a payload field silently going missing after an otherwise-correct edit. The lane is deliberately no-guess: the default `mirror_threshold` requires an exact match against the candidate's pre-existing fields before it counts as a mirror, candidate resources are matched by graph wiring first and only by name when nothing is wired, and anything the checker can't statically enumerate (a dynamic `toArray()` key, a spread, an unparseable resource) is silently skipped rather than guessed at. On by default; disable it for one run with `--no-payload-parity` or globally via `payload_parity.enabled` (see [Configuration](16-configuration.md)).
+A model field added to `$fillable`/`$casts`/`casts()` but never added to a resource that otherwise mirrors the model's other fields is reported as a tier-2 hazard (`AppResource.php mirrors App\Models\X but does not expose <field> added to App\Models\X`), the exact shape behind a payload field silently going missing after an otherwise-correct edit. The lane makes no guesses: the default `mirror_threshold` requires an exact match against the candidate's pre-existing fields before it counts as a mirror, candidate resources are matched by graph wiring first and only by name when nothing is wired, and anything the checker can't statically enumerate (a dynamic `toArray()` key, a spread, an unparseable resource) is silently skipped rather than guessed at. On by default; disable it for one run with `--no-payload-parity` or globally via `payload_parity.enabled` (see [Configuration](16-configuration.md)).
 
-The same lane runs in the consumer direction: a `toArray()` key the diff *removes* from a resource is flagged when a frontend file that consumes one of the routes the resource reaches still reads it.
+The same lane runs in the consumer direction: a `toArray()` key the diff removes from a resource is flagged when a frontend file that consumes one of the routes the resource reaches still reads it.
 
 ```text
   ! resources/js/Pages/Posts/Show.vue references GET /posts/{post} and reads 'published_at', which this diff removes from App\Http\Resources\PostResource (renamed to 'publishedAt'?)
 ```
 
-The rename hint appears only when exactly one key was removed and one added, never from a similarity guess. Consumers are the configured `frontend.roots` JS/TS files plus every Blade view's inline `<script>` blocks; server-side Blade PHP never counts as a read. Matching is access-shaped only (`.key`, `['key']`, destructuring), so a translation key or an unrelated variable can't trigger it, though an object-literal *write* (`{ published_at: date }` in a request body) can, since the destructuring pattern cannot tell the two apart. Suppress a known false positive per key with an `ignore` entry (`App\Http\Resources\PostResource::published_at`). The key diff itself is stricter than the model→resource side: a conditional (`mergeWhen`) or constant-keyed entry makes the whole side unenumerable, and the lane stays silent rather than guess at a removal. The scan only runs on a diff that actually removed a key, and it shares the `payload_parity.enabled` switch and `--no-payload-parity` flag.
+The rename hint appears only when exactly one key was removed and one added, never from a similarity guess. Consumers are the configured `frontend.roots` JS/TS files plus every Blade view's inline `<script>` blocks; server-side Blade PHP never counts as a read. Matching is access-shaped only (`.key`, `['key']`, destructuring), so a translation key or an unrelated variable can't trigger it, though an object-literal write (`{ published_at: date }` in a request body) can, since the destructuring pattern cannot tell the two apart. Suppress a known false positive per key with an `ignore` entry (`App\Http\Resources\PostResource::published_at`). The key diff itself is stricter than the model→resource side: a conditional (`mergeWhen`) or constant-keyed entry makes the whole side unenumerable, and the lane stays silent rather than guess at a removal. The scan only runs on a diff that actually removed a key, and it shares the `payload_parity.enabled` switch and `--no-payload-parity` flag.
 
 A third lane covers the request side. A field removed from a form request's `rules()` stops being validated and stops appearing in `validated()`, so a frontend that still sends it now sends it into nothing, and nothing anywhere reports an error:
 
@@ -48,25 +48,25 @@ A third lane covers the request side. A field removed from a form request's `rul
 
 Matching here is send-shaped rather than access-shaped: an object-literal key, a `FormData` `append`/`set` with a literal name, or an assignment onto a payload by dot or bracket. The route's own verb is printed rather than assumed, because a sent field is not always a POST body: a query parameter on a `GET` route is matched the same way. The false positive mirrors the response lane's: a file that both posts to and reads from the endpoint can match on a field it only reads, and the same per-field `ignore` entry (`App\Http\Requests\StorePostRequest::subtitle`) suppresses it.
 
-Validation written **inline** is covered by the same lane. A form request is the documented
+Validation written inline is covered by the same lane. A form request is the documented
 convention, not the only place validation lives: an action that validates a handful of fields
 commonly does it in the controller, and those fields are just as removable. Both
 `$request->validate([...])` and the `ValidatesRequests` form `$this->validate($request, [...])` are
 read, the latter only where the class pulls that trait in itself, since `validate` is an ordinary
 method name and a class with its own would otherwise have its argument read as request rules. The
-finding is anchored on the **method** that holds the call rather than the file, so a controller's
+finding is anchored on the method that holds the call rather than the file, so a controller's
 other actions are not implicated in a field one of them dropped. The per-field `ignore`
 entry takes the same shape against that member (`App\Http\Controllers\PostController::store`).
 
 The `rules()` parse is as strict as the resource one: a method that builds its array up (`$rules = […]; if (…) …; return $rules;`), a spread, or a constant key makes the side unenumerable and the lane stays silent. Inline rules are
 held to the same bar: a method that passes rules it cannot read (a variable, a merge) is skipped
-entirely rather than reported as having removed every field. A dotted rule key (`items.*.name`) matches nothing on purpose: its segments appear separately in a payload, and matching the last one would fire on every unrelated `name` in the file.
+entirely rather than reported as having removed every field. A dotted rule key (`items.*.name`) matches nothing: its segments appear separately in a payload, and matching the last one would fire on every unrelated `name` in the file.
 
 ## Middleware group membership
 
-Route middleware is resolved by **alias** and never by group. `->middleware('auth')` reaches the graph as `middleware::auth` and Richter rewrites that onto the FQCN, so an aliased middleware is connected to the routes it guards. `->middleware('api')` reaches it as a bare `middleware::api` node, and the classes inside that group are connected to nothing.
+Route middleware is resolved by alias and never by group. `->middleware('auth')` reaches the graph as `middleware::auth` and Richter rewrites that onto the FQCN, so an aliased middleware is connected to the routes it guards. `->middleware('api')` reaches it as a bare `middleware::api` node, and the classes inside that group are connected to nothing.
 
-The group is deliberately not expanded into edges: mapping a global group onto every route would make each of its members report every route in the app as an entry point. But the middleware still self-lists as an entry point (it lives under `\Http\Middleware\`), so without help the report reads "one entry point: the middleware itself" for a change that runs on every route in the group. The answer is wrongly *sized* rather than missing, and this note supplies the size:
+The group is not expanded into edges: mapping a global group onto every route would make each of its members report every route in the app as an entry point. But the middleware still self-lists as an entry point (it lives under `\Http\Middleware\`), so without help the report reads "one entry point: the middleware itself" for a change that runs on every route in the group. The answer is wrongly sized rather than missing, and this note supplies the size:
 
 ```text
   ! App\Http\Middleware\EnsureTenant runs in middleware group 'api', which guards 142 routes; group membership is not drawn as edges, so those routes are not in the reach above

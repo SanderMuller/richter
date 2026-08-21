@@ -7,7 +7,6 @@ use RuntimeException;
 use SanderMuller\Richter\Analysis\Hazards\HazardLanes;
 use SanderMuller\Richter\Analysis\RequestFieldParser;
 use SanderMuller\Richter\Analysis\ResourceKeyParser;
-use SanderMuller\Richter\Graph\BladeViews;
 use SanderMuller\Richter\Support\Fqcn;
 use SanderMuller\Richter\Support\GitProjectPaths;
 use SanderMuller\Richter\Support\RichterConfig;
@@ -124,19 +123,21 @@ final class ChangedSymbols
                 continue;
             }
 
-            // A changed Blade view carries no PHP member to pin, so it seeds its own view node — this
-            // is where the authorization-flag and component-render surface lives, invisible otherwise.
-            $viewSeed = BladeViews::seedForChangedFile($file);
+            // A file that declares no PHP class — a route file, the middleware-group bootstrap, a
+            // Blade view. Each has its own reader; sources are resolved lazily so an unclaimed file
+            // costs no `git show`.
+            $nonPhp = NonPhpFileChange::resolve(
+                $file,
+                fn (): ?string => self::headSource($head, $file, $prefix),
+                fn (): ?string => self::baseSource($mergeBase, $hunk['oldPath'], $prefix),
+                $hunk['isNew'],
+                $hunk['added'] !== [],
+                $frontendChanges,
+                $featureGateChecker,
+            );
 
-            if ($viewSeed !== null) {
-                // An unreadable view source just skips the flag note — the seed itself is unaffected.
-                // Inline-script endpoint literals (`fetch('/api/…')` in Alpine/vanilla JS) ride along
-                // as touched-surface seeds next to the view node.
-                $headSrc = self::headSource($head, $file, $prefix);
-                $changed[] = new ChangedFileSymbols($file, '', [], cosmeticOnly: false, directSeeds: [
-                    $viewSeed,
-                    ...$frontendChanges->inlineUriSeeds($headSrc, self::baseSource($mergeBase, $hunk['oldPath'], $prefix)),
-                ], findings: $featureGateChecker->bladeFindingsFor($headSrc ?? ''));
+            if ($nonPhp instanceof ChangedFileSymbols) {
+                $changed[] = $nonPhp;
 
                 continue;
             }
@@ -153,8 +154,8 @@ final class ChangedSymbols
     }
 
     /**
-     * Untracked (never `git add`-ed) files under `app/`, the Blade views root, or a configured
-     * frontend root — the one gap `git diff` can never close: a brand-new uncommitted file shows in
+     * Untracked (never `git add`-ed) files under `app/`, `routes/`, the Blade views root, or a
+     * configured frontend root, plus `bootstrap/app.php` — the one gap `git diff` can never close: a brand-new uncommitted file shows in
      * no diff form, HEAD-mode or otherwise, so it stays invisible however faithfully `resolve()`
      * reads the rest of the working tree. Callers surface this as an honest stderr-only warning
      * (never stdout, so `--json`/`--plain` output contracts stay intact) rather than pretend the
@@ -170,7 +171,10 @@ final class ChangedSymbols
             return [];
         }
 
-        $roots = ['app/', 'resources/views/', ...array_map(
+        // `routes/` rides along because a route file is now read for the guards its routes declare,
+        // and a brand-new one that was never `git add`-ed carries exactly the routes a reviewer has
+        // not seen yet.
+        $roots = ['app/', 'resources/views/', 'routes/', 'bootstrap/app.php', ...array_map(
             static fn (string $root): string => rtrim($root, '/') . '/',
             RichterConfig::frontendRoots(),
         )];
@@ -298,9 +302,9 @@ final class ChangedSymbols
         [$removedResourceKeys, $addedResourceKeys] = ResourceKeyParser::diffFor($file, $isNew, $headSrc, $baseSrc);
         [$removedRequestFields, $addedRequestFields] = RequestFieldParser::diffFor($file, $isNew, $headSrc, $baseSrc);
         $inlineRequestFields = RequestFieldParser::inlineDiffFor($file, $isNew, $headSrc, $baseSrc);
-        [$hazards, $addedHazardTokens] = HazardLanes::for($file, $isNew, $headSrc, $baseSrc);
+        [$hazards, $addedHazardTokens, $hazardFindings] = HazardLanes::for($file, $isNew, $headSrc, $baseSrc);
 
-        return new ChangedFileSymbols($file, Fqcn::fromPath($file), $members, $members === [], findings: self::sourceFindings($members, $head['members'], $headSrc, $eagerLoadChecker, $featureGateChecker, $inertiaPageChecker), modelFieldSet: $modelFieldSet, addedModelFields: $addedModelFields, isNewFile: $isNew, removedResourceKeys: $removedResourceKeys, addedResourceKeys: $addedResourceKeys, removedRequestFields: $removedRequestFields, addedRequestFields: $addedRequestFields, inlineRequestFields: $inlineRequestFields, hazards: $hazards, addedHazardTokens: $addedHazardTokens);
+        return new ChangedFileSymbols($file, Fqcn::fromPath($file), $members, $members === [], findings: [...self::sourceFindings($members, $head['members'], $headSrc, $eagerLoadChecker, $featureGateChecker, $inertiaPageChecker), ...$hazardFindings], modelFieldSet: $modelFieldSet, addedModelFields: $addedModelFields, isNewFile: $isNew, removedResourceKeys: $removedResourceKeys, addedResourceKeys: $addedResourceKeys, removedRequestFields: $removedRequestFields, addedRequestFields: $addedRequestFields, inlineRequestFields: $inlineRequestFields, hazards: $hazards, addedHazardTokens: $addedHazardTokens);
     }
 
     /**

@@ -27,14 +27,17 @@ use SanderMuller\Richter\Support\AppFiles;
  * report the same deletion twice. The one exception is a policy class deleted wholesale, which is
  * reported once, class-level (Edge Cases).
  *
- * Route files are out of reach by construction: `ChangedSymbols` analyses PHP under `app/`, so
- * `routes/*.php` is never classified and middleware declared there has no base side to compare.
+ * Neither route files nor the middleware Kernel are this lane's business. A guard leaves a route by
+ * leaving the route ({@see RouteFileHazards}) or by leaving the group the route runs in
+ * ({@see MiddlewareGroupHazards}); this lane reads what a class member itself checks.
+ *
+ * Route files are not this lane's business — they declare no class, so the class-like gate in
+ * {@see HazardLanes} never lets one through. {@see RouteFileHazards} compares them route by route,
+ * emitting the same `middleware:` tokens this lane does, so a guard moved between a route and a
+ * controller constructor matches in the whole-diff pass.
  */
 final class AuthHazardLane implements HazardLane
 {
-    /** Middleware whose absence changes who may reach an action. `throttle:` matches by prefix. */
-    private const array GUARD_MIDDLEWARE = ['auth', 'verified', 'signed', 'password.confirm'];
-
     /** Facade methods that decide an ability. `abort_if(Gate::denies(…))` is caught by the inner call. */
     private const array GATE_METHODS = ['authorize', 'allows', 'denies', 'check', 'any', 'none'];
 
@@ -214,8 +217,9 @@ final class AuthHazardLane implements HazardLane
 
     /**
      * `$this->middleware('auth')` and `$this->middleware(['auth', 'verified'])`, filtered to the
-     * middleware that actually gate access. A middleware richter does not recognise draws nothing:
-     * naming an application's own middleware a guard would be a guess.
+     * middleware that actually gate access by {@see GuardMiddleware} — the same vocabulary the route
+     * file lane uses, so a guard moved between a route and a controller constructor produces the same
+     * token on both sides and the moved-not-removed guard matches it.
      *
      * @return list<string>
      */
@@ -234,9 +238,7 @@ final class AuthHazardLane implements HazardLane
             $names[] = $literal;
         }
 
-        $guards = array_filter($names, static fn (string $name): bool => in_array($name, self::GUARD_MIDDLEWARE, strict: true) || str_starts_with($name, 'throttle:'));
-
-        return array_values(array_map(static fn (string $name): string => 'middleware:' . $name, $guards));
+        return GuardMiddleware::tokensFor($names);
     }
 
     /**

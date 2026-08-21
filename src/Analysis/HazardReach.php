@@ -150,7 +150,15 @@ final readonly class HazardReach
             return [];
         }
 
-        $callers = $this->graph->callersOf($seeds, $this->maxDepth);
+        // The seeds themselves ride along as depth-0 hops. `callersOf()` answers who calls the class,
+        // and a class that is ITSELF an entry surface — a Livewire page, a Filament resource — has no
+        // caller in application code, because the framework calls it. Classifying only its callers
+        // graded a removed member on a user-facing page `no-known-path`, and a tier-1 hazard on it
+        // `low`: the one LOW cell in the matrix, reached by not consulting a path richter knows.
+        $callers = [
+            ...array_map(static fn (string $seed): array => ['depth' => 0, 'node' => $seed, 'via' => ''], $seeds),
+            ...$this->graph->callersOf($seeds, $this->maxDepth),
+        ];
 
         if (is_callable($this->entryPointsAmong)) {
             return ($this->entryPointsAmong)($callers);
