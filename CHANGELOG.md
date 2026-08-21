@@ -5,6 +5,43 @@ All notable changes to `sandermuller/richter` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.41.0 - 2026-08-21
+
+Two rounds of consumer dogfooding found three defects in the 0.40 risk model, and each was caught by a person reading source rather than by anything in the suite. This release closes the reasons for that: the level stops making a claim it never checked, and the benchmark corpus gains the assertion that would have caught the worst of them.
+
+### Breaking
+
+- **`verification` is now a tri-state.** `true` referenced, `false` unreferenced, **`null` not checked** — in `--json` and in the MCP `detect-changes` schema, where it was `bool`. A consumer reading it for truthiness is unaffected: `null` and `false` both mean "not verified", and the level treats them identically. A consumer distinguishing the two now can.
+
+### Fixed
+
+- **The level no longer claims tests it never read.** With no test index, every surface graded `false` and the cause line read "3 of 3 reached surfaces have no test referencing them" — a statement about tests that nothing consulted. That is evidence-shaped where there is an absence of evidence, the same falsely-reassuring move this package refuses everywhere else. It also hid a defect: a caller that forgot to pass the index produced a report indistinguishable from a project with no tests at all, which is exactly how that omission survived a release.
+  
+  Unchecked is now its own state. The level is unchanged — a surface nothing looked at is not a verified one — but the sentence is honest: *"test references were not checked, so nothing here is verified"*, or, where both apply, *"1 of 3 reached surfaces have no test referencing them, and 1 could not be checked"*.
+  
+- **`expect_finding` matches a hazard as well as a finding.** The three payload-parity checks were findings until 0.40 made them tier-2 hazards, so a benchmark fixture pinning one by its message became unmatchable and failed with "no finding contains …" — which reads as lost coverage rather than a relocation, and sends the reader hunting a graph regression that never happened. A fixture pins that the report SAYS the thing; which section carries it is Richter's business.
+  
+
+### Added
+
+- **`max_hazard_tier` on a benchmark case** — `0` to `3`, default `3`, so an absent one constrains nothing. It caps the worst hazard a change may produce, and `0` allows none, which is what a control usually wants to say.
+  
+  It is not the same guard as `max_risk`, and the difference is the point. The tier × reach matrix maps a tier-2 at `gated`, a tier-1 at `public-write`, and a hazard-free change with unverified reach all onto `medium`. A case whose honest answer is `medium` therefore stays green while a spurious hazard appears underneath it, and only a tier-3 false positive is caught by a level cap at all — because tier 3 is `high` everywhere. Capping the tier constrains the hazards directly.
+  
+  `richter:benchmark:add --control` now pins the tier a control produces today, for the same reason it already pins the level.
+  
+
+### Internal
+
+- The hazard lanes are exercised against the fixture project's real source, not only against source written for the occasion. That distinction is not academic: the policy-constant idiom that broke the `auth` lane in 0.40.0 was already sitting in that project, one line above the synthetic guard the end-to-end test injected instead. Three tests now use it — removing the guard fires, rewriting it between call shapes does not, and the file compared with itself is silent — and each asserts the shape is still present before relying on it.
+- A sixth entry in [Known limits](https://sandermuller.github.io/richter/coverage): a provider that CONFIGURES a route it does not declare is connected to nothing, so a rate limiter registered in a service provider has no edge to the routes it throttles. That used to cost only reach. Since 0.40 it costs a level too, because a changed class reaching nothing is graded on whether a test imports the class itself — and tests that drive a throttled route import the route helpers, not the provider. The fix is coverage, not a cap.
+
+### Compatibility
+
+No graph-cache bump: `FORMAT_VERSION` stays at 26. Levels do not move.
+
+**Full Changelog**: https://github.com/SanderMuller/richter/compare/v0.40.2...v0.41.0
+
 ## v0.40.2 - 2026-08-21
 
 Three callers built a test-reference index for the report's renderers and handed none of it to the analysis. Before 0.40 that was harmless — test references were annotation. In 0.40 they decide the risk level wherever a change carries no hazard, so those three graded every surface as unreferenced and floored at `medium`.
@@ -263,6 +300,7 @@ dispatch($job);
 
 
 
+
 ```
 That was recorded as a dispatch whose target could not be followed — and the taint is global, so one of them makes every `richter:affected-tests` run report `not determinable` and fall back to the full suite. The graph has carried the edge for this shape all along: the instantiation is in the same method, right above the dispatch. The site pointed at a place to restructure where nothing was hidden and nothing needed restructuring.
 
@@ -352,6 +390,7 @@ Build profile: nothing was built — the diff holds nothing the graph is built f
 
 
 
+
 ```
 On stderr, like the table it stands in for, and before the payload in `--json` mode so stdout stays one document. Building anyway was the alternative, and it would make a no-op run pay for an analysis nothing asked for.
 
@@ -369,6 +408,7 @@ An event named by a class constant resolves in **any** declaration form, includi
 public const string
     SUBTITLE_CHANGED = 'subtitle-changed',
     SUBTITLE_DELETED = 'subtitle-deleted';
+
 
 
 
@@ -406,6 +446,7 @@ Build profile (forced rebuild):
   total                      3.85s
   no scoped rebuild: non-app-change
     config/services.php differs from the cached graph and sits outside app/
+
 
 
 
@@ -498,6 +539,7 @@ It now names every site:
 ```
 the graph contains job dispatches that could not be followed:
 app/Jobs/Fanout.php:88 (App\Jobs\Fanout::handle), app/Services/Importer.php:12 (App\Services\Importer::run)
+
 
 
 
@@ -872,6 +914,7 @@ Note: 2 changed file(s) are outside the analysed scope (not PHP under app/, a Bl
 
 
 
+
 ```
 Stderr, like the untracked-file note, so `--json` and `--markdown` stdout stay exactly the report. Frontend sources the configuration declines to scan are not counted: generated Wayfinder output under `frontend.generated_paths` and `.d.ts` declarations were silenced on purpose, and a note that fires loudest on regeneration churn is one people stop reading.
 
@@ -953,6 +996,7 @@ One new advisory lane, and a README that finally leads with what the package is 
   
   
   
+  
   ```
   The count comes off the `route:: → middleware::<group>` edges already in the graph, so it counts endpoints only: a controller-level attachment of the same group does not inflate it. Membership is read from `$middlewareGroups` on a Laravel 10 Kernel or the `->web(append: [...])` form in a Laravel 11+ `bootstrap/app.php`. A member written as an alias resolves through the same alias map, parameters are cut first (`tenant:strict` is one alias with an argument), and a group that names another group is expanded transitively, since Laravel runs the inner group's middleware on the outer group's routes too.
   
@@ -985,6 +1029,7 @@ Two silent-failure shapes that richter used to miss: a call through an applicati
   
   ```text
     ! resources/js/Pages/Posts/Create.vue posts to POST /posts and sends 'subtitle', which this diff removes from App\Http\Requests\StorePostRequest::rules() (renamed to 'sub_title'?)
+  
   
   
   
