@@ -65,40 +65,54 @@ final readonly class HazardReach
      */
     public function attach(array $hazards): array
     {
-        return array_map(fn (Hazard $hazard): Hazard => $hazard->withReach($this->classOf($hazard->member)), $hazards);
+        return array_map(function (Hazard $hazard): Hazard {
+            [$reach, $viaDeclaringClass] = $this->classOf($hazard->member);
+
+            return $hazard->withReach($reach, $viaDeclaringClass);
+        }, $hazards);
     }
 
-    private function classOf(string $member): string
+    /**
+     * The reach class, and whether the declaring-class lane is what answered — which the report states,
+     * because that lane answers exactly where the diff's own counts cannot corroborate it.
+     *
+     * @return array{0: string, 1: bool}
+     */
+    private function classOf(string $member): array
     {
-        $entryPoints = $this->entryPointsReaching($member);
+        [$entryPoints, $viaDeclaringClass] = $this->entryPointsReaching($member);
 
         if ($entryPoints === []) {
-            return Hazard::REACH_NO_KNOWN_PATH;
+            // Nothing found either way, so there is no provenance worth stating: the class and the
+            // diff's counts agree that no surface was named.
+            return [Hazard::REACH_NO_KNOWN_PATH, false];
         }
 
         // One public-write route with no guard on it decides the class: the worst reachable exposure
         // is the exposure, and averaging it against better-guarded siblings would hide it.
         foreach ($entryPoints as $entryPoint) {
             if ($this->isPublicWrite($entryPoint) && ! $this->contradictsPublicWrite($entryPoint)) {
-                return Hazard::REACH_PUBLIC_WRITE;
+                return [Hazard::REACH_PUBLIC_WRITE, $viaDeclaringClass];
             }
         }
 
         // Every reaching entry point, not any: one without a guard is the way in, and calling the set
         // guarded because its siblings are would be the averaging the loop above refuses.
         return array_all($entryPoints, fn (string $entryPoint): bool => $this->isGated($entryPoint))
-            ? Hazard::REACH_GATED
-            : Hazard::REACH_NO_GUARD_FOUND;
+            ? [Hazard::REACH_GATED, $viaDeclaringClass]
+            : [Hazard::REACH_NO_GUARD_FOUND, $viaDeclaringClass];
     }
 
     /**
-     * @return list<string>
+     * The reaching entry points, and whether they came from the declaring class rather than the chains.
+     *
+     * @return array{0: list<string>, 1: bool}
      */
     private function entryPointsReaching(string $member): array
     {
         $viaChains = $this->fromChains($member);
 
-        return $viaChains === [] ? $this->fromDeclaringClass($member) : $viaChains;
+        return $viaChains === [] ? [$this->fromDeclaringClass($member), true] : [$viaChains, false];
     }
 
     /**

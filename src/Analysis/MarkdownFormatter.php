@@ -137,7 +137,7 @@ final class MarkdownFormatter
 
         foreach ($hazards as $hazard) {
             $lane = $hazard->cwe === null ? $hazard->lane : "{$hazard->lane} ({$hazard->cwe})";
-            $lines[] = "| {$hazard->tier} | {$lane} | `{$hazard->member}` | {$hazard->evidence} | {$hazard->reach} |";
+            $lines[] = "| {$hazard->tier} | {$lane} | `{$hazard->member}` | {$hazard->evidence} | {$hazard->reachLabel()} |";
         }
 
         return $lines;

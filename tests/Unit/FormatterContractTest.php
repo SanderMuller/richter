@@ -127,6 +127,9 @@ final class FormatterContractTest extends TestCase
         $this->assertStringContainsString('public-write', $output);
         // Every level renders with its cause.
         $this->assertStringContainsString('reach public-write', $output);
+        // This fixture's hazard was graded from the walk's own chains, so nothing may claim otherwise:
+        // an annotation applied to every hazard would still satisfy the substring assertions above.
+        $this->assertStringNotContainsString('via its declaring class', $output);
     }
 
     #[Test]
@@ -155,6 +158,32 @@ final class FormatterContractTest extends TestCase
         $this->assertStringContainsString('public-write', $output);
         // Every level renders with its cause.
         $this->assertStringContainsString('reach public-write', $output);
+        // This fixture's hazard was graded from the walk's own chains, so nothing may claim otherwise:
+        // an annotation applied to every hazard would still satisfy the substring assertions above.
+        $this->assertStringNotContainsString('via its declaring class', $output);
+    }
+
+    #[Test]
+    public function the_declaring_class_provenance_renders_in_prose_and_stays_out_of_the_payload(): void
+    {
+        // A hazard graded from its declaring class is the one shape whose verdict the diff's own
+        // counts cannot corroborate, so all three prose surfaces say where the grade came from. The
+        // JSON `reach` must NOT: a consumer matches on the four states, and folding a sentence into
+        // the value it matches would break every such consumer.
+        $fixture = $this->richFixture();
+        $fixture['hazards'] = [
+            new Hazard('model', 2, 'CWE-915', 'App\Models\Comment::$fillable', '$fillable gained `role`', [], Hazard::REACH_NO_GUARD_FOUND, null, true),
+        ];
+
+        $suffix = 'no-guard-found (via its declaring class)';
+
+        $this->assertStringContainsString($suffix, ImpactFormatter::detectChanges($fixture, $this->richTestIndex(), explain: true));
+        $this->assertStringContainsString($suffix, MarkdownFormatter::detectChanges($fixture, $this->richTestIndex(), explain: true));
+        $this->assertStringContainsString($suffix, HtmlFormatter::detectChanges($fixture, [], 'origin/main', $this->richTestIndex()));
+
+        $json = JsonPresenter::detectChanges($fixture, 'origin/main', $this->richTestIndex());
+
+        $this->assertSame(Hazard::REACH_NO_GUARD_FOUND, $json['hazards'][0]['reach']);
     }
 
     #[Test]

@@ -40,6 +40,12 @@ final readonly class Hazard
      *   it visible). Neither admission is evidence of safety.
      * @param  string|null  $ignoreKey  the `hazards.ignore` entry that silences this hazard; defaults
      *   to `$member` when null
+     * @param  bool  $reachViaDeclaringClass  whether `reach` came from the callers of the member's
+     *   declaring class rather than from the walk's own chains ({@see HazardReach}). It moves neither
+     *   the class nor the level. It is reported because the condition that sets it — this member is in
+     *   no chain — means the entry points the report lists are not this hazard's evidence, so the two
+     *   read as a contradiction unexplained. A diff whose counts are zero because nothing seeded the
+     *   walk is the sharpest case, not the only one.
      */
     public function __construct(
         public string $lane,
@@ -50,11 +56,24 @@ final readonly class Hazard
         public array $removedTokens = [],
         public ?string $reach = null,
         public ?string $ignoreKey = null,
+        public bool $reachViaDeclaringClass = false,
     ) {}
 
-    public function withReach(string $reach): self
+    public function withReach(string $reach, bool $viaDeclaringClass = false): self
     {
-        return new self($this->lane, $this->tier, $this->cwe, $this->member, $this->evidence, $this->removedTokens, $reach, $this->ignoreKey);
+        return new self($this->lane, $this->tier, $this->cwe, $this->member, $this->evidence, $this->removedTokens, $reach, $this->ignoreKey, $viaDeclaringClass);
+    }
+
+    /**
+     * The reach class as a report prints it, with the provenance suffix where one applies. The raw
+     * `reach` value stays the payload's — a consumer matches on the four states, so the sentence a
+     * human needs must not become part of the value it matches.
+     */
+    public function reachLabel(): string
+    {
+        $reach = $this->reach ?? self::REACH_NO_KNOWN_PATH;
+
+        return $this->reachViaDeclaringClass ? "{$reach} (via its declaring class)" : $reach;
     }
 
     /** What `hazards.ignore` matches on — the member unless the lane named something narrower. */

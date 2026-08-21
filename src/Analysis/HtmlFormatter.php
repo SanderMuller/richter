@@ -295,7 +295,7 @@ final class HtmlFormatter
             $cwe = $hazard->cwe === null ? '' : ' ' . Html::e($hazard->cwe);
             $rows .= '<li><strong>[tier ' . $hazard->tier . ' ' . Html::e($hazard->lane) . $cwe . ']</strong> '
                 . Html::e($hazard->member) . ' — ' . Html::e($hazard->evidence)
-                . ' <em>reach: ' . Html::e($hazard->reach ?? Hazard::REACH_NO_KNOWN_PATH) . '</em></li>';
+                . ' <em>reach: ' . Html::e($hazard->reachLabel()) . '</em></li>';
         }
 
         return '<div class="card"><h3>Hazards (' . count($hazards) . ')</h3><ul>' . $rows . '</ul></div>';

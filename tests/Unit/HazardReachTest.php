@@ -224,6 +224,25 @@ final class HazardReachTest extends TestCase
             ->attach([new Hazard('contract', 2, null, 'App\Services\Publisher::goneForGood', 'the public method is gone')]);
 
         $this->assertSame(Hazard::REACH_GATED, $reach[0]->reach);
+        $this->assertTrue($reach[0]->reachViaDeclaringClass);
+        $this->assertSame('gated (via its declaring class)', $reach[0]->reachLabel());
+    }
+
+    #[Test]
+    public function a_public_write_found_through_the_declaring_class_keeps_its_provenance(): void
+    {
+        // The finding branches carry the flag too, not only the admissions: a grade the diff's counts
+        // cannot corroborate is the case worth marking, and `public-write` is the one that escalates.
+        $graph = new CodeGraph([
+            ['source' => self::ROUTE, 'target' => 'App\Services\Publisher', 'type' => 'route-to-controller'],
+        ], hasUnparseableFiles: false);
+
+        $reach = new HazardReach($graph, [], [self::ROUTE => $this->security('public', ['PUBLIC_WRITE'])], [], [], 6)
+            ->attach([new Hazard('contract', 2, null, 'App\Services\Publisher::goneForGood', 'the public method is gone')]);
+
+        $this->assertSame(Hazard::REACH_PUBLIC_WRITE, $reach[0]->reach);
+        $this->assertTrue($reach[0]->reachViaDeclaringClass);
+        $this->assertSame('public-write (via its declaring class)', $reach[0]->reachLabel());
     }
 
     #[Test]
@@ -289,5 +308,57 @@ final class HazardReachTest extends TestCase
         )->attach([new Hazard('auth', 3, 'CWE-306', 'route::GET::/ping', 'the `auth` middleware is gone')]);
 
         $this->assertSame(Hazard::REACH_NO_KNOWN_PATH, $hazards[0]->reach);
+    }
+
+    #[Test]
+    public function reach_resolved_from_the_declaring_class_says_so(): void
+    {
+        // The lane that answers when the member is in no chain. A reviewer reads its verdict beside
+        // entry-point and impacted counts the same walk left at zero, so the report has to say which
+        // evidence produced it — the two are different questions, not a contradiction.
+        $graph = new CodeGraph([
+            ['source' => 'route::POST::/posts', 'target' => 'App\Services\Publisher', 'type' => 'route-to-controller'],
+        ], hasUnparseableFiles: false);
+
+        $hazards = new HazardReach($graph, [], [], [], [], 6, static fn (array $callers): array => array_values(array_filter(
+            array_column($callers, 'node'),
+            static fn (string $node): bool => str_starts_with($node, 'route::'),
+        )))->attach([new Hazard('model', 2, 'CWE-915', 'App\Services\Publisher::$fillable', '$fillable gained `role`')]);
+
+        $this->assertSame(Hazard::REACH_NO_GUARD_FOUND, $hazards[0]->reach);
+        $this->assertTrue($hazards[0]->reachViaDeclaringClass);
+        $this->assertSame('no-guard-found (via its declaring class)', $hazards[0]->reachLabel());
+    }
+
+    #[Test]
+    public function reach_resolved_from_the_walks_own_chains_carries_no_provenance_suffix(): void
+    {
+        // The chains corroborate themselves: a member in a chain is a member the walk seeded, so the
+        // diff's own counts already name the surfaces. Annotating it would add noise to every hazard.
+        $hazards = new HazardReach(
+            new CodeGraph([], hasUnparseableFiles: false),
+            $this->pathTo(self::ROUTE),
+            [self::ROUTE => ['exposure' => 'authed', 'riskLevel' => 'low', 'issues' => []]],
+            [],
+            [],
+            6,
+        )->attach([new Hazard('contract', 2, null, self::MEMBER, 'the public method is gone')]);
+
+        $this->assertSame(Hazard::REACH_GATED, $hazards[0]->reach);
+        $this->assertFalse($hazards[0]->reachViaDeclaringClass);
+        $this->assertSame('gated', $hazards[0]->reachLabel());
+    }
+
+    #[Test]
+    public function no_known_path_is_never_annotated_because_neither_lane_named_a_surface(): void
+    {
+        // The declaring-class lane RAN here and found nothing. There is no provenance worth stating:
+        // the grade and the diff's zero counts agree, which is the case that needs no explaining.
+        $hazards = new HazardReach(new CodeGraph([], hasUnparseableFiles: false), [], [], [], [], 6)
+            ->attach([new Hazard('contract', 2, null, 'App\Unknown\Thing::gone', 'the public method is gone')]);
+
+        $this->assertSame(Hazard::REACH_NO_KNOWN_PATH, $hazards[0]->reach);
+        $this->assertFalse($hazards[0]->reachViaDeclaringClass);
+        $this->assertSame('no-known-path', $hazards[0]->reachLabel());
     }
 }

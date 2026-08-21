@@ -209,6 +209,49 @@ A removed member has no node in the head graph, so no path can reach it. Its rea
 declaring class instead, the same stand-in the coarse-seed lane already makes for a change the graph
 cannot pin.
 
+### A reach class beside zero counts is not a contradiction
+
+Two questions get answered separately, and the report prints both. The entry-point and impacted
+counts are the diff's walk. The reach class is the hazard's own, and where the member is in no chain
+the reach lane resolves it from the callers of the member's declaring class — a second query, which
+answers whether or not the walk found anything.
+
+So the two can disagree, and the shape looks like this:
+
+```
+Entry points reached: 0
+
+Hazards (1):
+  ! [tier 2 model CWE-915] App\Models\Order::$fillable — $fillable gained `status`
+      reach: no-guard-found (via its declaring class)
+
+Risk:   MEDIUM (advisory) — tier 2 `model` hazard on App\Models\Order::$fillable, reach no-guard-found
+Impact: 0 entry point(s) · 0 impacted node(s)
+```
+
+Nothing here is inconsistent. An addition-only `$fillable` edit is additive, so it seeds no walk and
+the counts stay at zero; the hazard rides alongside it, and its reach comes from the model's own
+callers. `no-guard-found` therefore says something specific: a surface reaching this model **was**
+found, and no guard was visible on at least one of them. It is not the "nothing was found" answer —
+that one is `no-known-path`, and richter grades the two apart. A model no surface reaches at all,
+graded on the same diff, reports `no-known-path` with the same zero counts.
+
+The `(via its declaring class)` suffix marks exactly this case, and it belongs to the prose. The
+`reach` field in `--json` and in MCP structured content never carries it — that value stays one of
+the four states, so a consumer matching on them keeps working. Over MCP the text block is the same
+prose the terminal prints, so the suffix does appear there.
+
+The condition the suffix reports is that **this member** sits in no chain the walk recorded. Zero
+counts, as above, is the sharpest case rather than the only one: a diff that also changes a
+resolvable controller reports entry points and impacted nodes for that controller, while a hazard on
+an unrelated service member still earns the suffix. In every case it says the same thing — the entry
+points the report lists are not this hazard's evidence.
+
+The same reading applies to a hazard graded beside a list of entry points that all look guarded. The
+hazard's reach is its declaring class's whole caller set, which is usually wider than the surfaces
+the diff itself lists, so one unguarded caller outside that list is enough to earn
+`no-guard-found` — `gated` requires every reaching entry point to show a guard.
+
 ## Verification, when there is no hazard
 
 For a change carrying no hazard, the question becomes whether anything would catch a regression.

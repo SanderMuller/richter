@@ -258,7 +258,7 @@ final class ImpactFormatter
         foreach ($hazards as $hazard) {
             $cwe = $hazard->cwe === null ? '' : " {$hazard->cwe}";
             $lines[] = "  ! [tier {$hazard->tier} {$hazard->lane}{$cwe}] {$hazard->member} — {$hazard->evidence}";
-            $lines[] = '      reach: ' . ($hazard->reach ?? Hazard::REACH_NO_KNOWN_PATH);
+            $lines[] = '      reach: ' . $hazard->reachLabel();
         }
 
         return $lines;

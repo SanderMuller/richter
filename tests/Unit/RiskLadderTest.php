@@ -118,6 +118,20 @@ final class RiskLadderTest extends TestCase
         $this->assertStringContainsString('and 2 more', $cause);
     }
 
+    #[Test]
+    public function the_cause_names_the_bare_reach_class_even_when_the_hazard_carries_provenance(): void
+    {
+        // `riskCause` is a payload field, and it explains the LEVEL. The declaring-class provenance
+        // moves no cell, so it belongs on the hazard row a report prints, not in this sentence —
+        // rendering `reachLabel()` here would fold prose into a value consumers read.
+        $hazard = new Hazard('model', 2, 'CWE-915', 'App\Models\Order::$fillable', 'evidence', reach: Hazard::REACH_NO_GUARD_FOUND, reachViaDeclaringClass: true);
+
+        [, $cause] = $this->decide([$hazard]);
+
+        $this->assertStringContainsString('reach no-guard-found', $cause);
+        $this->assertStringNotContainsString('via its declaring class', $cause);
+    }
+
     // -------------------------------------------------------- the ladder
 
     #[Test]
