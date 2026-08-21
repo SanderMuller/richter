@@ -68,6 +68,14 @@ exists — a stretched CWE teaches a reader the mapping is decorative.
 `authorize()` becomes a form request's, a policy becomes a gate. Every removal predicate fires only
 when the removed thing is not added somewhere else in the same diff.
 
+The ability is what is compared, not the call shape, so `Gate::denies('publish')` rewritten as
+`$user->cannot('publish')` draws nothing. **A policy constant counts as an ability**, which matters
+more than it sounds: a project following Laravel's own convention writes `can(PostPolicy::UPDATE)`
+everywhere and no string abilities at all, so a comparison keyed on literals alone would leave this
+defence switched off for the entire codebase. A removed policy METHOD is named both ways — by its own
+name and by any constant in its class whose value is that name — because a caller may spell it
+either way.
+
 ## Reach, and the matrix
 
 Each hazard carries its own reach class — not the diff's. Three states, two of them carrying positive

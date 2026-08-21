@@ -5,12 +5,14 @@ namespace SanderMuller\Richter\Analysis\Hazards;
 use PhpParser\Node\Arg;
 use PhpParser\Node\Expr;
 use PhpParser\Node\Expr\Array_;
+use PhpParser\Node\Expr\ClassConstFetch;
 use PhpParser\Node\Expr\MethodCall;
 use PhpParser\Node\Expr\NullsafeMethodCall;
 use PhpParser\Node\Expr\StaticCall;
 use PhpParser\Node\Identifier;
 use PhpParser\Node\Name;
 use PhpParser\Node\Scalar\String_;
+use PhpParser\Node\Stmt\ClassConst;
 use PhpParser\Node\Stmt\ClassLike;
 use PhpParser\Node\Stmt\ClassMethod;
 use SanderMuller\Richter\Analysis\Hazard;
@@ -78,7 +80,7 @@ final class AuthHazardLane implements HazardLane
             $headMethod = $headMethods[$id] ?? null;
 
             if ($headMethod === null) {
-                $hazards = [...$hazards, ...self::removedPolicyMethod($file, $id, $baseMethod)];
+                $hazards = [...$hazards, ...self::removedPolicyMethod($file, $id, $baseMethod, $baseSrc)];
 
                 continue;
             }
@@ -127,8 +129,8 @@ final class AuthHazardLane implements HazardLane
 
         foreach ($lost as $token) {
             $hazards[] = str_starts_with($token, 'middleware:')
-                ? new Hazard('auth', 3, 'CWE-306', $id, "the `{$token}` middleware is gone from the constructor", $token)
-                : new Hazard('auth', 3, 'CWE-862', $id, "the authorization check `{$token}` is gone from the body", $token);
+                ? new Hazard('auth', 3, 'CWE-306', $id, "the `{$token}` middleware is gone from the constructor", [$token])
+                : new Hazard('auth', 3, 'CWE-862', $id, "the authorization check `{$token}` is gone from the body", [$token]);
         }
 
         return $hazards;
@@ -237,11 +239,39 @@ final class AuthHazardLane implements HazardLane
         return array_values(array_map(static fn (string $name): string => 'middleware:' . $name, $guards));
     }
 
+    /**
+     * The ability a check names, as a token comparable across call shapes — which is the whole basis of
+     * the moved-not-removed guard: `Gate::denies('publish')` rewritten as `$user->cannot('publish')`
+     * must produce the same token, or a rewrite reads as a removal.
+     *
+     * A POLICY CONSTANT counts, not only a string literal. `$user->can(PostPolicy::UPDATE, $post)` is
+     * the form Laravel's own docs steer projects toward, and a codebase that follows that convention
+     * consistently has NO string-literal abilities at all — so keying only on literals turned the guard
+     * off entirely for it, and every rewritten check read as a removed guard at tier 3. The constant is
+     * tokenised on its resolved class and its own name, which needs no value resolution: two references
+     * to the same constant produce the same token wherever they are written.
+     *
+     * A computed ability still falls back to the call's own shape, which matches only an identical call
+     * elsewhere. That is the safe direction — a token that fails to match merely reports the removal the
+     * lane actually saw.
+     */
     private static function abilityToken(string $call, mixed $firstArgument): string
     {
-        $ability = HazardSource::literalArgument($firstArgument instanceof Arg ? $firstArgument : null);
+        if (! $firstArgument instanceof Arg) {
+            return "call:{$call}";
+        }
 
-        return $ability !== null ? "ability:{$ability}" : "call:{$call}";
+        $value = $firstArgument->value;
+
+        if ($value instanceof String_) {
+            return "ability:{$value->value}";
+        }
+
+        if ($value instanceof ClassConstFetch && $value->class instanceof Name && $value->name instanceof Identifier) {
+            return 'ability:' . AppFiles::resolveName($value->class) . '::' . $value->name->toString();
+        }
+
+        return "call:{$call}";
     }
 
     /**
@@ -282,21 +312,35 @@ final class AuthHazardLane implements HazardLane
      *
      * @return list<Hazard>
      */
-    private static function removedPolicyMethod(string $file, string $id, ClassMethod $base): array
+    private static function removedPolicyMethod(string $file, string $id, ClassMethod $base, string $baseSrc): array
     {
         if (! str_starts_with($file, 'app/Policies/') || ! $base->isPublic() || $base->name->toString() === '__construct') {
             return [];
         }
 
-        // The token is the ABILITY, not the member: a policy method moving to `Gate::authorize('update')`
-        // or `$request->user()->can('update')` is a move, and a `policy:`-shaped token could never match
-        // the `ability:`-shaped ones every other lane emits, so the guard would never fire for it.
-        return [new Hazard('auth', 3, 'CWE-862', $id, 'the policy method is gone', 'ability:' . $base->name->toString())];
+        // The tokens are the ABILITY, not the member: a policy method moving to `Gate::authorize(…)`
+        // is a move, and a member-shaped token could never match the `ability:`-shaped ones every
+        // other lane emits.
+        //
+        // BOTH spellings, because a caller may use either. `can('delete')` names the ability as a
+        // string; `can(PostPolicy::DELETE)` names the constant standing for it. A project following
+        // the constant convention writes only the second, so the bare method name alone would leave
+        // the guard unable to see the move.
+        $ability = $base->name->toString();
+        $fqcn = explode('::', $id, 2)[0];
+
+        return [new Hazard('auth', 3, 'CWE-862', $id, 'the policy method is gone', [
+            "ability:{$ability}",
+            ...self::constantTokensFor($baseSrc, $fqcn, $ability),
+        ])];
     }
 
     /**
      * A policy class the diff deleted whole. Reported once for the class rather than once per method:
      * the deletion is one decision, and a row per ability would bury it.
+     *
+     * Its tokens are every ability the class named, so moving a whole policy to gates in one diff is
+     * recognised as the move it is.
      *
      * @return list<Hazard>
      */
@@ -309,12 +353,58 @@ final class AuthHazardLane implements HazardLane
         $head = HazardSource::classLikes($headSrc);
         $hazards = [];
 
-        foreach (array_keys(HazardSource::classLikes($baseSrc)) as $fqcn) {
-            if (! isset($head[$fqcn])) {
-                $hazards[] = new Hazard('auth', 3, 'CWE-862', $fqcn, 'the policy class is gone', "policy-class:{$fqcn}");
+        foreach (HazardSource::classLikes($baseSrc) as $fqcn => $classLike) {
+            if (isset($head[$fqcn])) {
+                continue;
             }
+
+            $abilities = [];
+
+            foreach ($classLike->getMethods() as $method) {
+                if ($method->isPublic() && $method->name->toString() !== '__construct') {
+                    $ability = $method->name->toString();
+                    $abilities = [...$abilities, "ability:{$ability}", ...self::constantTokensFor($baseSrc, $fqcn, $ability)];
+                }
+            }
+
+            $hazards[] = new Hazard('auth', 3, 'CWE-862', $fqcn, 'the policy class is gone', array_values(array_unique($abilities)));
         }
 
         return $hazards;
+    }
+
+    /**
+     * The `ability:Fqcn::CONST` tokens for every constant this class declares whose literal value is
+     * the given ability.
+     *
+     * Read from the class's OWN parsed source, so it is a literal comparison rather than a naming
+     * convention: `const DELETE = 'delete';` links the constant to the method exactly, where matching
+     * `DELETE` against `delete` by shape would be a guess.
+     *
+     * @return list<string>
+     */
+    private static function constantTokensFor(string $source, string $fqcn, string $ability): array
+    {
+        $classLike = HazardSource::classLikes($source)[$fqcn] ?? null;
+
+        if (! $classLike instanceof ClassLike) {
+            return [];
+        }
+
+        $tokens = [];
+
+        foreach ($classLike->stmts as $stmt) {
+            if (! $stmt instanceof ClassConst) {
+                continue;
+            }
+
+            foreach ($stmt->consts as $const) {
+                if ($const->value instanceof String_ && $const->value->value === $ability) {
+                    $tokens[] = "ability:{$fqcn}::{$const->name->toString()}";
+                }
+            }
+        }
+
+        return $tokens;
     }
 }

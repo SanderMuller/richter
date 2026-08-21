@@ -113,7 +113,7 @@ final class HazardLanesTest extends TestCase
         $this->assertStringContainsString('return true;', $hazards[0]->evidence);
         // Nothing was NAMED, so nothing elsewhere in the diff can be this same guard arriving — an
         // empty token is what stops the whole-diff guard from silencing it.
-        $this->assertSame('', $hazards[0]->removedToken);
+        $this->assertSame([], $hazards[0]->removedTokens);
     }
 
     #[Test]
@@ -189,6 +189,47 @@ final class HazardLanesTest extends TestCase
     }
 
     #[Test]
+    public function a_removed_policy_method_is_named_by_its_constant_as_well_as_its_name(): void
+    {
+        // A caller may spell the ability either way. A project following the policy-constant
+        // convention writes only `can(PostPolicy::DELETE)`, so a token holding the bare method name
+        // alone could never match it, and moving the ability to a gate would read as a removed guard.
+        // The constant is linked to the method by its literal VALUE, read from the policy's own
+        // source — not by matching `DELETE` against `delete` by shape, which would be a guess.
+        $head = "<?php\nnamespace App\\Policies;\nclass PostPolicy\n{\n    public const DELETE = 'delete';\n    public function view(\$user, \$post): bool { return true; }\n}\n";
+        $base = "<?php\nnamespace App\\Policies;\nclass PostPolicy\n{\n    public const DELETE = 'delete';\n    public function view(\$user, \$post): bool { return true; }\n    public function delete(\$user, \$post): bool { return false; }\n}\n";
+
+        $hazards = $this->lanes('app/Policies/PostPolicy.php', $head, $base);
+
+        $this->assertSame(['ability:delete', 'ability:App\Policies\PostPolicy::DELETE'], $hazards[0]->removedTokens);
+    }
+
+    #[Test]
+    public function a_policy_ability_moved_to_a_gate_in_the_same_diff_is_not_a_removal(): void
+    {
+        // End to end through the whole-diff guard: the policy method goes, and the controller starts
+        // checking the same constant. That is a move, not a removal.
+        $policyHead = "<?php\nnamespace App\\Policies;\nclass PostPolicy\n{\n    public const DELETE = 'delete';\n}\n";
+        $policyBase = "<?php\nnamespace App\\Policies;\nclass PostPolicy\n{\n    public const DELETE = 'delete';\n    public function delete(\$user, \$post): bool { return false; }\n}\n";
+        $controller = static fn (string $check): string => "<?php\nnamespace App\\Http\\Controllers;\nuse App\\Policies\\PostPolicy;\nclass PostController\n{\n    public function destroy(\$post) { {$check} return \$post; }\n}\n";
+
+        [$policyHazards, $policyTokens] = HazardLanes::for('app/Policies/PostPolicy.php', isNew: false, headSrc: $policyHead, baseSrc: $policyBase);
+        [$controllerHazards, $controllerTokens] = HazardLanes::for(
+            'app/Http/Controllers/PostController.php',
+            isNew: false,
+            headSrc: $controller('$this->user()->can(PostPolicy::DELETE, $post);'),
+            baseSrc: $controller(''),
+        );
+
+        $surviving = HazardFindings::for([
+            new ChangedFileSymbols('app/Policies/PostPolicy.php', 'App\Policies\PostPolicy', [], cosmeticOnly: false, hazards: $policyHazards, addedHazardTokens: $policyTokens),
+            new ChangedFileSymbols('app/Http/Controllers/PostController.php', 'App\Http\Controllers\PostController', [], cosmeticOnly: false, hazards: $controllerHazards, addedHazardTokens: $controllerTokens),
+        ], enabledOverride: true);
+
+        $this->assertSame([], $surviving);
+    }
+
+    #[Test]
     public function a_guard_the_head_side_still_holds_is_offered_as_an_added_token(): void
     {
         // The whole-diff guard needs this: the controller's removal is suppressed by whatever file
@@ -200,6 +241,59 @@ final class HazardLanesTest extends TestCase
         );
 
         $this->assertContains('ability:update', $tokens);
+    }
+
+    #[Test]
+    public function a_policy_constant_ability_survives_a_rewrite_between_call_shapes(): void
+    {
+        // `cannot(Policy::DELETE)` becomes `can(Policy::DELETE)` — the same ability, the same policy,
+        // inside the same callback. Keying the token on string literals alone made a class constant
+        // fall back to the CALL's name, so `call:cannot` and `call:can` could never match and every
+        // such rewrite read as a removed guard at tier 3. A codebase following Laravel's own
+        // policy-constant convention has no string abilities at all, so the defence was off for all
+        // of them.
+        $body = static fn (string $check): string => "<?php\nnamespace App\\Http\\Controllers;\nuse App\\Policies\\PostPolicy;\nclass PostController\n{\n    public function destroy(\$post) { {$check} return \$post; }\n}\n";
+
+        $hazards = $this->lanes(
+            'app/Http/Controllers/PostController.php',
+            $body('$this->user()->can(PostPolicy::DELETE, $post);'),
+            $body('$this->user()->cannot(PostPolicy::DELETE, $post);'),
+        );
+
+        $this->assertSame([], $hazards);
+    }
+
+    #[Test]
+    public function a_policy_constant_ability_genuinely_removed_still_fires(): void
+    {
+        // The inverse must keep working: the check going away entirely is a real removal.
+        $body = static fn (string $check): string => "<?php\nnamespace App\\Http\\Controllers;\nuse App\\Policies\\PostPolicy;\nclass PostController\n{\n    public function destroy(\$post) { {$check} return \$post; }\n}\n";
+
+        $hazards = $this->lanes(
+            'app/Http/Controllers/PostController.php',
+            $body(''),
+            $body('$this->user()->cannot(PostPolicy::DELETE, $post);'),
+        );
+
+        $this->assertSame([3], array_column($hazards, 'tier'));
+        $this->assertStringContainsString('ability:App\Policies\PostPolicy::DELETE', $hazards[0]->evidence);
+    }
+
+    #[Test]
+    public function a_policy_constant_ability_is_tokenised_on_its_resolved_class(): void
+    {
+        // Two files referencing the same constant must produce the same token, or a guard moving
+        // between them cannot be recognised. The class is resolved, so an import and a fully
+        // qualified reference agree.
+        $imported = "<?php\nnamespace App\\Http\\Requests;\nuse App\\Policies\\PostPolicy;\nclass DeletePostRequest\n{\n    public function authorize(): bool { return \$this->user()->can(PostPolicy::DELETE); }\n}\n";
+        $qualified = "<?php\nnamespace App\\Http\\Requests;\nclass DeletePostRequest\n{\n    public function authorize(): bool { return \$this->user()->can(\\App\\Policies\\PostPolicy::DELETE); }\n}\n";
+        $without = "<?php\nnamespace App\\Http\\Requests;\nclass DeletePostRequest\n{\n    public function authorize(): bool { return true; }\n}\n";
+
+        $fromImported = HazardLanes::for('app/Http/Requests/DeletePostRequest.php', isNew: false, headSrc: $imported, baseSrc: $without)[1];
+        $fromQualified = HazardLanes::for('app/Http/Requests/DeletePostRequest.php', isNew: false, headSrc: $qualified, baseSrc: $without)[1];
+
+        $this->assertSame(['ability:App\Policies\PostPolicy::DELETE'], $fromImported);
+        $this->assertSame($fromImported, $fromQualified);
     }
 
     #[Test]
@@ -246,7 +340,7 @@ final class HazardLanesTest extends TestCase
             baseSrc: $this->controller('        return $post;'),
         );
 
-        $this->assertSame(['ability:update'], array_column($policyHazards, 'removedToken'));
+        $this->assertSame([['ability:update']], array_column($policyHazards, 'removedTokens'));
         $this->assertContains('ability:update', $controllerTokens);
     }
 

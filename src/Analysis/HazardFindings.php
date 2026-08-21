@@ -76,7 +76,7 @@ final class HazardFindings
      * A hazard is suppressed when the thing it says was removed is added somewhere else in the same
      * diff, or when the project has named it in `hazards.ignore`.
      *
-     * An EMPTY token never matches. That is the lane's way of saying "nothing was named here, so
+     * An EMPTY token list never matches. That is the lane's way of saying "nothing was named here, so
      * nothing elsewhere can be this same thing arriving" — a neutered `authorize()` body names no
      * ability, and must not be silenced by an unrelated `authorize()` added in another file.
      *
@@ -85,7 +85,7 @@ final class HazardFindings
      */
     private static function suppressed(Hazard $hazard, array $added, array $ignore): bool
     {
-        if ($hazard->removedToken !== '' && in_array($hazard->removedToken, $added, strict: true)) {
+        if (array_intersect($hazard->removedTokens, $added) !== []) {
             return true;
         }
 

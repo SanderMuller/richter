@@ -21,7 +21,7 @@ final class HazardFindingsTest extends TestCase
 
     private function guardRemoval(string $member, string $token): Hazard
     {
-        return new Hazard('auth', 3, 'CWE-862', $member, "the authorization check `{$token}` is gone from the body", $token);
+        return new Hazard('auth', 3, 'CWE-862', $member, "the authorization check `{$token}` is gone from the body", [$token]);
     }
 
     #[Test]

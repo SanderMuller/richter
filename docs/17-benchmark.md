@@ -11,6 +11,12 @@ Replays historical fix commits (configured in `richter.benchmark_cases`) through
 
 `richter:benchmark:add` scaffolds a case from a historical fix commit: it dry-runs the commit through the same replay, reports what it would score today, and prints a paste-ready `benchmark_cases` entry. It never edits the config file. Two flags fill in fields you would otherwise edit by hand: `--key=<key>` sets the case key instead of deriving it from the commit, and `--expect-finding=<substring>` records a substring the replay's findings must contain.
 
+**Set `max_risk` on signal fixtures too, not only on controls.** It is checked on every case, but it
+defaults to `high`, so a signal fixture that never sets it can never trip the cap — and a level that
+is wrong for the right reach then passes green. A signal fixture you expect to read `medium` should
+say `'max_risk' => 'medium'`, which is what turns the corpus into a check on the LEVEL rather than
+only on reach.
+
 A level-model change re-baselines controls by design. When the risk model itself changes, a control's `max_risk` is measuring a different thing than the day it was captured — re-grade the cap rather than reading the red as a regression. The 0.40 model in particular reports `medium` for a benign change richter cannot place, so a control capped at `low` needs raising to `medium`.
 
 With `--control` it refuses to scaffold anything when the replay already reports HIGH. A control caps the risk a harmless change may report, and HIGH is the top of the scale, so the cap would assert nothing and the case would pass forever. Either the change is not harmless (capture it as a signal by dropping `--control`) or the corpus needs a lower-reach commit for that control. The same trap is why you should never resolve a red control by re-capturing it.

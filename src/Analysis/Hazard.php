@@ -27,9 +27,11 @@ final readonly class Hazard
      * @param  string  $member  the fully qualified member the hazard sits on, or the class where the
      *   hazard is class-level (a model's `$fillable`, a deleted policy)
      * @param  string  $evidence  one line naming what moved, base side to head side
-     * @param  string  $removedToken  what the moved-not-removed guard looks for among the diff's
-     *   ADDED tokens ({@see HazardFindings}); empty when the hazard is not a removal and the guard
-     *   must never suppress it
+     * @param  list<string>  $removedTokens  what the moved-not-removed guard looks for among the
+     *   diff's ADDED tokens ({@see HazardFindings}); empty when the hazard is not a removal and the
+     *   guard must never suppress it. A LIST because one removal can be named more than one way: a
+     *   policy method is referenced both as a string ability and as the class constant standing for
+     *   it, and either arriving elsewhere in the diff is the same guard moving.
      * @param  string|null  $reach  filled by the reach lane after the walk; null until then
      * @param  string|null  $ignoreKey  the `hazards.ignore` entry that silences this hazard; defaults
      *   to `$member` when null
@@ -40,14 +42,14 @@ final readonly class Hazard
         public ?string $cwe,
         public string $member,
         public string $evidence,
-        public string $removedToken = '',
+        public array $removedTokens = [],
         public ?string $reach = null,
         public ?string $ignoreKey = null,
     ) {}
 
     public function withReach(string $reach): self
     {
-        return new self($this->lane, $this->tier, $this->cwe, $this->member, $this->evidence, $this->removedToken, $reach, $this->ignoreKey);
+        return new self($this->lane, $this->tier, $this->cwe, $this->member, $this->evidence, $this->removedTokens, $reach, $this->ignoreKey);
     }
 
     /** What `hazards.ignore` matches on — the member unless the lane named something narrower. */

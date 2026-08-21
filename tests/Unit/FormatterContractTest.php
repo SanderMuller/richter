@@ -81,7 +81,7 @@ final class FormatterContractTest extends TestCase
             'risk' => RiskLevel::Medium,
             'lowConfidence' => true,
             'riskCause' => 'tier 3 `auth` hazard on App\\Http\\Controllers\\PostController::update, reach public-write',
-            'hazards' => [new Hazard('auth', 3, 'CWE-862', 'App\Http\Controllers\PostController::update', 'the authorization check `ability:update` is gone from the body', 'ability:update', Hazard::REACH_PUBLIC_WRITE)],
+            'hazards' => [new Hazard('auth', 3, 'CWE-862', 'App\Http\Controllers\PostController::update', 'the authorization check `ability:update` is gone from the body', ['ability:update'], Hazard::REACH_PUBLIC_WRITE)],
             'verification' => ['route::GET::/r01' => true, 'route::GET::/r02' => false],
             'findings' => ["app/Exports/X.php: eager-load string 'commentsreviews' matches no relation"],
         ];
