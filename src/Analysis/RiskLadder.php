@@ -138,14 +138,11 @@ final class RiskLadder
     }
 
     /**
-     * One cell of the matrix.
-     *
-     * `no-guard-found` deliberately scores exactly as `gated` does. It is an ADMISSION, not a
-     * finding, and an admission must move the level in neither direction: raising it would report
-     * HIGH across every application whose surfaces Brain cannot classify — a Livewire or Filament
-     * codebase — which punishes a coverage gap as though it were a security one. Lowering it would
-     * read absence of evidence as evidence. The two states differ in what the report SAYS, which is
-     * the whole reason to tell them apart.
+     * `no-guard-found` scoring exactly as `gated` is deliberate, not an oversight. It is an admission,
+     * and an admission must move the level in neither direction: raising it would report HIGH across
+     * every codebase whose surfaces Brain cannot classify, punishing a coverage gap as though it were
+     * a security one, and lowering it would read absence of evidence as evidence. The two differ in
+     * what the report SAYS.
      *
      * `no-known-path` is the one admission that does move a cell, and only at tier 1: a signature
      * change nothing reaches is genuinely low, where one reached by an unclassified surface is not.

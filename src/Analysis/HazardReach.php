@@ -6,9 +6,10 @@ use SanderMuller\Richter\Graph\CodeGraph;
 use SanderMuller\Richter\Graph\NodeMetadata;
 
 /**
- * Each hazard's own reach class — `public-write`, `gated`, or `no-known-path`. Per hazard, never per
- * diff: the walk's entry-point data is an aggregate, and a diff that reaches a public route somewhere
- * says nothing about whether it reaches THIS member.
+ * Each hazard's own reach class — two findings, `public-write` and `gated`, and two admissions,
+ * `no-guard-found` and `no-known-path`. Per hazard, never per diff: the walk's entry-point data is an
+ * aggregate, and a diff that reaches a public route somewhere says nothing about whether it reaches
+ * THIS member.
  *
  * **`no-known-path` is not `internal-only`.** Proving a member internal means proving a negative on a
  * graph that under-approximates by design. A member with no known path is unmeasured, not
@@ -41,6 +42,12 @@ final readonly class HazardReach
      * @param  array<string, SecurityShape>  $entryPointSecurity
      * @param  array<string, list<string>>  $entryPointAuthGates
      * @param  array<string, list<string>>  $entryPointAuthMiddleware
+     * @param  (callable(list<array{depth: int, node: string, via: string}>): list<string>)|null  $entryPointsAmong
+     *   the analyzer's own entry-point classification. Passed in rather than reimplemented because
+     *   the vocabulary is wider than the `route::`/`command::`/`schedule::` prefixes: a Livewire,
+     *   Filament or Nova CLASS is an entry surface too, and a prefix filter would drop those — sending
+     *   a removed member reached only through one of them to `no-known-path`, and a tier-1 hazard on
+     *   it to LOW.
      */
     public function __construct(
         private CodeGraph $graph,
@@ -49,6 +56,7 @@ final readonly class HazardReach
         private array $entryPointAuthGates,
         private array $entryPointAuthMiddleware,
         private int $maxDepth,
+        private mixed $entryPointsAmong = null,
     ) {}
 
     /**
@@ -71,14 +79,13 @@ final readonly class HazardReach
         // One public-write route with no guard on it decides the class: the worst reachable exposure
         // is the exposure, and averaging it against better-guarded siblings would hide it.
         foreach ($entryPoints as $entryPoint) {
-            if ($this->isPublicWrite($entryPoint) && ! $this->isGated($entryPoint)) {
+            if ($this->isPublicWrite($entryPoint) && ! $this->contradictsPublicWrite($entryPoint)) {
                 return Hazard::REACH_PUBLIC_WRITE;
             }
         }
 
-        // `gated` is a FINDING and has to be earned. Every reaching entry point must show a guard —
-        // one that does not is the way in, and calling the set guarded because its siblings are would
-        // be the averaging the loop above refuses.
+        // Every reaching entry point, not any: one without a guard is the way in, and calling the set
+        // guarded because its siblings are would be the averaging the loop above refuses.
         return array_all($entryPoints, fn (string $entryPoint): bool => $this->isGated($entryPoint))
             ? Hazard::REACH_GATED
             : Hazard::REACH_NO_GUARD_FOUND;
@@ -143,9 +150,16 @@ final readonly class HazardReach
             return [];
         }
 
-        // `callersOf()` returns hops, not node ids — the walk carries depth and the edge it arrived on.
+        $callers = $this->graph->callersOf($seeds, $this->maxDepth);
+
+        if (is_callable($this->entryPointsAmong)) {
+            return ($this->entryPointsAmong)($callers);
+        }
+
+        // Prefix-only fallback for a caller that supplied no classifier. Narrower than the real
+        // vocabulary, so it can only under-report reach, never over-report it.
         return array_values(array_filter(
-            array_column($this->graph->callersOf($seeds, $this->maxDepth), 'node'),
+            array_column($callers, 'node'),
             static fn (string $node): bool => str_starts_with($node, 'route::') || str_starts_with($node, 'command::') || str_starts_with($node, 'schedule::'),
         ));
     }
@@ -163,27 +177,36 @@ final readonly class HazardReach
     }
 
     /**
-     * A guard richter can actually point at. Two kinds of evidence count, and nothing else does.
+     * A guard richter can actually point at. Two kinds of evidence count, and nothing else does: an
+     * exposure Brain read off the middleware surface, and a guard the cross-check correlated.
      *
-     * Brain's own EXPOSURE is the first, and the one this lane used to ignore. A route classified
-     * `authed`, `admin` or `internal` is authenticated by Brain's reading of its middleware surface;
-     * that is a positive finding, not an absence.
+     * The cross-check's two maps are populated ONLY for routes Brain flagged `PUBLIC_WRITE` — it
+     * exists to contradict Brain, so it never runs elsewhere. Keying on them alone would make this a
+     * fallthrough meaning "not proven public-write", which is a different claim from the one the name
+     * makes.
      *
-     * The cross-check's correlated policy or auth middleware is the second. Note that BOTH of its maps
-     * are populated only for routes Brain flagged `PUBLIC_WRITE` — it exists to contradict Brain, so
-     * it never runs elsewhere. Keying on it alone therefore left `gated` as a fallthrough meaning
-     * "not proven public-write", which is not what the name says: a `command::` node, a Livewire
-     * surface Brain never classified, and a genuinely authenticated route all landed in it together.
-     *
-     * A route with no security entry at all is NOT gated by this test. Absence of classification is
-     * absence of evidence — the same reason a missing entry never reads as "public" either.
+     * A route with no security entry is not gated. Absence of classification is absence of evidence —
+     * the same reason a missing entry never reads as "public" either.
      */
     private function isGated(string $entryPoint): bool
     {
-        if (in_array($this->entryPointSecurity[$entryPoint]['exposure'] ?? '', self::GATED_EXPOSURES, strict: true)) {
-            return true;
-        }
+        return in_array($this->entryPointSecurity[$entryPoint]['exposure'] ?? '', self::GATED_EXPOSURES, strict: true)
+            || $this->contradictsPublicWrite($entryPoint);
+    }
 
+    /**
+     * Whether the cross-check found a guard on a route Brain flagged `PUBLIC_WRITE` — the ONLY
+     * evidence allowed to overturn that flag.
+     *
+     * Exposure is deliberately not enough here, though it is enough for {@see isGated()}. A route
+     * carrying a `PUBLIC_WRITE` issue AND an authenticated exposure is Brain contradicting itself, and
+     * resolving that in the lenient direction would drop a tier-2 hazard from HIGH to MEDIUM on the
+     * strength of the half of the surface that says less. The cross-check is a positive finding made
+     * against the graph — a policy it authorizes, or middleware on the route — and overturning the
+     * flag is precisely what it was built for.
+     */
+    private function contradictsPublicWrite(string $entryPoint): bool
+    {
         return ($this->entryPointAuthGates[$entryPoint] ?? []) !== []
             || ($this->entryPointAuthMiddleware[$entryPoint] ?? []) !== [];
     }

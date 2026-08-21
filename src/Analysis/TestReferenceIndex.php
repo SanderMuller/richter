@@ -335,7 +335,7 @@ final class TestReferenceIndex
      */
     private function console(): ConsoleReferences
     {
-        return new ConsoleReferences($this->artisanNames, $this->classes);
+        return new ConsoleReferences($this->artisanNames, $this->classes, $this->graph);
     }
 
     /**

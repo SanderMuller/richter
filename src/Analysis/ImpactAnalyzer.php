@@ -391,7 +391,7 @@ final readonly class ImpactAnalyzer
         // findings pass, the reach class from the security annotations, and the entry-point set the
         // verification lane grades. The old breadth score could run early precisely because it needed
         // none of them — it only counted.
-        $hazards = new HazardReach($this->graph, $entryPointPaths, $entryPointSecurity, $entryPointAuthGates, $entryPointAuthMiddleware, $maxDepth)
+        $hazards = new HazardReach($this->graph, $entryPointPaths, $entryPointSecurity, $entryPointAuthGates, $entryPointAuthMiddleware, $maxDepth, $this->entryPointsAmong(...))
             ->attach(HazardFindings::for($changed, $hazardsEnabled, $parityHazards));
         $graded = new VerificationSet($reachedEntryPoints, $changed, $perFileSeeds);
         $members = $graded->members(fn (array $seeds): int => $this->riskInputs($seeds, $maxDepth, $riskInputsMemo)[0]);

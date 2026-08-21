@@ -100,6 +100,20 @@ final class HazardReachTest extends TestCase
     }
 
     #[Test]
+    public function an_authenticated_exposure_does_not_overturn_a_public_write_flag(): void
+    {
+        // Brain contradicting itself: a PUBLIC_WRITE issue on a route it also classified `authed`.
+        // Exposure counts as a guard for the gated/no-guard-found split, but NOT here — resolving the
+        // contradiction leniently would drop a tier-2 hazard from HIGH to MEDIUM on the strength of
+        // the half of the surface that says less. Only the cross-check's positive finding overturns
+        // the flag.
+        $this->assertSame(Hazard::REACH_PUBLIC_WRITE, $this->reachOf(
+            $this->pathTo(self::ROUTE),
+            [self::ROUTE => $this->security('authed', ['PUBLIC_WRITE'])],
+        ));
+    }
+
+    #[Test]
     public function an_authenticated_exposure_is_a_guard_on_its_own(): void
     {
         // The evidence the lane used to ignore. Brain says the request was authenticated before it
@@ -210,6 +224,27 @@ final class HazardReachTest extends TestCase
             ->attach([new Hazard('contract', 2, null, 'App\Services\Publisher::goneForGood', 'the public method is gone')]);
 
         $this->assertSame(Hazard::REACH_GATED, $reach[0]->reach);
+    }
+
+    #[Test]
+    public function a_removed_member_keeps_reach_through_a_class_based_entry_point(): void
+    {
+        // Livewire, Filament and Nova CLASSES are entry surfaces too. Filtering the declaring class's
+        // callers by the route/command/schedule prefixes alone dropped them, sending a removed member
+        // reached only that way to `no-known-path` — and a tier-1 hazard on it to LOW.
+        $graph = new CodeGraph([
+            ['source' => 'App\Livewire\PostIndex', 'target' => 'App\Services\Publisher', 'type' => 'action-to-service'],
+        ], hasUnparseableFiles: false);
+
+        $reach = new HazardReach(
+            $graph, [], [], [], [], 6,
+            static fn (array $callers): array => array_values(array_filter(
+                array_column($callers, 'node'),
+                static fn (string $node): bool => str_contains($node, '\\Livewire\\'),
+            )),
+        )->attach([new Hazard('contract', 2, null, 'App\Services\Publisher::goneForGood', 'the public method is gone')]);
+
+        $this->assertSame(Hazard::REACH_NO_GUARD_FOUND, $reach[0]->reach);
     }
 
     #[Test]

@@ -3,15 +3,17 @@
 namespace SanderMuller\Richter\Analysis;
 
 use Illuminate\Support\Facades\Artisan;
+use SanderMuller\Richter\Graph\CodeGraph;
 use Symfony\Component\Console\Command\Command;
 use Throwable;
 
 /**
  * Whether a test drives a console entry point — a `command::` node or a `schedule::` one.
  *
- * Both carry the same thing: a command signature. The schedule is how a command RUNS, not what it is,
- * so a test invoking it by name references the scheduled surface as surely as the invoked one. The
- * only divergence is a scheduled CLOSURE, whose name is a label rather than a signature.
+ * A `command::` node carries a signature. A `schedule::` node does NOT — Brain ids one as
+ * `schedule::md5(type.target.frequency)`, an opaque hash — so it has to be resolved through the
+ * graph's edge to whatever it runs. A test driving that command references the scheduled surface as
+ * surely as the invoked one.
  *
  * Lives beside {@see TestReferenceIndex} rather than inside it: that class sits at the
  * static-analysis complexity ceiling, the same reason {@see RouteHandlerReferences} was lifted out.
@@ -21,14 +23,20 @@ final readonly class ConsoleReferences
     /**
      * @param  array<string, list<string>>  $artisanNames  artisan command name => test files naming it
      * @param  array<string, list<string>>  $classes  imported FQCN => test files importing it
+     * @param  CodeGraph|null  $graph  needed to follow a schedule to the command it runs; without one
+     *   a schedule cannot be answered at all
      */
-    public function __construct(private array $artisanNames, private array $classes) {}
+    public function __construct(private array $artisanNames, private array $classes, private ?CodeGraph $graph = null) {}
 
     /** @return array{referenced: bool, tests: list<string>}|null */
     public function resolveCommand(string $node): ?array
     {
-        $name = $this->signatureName(substr($node, strlen('command::')));
+        return $this->resolveName($this->signatureName(substr($node, strlen('command::'))));
+    }
 
+    /** @return array{referenced: bool, tests: list<string>}|null */
+    private function resolveName(string $name): ?array
+    {
         if ($name === '') {
             return null;
         }
@@ -53,41 +61,49 @@ final readonly class ConsoleReferences
     }
 
     /**
-     * A scheduled entry point.
+     * A scheduled entry point, resolved through what it RUNS.
      *
-     * A scheduled COMMAND resolves exactly like an invoked one. A scheduled CLOSURE —
-     * `$schedule->call(…)->name('nightly-report')` — does not: its name is a label, so there is no
-     * class to look for and no artisan name to match. Answering `false` there would be a claim about
-     * something that cannot be resolved at all, which is why this answers null instead and still lets
-     * a literal mention in a test count.
+     * Its own id is an opaque hash, so nothing can be read out of the text: parsing it as a signature
+     * would resolve every real schedule against nothing, and would let an unrelated artisan string
+     * that happened to match a hash mark the surface referenced.
+     *
+     * A schedule reaching no command is a scheduled CLOSURE, or one the graph could not follow.
+     * Neither can be answered, and `false` would claim no test references something never resolved.
      *
      * @return array{referenced: bool, tests: list<string>}|null
      */
     public function resolveSchedule(string $node): ?array
     {
-        $name = $this->signatureName(substr($node, strlen('schedule::')));
-
-        if ($name === '') {
+        if (! $this->graph instanceof CodeGraph) {
             return null;
         }
 
-        // Key existence, NOT a non-empty list: a source added without a file counts for the boolean
-        // and cannot contribute a path, so its bucket is present but empty. Reading emptiness as
-        // "never mentioned" would drop exactly those references.
-        $mentioned = isset($this->artisanNames[$name]);
-        $named = $mentioned ? ['referenced' => true, 'tests' => $this->unique($this->artisanNames[$name])] : null;
+        $commands = array_values(array_filter(
+            array_column($this->graph->dependenciesOf([$node], 1), 'node'),
+            static fn (string $target): bool => str_starts_with($target, 'command::'),
+        ));
 
-        try {
-            $command = Artisan::all()[$name] ?? null;
-        } catch (Throwable) {
-            return $named;
+        if ($commands === []) {
+            return null;
         }
 
-        if (! $command instanceof Command) {
-            return $named;
+        $referenced = false;
+        $tests = [];
+
+        foreach ($commands as $command) {
+            $resolved = $this->resolveCommand($command);
+
+            // One unanswerable target makes the schedule unanswerable: the tests it runs may be
+            // exactly the ones the missing answer would have named.
+            if ($resolved === null) {
+                return null;
+            }
+
+            $referenced = $referenced || $resolved['referenced'];
+            $tests = [...$tests, ...$resolved['tests']];
         }
 
-        return $this->resolveCommand('command::' . $name);
+        return ['referenced' => $referenced, 'tests' => $this->unique($tests)];
     }
 
     /** The first whitespace-delimited token of a command signature — its name, without its arguments. */
