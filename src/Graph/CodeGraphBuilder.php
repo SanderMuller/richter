@@ -791,9 +791,17 @@ final class CodeGraphBuilder
     public static function declaresEdges(array $edges): array
     {
         $declares = [];
+        $seen = [];
 
         foreach ($edges as $edge) {
             foreach ([$edge['source'], $edge['target']] as $node) {
+                // A node id recurs across many edges, and its declaring class is a pure function of
+                // the id — resolve each distinct id once instead of once per occurrence.
+                if (isset($seen[$node])) {
+                    continue;
+                }
+
+                $seen[$node] = true;
                 $declaringClass = AppNamespace::declaringClassOf($node);
 
                 if ($declaringClass !== null) {
