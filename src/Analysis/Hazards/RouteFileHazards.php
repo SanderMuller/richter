@@ -71,9 +71,15 @@ final class RouteFileHazards
                 continue;
             }
 
-            foreach (array_diff($route['guards'], $headRoute['guards']) as $token) {
-                $lost[] = $token;
+            $gone = array_values(array_diff($route['guards'], $headRoute['guards']));
+            $lost = [...$lost, ...$gone];
 
+            // A route has ONE effective limit however many throttles it lists, so its rate change is
+            // read once from both whole sets rather than once per lost throttle. Those tokens then
+            // drop out of the removal loop: the guard is still there, at a different limit.
+            $hazards = [...$hazards, ...self::rateChange($file, $route, $headRoute)];
+
+            foreach (GuardMiddleware::removals($gone, $headRoute['guards']) as $token) {
                 $hazards[] = new Hazard(
                     'auth',
                     3,
@@ -169,6 +175,37 @@ final class RouteFileHazards
         }
 
         return array_values(array_unique($guards));
+    }
+
+    /**
+     * A throttle the head still applies, at a different limit. Only a RAISED rate is a weakening, and
+     * it is a weakened constraint rather than a removed guard, so it lands a tier below a removal with
+     * both values named. A tightened limit, and one this reader cannot read, say nothing.
+     *
+     * @param  RouteRecord  $route
+     * @param  RouteRecord  $headRoute
+     * @return list<Hazard>
+     */
+    private static function rateChange(string $file, array $route, array $headRoute): array
+    {
+        $looser = GuardMiddleware::looserThrottle($route['guards'], $headRoute['guards']);
+
+        if ($looser === null) {
+            return [];
+        }
+
+        [$before, $after] = $looser;
+
+        return [new Hazard('auth', 2, 'CWE-770', $headRoute['member'], sprintf(
+            'the rate limit on the %s route in %s rose from `%s` to `%s`',
+            self::label($route), $file, self::parameterOf($before), self::parameterOf($after),
+        ), [$before], ignoreKey: $headRoute['member'])];
+    }
+
+    /** The written form a guard token stands for: `middleware:throttle:60,1` is `throttle:60,1`. */
+    private static function parameterOf(string $token): string
+    {
+        return substr($token, strlen('middleware:'));
     }
 
     /**

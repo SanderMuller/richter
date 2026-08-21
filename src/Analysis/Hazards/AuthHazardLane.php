@@ -127,16 +127,41 @@ final class AuthHazardLane implements HazardLane
      */
     private static function lostGuards(string $id, ClassMethod $base, ClassMethod $head): array
     {
-        $lost = array_diff(self::guardTokens($base), self::guardTokens($head));
-        $hazards = [];
+        $headTokens = self::guardTokens($head);
+        $gone = array_values(array_diff(self::guardTokens($base), $headTokens));
 
-        foreach ($lost as $token) {
+        // A constructor's rate limit reads exactly as a route's: the guard survives at a different
+        // value, so only a RAISED limit is a weakening and a tightened one is nothing at all.
+        $hazards = self::rateChange($id, self::guardTokens($base), $headTokens);
+
+        foreach (GuardMiddleware::removals($gone, $headTokens) as $token) {
             $hazards[] = str_starts_with($token, 'middleware:')
                 ? new Hazard('auth', 3, GuardMiddleware::cweFor($token), $id, "the `{$token}` middleware is gone from the constructor", [$token])
                 : new Hazard('auth', 3, 'CWE-862', $id, "the authorization check `{$token}` is gone from the body", [$token]);
         }
 
         return $hazards;
+    }
+
+    /**
+     * The constructor's rate limit, where the head raised it.
+     *
+     * @param  list<string>  $baseTokens
+     * @param  list<string>  $headTokens
+     * @return list<Hazard>
+     */
+    private static function rateChange(string $id, array $baseTokens, array $headTokens): array
+    {
+        $looser = GuardMiddleware::looserThrottle($baseTokens, $headTokens);
+
+        if ($looser === null) {
+            return [];
+        }
+
+        return [new Hazard('auth', 2, 'CWE-770', $id, sprintf(
+            'the rate limit in the constructor rose from `%s` to `%s`',
+            substr($looser[0], strlen('middleware:')), substr($looser[1], strlen('middleware:')),
+        ), [$looser[0]])];
     }
 
     /**

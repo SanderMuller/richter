@@ -52,6 +52,7 @@ a false "authorization removed" is worse than the breadth number it replaced.
 | 3 | an authentication middleware removed | `auth` | CWE-306 |
 | 3 | a guard removed from a route declaration | `auth` | per guard |
 | 3 | a guard removed from a middleware group | `auth` | per guard |
+| 2 | a rate limit raised | `auth` | CWE-770 |
 | 3 | `$hidden` narrowed | `model` | CWE-200 |
 | 2 | mass-assignment surface widened (`$fillable`/`$guarded`) | `model` | CWE-915 |
 | 2 | a `$casts` value changed on a surviving key | `model` | — |
@@ -69,9 +70,9 @@ re-tier one would be grading its own risk before reading it. `cwe` is null where
 exists. A stretched CWE teaches the reader that the mapping is decorative.
 
 A removed guard middleware carries the CWE for the guard it names, not one CWE for all of them: `auth`
-and `password.confirm` are CWE-306, `can` and `verified` are CWE-862, `signed` is CWE-345, and
-`throttle` is CWE-770. Reporting a lost rate limit as missing authentication would be the stretched
-mapping the paragraph above warns about.
+and `password.confirm` are CWE-306, `signed` is CWE-345, `throttle` is CWE-770, and every
+authorization guard is CWE-862. Reporting a lost rate limit as missing authentication would be the
+stretched mapping the paragraph above warns about.
 
 Route files are read route by route. `routes/*.php` declares no class, so the lanes above cannot reach
 it. Its own reader compares each route's effective guard set on both sides: the middleware written on
@@ -104,6 +105,33 @@ on a legacy Kernel, or `$middleware->alias([...])` in `bootstrap/app.php`. A pro
 and a route naming the string are the same guard. That is declared intent rather than an inference from
 an `extends` clause. A class two guard aliases both name is skipped rather than resolved one way, and a
 class the project registers under no guard alias still draws nothing.
+
+The guard vocabulary is the framework's own — `auth`, `verified`, `signed`, `password.confirm`, `can`
+and `throttle` — plus the guards the common packages ship: `role`, `permission` and
+`role_or_permission` from spatie/laravel-permission, and `client`, `scope`, `scopes`, `ability` and
+`abilities` from Passport and Sanctum. A middleware outside that list draws nothing, whoever wrote it.
+
+**A parameter is not always part of the guard.** `can:update,post` and `role:admin` are compared with
+their parameters, because the parameter names what is being authorized: `can:view,post` is a different
+check and `role:editor` admits different people. `auth` is compared by its alias alone, because there
+the parameter picks a driver rather than deciding who gets through, so switching `auth` to
+`auth:sanctum` reports nothing. Where the parameter is a set rather than a position it is sorted
+first, so reordering `abilities:read,write` reports nothing either. The packages disagree on the
+separator, so each is read its own way: spatie's roles are pipe-separated and take an optional guard
+name after a comma, and only the pipes are sorted. `can` keeps its order entirely, because its
+parameters name an ability and then a model.
+
+**A rate limit gets its own reading**, because its two directions are not the same thing. Dropping
+`throttle:` altogether is a removed guard at tier 3. Raising the limit is a weakened constraint at tier
+2, reported with both values (`the rate limit on the GET /search route rose from throttle:60,1 to
+throttle:120,1`). Tightening it reports nothing at all. So does a limit the reader cannot compare: a
+named limiter such as `throttle:api` keeps its rate in a `RateLimiter::for()` closure that nothing here
+follows, and guessing in either direction would be worse than silence. Where a surface carries several
+throttles, the strictest one is the limit, so a raised limit beside a tighter one reports nothing, and
+one unreadable rate makes the whole set unreadable. Two limits counting over different windows are not
+compared at all: `throttle:100,60` allows a burst of a hundred in one minute where `throttle:2,1`
+allows two, so the averages rank them the wrong way round. Before this split, every one of
+those edits reported the same tier-3 "the middleware is gone".
 
 A guard that moved is not a guard that was removed. Authorization migrates: a controller's
 `authorize()` becomes a form request's, a policy becomes a gate. Every removal predicate fires only

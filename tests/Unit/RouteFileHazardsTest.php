@@ -65,12 +65,14 @@ final class RouteFileHazardsTest extends TestCase
     #[Test]
     public function a_parameterised_auth_guard_is_read_as_a_guard(): void
     {
+        // Named by the guard, not by the driver: `auth:sanctum` and `auth:web` are both the auth
+        // guard, so the token that stands for the removal is the alias alone.
         $hazards = $this->hazards(
             "Route::post('/posts', [PostController::class, 'store']);",
             "Route::post('/posts', [PostController::class, 'store'])->middleware('auth:sanctum');",
         );
 
-        $this->assertSame(['middleware:auth:sanctum'], $hazards[0]->removedTokens);
+        $this->assertSame(['middleware:auth'], $hazards[0]->removedTokens);
     }
 
     #[Test]
@@ -383,6 +385,214 @@ final class RouteFileHazardsTest extends TestCase
         } finally {
             app()->setBasePath($original);
             GuardMiddleware::flush();
+        }
+    }
+
+    #[Test]
+    public function a_guard_a_package_ships_is_in_the_vocabulary(): void
+    {
+        // An application gating on spatie/laravel-permission's `role` got no report at all while
+        // richter did not know the name, and its own middleware is registered under that alias.
+        $hazards = $this->hazards(
+            "Route::get('/admin', [PostController::class, 'index']);",
+            "Route::get('/admin', [PostController::class, 'index'])->middleware('role:admin');",
+        );
+
+        $this->assertCount(1, $hazards);
+        $this->assertSame(3, $hazards[0]->tier);
+        $this->assertSame('CWE-862', $hazards[0]->cwe);
+        $this->assertSame(['middleware:role:admin'], $hazards[0]->removedTokens);
+    }
+
+    #[Test]
+    public function a_middleware_outside_the_vocabulary_still_draws_nothing(): void
+    {
+        $this->assertSame([], $this->hazards(
+            "Route::get('/admin', [PostController::class, 'index']);",
+            "Route::get('/admin', [PostController::class, 'index'])->middleware('tenant:strict');",
+        ));
+    }
+
+    #[Test]
+    public function a_scoped_guards_parameter_is_part_of_the_guard(): void
+    {
+        // The parameter names what is authorised, so a different one is a different check: a route
+        // that required `update` and now requires `view` lost the check it had.
+        foreach ([['can:update,post', 'can:view,post'], ['role:admin', 'role:editor']] as [$before, $after]) {
+            $hazards = $this->hazards(
+                "Route::get('/posts', [PostController::class, 'index'])->middleware('{$after}');",
+                "Route::get('/posts', [PostController::class, 'index'])->middleware('{$before}');",
+            );
+
+            $this->assertSame(["middleware:{$before}"], $hazards[0]->removedTokens);
+        }
+    }
+
+    #[Test]
+    public function a_raised_rate_limit_is_a_weakened_constraint_rather_than_a_removed_guard(): void
+    {
+        $hazards = $this->hazards(
+            "Route::get('/search', [PostController::class, 'index'])->middleware('throttle:120,1');",
+            "Route::get('/search', [PostController::class, 'index'])->middleware('throttle:60,1');",
+        );
+
+        $this->assertCount(1, $hazards);
+        $this->assertSame(2, $hazards[0]->tier);
+        $this->assertSame('CWE-770', $hazards[0]->cwe);
+        $this->assertStringContainsString('rose from `throttle:60,1` to `throttle:120,1`', $hazards[0]->evidence);
+    }
+
+    #[Test]
+    public function a_route_replacing_several_throttles_reports_the_change_once(): void
+    {
+        // A route has one effective limit however many throttles it lists. Reading the change per lost
+        // token reported the same rise once for each of them.
+        $hazards = $this->hazards(
+            "Route::get('/search', [PostController::class, 'index'])->middleware(['throttle:120,1', 'throttle:200,1']);",
+            "Route::get('/search', [PostController::class, 'index'])->middleware(['throttle:60,1', 'throttle:100,1']);",
+        );
+
+        $this->assertCount(1, $hazards);
+        $this->assertStringContainsString('rose from `throttle:60,1` to `throttle:120,1`', $hazards[0]->evidence);
+    }
+
+    #[Test]
+    public function a_stricter_throttle_beside_the_raised_one_keeps_the_limit(): void
+    {
+        // Every throttle on the route applies, so the strictest is the limit. Reading the first looser
+        // one reported a weakening on a route that kept a tighter throttle beside it.
+        $this->assertSame([], $this->hazards(
+            "Route::get('/search', [PostController::class, 'index'])->middleware(['throttle:30,1', 'throttle:120,1']);",
+            "Route::get('/search', [PostController::class, 'index'])->middleware('throttle:60,1');",
+        ));
+    }
+
+    #[Test]
+    public function a_rate_limit_this_reader_cannot_compare_says_nothing(): void
+    {
+        // One rate the reader cannot read makes the whole set unreadable: it could be the strict one.
+        // True of either side — a base carrying a named limiter beside a numeric throttle has an
+        // effective limit nobody here can name, so reading the numeric one as the limit would report a
+        // weakening the named limiter may well have prevented.
+        $this->assertSame([], $this->hazards(
+            "Route::get('/search', [PostController::class, 'index'])->middleware(['throttle:api', 'throttle:120,1']);",
+            "Route::get('/search', [PostController::class, 'index'])->middleware('throttle:60,1');",
+        ));
+
+        $this->assertSame([], $this->hazards(
+            "Route::get('/search', [PostController::class, 'index'])->middleware('throttle:120,1');",
+            "Route::get('/search', [PostController::class, 'index'])->middleware(['throttle:api', 'throttle:60,1']);",
+        ));
+
+        // A named limiter's rate lives in a `RateLimiter::for()` closure this reader does not follow,
+        // and a longer window is not automatically looser. Silence beats a guess in both directions.
+        // The last pair counts over a different window, and fixed windows have no ordering between
+        // them: `throttle:100,60` allows a burst of a hundred in one minute where `throttle:2,1`
+        // allows two, yet the second averages the higher rate.
+        foreach ([['throttle:api', 'throttle:web'], ['throttle:60,1', 'throttle:api'], ['throttle:100,60', 'throttle:2,1']] as [$before, $after]) {
+            $this->assertSame([], $this->hazards(
+                "Route::get('/search', [PostController::class, 'index'])->middleware('{$after}');",
+                "Route::get('/search', [PostController::class, 'index'])->middleware('{$before}');",
+            ), "{$before} -> {$after}");
+        }
+    }
+
+    #[Test]
+    public function a_set_scoped_guard_reordered_is_not_a_removal(): void
+    {
+        // Sanctum checks the same abilities either way round, and spatie admits the same people. Only
+        // `can` keeps its order, because its parameters are positional rather than a set.
+        foreach ([['abilities:read,write', 'abilities:write,read'], ['role:admin|editor', 'role:editor|admin']] as [$before, $after]) {
+            $this->assertSame([], $this->hazards(
+                "Route::get('/posts', [PostController::class, 'index'])->middleware('{$after}');",
+                "Route::get('/posts', [PostController::class, 'index'])->middleware('{$before}');",
+            ), "{$before} -> {$after}");
+        }
+
+        $this->assertCount(1, $this->hazards(
+            "Route::get('/posts', [PostController::class, 'index'])->middleware('can:post,update');",
+            "Route::get('/posts', [PostController::class, 'index'])->middleware('can:update,post');",
+        ));
+
+        // spatie separates its roles with pipes and then takes an optional guard name after a comma.
+        // Only the pipes are a set: `role:admin,web` and `role:web,admin` name a different role and a
+        // different guard, so sorting across the comma would hide a real authorization change.
+        $this->assertCount(1, $this->hazards(
+            "Route::get('/posts', [PostController::class, 'index'])->middleware('role:web,admin');",
+            "Route::get('/posts', [PostController::class, 'index'])->middleware('role:admin,web');",
+        ));
+
+        $this->assertSame([], $this->hazards(
+            "Route::get('/posts', [PostController::class, 'index'])->middleware('role:editor|admin,web');",
+            "Route::get('/posts', [PostController::class, 'index'])->middleware('role:admin|editor,web');",
+        ));
+    }
+
+    #[Test]
+    public function an_unscoped_guards_parameter_is_configuration_and_not_the_guard(): void
+    {
+        // Tightening a rate limit reported the limit as REMOVED, at tier 3, and after the per-guard
+        // CWE work it said CWE-770 — a limit went missing — about a limit that got stricter. Switching
+        // an auth driver read the same way. Neither is a removal: the guard is still there.
+        foreach ([['auth', 'auth:sanctum'], ['auth:web', 'auth:sanctum'], ['throttle:60,1', 'throttle:30,1']] as [$before, $after]) {
+            $this->assertSame([], $this->hazards(
+                "Route::get('/posts', [PostController::class, 'index'])->middleware('{$after}');",
+                "Route::get('/posts', [PostController::class, 'index'])->middleware('{$before}');",
+            ), "{$before} -> {$after}");
+        }
+
+        // Dropping it altogether is still a removal, named by the guard rather than by its parameter.
+        $hazards = $this->hazards(
+            "Route::get('/posts', [PostController::class, 'index']);",
+            "Route::get('/posts', [PostController::class, 'index'])->middleware('throttle:60,1');",
+        );
+
+        $this->assertSame(['middleware:throttle:60,1'], $hazards[0]->removedTokens);
+        $this->assertSame(3, $hazards[0]->tier);
+        $this->assertSame('CWE-770', $hazards[0]->cwe);
+    }
+
+    #[Test]
+    public function a_parameterised_guard_moved_into_a_group_as_a_class_is_not_a_removal(): void
+    {
+        // The route wrote `auth:sanctum` and the group writes the framework class. Comparing the
+        // written forms made the two different tokens, so the whole-diff guard could not match them
+        // and a pure move reported a tier-3 removal.
+        $hazards = $this->hazards(
+            "Route::get('/posts', [PostController::class, 'index']);",
+            "Route::get('/posts', [PostController::class, 'index'])->middleware('auth:sanctum');",
+        );
+
+        $this->assertSame([], HazardFindings::for([
+            new ChangedFileSymbols(self::FILE, '', [], cosmeticOnly: false, hazards: $hazards),
+            new ChangedFileSymbols('bootstrap/app.php', '', [], cosmeticOnly: false,
+                addedHazardTokens: ['middleware:auth']),
+        ]));
+    }
+
+    #[Test]
+    public function a_package_guard_named_by_class_resolves_through_the_projects_alias_map(): void
+    {
+        // The two halves compose: the project's alias map says which class the alias is, and the
+        // vocabulary says the alias is a guard. A package's middleware named by class in a route file
+        // resolves through both.
+        $root = sys_get_temp_dir() . '/richter-package-guard-' . getmypid();
+        mkdir($root . '/app/Http', recursive: true);
+        file_put_contents($root . '/app/Http/Kernel.php', "<?php\nnamespace App\\Http;\nclass Kernel\n{\n    protected \$middlewareAliases = ['role' => 'Vendor\\Permission\\RoleMiddleware'];\n}\n");
+
+        $original = base_path();
+        app()->setBasePath($root);
+        GuardMiddleware::flush();
+
+        try {
+            $this->assertSame(['middleware:role'], GuardMiddleware::tokensFor(['Vendor\Permission\RoleMiddleware']));
+        } finally {
+            app()->setBasePath($original);
+            GuardMiddleware::flush();
+            unlink($root . '/app/Http/Kernel.php');
+            rmdir($root . '/app/Http');
+            rmdir($root . '/app');
+            rmdir($root);
         }
     }
 

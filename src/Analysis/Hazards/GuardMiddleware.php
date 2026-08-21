@@ -32,18 +32,52 @@ use SanderMuller\Richter\Support\AppFiles;
 final class GuardMiddleware
 {
     /**
-     * Middleware whose absence changes who may reach an action. `can` and `throttle` appear bare as
-     * well as parameterised because the class forms below carry no parameters — an alias written
-     * `can:update,post` and the class it stands for are the same guard, but not the same token, so
-     * only a removal of the exact form written is seen.
+     * Middleware whose absence changes who may reach an action, by the alias it is registered under.
+     * A parameterised use is the same guard: `auth:sanctum` is `auth`.
+     *
+     * The list runs past the framework's own because the packages below ship guards, not conveniences,
+     * and an application gating on `role:admin` gets no report at all while richter does not know the
+     * name. A guard richter has never heard of still draws nothing.
      */
-    private const array NAMES = ['auth', 'verified', 'signed', 'password.confirm', 'can', 'throttle'];
+    private const array NAMES = [
+        // The framework's own.
+        'auth', 'verified', 'signed', 'password.confirm', 'can', 'throttle',
+        // spatie/laravel-permission.
+        'role', 'permission', 'role_or_permission',
+        // laravel/passport and laravel/sanctum.
+        'client', 'scope', 'scopes', 'ability', 'abilities',
+    ];
 
     /**
-     * Parameterised forms. `auth:sanctum` is the same guard as `auth`, `can:update,post` is an
-     * ability check written as middleware, and `throttle:` bounds who may hammer an endpoint.
+     * Guards whose parameter names WHAT is authorised, so a different parameter is a different guard:
+     * `can:update,post` and `can:view,post` check different abilities, and `role:admin` and
+     * `role:editor` admit different people.
+     *
+     * Every other guard's parameter says how it is configured, not who gets through: `auth:sanctum`
+     * and `auth:web` are both the auth guard.
+     *
+     * `throttle` is here because its limit is a real difference, but the set difference alone cannot
+     * read it: {@see looserThrottle()} settles which direction the limit moved.
      */
-    private const array PREFIXES = ['auth:', 'can:', 'throttle:'];
+    private const array SCOPED = ['can', 'role', 'permission', 'role_or_permission', 'ability', 'abilities', 'scope', 'scopes', 'throttle'];
+
+    /**
+     * Scoped guards whose parameter is a SET rather than a position, by the separator the package uses.
+     * Reordering a set is not a removal: `abilities:write,read` checks what `abilities:read,write`
+     * checks, and `role:editor|admin` admits who `role:admin|editor` admits.
+     *
+     * The two lists are separate because the packages disagree. spatie/laravel-permission separates its
+     * roles with pipes and then takes an optional positional guard name after a comma, so only the
+     * pipes may be sorted — `role:admin,web` and `role:web,admin` name a different role and a different
+     * guard. Sanctum and Passport separate their abilities and scopes with commas and take nothing
+     * after them.
+     *
+     * `can` is in neither. Its parameters are positional — `can:update,post` names an ability and then
+     * a model — and sorting them would call two different checks the same one.
+     */
+    private const array PIPE_SET_SCOPED = ['role', 'permission', 'role_or_permission'];
+
+    private const array COMMA_SET_SCOPED = ['ability', 'abilities', 'scope', 'scopes'];
 
     /**
      * Framework guard middleware by class name, mapped onto the alias that stands for the same guard.
@@ -73,6 +107,14 @@ final class GuardMiddleware
         'password.confirm' => 'CWE-306',
         'can' => 'CWE-862',
         'verified' => 'CWE-862',
+        'role' => 'CWE-862',
+        'permission' => 'CWE-862',
+        'role_or_permission' => 'CWE-862',
+        'client' => 'CWE-862',
+        'scope' => 'CWE-862',
+        'scopes' => 'CWE-862',
+        'ability' => 'CWE-862',
+        'abilities' => 'CWE-862',
         'signed' => 'CWE-345',
         'throttle' => 'CWE-770',
     ];
@@ -91,7 +133,7 @@ final class GuardMiddleware
     {
         $guards = array_filter(array_map(self::aliasOf(...), $names), self::isGuard(...));
 
-        return array_values(array_unique(array_map(static fn (string $name): string => 'middleware:' . $name, $guards)));
+        return array_values(array_unique(array_map(static fn (string $name): string => 'middleware:' . self::identity($name), $guards)));
     }
 
     /**
@@ -103,9 +145,27 @@ final class GuardMiddleware
      */
     public static function cweFor(string $token): ?string
     {
-        $alias = explode(':', substr($token, strlen('middleware:')), 2)[0];
+        return self::CWES[self::aliasIn(substr($token, strlen('middleware:')))] ?? null;
+    }
 
-        return self::CWES[$alias] ?? null;
+    /**
+     * The guards a surface no longer applies at all. A lost throttle beside a head that still throttles
+     * is not one of them: the guard survived at a different limit, which {@see looserThrottle()} reads.
+     * Shared by every reader, so a rate change is never a removal on one surface and a change on another.
+     *
+     * @param  list<string>  $gone
+     * @param  list<string>  $headTokens
+     * @return list<string>
+     */
+    public static function removals(array $gone, array $headTokens): array
+    {
+        $unique = array_values(array_unique($gone));
+
+        if (! self::throttles($headTokens)) {
+            return $unique;
+        }
+
+        return array_values(array_filter($unique, static fn (string $token): bool => self::aliasOfToken($token) !== 'throttle'));
     }
 
     /** Reset the per-project alias cache, so a second run in one process re-reads the map. */
@@ -204,8 +264,182 @@ final class GuardMiddleware
 
     public static function isGuard(string $name): bool
     {
-        return in_array($name, self::NAMES, strict: true)
-            || array_any(self::PREFIXES, static fn (string $prefix): bool => str_starts_with($name, $prefix));
+        return in_array(self::aliasIn($name), self::NAMES, strict: true);
+    }
+
+    /**
+     * What a guard is compared AS. A scoped guard keeps its parameter, because the parameter is the
+     * thing being authorised; every other guard is identified by its alias alone, so tightening a
+     * throttle or switching an auth driver is not a removal.
+     */
+    private static function identity(string $name): string
+    {
+        $alias = self::aliasIn($name);
+
+        if (! in_array($alias, self::SCOPED, strict: true)) {
+            return $alias;
+        }
+
+        if (! str_contains($name, ':')) {
+            return $name;
+        }
+
+        $parameter = substr($name, strlen($alias) + 1);
+
+        if (in_array($alias, self::COMMA_SET_SCOPED, strict: true)) {
+            return $alias . ':' . self::sorted($parameter, ',');
+        }
+
+        if (! in_array($alias, self::PIPE_SET_SCOPED, strict: true)) {
+            return $name;
+        }
+
+        // Only the first comma segment is the set. What follows it is spatie's optional guard name,
+        // which is positional and stays where it was written.
+        $segments = explode(',', $parameter);
+        $segments[0] = self::sorted($segments[0], '|');
+
+        return $alias . ':' . implode(',', $segments);
+    }
+
+    /** The guard alias a token stands for: `middleware:throttle:60,1` is `throttle`. */
+    public static function aliasOfToken(string $token): string
+    {
+        return self::aliasIn(substr($token, strlen('middleware:')));
+    }
+
+    /**
+     * The two throttles to name when the head allows a strictly HIGHER rate than the base did, as
+     * `[before, after]`, or null when it does not.
+     *
+     * Null covers three situations, and all three mean the same thing to a reader: the head throttles
+     * at least as hard, the head has no throttle at all (which the ordinary removal predicate already
+     * reports), or one of the sides carries a rate this reader cannot read. That last one is why BOTH
+     * sides are passed whole rather than the lost token alone: a surface with `throttle:api` beside
+     * `throttle:60,1` has an effective limit nobody here can name, and reading the numeric one as the
+     * limit would report a weakening the named limiter may well have prevented.
+     *
+     * @param  list<string>  $baseTokens
+     * @param  list<string>  $headTokens
+     * @return array{0: string, 1: string}|null
+     */
+    public static function looserThrottle(array $baseTokens, array $headTokens): ?array
+    {
+        $before = self::strictestThrottle($baseTokens);
+        $after = self::strictestThrottle($headTokens);
+
+        if ($before === null || $after === null) {
+            return null;
+        }
+
+        $wasAllowed = self::limitOf($before);
+        $nowAllowed = self::limitOf($after);
+
+        if ($wasAllowed === null || $nowAllowed === null) {
+            return null;
+        }
+
+        // A fixed window has no ordering against a different one. `throttle:100,60` allows a burst of a
+        // hundred in one minute and `throttle:2,1` allows two, yet the second averages the higher rate:
+        // comparing the averages would call the tighter limit a weakening.
+        if ($wasAllowed[1] !== $nowAllowed[1]) {
+            return null;
+        }
+
+        return $nowAllowed[0] > $wasAllowed[0] ? [$before, $after] : null;
+    }
+
+    /**
+     * The throttle that binds on one surface: every throttle applies, so the strictest is the limit.
+     *
+     * Null when the surface throttles at a limit this reader cannot read, when two of its throttles
+     * count over different windows (there is no ordering between those), and when it does not throttle
+     * at all — the caller separates that last one with {@see throttles()}.
+     *
+     * @param  list<string>  $tokens
+     */
+    private static function strictestThrottle(array $tokens): ?string
+    {
+        $strictest = null;
+
+        foreach ($tokens as $token) {
+            if (self::aliasOfToken($token) !== 'throttle') {
+                continue;
+            }
+
+            $limit = self::limitOf($token);
+
+            if ($limit === null) {
+                return null;
+            }
+
+            if ($strictest === null) {
+                $strictest = $token;
+
+                continue;
+            }
+
+            $bound = self::limitOf($strictest);
+
+            if ($bound === null || $limit[1] !== $bound[1]) {
+                return null;
+            }
+
+            $strictest = $limit[0] < $bound[0] ? $token : $strictest;
+        }
+
+        return $strictest;
+    }
+
+    /**
+     * Whether any head-side token throttles at all.
+     *
+     * @param  list<string>  $tokens
+     */
+    public static function throttles(array $tokens): bool
+    {
+        return array_any($tokens, fn (string $token) => self::aliasOfToken($token) === 'throttle');
+    }
+
+    /**
+     * What a `throttle:60,1` allows, as `[requests, minutes]`, or null where the parameter is not two
+     * numbers. Laravel's one-argument form (`throttle:60`) decays over one minute.
+     *
+     * The window is carried rather than divided away: two limits counting over different windows are
+     * not comparable, and an average would rank a burst of a hundred a minute below two a minute.
+     *
+     * @return array{0: float, 1: float}|null
+     */
+    private static function limitOf(string $token): ?array
+    {
+        $parts = explode(',', substr($token, strlen('middleware:throttle:')));
+        $max = $parts[0] ?? '';
+        $minutes = $parts[1] ?? '1';
+
+        if (! is_numeric($max) || ! is_numeric($minutes) || (float) $minutes <= 0.0) {
+            return null;
+        }
+
+        return [(float) $max, (float) $minutes];
+    }
+
+    /**
+     * One separated list, in a fixed order, so two spellings of the same set compare equal.
+     *
+     * @param  non-empty-string  $separator
+     */
+    private static function sorted(string $list, string $separator): string
+    {
+        $values = explode($separator, $list);
+        sort($values);
+
+        return implode($separator, $values);
+    }
+
+    /** The alias part of a middleware name, before any parameter. */
+    private static function aliasIn(string $name): string
+    {
+        return explode(':', $name, 2)[0];
     }
 
     /**

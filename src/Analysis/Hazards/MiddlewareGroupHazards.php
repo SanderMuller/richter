@@ -113,7 +113,13 @@ final class MiddlewareGroupHazards
                 ...array_intersect(array_diff($head[$group][1] ?? [], $removed), $guards),
             ];
 
-            foreach (array_values(array_unique($gone)) as $token) {
+            // A group has ONE effective limit however many throttles it lists, so its rate change is
+            // read once from both whole sets. A lost throttle whose group still throttles then leaves
+            // the removal loop below: the guard is still there, at a different limit.
+            $headGuards = $head[$group][0] ?? [];
+            $hazards = [...$hazards, ...self::rateChange($file, $group, $guards, $headGuards)];
+
+            foreach (GuardMiddleware::removals($gone, $headGuards) as $token) {
                 if (! in_array($token, $headKnown, strict: true) && in_array($token, $headLiterals, strict: true)) {
                     $unreadable[] = $token;
 
@@ -121,6 +127,7 @@ final class MiddlewareGroupHazards
                 }
 
                 $lost[] = $token;
+
                 $hazards[] = new Hazard(
                     'auth',
                     3,
@@ -146,6 +153,29 @@ final class MiddlewareGroupHazards
         // Two groups are two surfaces, not one guard moving: `web` losing `auth` while `api` gains it
         // must not suppress the loss. Same exclusion the route-file reader makes between two routes.
         return [$hazards, array_values(array_diff(array_unique($added), $lost)), $findings];
+    }
+
+    /**
+     * A throttle the group still applies, at a different limit. Only a RAISED rate is a weakening, and
+     * it is a weakened constraint rather than a removed guard, so it lands a tier below a removal with
+     * both values named. A tightened limit, and one this reader cannot read, say nothing.
+     *
+     * @param  list<string>  $baseGuards
+     * @param  list<string>  $headGuards
+     * @return list<Hazard>
+     */
+    private static function rateChange(string $file, string $group, array $baseGuards, array $headGuards): array
+    {
+        $looser = GuardMiddleware::looserThrottle($baseGuards, $headGuards);
+
+        if ($looser === null) {
+            return [];
+        }
+
+        return [new Hazard('auth', 2, 'CWE-770', "middleware group '{$group}'", sprintf(
+            "the rate limit on the '%s' middleware group in %s rose from `%s` to `%s`",
+            $group, $file, substr($looser[0], strlen('middleware:')), substr($looser[1], strlen('middleware:')),
+        ), [$looser[0]], ignoreKey: "middleware-group:{$group}")];
     }
 
     /**

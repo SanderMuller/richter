@@ -752,6 +752,48 @@ final class HazardLanesTest extends TestCase
     }
 
     #[Test]
+    public function a_constructor_middleware_carries_the_cwe_for_the_guard_it_names(): void
+    {
+        // The constructor lane shares the vocabulary, so it inherited the per-guard CWE with it. It
+        // had reported CWE-306 for every middleware since long before the route-file work.
+        $constructor = "    public function __construct()\n    {\n%s    }\n";
+
+        $hazards = $this->lanes(
+            'app/Http/Controllers/PostController.php',
+            $this->controller('        return $post;', sprintf($constructor, '')),
+            $this->controller('        return $post;', sprintf($constructor, "        \$this->middleware('throttle:60,1');\n")),
+        );
+
+        $this->assertSame(['middleware:throttle:60,1'], $hazards[0]->removedTokens);
+        $this->assertSame('CWE-770', $hazards[0]->cwe);
+    }
+
+    #[Test]
+    public function a_constructor_rate_limit_reads_the_same_way_as_a_routes(): void
+    {
+        // The constructor lane compared its tokens verbatim, so it reported a TIGHTENED limit as a
+        // removed guard long after the route and group readers stopped doing that.
+        $constructor = "    public function __construct()\n    {\n        \$this->middleware('throttle:%s');\n    }\n";
+        $body = '        return $post;';
+
+        $raised = $this->lanes(
+            'app/Http/Controllers/PostController.php',
+            $this->controller($body, sprintf($constructor, '120,1')),
+            $this->controller($body, sprintf($constructor, '60,1')),
+        );
+
+        $this->assertCount(1, $raised);
+        $this->assertSame(2, $raised[0]->tier);
+        $this->assertStringContainsString('rose from `throttle:60,1` to `throttle:120,1`', $raised[0]->evidence);
+
+        $this->assertSame([], $this->lanes(
+            'app/Http/Controllers/PostController.php',
+            $this->controller($body, sprintf($constructor, '30,1')),
+            $this->controller($body, sprintf($constructor, '60,1')),
+        ));
+    }
+
+    #[Test]
     public function a_guard_gone_from_a_middleware_group_is_tier_three(): void
     {
         // The other direction a route's guard can leave. Removing `auth` from the `web` group unguards
@@ -926,6 +968,25 @@ final class HazardLanesTest extends TestCase
             sprintf($bootstrap, "\$client->api(append: ['auth']);\n"), sprintf($bootstrap, ''));
 
         $this->assertSame([], $hazards);
+    }
+
+    #[Test]
+    public function a_raised_rate_limit_on_a_group_reads_the_same_way(): void
+    {
+        $kernel = "<?php\nnamespace App\\Http;\nclass Kernel\n{\n    protected \$middlewareGroups = ['api' => ['throttle:%s']];\n}\n";
+
+        [$hazards] = MiddlewareGroupHazards::for('app/Http/Kernel.php',
+            sprintf($kernel, '120,1'), sprintf($kernel, '60,1'));
+
+        $this->assertCount(1, $hazards);
+        $this->assertSame(2, $hazards[0]->tier);
+        $this->assertStringContainsString('rose from `throttle:60,1` to `throttle:120,1`', $hazards[0]->evidence);
+
+        // Tightening it says nothing, where comparing the written forms called it a removal.
+        [$tightened] = MiddlewareGroupHazards::for('app/Http/Kernel.php',
+            sprintf($kernel, '30,1'), sprintf($kernel, '60,1'));
+
+        $this->assertSame([], $tightened);
     }
 
     #[Test]
