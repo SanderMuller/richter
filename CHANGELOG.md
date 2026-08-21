@@ -5,6 +5,41 @@ All notable changes to `sandermuller/richter` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.43.0 - 2026-08-21
+
+A guard leaves a route in two directions, and richter watched neither. It can leave the route, and it can leave the middleware group the route runs in. Both are read now, and a hazard on a member of a class that is itself an entry surface stops grading as unreachable.
+
+### Changed
+
+- **A level moves.** A hazard on a member of a class that is ITSELF an entry surface graded `no-known-path`, and a tier-1 hazard on it `low` — the only LOW cell in the matrix. Reach is computed from a member's callers, and a Livewire page, a Filament resource or a Nova resource has none in application code, because the framework calls it. The class's own nodes now ride along as depth-0 hops before entry-point classification, the same rule the removal lane already took for callers. A tier-1 hazard on such a class reports `medium` instead of `low`, and a tier-2 one reports `no-guard-found` instead of `no-known-path` at the same level. This is the false-LOW direction the model exists to avoid, so the correction is the point rather than a side effect. A plain service class still answers `no-known-path`.
+
+### Added
+
+- **`routes/*.php` is compared route by route for the guard middleware a route lost.** Tier 3, `auth` lane, CWE-306 — or CWE-862 where the guard is a `can:` check. A route file declares no class, so the hazard lanes never reached it: they run behind a class-like gate.
+  
+  Each route's EFFECTIVE guard set is resolved on both sides — the middleware written on the route, plus every enclosing `Route::middleware(...)->group()` and `Route::group(['middleware' => ...], ...)` wrapper, minus its own `->withoutMiddleware()` — and those are diffed. A file-wide token comparison would report every route as newly unguarded the moment they were wrapped in a guarded group, which is the commonest edit these files see. The chain is read in call order, so `->middleware('auth')->withoutMiddleware('auth')` does not read as guarded; the registration is found anywhere in the chain, so `Route::middleware('auth')->get(...)` is read like the chained form; and a route renamed in the same edit that drops its guard is paired by its action rather than read as deleted.
+  
+  A route the head no longer declares raises nothing. Deleting a route leaves nobody able to reach it unguarded. The hazard resolves through the route's action where the file names one, so the entry points reaching it answer for it; a closure route falls back to its own node id.
+  
+- **`bootstrap/app.php` and a legacy `app/Http/Kernel.php` are compared per middleware group.** Removing `auth` from the `web` group unguards every route in that group at once. Tier 3, named for the group (`middleware group 'web'`), silenced with `hazards.ignore` under `middleware-group:web`.
+  
+  The comparison is shape-aware where the arrivals are not. A literal comparison would call swapping `'auth'` for `Authenticate::class` an authentication removal, so only two shapes are read — the Kernel's `$middlewareGroups` array, and the `withMiddleware` calls (`web(append:)`, `api(remove:)`, `appendToGroup`, `prependToGroup`, `removeFromGroup`, `replaceInGroup`) — and an unrecognised shape produces a finding instead of a hazard. A guard newly named under `remove:` counts only when the base group actually ran it, because `remove:` subtracts from a default set richter does not model.
+  
+- **A guard moved between a route, a controller constructor and a middleware group is not a removal.** All three surfaces now speak one vocabulary, so the whole-diff moved-not-removed guard matches across them. That vocabulary also gained the parameterised forms (`auth:sanctum`, `can:update,post`) and the framework guard classes, which the controller-constructor lane had been missing. A guard lost by one route while another route in the same file gains one is still reported: `middleware:auth` names no particular surface, so treating that as one guard moving would silence every guard removal in any diff that also adds a guarded route.
+  
+
+### Fixed
+
+- **Documentation claims re-traced against the source.** The weak-assertion tag prints with an em dash, not a comma. JSON `verification` reads `null` when a state could not be checked, where `false` means unreferenced. `richter:impact` entry-point hops carry no `depth`. The empty-diff message names the base ref. Middleware group membership comes from Brain's analyzer, and the file the app carries decides which shape is read, not its framework version. The `richter://config` resource exposes only the cache-enabled flag. The hazard table gained the deleted-class lane, and a paragraph now states the no-double-report rules and the gutted-guard (`return true;`) hazard.
+
+### Compatibility
+
+No graph-cache bump: `FORMAT_VERSION` stays at 26. The two performance changes in this release — one descent instead of three in the relation-traversal tracer, and resolving each distinct node id once when declaring member edges — leave the graph's shape untouched.
+
+Levels move only in the direction described above. A route file that carries no hazard still reads as nothing to assess, exactly as it did when it was reported as out of scope.
+
+**Full Changelog**: https://github.com/SanderMuller/richter/compare/v0.42.0...v0.43.0
+
 ## v0.42.0 - 2026-08-21
 
 The reach class a hazard carries had a name that asserted more than it knew. `gated` was a fallthrough — everything that was not proven `public-write` landed in it, including surfaces where no guard exists and some where none could exist. It is now a finding, and what falls out of it has a name of its own.
@@ -330,6 +365,7 @@ dispatch($job);
 
 
 
+
 ```
 That was recorded as a dispatch whose target could not be followed — and the taint is global, so one of them makes every `richter:affected-tests` run report `not determinable` and fall back to the full suite. The graph has carried the edge for this shape all along: the instantiation is in the same method, right above the dispatch. The site pointed at a place to restructure where nothing was hidden and nothing needed restructuring.
 
@@ -421,6 +457,7 @@ Build profile: nothing was built — the diff holds nothing the graph is built f
 
 
 
+
 ```
 On stderr, like the table it stands in for, and before the payload in `--json` mode so stdout stays one document. Building anyway was the alternative, and it would make a no-op run pay for an analysis nothing asked for.
 
@@ -438,6 +475,7 @@ An event named by a class constant resolves in **any** declaration form, includi
 public const string
     SUBTITLE_CHANGED = 'subtitle-changed',
     SUBTITLE_DELETED = 'subtitle-deleted';
+
 
 
 
@@ -477,6 +515,7 @@ Build profile (forced rebuild):
   total                      3.85s
   no scoped rebuild: non-app-change
     config/services.php differs from the cached graph and sits outside app/
+
 
 
 
@@ -571,6 +610,7 @@ It now names every site:
 ```
 the graph contains job dispatches that could not be followed:
 app/Jobs/Fanout.php:88 (App\Jobs\Fanout::handle), app/Services/Importer.php:12 (App\Services\Importer::run)
+
 
 
 
@@ -949,6 +989,7 @@ Note: 2 changed file(s) are outside the analysed scope (not PHP under app/, a Bl
 
 
 
+
 ```
 Stderr, like the untracked-file note, so `--json` and `--markdown` stdout stay exactly the report. Frontend sources the configuration declines to scan are not counted: generated Wayfinder output under `frontend.generated_paths` and `.d.ts` declarations were silenced on purpose, and a note that fires loudest on regeneration churn is one people stop reading.
 
@@ -1032,6 +1073,7 @@ One new advisory lane, and a README that finally leads with what the package is 
   
   
   
+  
   ```
   The count comes off the `route:: → middleware::<group>` edges already in the graph, so it counts endpoints only: a controller-level attachment of the same group does not inflate it. Membership is read from `$middlewareGroups` on a Laravel 10 Kernel or the `->web(append: [...])` form in a Laravel 11+ `bootstrap/app.php`. A member written as an alias resolves through the same alias map, parameters are cut first (`tenant:strict` is one alias with an argument), and a group that names another group is expanded transitively, since Laravel runs the inner group's middleware on the outer group's routes too.
   
@@ -1064,6 +1106,7 @@ Two silent-failure shapes that richter used to miss: a call through an applicati
   
   ```text
     ! resources/js/Pages/Posts/Create.vue posts to POST /posts and sends 'subtitle', which this diff removes from App\Http\Requests\StorePostRequest::rules() (renamed to 'sub_title'?)
+  
   
   
   
