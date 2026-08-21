@@ -5,6 +5,34 @@ All notable changes to `sandermuller/richter` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.42.0 - 2026-08-21
+
+The reach class a hazard carries had a name that asserted more than it knew. `gated` was a fallthrough — everything that was not proven `public-write` landed in it, including surfaces where no guard exists and some where none could exist. It is now a finding, and what falls out of it has a name of its own.
+
+### Breaking
+
+- **`reach` gains a fourth value, `no-guard-found`.** A consumer matching on the three previous values will not recognise it. Nothing that was `public-write` or `no-known-path` moves; what changes is that the old `gated` splits in two.
+
+### Changed
+
+- **`gated` has to be earned now, and by every reaching entry point.** It requires evidence: an exposure Brain read off the middleware surface (`authed`, `admin`, `internal`), or a guard the cross-check correlated to the route. Previously it keyed only on the cross-check, whose two maps are populated *only* for routes Brain flagged `PUBLIC_WRITE` — it exists to contradict Brain, so it never runs anywhere else. A `command::` node, a Livewire surface Brain never classified, and a genuinely authenticated route all graded `gated` together, under a name claiming a guard was visible.
+  
+  One reaching route without a visible guard is the way in, so a set where the others are guarded grades `no-guard-found`. Averaging would hide the surface that matters.
+  
+- **`no-guard-found` is the leftover, and it scores exactly as `gated` does.** An admission has to move the level in neither direction: raising it would report `high` across every codebase whose surfaces Brain cannot classify, punishing a coverage gap as though it were a security one, and lowering it would read absence of evidence as evidence. **No level moves in this release.** What changes is what the report says.
+  
+
+### Fixed
+
+- **A scheduled entry point resolves through what it runs.** `TestReferenceIndex` handled `route::` and `command::` nodes and app classes, and let `schedule::` fall through to "could not be checked". A schedule id is `md5(type.target.frequency)` — an opaque hash — so it is resolved through the graph's `schedule-to-command` edge to the command behind it, and a test driving that command now references the scheduled surface. A schedule reaching no command, a scheduled closure among them, stays unanswered rather than claiming no test drives it.
+- **A removed member keeps reach through a class-based entry point.** Deriving a removal's reach from its declaring class filtered callers to the `route::`/`command::`/`schedule::` prefixes, which dropped Livewire, Filament and Nova classes — entry surfaces in their own right. A removed member reached only that way graded `no-known-path`, and a tier-1 hazard on it `low`. It now uses the analyzer's own entry-point classification rather than a second, narrower copy of it.
+
+### Compatibility
+
+No graph-cache bump: `FORMAT_VERSION` stays at 26. Levels are unchanged; a `schedule::` surface that previously read "could not be checked" now reports whether a test drives the command behind it, which can move a change from `medium` to `low` where one does.
+
+**Full Changelog**: https://github.com/SanderMuller/richter/compare/v0.41.0...v0.42.0
+
 ## v0.41.0 - 2026-08-21
 
 Two rounds of consumer dogfooding found three defects in the 0.40 risk model, and each was caught by a person reading source rather than by anything in the suite. This release closes the reasons for that: the level stops making a claim it never checked, and the benchmark corpus gains the assertion that would have caught the worst of them.
@@ -301,6 +329,7 @@ dispatch($job);
 
 
 
+
 ```
 That was recorded as a dispatch whose target could not be followed — and the taint is global, so one of them makes every `richter:affected-tests` run report `not determinable` and fall back to the full suite. The graph has carried the edge for this shape all along: the instantiation is in the same method, right above the dispatch. The site pointed at a place to restructure where nothing was hidden and nothing needed restructuring.
 
@@ -391,6 +420,7 @@ Build profile: nothing was built — the diff holds nothing the graph is built f
 
 
 
+
 ```
 On stderr, like the table it stands in for, and before the payload in `--json` mode so stdout stays one document. Building anyway was the alternative, and it would make a no-op run pay for an analysis nothing asked for.
 
@@ -408,6 +438,7 @@ An event named by a class constant resolves in **any** declaration form, includi
 public const string
     SUBTITLE_CHANGED = 'subtitle-changed',
     SUBTITLE_DELETED = 'subtitle-deleted';
+
 
 
 
@@ -446,6 +477,7 @@ Build profile (forced rebuild):
   total                      3.85s
   no scoped rebuild: non-app-change
     config/services.php differs from the cached graph and sits outside app/
+
 
 
 
@@ -539,6 +571,7 @@ It now names every site:
 ```
 the graph contains job dispatches that could not be followed:
 app/Jobs/Fanout.php:88 (App\Jobs\Fanout::handle), app/Services/Importer.php:12 (App\Services\Importer::run)
+
 
 
 
@@ -915,6 +948,7 @@ Note: 2 changed file(s) are outside the analysed scope (not PHP under app/, a Bl
 
 
 
+
 ```
 Stderr, like the untracked-file note, so `--json` and `--markdown` stdout stay exactly the report. Frontend sources the configuration declines to scan are not counted: generated Wayfinder output under `frontend.generated_paths` and `.d.ts` declarations were silenced on purpose, and a note that fires loudest on regeneration churn is one people stop reading.
 
@@ -997,6 +1031,7 @@ One new advisory lane, and a README that finally leads with what the package is 
   
   
   
+  
   ```
   The count comes off the `route:: → middleware::<group>` edges already in the graph, so it counts endpoints only: a controller-level attachment of the same group does not inflate it. Membership is read from `$middlewareGroups` on a Laravel 10 Kernel or the `->web(append: [...])` form in a Laravel 11+ `bootstrap/app.php`. A member written as an alias resolves through the same alias map, parameters are cut first (`tenant:strict` is one alias with an argument), and a group that names another group is expanded transitively, since Laravel runs the inner group's middleware on the outer group's routes too.
   
@@ -1029,6 +1064,7 @@ Two silent-failure shapes that richter used to miss: a call through an applicati
   
   ```text
     ! resources/js/Pages/Posts/Create.vue posts to POST /posts and sends 'subtitle', which this diff removes from App\Http\Requests\StorePostRequest::rules() (renamed to 'sub_title'?)
+  
   
   
   
