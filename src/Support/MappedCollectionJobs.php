@@ -8,13 +8,14 @@ use PhpParser\Node\Expr\ArrowFunction;
 use PhpParser\Node\Expr\Closure;
 use PhpParser\Node\Expr\MethodCall;
 use PhpParser\Node\Expr\New_;
+use PhpParser\Node\Expr\Variable;
 use PhpParser\Node\Identifier;
 use PhpParser\Node\Name;
 use PhpParser\Node\Stmt\Return_;
 
 /**
  * The dispatch targets a `Bus::batch($items->map(fn () => new SomeJob(…))->all())` argument provably
- * holds.
+ * holds — written out at the dispatch site, or bound to a local above it.
  *
  * `map()` is total — one item out per item in — so whatever its callable returns IS the item type,
  * whatever the source collection held. That makes the batch's contents provable without knowing the
@@ -52,8 +53,14 @@ final class MappedCollectionJobs
      */
     private const array ITEM_PRESERVING = ['all', 'values', 'filter', 'reject', 'unique', 'sort', 'sortBy', 'sortByDesc', 'reverse', 'take', 'skip', 'slice', 'shuffle', 'whereNotNull', 'collect'];
 
-    /** @return list<string>|null the dispatch targets, or null when this is not a provable mapped collection */
-    public static function in(?Expr $value): ?array
+    /**
+     * @param  array<string, array{pos: int, jobs: list<string>}>  $bound  the locals this method
+     *   provably binds to a mapped collection, by name ({@see LocallyConstructedJobs}). A batch of
+     *   any size names its collection, because the code between the map and the dispatch needs it,
+     *   so a walk that stops at a local only ever fires on a chain written out at the dispatch site.
+     * @return list<string>|null the dispatch targets, or null when this is not a provable mapped collection
+     */
+    public static function in(?Expr $value, array $bound = []): ?array
     {
         while ($value instanceof MethodCall && $value->name instanceof Identifier) {
             $method = $value->name->toString();
@@ -74,7 +81,30 @@ final class MappedCollectionJobs
             $value = $value->var;
         }
 
-        return null;
+        return self::boundJobs($value, $bound);
+    }
+
+    /**
+     * The jobs a local provably holds, when the walk ended on one rather than on a call.
+     *
+     * The binding has to sit ABOVE the read: an assignment below it says nothing about the value
+     * read here, and a parser that attached no positions (-1) proves no order at all. That the name
+     * is written exactly once, at the top level, is {@see LocallyConstructedJobs}' guard, applied to
+     * a collection of targets exactly as it is applied to a single one.
+     *
+     * @param  array<string, array{pos: int, jobs: list<string>}>  $bound
+     * @return list<string>|null
+     */
+    private static function boundJobs(?Expr $value, array $bound): ?array
+    {
+        if (! $value instanceof Variable || ! is_string($value->name)) {
+            return null;
+        }
+
+        $binding = $bound[$value->name] ?? null;
+        $readAt = $value->getStartFilePos();
+
+        return $binding !== null && $binding['pos'] >= 0 && $readAt > $binding['pos'] ? $binding['jobs'] : null;
     }
 
     /**

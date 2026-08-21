@@ -72,7 +72,7 @@ report `not determinable`, a project whose remaining sites are all of that kind 
 reach past, and restructuring the others buys nothing until the last one goes. Check the list for these
 before planning that work.
 
-Three shapes look unfollowable and are not counted, because none of them hides anything:
+Four shapes look unfollowable and are not counted, because none of them hides anything:
 
 - An inline closure. `dispatch(function () { … })` queues the closure itself, and its body sits in the
   same source the tracers already read, so its work already appears as edges out of the dispatching
@@ -84,6 +84,31 @@ Three shapes look unfollowable and are not counted, because none of them hides a
   a reference alias, a by-reference capture, a parameter of the same name, or a dynamic write anywhere
   in the method all leave the site listed, because the value reaching the dispatch is then no longer
   provable.
+- A batch of mapped jobs. `Bus::batch($items->map(fn ($i) => new SendInvoice($i))->all())` proves its
+  own contents: `map()` returns one item per input item, so the callable's return type is the item
+  type whatever the source collection held, and the graph already carries the edge from the `new`
+  inside the callable. Every call between the `map` and the dispatch has to be one that cannot change
+  what the items are (`filter`, `values`, `sort`, `all` and the like); `pluck`, `flatMap` and
+  `toArray` can, so they keep the site. The callable has to be written out at the call site and has to
+  return in one place: an arrow function, or a closure whose whole body is a single `return` of a `new`
+  dispatch target. A callable that returns a job on one branch and something else on another proves
+  nothing about the batch, and one that can fall through returns `null` for some items.
+
+  The chain does not have to be written at the dispatch: a batch of any size names its collection,
+  because the code between the map and the dispatch needs it. `$jobs = $items->map(...);` then
+  `Bus::batch($jobs->all())` resolves. The bar is the locally-built job's, and one guard stricter. The
+  method must write that name exactly once, at the top level, before the dispatch, so a binding under
+  an `if`, a rebinding, a `foreach` binding or a dynamic write anywhere keeps the site. It must also
+  mention the name nowhere else: a collection is an object, and `$jobs->push($other)` changes what the
+  batch holds without writing the name, so any other mention — a mutator call, a pass to a helper that
+  could keep the handle — keeps the site as well. A method that reaches its own locals by name rather
+  than by writing them proves nothing here either: `compact()` and `get_defined_vars()` hand the
+  collection out with no mention to count, and `extract()` and `eval()` can replace it outright.
+
+  The receiver is the one thing this does not check. It reads method names, not types, so a class of
+  your own that spells `map()` and `all()` with different semantics is believed. Typing the receiver
+  needs the inference the relation lane uses, and it is not wired here.
+
 - A string argument. `$this->dispatch('some-event')` is not a job dispatch. `DispatchesJobs::dispatch()`
   takes a job *object*, so a string can never be one. The common case is a Livewire component emitting
   a browser event, which has no queue involvement. A constant the dispatching class itself declares as

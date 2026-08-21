@@ -61,6 +61,14 @@ final readonly class DispatchEdgeTracer
 
     private const array BUS_GROUP = ['chain', 'batch'];
 
+    /**
+     * No local binding proved — the shape {@see LocallyConstructedJobs::in()} returns for a method
+     * that binds nothing.
+     *
+     * @var array{jobs: array<string, array{pos: int, jobs: list<string>}>, collections: array<string, array{pos: int, jobs: list<string>}>}
+     */
+    private const array NO_LOCALS = ['jobs' => [], 'collections' => []];
+
     /** @var list<string> */
     private array $dispatchFunctions;
 
@@ -205,7 +213,7 @@ final readonly class DispatchEdgeTracer
         foreach ($classMethods as $method) {
             $dispatcher = ltrim($classFqcn, '\\') . '::' . $method->name->toString();
             $ownConstants = $stringConstants[spl_object_id($method)] ?? [];
-            $localJobs = LocallyConstructedJobs::in($method);
+            $locals = LocallyConstructedJobs::in($method);
             // Both lanes below read the same body, so it is descended once. Two NodeFinder passes per
             // method — one for the calls, one for the `new`s — cost a second full walk of every
             // method in the app tree for nodes this one already sees.
@@ -243,7 +251,7 @@ final readonly class DispatchEdgeTracer
                 // keeps two opaque items of one `chain()` from reading as two separate places to look.
                 $origin = ['line' => $call->getStartLine(), 'dispatcher' => $dispatcher];
 
-                foreach ($this->jobsFromCall($call, $origin, $unresolvedSites, $ownConstants, $localJobs) as $jobFqcn) {
+                foreach ($this->jobsFromCall($call, $origin, $unresolvedSites, $ownConstants, $locals) as $jobFqcn) {
                     $target = $this->withDeclaringClass($jobFqcn, $declaringClass);
                     $edges[] = ['source' => $dispatcher, 'target' => $target . '::handle', 'type' => 'action-to-job'];
                 }
@@ -320,10 +328,10 @@ final readonly class DispatchEdgeTracer
      * @param  array{line: int, dispatcher: string}  $origin  the dispatch statement a site is recorded against
      * @param  list<array{line: int, dispatcher: string}>  $unresolvedSites
      * @param  array<string, true>  $stringConstants
-     * @param  array<string, array{pos: int, jobs: list<string>}>  $localJobs
+     * @param  array{jobs: array<string, array{pos: int, jobs: list<string>}>, collections: array<string, array{pos: int, jobs: list<string>}>}  $locals
      * @return list<string>
      */
-    private function jobsFromCall(Node $call, array $origin, array &$unresolvedSites, array $stringConstants = [], array $localJobs = []): array
+    private function jobsFromCall(Node $call, array $origin, array &$unresolvedSites, array $stringConstants = [], array $locals = self::NO_LOCALS): array
     {
         // A first-class callable (`Job::dispatch(...)`) builds a closure, not a dispatch — and
         // calling getArgs() on it throws. It's not a dispatch site, so skip it.
@@ -334,8 +342,8 @@ final readonly class DispatchEdgeTracer
         $site = $this->dispatchSite($call, $stringConstants);
 
         return match ($site['mode'] ?? null) {
-            'single' => $this->jobsFromArg($site['arg'], $origin, $unresolvedSites, $localJobs),
-            'array' => $this->jobsFromArray($site['arg']?->value, $origin, $unresolvedSites, $localJobs),
+            'single' => $this->jobsFromArg($site['arg'], $origin, $unresolvedSites, $locals),
+            'array' => $this->jobsFromArray($site['arg']?->value, $origin, $unresolvedSites, $locals),
             'class' => DispatchTarget::matches($site['class']) ? [$site['class']] : [],
             default => [],
         };
@@ -481,10 +489,10 @@ final readonly class DispatchEdgeTracer
     /**
      * @param  array{line: int, dispatcher: string}  $origin
      * @param  list<array{line: int, dispatcher: string}>  $unresolvedSites
-     * @param  array<string, array{pos: int, jobs: list<string>}>  $localJobs
+     * @param  array{jobs: array<string, array{pos: int, jobs: list<string>}>, collections: array<string, array{pos: int, jobs: list<string>}>}  $locals
      * @return list<string>
      */
-    private function jobsFromArg(?Arg $arg, array $origin, array &$unresolvedSites, array $localJobs = []): array
+    private function jobsFromArg(?Arg $arg, array $origin, array &$unresolvedSites, array $locals = self::NO_LOCALS): array
     {
         $value = $arg?->value;
 
@@ -493,7 +501,7 @@ final readonly class DispatchEdgeTracer
         }
 
         if ($value instanceof Array_) {
-            return $this->jobsFromArray($value, $origin, $unresolvedSites, $localJobs);
+            return $this->jobsFromArray($value, $origin, $unresolvedSites, $locals);
         }
 
         // An inline closure IS the job, and its body sits in the very AST the tracers just walked —
@@ -504,7 +512,7 @@ final readonly class DispatchEdgeTracer
             return [];
         }
 
-        $local = $this->localJobFor($value, $localJobs);
+        $local = $this->localJobFor($value, $locals['jobs']);
 
         if ($local !== null) {
             return $local;
@@ -523,15 +531,15 @@ final readonly class DispatchEdgeTracer
     /**
      * @param  array{line: int, dispatcher: string}  $origin
      * @param  list<array{line: int, dispatcher: string}>  $unresolvedSites
-     * @param  array<string, array{pos: int, jobs: list<string>}>  $localJobs
+     * @param  array{jobs: array<string, array{pos: int, jobs: list<string>}>, collections: array<string, array{pos: int, jobs: list<string>}>}  $locals
      * @return list<string>
      */
-    private function jobsFromArray(?Expr $value, array $origin, array &$unresolvedSites, array $localJobs = []): array
+    private function jobsFromArray(?Expr $value, array $origin, array &$unresolvedSites, array $locals = self::NO_LOCALS): array
     {
         if (! $value instanceof Array_) {
-            // A mapped collection proves its own item type; anything else is a dispatch this pass
-            // cannot see into.
-            return MappedCollectionJobs::in($value) ?? $this->unfollowable($origin, $unresolvedSites);
+            // A mapped collection proves its own item type — written out here, or held by a local
+            // this method provably bound above. Anything else is a dispatch this pass cannot see into.
+            return MappedCollectionJobs::in($value, $locals['collections']) ?? $this->unfollowable($origin, $unresolvedSites);
         }
 
         $jobs = [];
@@ -553,7 +561,7 @@ final readonly class DispatchEdgeTracer
                 continue;
             }
 
-            $local = $this->localJobFor($item->value, $localJobs);
+            $local = $this->localJobFor($item->value, $locals['jobs']);
 
             if ($local !== null) {
                 $jobs = [...$jobs, ...$local];

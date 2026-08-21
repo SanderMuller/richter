@@ -309,6 +309,15 @@ final class DispatchEdgeTracerTest extends TestCase
     }
 
     #[Test]
+    public function a_job_aliased_by_compact_is_still_followed(): void
+    {
+        // The collection lane refuses this: an alias can change what a collection HOLDS. A single job
+        // is a different claim — the alias can call anything on it, and no call changes its class —
+        // and `compact()` is common enough that refusing it would list dispatches for no gain.
+        $this->assertSame(0, $this->unresolved('$job = new ImportJob(); $this->log(compact(\'job\')); dispatch($job);', 'use App\Jobs\ImportJob;'));
+    }
+
+    #[Test]
     public function a_job_constructed_just_above_its_dispatch_is_not_unfollowable(): void
     {
         // The same shape as the test above, seen from the determinability side. The edge is already
@@ -340,13 +349,22 @@ final class DispatchEdgeTracerTest extends TestCase
         yield 'rebound through a reference alias' => ['$job = new ImportJob(); $alias = &$job; $alias = $this->factory->make(); dispatch($job);'];
         yield 'constructed inside a closure, dispatched outside' => ['$f = function () { $job = new ImportJob(); }; dispatch($job);'];
         yield 'not a dispatch target at all' => ['$job = new Post(); dispatch($job);'];
+        // `extract()` and `eval()` write a name no `Variable` node carries, so the write count stays
+        // at one while the value changes. `compact()` is deliberately absent: it only aliases the
+        // object, and no call on an object changes its class.
+        yield 'rebound by extract' => ['$job = new ImportJob(); extract($this->overrides()); dispatch($job);'];
+        yield 'rebound by eval' => ['$job = new ImportJob(); eval($this->code()); dispatch($job);'];
+        yield 'rebound by an include' => ['$job = new ImportJob(); include $this->path(); dispatch($job);'];
+        yield 'rebound by a call through a variable' => ['$job = new ImportJob(); $hydrate($this->overrides()); dispatch($job);'];
+        // The alias resolves before this pass reads it, so the import is caught by the same name check.
+        yield 'rebound by an aliased extract' => ['$job = new ImportJob(); hydrate($this->overrides()); dispatch($job);'];
     }
 
     #[Test]
     #[DataProvider('unprovableLocalJobs')]
     public function a_variable_the_method_cannot_pin_down_stays_unfollowable(string $body): void
     {
-        $this->assertSame(1, $this->unresolved($body, "use App\Jobs\ImportJob;\nuse App\Models\Post;"));
+        $this->assertSame(1, $this->unresolved($body, "use App\Jobs\ImportJob;\nuse App\Models\Post;\nuse function extract as hydrate;"));
     }
 
     #[Test]
@@ -359,6 +377,75 @@ final class DispatchEdgeTracerTest extends TestCase
 
         $this->assertSame([], $result['unresolvedSites']);
         $this->assertContains('App\Jobs\ImportJob::handle', array_column($result['edges'], 'target'));
+    }
+
+    /**
+     * A batch names its collection. The map and the dispatch sit apart in every real batch, because
+     * the code between them needs the collection, so a walk that stops at a local only ever proves
+     * the shape nobody writes: the whole chain inline at the dispatch site.
+     *
+     * The refusals outnumber the positives deliberately — each is a way the collection at the
+     * dispatch can differ from the one the map built, and reading any of them as resolved drops real
+     * targets from a test selection.
+     *
+     * @return Iterator<string, array{string, int}>
+     */
+    public static function locallyBoundBatches(): Iterator
+    {
+        $map = '$this->items->map(fn (int $i): ImportJob => new ImportJob())';
+        yield 'bound above the dispatch' => ["\$jobs = {$map}; Bus::batch(\$jobs->all());", 0];
+        yield 'dispatched without a call of its own' => ["\$jobs = {$map}; Bus::batch(\$jobs);", 0];
+        yield 'filtered before the map and after the local' => ['$jobs = $this->items->filter(fn (int $i): bool => $i > 0)->map(fn (int $i): ImportJob => new ImportJob()); Bus::batch($jobs->values()->all());', 0];
+        // The chain split over two statements is the shape the local lane exists for: the second
+        // binding reads the first, which is why the bindings are built in source order.
+        yield 'built over two bindings' => ["\$mapped = {$map}; \$ready = \$mapped->filter(fn (ImportJob \$job): bool => true); Bus::batch(\$ready->all());", 0];
+        yield 'bound only inside a branch' => ["if (\$flag) { \$jobs = {$map}; } Bus::batch(\$jobs->all());", 1];
+        yield 'rebound from something opaque' => ["\$jobs = {$map}; \$jobs = \$this->pending(); Bus::batch(\$jobs->all());", 1];
+        yield 'bound only below the dispatch' => ["Bus::batch(\$jobs->all()); \$jobs = {$map};", 1];
+        yield 'rebound by a foreach' => ["\$jobs = {$map}; foreach (\$queue as \$jobs) { } Bus::batch(\$jobs->all());", 1];
+        yield 'a dynamic write anywhere in the method' => ["\$jobs = {$map}; \$\$name = \$other; Bus::batch(\$jobs->all());", 1];
+        yield 'plucked before the binding' => ["\$jobs = {$map}->pluck('id'); Bus::batch(\$jobs->all());", 1];
+        yield 'plucked after the local' => ["\$jobs = {$map}; Bus::batch(\$jobs->pluck('id')->all());", 1];
+        // A rebound name proves nothing, and neither does anything derived from it: the write count
+        // is applied while the bindings are built, so the stale collection never reaches `$ready`.
+        yield 'derived from a rebound local' => ["\$mapped = {$map}; \$mapped = \$this->pending(); \$ready = \$mapped->filter(fn (ImportJob \$job): bool => true); Bus::batch(\$ready->all());", 1];
+        yield 'a local bound to something else entirely' => ['$jobs = $this->pending(); Bus::batch($jobs->all());', 1];
+        // A collection is an object, so its CONTENTS can change with no write to the name: the write
+        // count stays at one and the batch holds something the map never built. Any mention beyond
+        // the binding and the dispatching read refuses the binding.
+        yield 'mutated in place between the binding and the dispatch' => ["\$jobs = {$map}; \$jobs->push(\$this->extra()); Bus::batch(\$jobs->all());", 1];
+        yield 'handed to a helper that keeps the handle' => ["\$jobs = {$map}; \$this->log(\$jobs); Bus::batch(\$jobs->all());", 1];
+        // A name-keyed reach into the scope hands the collection out with no mention of the name, so
+        // the occurrence count cannot see the alias that mutates it.
+        yield 'aliased through compact' => ["\$jobs = {$map}; \$this->log(compact('jobs')); Bus::batch(\$jobs->all());", 1];
+        yield 'aliased through get_defined_vars' => ["\$jobs = {$map}; \$this->log(get_defined_vars()); Bus::batch(\$jobs->all());", 1];
+        yield 'rebound by extract' => ["\$jobs = {$map}; extract(\$this->overrides()); Bus::batch(\$jobs->all());", 1];
+        yield 'rebound by eval' => ["\$jobs = {$map}; eval(\$this->code()); Bus::batch(\$jobs->all());", 1];
+        yield 'rebound by an include' => ["\$jobs = {$map}; include \$this->path(); Bus::batch(\$jobs->all());", 1];
+        yield 'rebound by a require' => ["\$jobs = {$map}; require \$this->path(); Bus::batch(\$jobs->all());", 1];
+        yield 'a call through a name this pass cannot read' => ["\$jobs = {$map}; \$hydrate(\$this->overrides()); Bus::batch(\$jobs->all());", 1];
+        // A dynamic READ reaches the collection while adding no occurrence of its name.
+        yield 'mutated through a dynamic read' => ["\$jobs = {$map}; \$name = 'jobs'; \$\$name->push(\$this->extra()); Bus::batch(\$jobs->all());", 1];
+    }
+
+    #[Test]
+    #[DataProvider('locallyBoundBatches')]
+    public function a_batch_bound_to_a_local_is_followed_only_when_the_binding_is_provable(string $body, int $expected): void
+    {
+        $this->assertSame($expected, $this->unresolved($body, "use App\Jobs\ImportJob;\nuse Illuminate\Support\Facades\Bus;"));
+    }
+
+    #[Test]
+    public function a_batch_bound_to_a_local_draws_the_edge_to_its_jobs(): void
+    {
+        // Edge parity with the inline form, not a proof of the local lane: the `new` inside the
+        // callable draws this edge either way. The lane's own proof is the site count above.
+        $edges = $this->edges(
+            '$jobs = $this->items->map(fn (int $i): ImportJob => new ImportJob()); Bus::batch($jobs->all());',
+            "use App\Jobs\ImportJob;\nuse Illuminate\Support\Facades\Bus;",
+        );
+
+        $this->assertContains(['source' => self::DISPATCHER . '::store', 'target' => 'App\Jobs\ImportJob::handle', 'type' => 'action-to-job'], $edges);
     }
 
     #[Test]

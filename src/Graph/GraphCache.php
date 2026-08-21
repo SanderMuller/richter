@@ -120,8 +120,12 @@ final class GraphCache
      * 24 → 25: a config registry read whose key cannot be enumerated draws `config-registry-fanout`
      * rather than `config-registry`, so a surface behind it reads as context instead of as a caller.
      * Not additive — an edge changed type — so a 24 entry would classify those surfaces the old way.
+     * 25 → 26: a batch built by mapping a collection resolves when the collection is bound to a local
+     * above the dispatch, where only a chain written out at the dispatch site did before. That drops
+     * unresolved-dispatch sites a 25 entry still carries, and one such site holds every
+     * `richter:affected-tests` run at "could not be determined".
      */
-    private const int FORMAT_VERSION = 25;
+    private const int FORMAT_VERSION = 26;
 
     private ?CodeGraph $memoized = null;
 
