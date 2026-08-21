@@ -185,7 +185,8 @@ return [
     /*
      * Change hazards: the tiered properties of a diff that say it may break something — an
      * authorization guard removed, `$hidden` narrowed, a mass-assignment surface widened, a
-     * validation constraint dropped, a queued payload changed, a public member removed. Every
+     * validation constraint dropped, a queued payload changed, a public member removed, a column a
+     * migration drops. Every
      * predicate is exact: a lane that cannot read both sides of a comparison in full reports
      * nothing rather than guessing, because a false "authorization removed" is worse than no
      * hazard at all.
@@ -198,7 +199,9 @@ return [
         // Suppress one hazard, named as payload_parity.ignore is: the member it sits on
         // ('App\Http\Controllers\PostController::update'), a model's config member
         // ('App\Models\Post::$fillable'), or an inline-validated field
-        // ('App\Http\Controllers\PostController::store::subtitle').
+        // ('App\Http\Controllers\PostController::store::subtitle'). A migration hazard is named by
+        // the table it changes ('posts') or by table and column ('posts.subtitle') — the way to
+        // quieten a framework table, a queue table or a pivot.
         'ignore' => [],
     ],
 ];

@@ -63,6 +63,18 @@ it is missed. And a guard lost in one route file while another route file gains 
 group written in a shape richter does not read reports a finding rather than a comparison, and an
 application subclass of a framework guard middleware matches no name in a group.
 
+A migration is read for what its `up()` destroys, not for the schema it describes. A dropped column, a
+dropped table and a renamed column are hazards. A column ADDED is not read at all, so a column added
+to the schema and never added to the model is invisible: today a column reaches richter only through
+the model's `$fillable` or `$casts`. A column name built at runtime still reports the drop, under a
+name richter could not read, because silence on a destructive operation is the wrong direction to fail
+in. A table name built at runtime is refused instead, since the operation cannot be placed at all. A
+squashed schema dump under `database/schema/` is not PHP and holds no `up()`, so a project that
+squashes has no migration file to read for the squashed range. The model owning a table is looked for
+under `app/Models` only, so an application that keeps its models elsewhere gets the table name as the
+hazard's member and `no-known-path` as its reach — the hazard still reports, with less reach than the
+graph could give it.
+
 An application that schedules through a legacy `app/Console/Kernel.php` gets no `schedule::` nodes at
 all. Brain models the schedule from the Laravel 11+ `routes/console.php` form; from a Console Kernel
 it yields command nodes only. So a change to the schedule itself, a cron time or a frequency, reaches

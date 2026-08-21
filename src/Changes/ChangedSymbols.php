@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\Process;
 use RuntimeException;
 use SanderMuller\Richter\Analysis\Hazards\GuardMiddleware;
 use SanderMuller\Richter\Analysis\Hazards\HazardLanes;
+use SanderMuller\Richter\Analysis\Hazards\ModelTables;
 use SanderMuller\Richter\Analysis\RequestFieldParser;
 use SanderMuller\Richter\Analysis\ResourceKeyParser;
 use SanderMuller\Richter\Support\Fqcn;
@@ -93,8 +94,9 @@ final class ChangedSymbols
         // added since the previous run (same long-lived process) is seen, never a false alarm.
         // Same rule as the checkers below: a fresh run rebuilds. The project's middleware alias map is
         // read from disk, and a long-lived process that resolved one checkout must not answer for the
-        // next with the first one's map.
+        // next with the first one's map. The model-to-table map is scanned from disk on the same terms.
         GuardMiddleware::flush();
+        ModelTables::flush();
 
         $eagerLoadChecker = new EagerLoadStringChecker();
         $featureGateChecker = new FeatureGateChecker(RichterConfig::featureGateMethods());
@@ -129,9 +131,9 @@ final class ChangedSymbols
                 continue;
             }
 
-            // A file that declares no PHP class — a route file, the middleware-group bootstrap, a
-            // Blade view. Each has its own reader; sources are resolved lazily so an unclaimed file
-            // costs no `git show`.
+            // A file no hazard lane reaches — a route file, the middleware-group bootstrap, a
+            // migration, a Blade view. Each has its own reader; sources are resolved lazily so an
+            // unclaimed file costs no `git show`.
             $nonPhp = NonPhpFileChange::resolve(
                 $file,
                 fn (): ?string => self::headSource($head, $file, $prefix),
@@ -179,8 +181,10 @@ final class ChangedSymbols
 
         // `routes/` rides along because a route file is now read for the guards its routes declare,
         // and a brand-new one that was never `git add`-ed carries exactly the routes a reviewer has
-        // not seen yet.
-        $roots = ['app/', 'resources/views/', 'routes/', 'bootstrap/app.php', ...array_map(
+        // not seen yet. `database/migrations/` rides along for the same reason and more sharply: a new
+        // file IS the normal migration shape, so an unadded one is the commonest way a schema drop
+        // reaches a branch unseen.
+        $roots = ['app/', 'resources/views/', 'routes/', 'database/migrations/', 'bootstrap/app.php', ...array_map(
             static fn (string $root): string => rtrim($root, '/') . '/',
             RichterConfig::frontendRoots(),
         )];

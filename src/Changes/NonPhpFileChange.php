@@ -7,8 +7,10 @@ use SanderMuller\Richter\Graph\BladeViews;
 use SanderMuller\Richter\Tracers\FeatureGateChecker;
 
 /**
- * The diff loop's dispatch for the changed files that declare no PHP class — a route file, the
- * middleware-group bootstrap, a Blade view. Each has its own collaborator; this picks between them.
+ * The diff loop's dispatch for the changed files no hazard lane reaches — a route file, the
+ * middleware-group bootstrap, a migration, a Blade view. Each has its own collaborator; this picks
+ * between them. A migration is PHP, but its anonymous class is invisible to the lanes' class-like
+ * gate, so it belongs to this dispatch too.
  *
  * Separate from {@see ChangedSymbols} because that class's diff loop sits at its complexity ceiling,
  * and because the choice is genuinely one concern: which non-class file kind is this, and who reads it.
@@ -32,6 +34,10 @@ final class NonPhpFileChange
     {
         if (RouteFileChanges::handles($file)) {
             return RouteFileChanges::resolve($file, $headSrc(), $baseSrc(), $isNew, $hasAdditions);
+        }
+
+        if (MigrationChanges::handles($file)) {
+            return MigrationChanges::resolve($file, $headSrc(), $baseSrc(), $isNew, $hasAdditions);
         }
 
         if (BladeViews::seedForChangedFile($file) === null) {

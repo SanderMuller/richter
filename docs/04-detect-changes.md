@@ -87,6 +87,8 @@ Three kinds of changed file carry impact: PHP under `app/`, Blade views, and sou
 
 Route files are read, but only for one thing. `routes/*.php` is compared for the guard middleware a route lost, and `bootstrap/app.php` for the guard a middleware group lost. Both are hazards and both can move the risk level. Neither seeds reach of its own: which routes a file registers is Brain's answer, not this parser's, and a seed built from a URI written there would be a guess about a node id.
 
+Migrations are read the same way and for one thing only. A `database/migrations/*.php` file is compared for the destructive schema operations its `up()` performs, which are hazards. It seeds nothing either: a migration names a table, not a class.
+
 That sentence is accurate about the analyser and misleading about the diff, so the count is named on stderr beside it:
 
 ```text

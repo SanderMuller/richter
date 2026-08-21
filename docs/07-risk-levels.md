@@ -63,6 +63,9 @@ a false "authorization removed" is worse than the breadth number it replaced.
 | 2 | a resource key removed while a consumer reads it | `parity` | — |
 | 2 | a model field never mirrored to its resource | `parity` | — |
 | 2 | a form-request field removed | `parity` | — |
+| 2 | a column dropped by a migration | `migration` | — |
+| 2 | a table dropped by a migration | `migration` | — |
+| 2 | a column renamed by a migration | `migration` | — |
 | 1 | a surviving member's signature changed | `contract` | — |
 
 The tiers are fixed and not configurable. A tier is a fact about the change, and a project that could
@@ -94,6 +97,26 @@ The hazard resolves through the route's action where the file names one, so the 
 it answer for it. A closure route has no action, so the route's own node id stands in. It matches an
 entry point whenever the declared URI is the registered one, and grades `no-known-path` when a group
 prefix made it something else.
+
+Migrations are read for the destructive operations their `up()` performs: a dropped column, a dropped
+table, a renamed column. Each is tier 2 whether or not anything still names the column. Losing the data
+is the break, and richter cannot see the rows.
+
+Only `up()` is read. A conventional `down()` reverses `up()`, so it holds a `dropColumn` for every
+column `up()` adds, and reading the whole file would report a destructive operation on every migration
+ever written. The comparison is the head's operations minus the base's, so a new migration reports
+everything it does and a migration edited for an unrelated reason does not re-report what it already
+held.
+
+The hazard is named for the model that owns the table, so the entry points reaching that model answer
+for it. The table comes from the model the way Eloquent derives it: an explicit `$table` wins, and
+otherwise the snake-cased plural of the class name. Two models claiming one table resolve to neither.
+A table no model claims keeps its own name and grades `no-known-path`, which is honest — richter
+cannot see what reaches it.
+
+`hazards.ignore` silences a migration hazard by table (`posts`) or by table and column
+(`posts.subtitle`). That is how a framework table, a queue table or a pivot is quietened, rather than
+richter curating a list of table names to skip.
 
 A guard leaves a route in two directions. It can leave the route, and it can leave the group the route
 runs in. Removing `auth` from the `web` group unguards every route in that group at once. So

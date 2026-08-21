@@ -22,7 +22,7 @@ final readonly class Hazard
     public const string REACH_NO_KNOWN_PATH = 'no-known-path';
 
     /**
-     * @param  string  $lane  `auth`, `model`, `contract`, `boundary` or `parity`
+     * @param  string  $lane  `auth`, `model`, `contract`, `boundary`, `parity` or `migration`
      * @param  int  $tier  1, 2 or 3 — a fact about the hazard, never configurable
      * @param  string|null  $cwe  null wherever no clean mapping exists; a stretched CWE teaches a
      *   reader the mapping is decorative
