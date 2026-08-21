@@ -270,24 +270,43 @@ final class RouteFileHazardsTest extends TestCase
     }
 
     #[Test]
-    public function two_registrations_sharing_a_verb_and_uri_do_not_overwrite_each_other(): void
+    public function the_same_route_registered_twice_unions_its_guards(): void
     {
-        // The same path under two different prefixes. The later registration must not replace the
-        // earlier one, or a guard removed from the first is compared against the second and missed.
-        $hazards = $this->hazards(
-            "Route::prefix('admin')->group(function (): void {\n    Route::get('/posts', [PostController::class, 'index']);\n});\nRoute::prefix('team')->group(function (): void {\n    Route::get('/posts', [PostController::class, 'index'])->middleware('auth');\n});",
-            "Route::prefix('admin')->group(function (): void {\n    Route::get('/posts', [PostController::class, 'index'])->middleware('auth');\n});\nRoute::prefix('team')->group(function (): void {\n    Route::get('/posts', [PostController::class, 'index'])->middleware('auth');\n});",
-        );
+        // Same verb, same URI, same action: one route written twice. A token counts as lost only when
+        // it is gone from both, so the later registration must not replace the earlier one.
+        $group = "Route::prefix('%s')->group(function (): void {\n    Route::get('/posts', [PostController::class, 'index'])%s;\n});";
+        $guard = "->middleware('auth')";
 
-        // Unioned, so the guard is still on the key at head and nothing is claimed. The point of the
-        // test is that the second registration did not erase the first: with an overwrite the base
-        // side would read one guarded route and the head side one unguarded one.
-        $this->assertSame([], $hazards);
+        $this->assertSame([], $this->hazards(
+            sprintf($group, 'admin', '') . "\n" . sprintf($group, 'team', $guard),
+            sprintf($group, 'admin', $guard) . "\n" . sprintf($group, 'team', $guard),
+        ));
 
         $this->assertSame(['middleware:auth'], $this->hazards(
-            "Route::prefix('admin')->group(function (): void {\n    Route::get('/posts', [PostController::class, 'index']);\n});\nRoute::prefix('team')->group(function (): void {\n    Route::get('/posts', [PostController::class, 'index']);\n});",
-            "Route::prefix('admin')->group(function (): void {\n    Route::get('/posts', [PostController::class, 'index'])->middleware('auth');\n});\nRoute::prefix('team')->group(function (): void {\n    Route::get('/posts', [PostController::class, 'index'])->middleware('auth');\n});",
+            sprintf($group, 'admin', '') . "\n" . sprintf($group, 'team', ''),
+            sprintf($group, 'admin', $guard) . "\n" . sprintf($group, 'team', $guard),
         )[0]->removedTokens);
+    }
+
+    #[Test]
+    public function two_routes_sharing_a_verb_and_uri_are_compared_apart(): void
+    {
+        // Two guest endpoints, each mounted at '/' under its own prefix, each rate limited. Keyed on
+        // the verb and URI alone they were one route, so their guards unioned and deleting one of the
+        // two throttles read as still present — silence on an unauthenticated POST whose rate limit
+        // was the only guard it had.
+        $group = "Route::prefix('%s')->group(function (): void {\n    Route::post('/', [%s::class, 'index'])%s;\n});";
+        $throttle = "->middleware('throttle:30,1')";
+        $slots = sprintf($group, 'slots', 'ArchiveController', $throttle);
+
+        $hazards = $this->hazards(
+            sprintf($group, 'verification', 'PostController', '') . "\n" . $slots,
+            sprintf($group, 'verification', 'PostController', $throttle) . "\n" . $slots,
+        );
+
+        $this->assertCount(1, $hazards);
+        $this->assertSame('App\Http\Controllers\PostController::index', $hazards[0]->member);
+        $this->assertSame(['middleware:throttle:30,1'], $hazards[0]->removedTokens);
     }
 
     #[Test]

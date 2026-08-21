@@ -56,10 +56,9 @@ guard middleware a route lost, which is a hazard. What it does not do is grade t
 base against its exposure at head — Brain classifies the head graph only, and the base side would need
 a second graph build. So a route that was authenticated and is now public is caught by the middleware
 it lost, and not by the exposure it gained. A closure route in a prefixed group also grades
-`no-known-path`, because the URI written in the file is not the URI that was registered. Two routes
-that share a verb and a URI as written — the same path under two different `prefix()` or `domain()`
-groups — have their guards read together, so a guard dropped from one while the other keeps it is
-missed. And a guard lost in one route file while another route file gains one — `routes/web.php` and
+`no-known-path`, because the URI written in the file is not the URI that was registered. Two registrations that share a verb, a URI and an
+action are read as one route written twice, so a guard dropped from one of them while the other keeps
+it is missed. And a guard lost in one route file while another route file gains one — `routes/web.php` and
 `routes/api.php` in the same diff — reads as the same guard moving and is suppressed. A middleware
 group written in a shape richter does not read reports a finding rather than a comparison, and an
 application subclass of a framework guard middleware matches no name in a group.

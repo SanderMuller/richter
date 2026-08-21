@@ -83,6 +83,13 @@ would report every one of those routes as newly unguarded while the group above 
 A route the head no longer declares raises nothing. Deleting a route leaves nobody able to reach it
 unguarded.
 
+Routes are lined up by verb, URI and action together. Two endpoints mounted at `'/'` under their own
+`prefix()` groups are one key without the action, and their guards would then be read as one set: a
+guard deleted from one of them would read as still present because the other still has it. Repointing
+a route at another controller and renaming its URI each change one part of that key, so an unmatched
+route is offered its verb and URI, then its action, and pairs on either where it names exactly one
+unmatched route on each side.
+
 The hazard resolves through the route's action where the file names one, so the entry points reaching
 it answer for it. A closure route has no action, so the route's own node id stands in. It matches an
 entry point whenever the declared URI is the registered one, and grades `no-known-path` when a group

@@ -187,19 +187,22 @@ final class RouteDeclarations
             return;
         }
 
-        $key = "{$verb} {$uri}";
+        $member = self::memberOf($verb, $uri, $registration->args);
 
-        // Two registrations can share a verb and a URI as written — the same path under two different
-        // `prefix()` or `domain()` groups. Their guards are UNIONED rather than the later one
-        // overwriting the earlier, so a token only counts as lost when it is gone from every
-        // registration under the key. The cost is a guard dropped from one of two such routes while
-        // the other keeps it, which is missed; the alternative, keying on the group context, would
-        // lose the far commoner case of a route lifted out of a prefixed group, whose key would then
-        // change and read as a deletion.
+        // The member is in the key, not just the verb and the URI as written: two `POST '/'` routes
+        // under two `prefix()` groups are otherwise one key, so their guards union and a guard deleted
+        // from one reads as still present because the other has it. Keying on the enclosing group
+        // instead would lose the commoner case of a route lifted out of a prefixed group, whose key
+        // would change and read as a deletion. {@see RouteFileHazards::pair()} re-pairs the edits that
+        // do change the member.
+        $key = "{$verb} {$uri}\0{$member}";
+
+        // Two registrations sharing all three are one route written twice, so a token counts as lost
+        // only when it is gone from both.
         $routes[$key] = [
             'verb' => $verb,
             'uri' => $uri,
-            'member' => $routes[$key]['member'] ?? self::memberOf($verb, $uri, $registration->args),
+            'member' => $member,
             'guards' => array_values(array_unique([...$routes[$key]['guards'] ?? [], ...$guards])),
         ];
     }

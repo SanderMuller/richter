@@ -105,13 +105,18 @@ final class RouteFileHazards
     }
 
     /**
-     * Which head route each base route is. The key — the registration as written — lines the two sides
-     * up for every edit but one: changing a route's verb or URI while removing its guard changes the
-     * key too, and the base route would read as deleted, which raises nothing.
+     * Which head route each base route is.
      *
-     * So an unmatched base route falls back to its ACTION, and only when that action names exactly one
-     * unmatched route on each side. A controller method serving several routes names none of them
-     * uniquely, and pairing the wrong two would report a removal on a route that never had the guard.
+     * The key — the registration's verb, its URI as written, and its member — lines the two sides up
+     * for every edit that changes none of the three. Two edits do change one, and both are ordinary:
+     * repointing a route at another controller, and renaming its URI. Either would leave the base
+     * route looking deleted, and a deleted route raises nothing, so a guard dropped in the same edit
+     * would go unreported.
+     *
+     * So an unmatched base route is offered two fallbacks, in turn: its verb and URI, then its action.
+     * Each pairs only where it names exactly one unmatched route on each side. A controller method
+     * serving several routes names none of them uniquely, and pairing the wrong two would report a
+     * removal on a route that never had the guard.
      *
      * @param  array<string, RouteRecord>  $base
      * @param  array<string, RouteRecord>  $head
@@ -127,30 +132,84 @@ final class RouteFileHazards
             }
         }
 
+        foreach ([self::route(...), self::action(...)] as $identity) {
+            $pairs = self::pairBy($base, $head, $pairs, $identity);
+        }
+
+        return $pairs;
+    }
+
+    /**
+     * One pairing pass: match what the two sides still have unmatched, by the identity given, and only
+     * where that identity is unique on both sides.
+     *
+     * @param  array<string, RouteRecord>  $base
+     * @param  array<string, RouteRecord>  $head
+     * @param  array<string, string>  $pairs
+     * @param  callable(RouteRecord): ?string  $identity
+     * @return array<string, string>
+     */
+    private static function pairBy(array $base, array $head, array $pairs, callable $identity): array
+    {
         $unmatchedBase = array_diff_key($base, $pairs);
         $unmatchedHead = array_diff_key($head, array_flip($pairs));
 
         foreach ($unmatchedBase as $key => $route) {
-            if (! self::namesAnAction($route['member'])) {
+            $name = $identity($route);
+
+            if ($name === null) {
                 continue;
             }
 
-            $candidates = array_keys(array_filter(
-                $unmatchedHead,
-                static fn (array $other): bool => $other['member'] === $route['member'],
-            ));
+            $candidates = self::keyedBy($unmatchedHead, $identity, $name);
 
-            $siblings = array_filter(
-                $unmatchedBase,
-                static fn (array $other): bool => $other['member'] === $route['member'],
-            );
-
-            if (count($candidates) === 1 && count($siblings) === 1) {
+            if (count($candidates) === 1 && count(self::keyedBy($unmatchedBase, $identity, $name)) === 1) {
                 $pairs[$key] = $candidates[0];
             }
         }
 
         return $pairs;
+    }
+
+    /**
+     * The keys of the routes that answer to one identity.
+     *
+     * @param  array<string, RouteRecord>  $routes
+     * @param  callable(RouteRecord): ?string  $identity
+     * @return list<string>
+     */
+    private static function keyedBy(array $routes, callable $identity, string $name): array
+    {
+        $keys = [];
+
+        foreach ($routes as $key => $route) {
+            if ($identity($route) === $name) {
+                $keys[] = $key;
+            }
+        }
+
+        return $keys;
+    }
+
+    /**
+     * A route by where it is mounted, which survives being repointed at another controller.
+     *
+     * @param  RouteRecord  $route
+     */
+    private static function route(array $route): string
+    {
+        return $route['verb'] . ' ' . $route['uri'];
+    }
+
+    /**
+     * A route by what it runs, which survives a renamed URI. Null for a route with no action to name:
+     * the stand-in a closure route carries is built from the URI that just changed.
+     *
+     * @param  RouteRecord  $route
+     */
+    private static function action(array $route): ?string
+    {
+        return self::namesAnAction($route['member']) ? $route['member'] : null;
     }
 
     /**
