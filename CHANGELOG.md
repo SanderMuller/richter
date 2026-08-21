@@ -5,6 +5,31 @@ All notable changes to `sandermuller/richter` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.44.0 - 2026-08-21
+
+A guard written as an application middleware class drew nothing. The project already declares which class is its `auth` guard, in a file richter was reading for something else.
+
+### Changed
+
+- **A removed guard carries the CWE for the guard it names**, rather than one CWE for all of them. `auth` and `password.confirm` are CWE-306, `can` and `verified` are CWE-862, `signed` is CWE-345, and `throttle` is CWE-770. A lost rate limit reporting as Missing Authentication for Critical Function was the stretched mapping the hazard table's own rule warns about. Anything reading the `cwe` field will see different values for `throttle:`, `signed` and `verified` removals; the tier and the level are unchanged. This applies to the controller-constructor lane as well, which had reported CWE-306 for every middleware since long before the route-file work.
+
+### Added
+
+- **An application's own guard middleware resolves through the alias map the project registers.** `$middlewareAliases` on a legacy Kernel, or `$middleware->alias([...])` in `bootstrap/app.php`. Only seven framework classes were mapped before, so a route written `Route::middleware(Authenticate::class)` against the stock `App\Http\Middleware\Authenticate` scaffolding reported nothing at all when its guard was removed, and every route inside such a group went with it.
+  
+  A project that writes `'auth' => Authenticate::class` has said which class is its `auth` guard, so the class form and the string form are the same guard and losing either is the same removal. That is declared intent, not an inference from an `extends` clause, which would reach the same answer on weaker evidence.
+  
+  The refusals hold. A class two guard aliases both name is skipped rather than resolved one way, the same refusal the group reader already makes for a name that is both a group and an alias. A class the project registers under no guard alias draws nothing, and an unmapped class draws nothing.
+  
+  The map is read from the working tree, so it answers for both sides of the diff, and it is re-read per run: a long-lived process that analysed one checkout does not answer for the next with the first one's map.
+  
+
+### Compatibility
+
+No graph-cache bump: `FORMAT_VERSION` stays at 26. No level moves. What changes is that a guard removal previously invisible is now reported, and that some `cwe` values are more exact.
+
+**Full Changelog**: https://github.com/SanderMuller/richter/compare/v0.43.0...v0.44.0
+
 ## v0.43.0 - 2026-08-21
 
 A guard leaves a route in two directions, and richter watched neither. It can leave the route, and it can leave the middleware group the route runs in. Both are read now, and a hazard on a member of a class that is itself an entry surface stops grading as unreachable.
@@ -366,6 +391,7 @@ dispatch($job);
 
 
 
+
 ```
 That was recorded as a dispatch whose target could not be followed — and the taint is global, so one of them makes every `richter:affected-tests` run report `not determinable` and fall back to the full suite. The graph has carried the edge for this shape all along: the instantiation is in the same method, right above the dispatch. The site pointed at a place to restructure where nothing was hidden and nothing needed restructuring.
 
@@ -458,6 +484,7 @@ Build profile: nothing was built — the diff holds nothing the graph is built f
 
 
 
+
 ```
 On stderr, like the table it stands in for, and before the payload in `--json` mode so stdout stays one document. Building anyway was the alternative, and it would make a no-op run pay for an analysis nothing asked for.
 
@@ -475,6 +502,7 @@ An event named by a class constant resolves in **any** declaration form, includi
 public const string
     SUBTITLE_CHANGED = 'subtitle-changed',
     SUBTITLE_DELETED = 'subtitle-deleted';
+
 
 
 
@@ -515,6 +543,7 @@ Build profile (forced rebuild):
   total                      3.85s
   no scoped rebuild: non-app-change
     config/services.php differs from the cached graph and sits outside app/
+
 
 
 
@@ -610,6 +639,7 @@ It now names every site:
 ```
 the graph contains job dispatches that could not be followed:
 app/Jobs/Fanout.php:88 (App\Jobs\Fanout::handle), app/Services/Importer.php:12 (App\Services\Importer::run)
+
 
 
 
@@ -990,6 +1020,7 @@ Note: 2 changed file(s) are outside the analysed scope (not PHP under app/, a Bl
 
 
 
+
 ```
 Stderr, like the untracked-file note, so `--json` and `--markdown` stdout stay exactly the report. Frontend sources the configuration declines to scan are not counted: generated Wayfinder output under `frontend.generated_paths` and `.d.ts` declarations were silenced on purpose, and a note that fires loudest on regeneration churn is one people stop reading.
 
@@ -1074,6 +1105,7 @@ One new advisory lane, and a README that finally leads with what the package is 
   
   
   
+  
   ```
   The count comes off the `route:: → middleware::<group>` edges already in the graph, so it counts endpoints only: a controller-level attachment of the same group does not inflate it. Membership is read from `$middlewareGroups` on a Laravel 10 Kernel or the `->web(append: [...])` form in a Laravel 11+ `bootstrap/app.php`. A member written as an alias resolves through the same alias map, parameters are cut first (`tenant:strict` is one alias with an argument), and a group that names another group is expanded transitively, since Laravel runs the inner group's middleware on the outer group's routes too.
   
@@ -1106,6 +1138,7 @@ Two silent-failure shapes that richter used to miss: a call through an applicati
   
   ```text
     ! resources/js/Pages/Posts/Create.vue posts to POST /posts and sends 'subtitle', which this diff removes from App\Http\Requests\StorePostRequest::rules() (renamed to 'sub_title'?)
+  
   
   
   
