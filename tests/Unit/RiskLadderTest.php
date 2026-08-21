@@ -205,6 +205,24 @@ final class RiskLadderTest extends TestCase
     }
 
     #[Test]
+    public function a_caller_that_renders_references_must_hand_the_index_to_the_level_too(): void
+    {
+        // The defect this pins: three callers built a TestReferenceIndex for the RENDERERS and passed
+        // none to the analyzer. The report then contradicted itself — a row rendered "referenced"
+        // beside a cause line calling the same surface unreferenced — because the level had been
+        // computed as though no test existed. An absent index is a legitimate state; silently
+        // disagreeing with the output beside it is not.
+        $index = $this->indexReferencing('App\Services\Publisher');
+
+        [$withIndex] = $this->decide(set: ['App\Services\Publisher'], tests: $index);
+        [$withoutIndex] = $this->decide(set: ['App\Services\Publisher']);
+
+        // Omitting the index is visible in the level, never silent.
+        $this->assertSame(RiskLevel::Low, $withIndex);
+        $this->assertSame(RiskLevel::Medium, $withoutIndex);
+    }
+
+    #[Test]
     public function every_outcome_carries_a_cause(): void
     {
         $outcomes = [

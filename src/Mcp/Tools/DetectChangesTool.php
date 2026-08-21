@@ -52,8 +52,16 @@ final class DetectChangesTool extends Tool
                 ->withStructuredContent(JsonPresenter::emptyDetectChanges($base));
         }
 
-        $result = new ImpactAnalyzer($this->graphs->graph())->detectChanges($changed);
+        // The index goes to the ANALYZER, not only to the renderers. Where a change carries no hazard
+        // the level is decided on what a test references, so handing it to the formatters alone made
+        // the report contradict itself: per-row references rendered correctly beside a level computed
+        // as though no test existed, and a cause line that named surfaces as unreferenced while the
+        // row beside it called them referenced.
+        $graph = $this->graphs->graph();
         $tests = TestReferenceIndex::fromTests(base_path('tests'));
+        $tests->useGraph($graph);
+
+        $result = new ImpactAnalyzer($graph)->detectChanges($changed, tests: $tests);
 
         return new ResponseFactory(Response::text(ImpactFormatter::detectChanges($result, $tests)))
             ->withStructuredContent(JsonPresenter::detectChanges($result, $base, $tests));

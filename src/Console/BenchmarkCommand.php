@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\Process;
 use RuntimeException;
 use SanderMuller\Richter\Analysis\BenchmarkCase;
 use SanderMuller\Richter\Analysis\ImpactAnalyzer;
+use SanderMuller\Richter\Analysis\TestReferenceIndex;
 use SanderMuller\Richter\Changes\ChangedSymbols;
 use SanderMuller\Richter\Graph\GraphCache;
 use SanderMuller\Richter\Support\RichterConfig;
@@ -47,13 +48,17 @@ final class BenchmarkCommand extends Command
             return self::FAILURE;
         }
 
-        $analyzer = new ImpactAnalyzer($graphs->graph(fresh: (bool) $this->option('no-cache')));
+        $graph = $graphs->graph(fresh: (bool) $this->option('no-cache'));
+        $analyzer = new ImpactAnalyzer($graph);
+        $tests = TestReferenceIndex::fromTests(base_path('tests'));
+        $tests->useGraph($graph);
+
         $passed = 0;
         $failed = 0;
         $skipped = 0;
 
         foreach ($cases as $case) {
-            match ($this->runCase($analyzer, $case)) {
+            match ($this->runCase($analyzer, $tests, $case)) {
                 'pass' => $passed++,
                 'fail' => $failed++,
                 'skip' => $skipped++,
@@ -71,7 +76,7 @@ final class BenchmarkCommand extends Command
     }
 
     /** @return 'pass'|'fail'|'skip' */
-    private function runCase(ImpactAnalyzer $analyzer, BenchmarkCase $case): string
+    private function runCase(ImpactAnalyzer $analyzer, TestReferenceIndex $tests, BenchmarkCase $case): string
     {
         $this->newLine();
         $this->line("<options=bold>{$case->key}</> — {$case->bugClass}");
@@ -90,7 +95,11 @@ final class BenchmarkCommand extends Command
             return 'fail';
         }
 
-        $result = $analyzer->detectChanges($changed);
+        // Without the index every surface grades unverified, so every fixture's level floors at
+        // MEDIUM and `max_risk` asserts against a level computed blind. Current tests against a
+        // historical diff is the same trade this command already makes for the graph, which is built
+        // from the current checkout (see the class docblock).
+        $result = $analyzer->detectChanges($changed, tests: $tests);
         $failures = $case->evaluate($result);
 
         $unresolved = count(array_filter($result['coverage'], static fn (string $coverage): bool => $coverage === 'unresolved'));

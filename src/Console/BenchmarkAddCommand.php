@@ -8,6 +8,7 @@ use RuntimeException;
 use SanderMuller\Richter\Analysis\BenchmarkCase;
 use SanderMuller\Richter\Analysis\ImpactAnalyzer;
 use SanderMuller\Richter\Analysis\RiskLevel;
+use SanderMuller\Richter\Analysis\TestReferenceIndex;
 use SanderMuller\Richter\Changes\ChangedSymbols;
 use SanderMuller\Richter\Graph\GraphCache;
 
@@ -63,8 +64,13 @@ final class BenchmarkAddCommand extends Command
             return self::FAILURE;
         }
 
-        $analyzer = new ImpactAnalyzer($graphs->graph(fresh: (bool) $this->option('no-cache')));
-        $result = $analyzer->detectChanges($changed);
+        $graph = $graphs->graph(fresh: (bool) $this->option('no-cache'));
+        $analyzer = new ImpactAnalyzer($graph);
+        $tests = TestReferenceIndex::fromTests(base_path('tests'));
+        $tests->useGraph($graph);
+        // A control's cap is captured from this level, so an analysis without the test index would
+        // bake a MEDIUM into the corpus for a change that is actually LOW.
+        $result = $analyzer->detectChanges($changed, tests: $tests);
 
         $unresolved = count(array_filter($result['coverage'], static fn (string $coverage): bool => $coverage === 'unresolved'));
         $this->line('entry points: ' . count($result['entryPoints'])
