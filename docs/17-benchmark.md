@@ -17,7 +17,9 @@ is wrong for the right reach then passes green. A signal fixture you expect to r
 say `'max_risk' => 'medium'`, which is what turns the corpus into a check on the LEVEL rather than
 only on reach.
 
-A level-model change re-baselines controls by design. When the risk model itself changes, a control's `max_risk` is measuring a different thing than the day it was captured — re-grade the cap rather than reading the red as a regression. The 0.40 model in particular reports `medium` for a benign change richter cannot place, so a control capped at `low` needs raising to `medium`.
+A level-model change re-baselines controls by design. When the risk model itself changes, a control's `max_risk` is measuring a different thing than the day it was captured — re-grade the cap rather than reading the red as a regression.
+
+Under the 0.40 model, the controls that need raising from `low` to `medium` are the ones richter **cannot place**: "could not place what this reaches" is `medium`, not evidence of safety. A control whose change is purely additive is unaffected — it is ladder step 0, "nothing to assess", and still reports `low`.
 
 With `--control` it refuses to scaffold anything when the replay already reports HIGH. A control caps the risk a harmless change may report, and HIGH is the top of the scale, so the cap would assert nothing and the case would pass forever. Either the change is not harmless (capture it as a signal by dropping `--control`) or the corpus needs a lower-reach commit for that control. The same trap is why you should never resolve a red control by re-capturing it.
 

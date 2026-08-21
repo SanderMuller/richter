@@ -264,6 +264,24 @@ final class HazardLanesTest extends TestCase
     }
 
     #[Test]
+    public function swapping_one_constant_ability_for_another_is_a_removal(): void
+    {
+        // The under-fire with the same root as the false positive: two DIFFERENT abilities on the same
+        // call shape both fell back to `call:can`, so exchanging one for the other cancelled out and
+        // reported nothing. Distinct tokens make the swap visible.
+        $body = static fn (string $ability): string => "<?php\nnamespace App\\Http\\Controllers;\nuse App\\Policies\\PostPolicy;\nclass PostController\n{\n    public function destroy(\$post) { \$this->user()->can(PostPolicy::{$ability}, \$post); return \$post; }\n}\n";
+
+        $hazards = $this->lanes(
+            'app/Http/Controllers/PostController.php',
+            $body('VIEW'),
+            $body('DELETE'),
+        );
+
+        $this->assertSame([3], array_column($hazards, 'tier'));
+        $this->assertStringContainsString('PostPolicy::DELETE', $hazards[0]->evidence);
+    }
+
+    #[Test]
     public function a_policy_constant_ability_genuinely_removed_still_fires(): void
     {
         // The inverse must keep working: the check going away entirely is a real removal.
