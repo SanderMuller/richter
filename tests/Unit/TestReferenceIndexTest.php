@@ -123,6 +123,53 @@ final class TestReferenceIndexTest extends TestCase
     }
 
     #[Test]
+    public function a_scheduled_command_resolves_like_an_invoked_one(): void
+    {
+        // The schedule is how a command runs, not what it is: the node carries the same signature, so
+        // a test driving the command by name references the scheduled surface too. Before this it fell
+        // through to "could not be checked" — honest, but answerable.
+        $index = $this->index("<?php \$this->artisan('code:detect-changes');");
+
+        $this->assertTrue($index->hasReference('schedule::code:detect-changes'));
+    }
+
+    #[Test]
+    public function a_scheduled_command_referenced_by_class_import_is_referenced(): void
+    {
+        $index = $this->index("<?php\nuse App\\Console\\Commands\\CodeDetectChangesCommand;\n");
+
+        $this->assertTrue($index->hasReference('schedule::code:detect-changes'));
+    }
+
+    #[Test]
+    public function a_scheduled_command_nothing_drives_is_unreferenced_not_unchecked(): void
+    {
+        // It IS a command, so the question has an answer, and the answer is no.
+        $index = $this->index('<?php $this->artisan("something:else");');
+
+        $this->assertFalse($index->hasReference('schedule::code:detect-changes'));
+    }
+
+    #[Test]
+    public function a_scheduled_closure_is_unchecked_rather_than_unreferenced(): void
+    {
+        // `$schedule->call(…)->name('nightly-report')` schedules a closure. Its name is a label, not a
+        // signature — no class to look for, no artisan name to match — so answering "no test
+        // references it" would be a claim about something that cannot be resolved at all.
+        $index = $this->index('<?php $this->artisan("code:detect-changes");');
+
+        $this->assertNull($index->hasReference('schedule::nightly-report'));
+    }
+
+    #[Test]
+    public function a_scheduled_closure_a_test_names_outright_still_counts(): void
+    {
+        $index = $this->index("<?php \$this->artisan('nightly-report');");
+
+        $this->assertTrue($index->hasReference('schedule::nightly-report'));
+    }
+
+    #[Test]
     public function a_command_referenced_by_artisan_name_is_referenced(): void
     {
         $index = $this->index("<?php \$this->artisan('post:seed-views');");

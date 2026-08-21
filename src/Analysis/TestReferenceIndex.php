@@ -3,12 +3,10 @@
 namespace SanderMuller\Richter\Analysis;
 
 use Illuminate\Routing\Route as RoutingRoute;
-use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Str;
 use SanderMuller\Richter\Graph\CodeGraph;
 use SanderMuller\Richter\Support\AppNamespace;
-use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Finder\Finder;
 use Throwable;
 
@@ -251,7 +249,11 @@ final class TestReferenceIndex
         }
 
         if (str_starts_with($entryPointNode, 'command::')) {
-            return $this->resolveCommand($entryPointNode);
+            return $this->console()->resolveCommand($entryPointNode);
+        }
+
+        if (str_starts_with($entryPointNode, 'schedule::')) {
+            return $this->console()->resolveSchedule($entryPointNode);
         }
 
         // A self-listed entry-point class (a changed listener/job with no app-side caller) — a test
@@ -327,6 +329,16 @@ final class TestReferenceIndex
     }
 
     /**
+     * The console lane — `command::` and `schedule::` nodes — built from the two maps it needs. Its
+     * own class because this one sits at the static-analysis complexity ceiling, the same reason
+     * {@see RouteHandlerReferences} lives beside it rather than inside it.
+     */
+    private function console(): ConsoleReferences
+    {
+        return new ConsoleReferences($this->artisanNames, $this->classes);
+    }
+
+    /**
      * Only a conventionally-named test file counts as a reference. Shared with
      * {@see AffectedTests}, which filters the same way and for the same reason: a helper, trait or
      * fixture under tests/ imports app classes too, and it proves nothing about behaviour.
@@ -337,35 +349,6 @@ final class TestReferenceIndex
     public static function runnableOnly(array $files): array
     {
         return array_values(array_filter($files, static fn (string $file): bool => str_ends_with($file, 'Test.php')));
-    }
-
-    /** @return array{referenced: bool, tests: list<string>}|null */
-    private function resolveCommand(string $node): ?array
-    {
-        $signature = substr($node, strlen('command::'));
-        $name = preg_split('/\s/', trim($signature), 2)[0] ?? '';
-
-        if ($name === '') {
-            return null;
-        }
-
-        $referenced = isset($this->artisanNames[$name]);
-        $tests = $this->artisanNames[$name] ?? [];
-
-        try {
-            $command = Artisan::all()[$name] ?? null;
-        } catch (Throwable) {
-            // Console kernel unavailable — a class-import reference can't be ruled out. An artisan
-            // string match already in hand is still a determined (positive) answer.
-            return $referenced ? ['referenced' => true, 'tests' => $this->unique($tests)] : null;
-        }
-
-        if ($command instanceof Command && isset($this->classes[$command::class])) {
-            $referenced = true;
-            $tests = [...$tests, ...$this->classes[$command::class]];
-        }
-
-        return ['referenced' => $referenced, 'tests' => $this->unique($tests)];
     }
 
     /** @param  array<string, list<string>>  $bucket */
