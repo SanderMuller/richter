@@ -5,6 +5,27 @@ All notable changes to `sandermuller/richter` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.46.1 - 2026-08-21
+
+Two routes mounted at the same path under different prefixes were one route to the guard reader, so a guard deleted from one read as still present.
+
+### Fixed
+
+- **A route is keyed by what it runs, not only by where it is mounted.** The key was the verb and the URI as written, so two endpoints each mounted at `'/'` under their own `prefix()` group collapsed into one and their guards were read as a single set. Deleting the rate limit from one of them reported nothing, because the other still had one. Where those endpoints accept an unauthenticated POST and the rate limit is the whole guard, the report read `low`, "no analysable change" — the falsely reassuring direction the model exists to avoid.
+  
+  The guard's form had nothing to do with it, although the symptom said otherwise: deleting a string `'auth'` from the same route reported correctly, because no sibling carried `auth`, while deleting a throttle did not, because the sibling did.
+  
+  The action is part of the key now. Keying on the enclosing group instead would lose the commoner case of a route lifted out of a prefixed group, whose key would change and read as a deletion; the action survives that.
+  
+  Two ordinary edits do change the action or the URI, so pairing runs in passes: the exact key, then the verb and URI (which survives repointing a route at another controller), then the action (which survives a renamed URI). Each pairs only where its identity names exactly one unmatched route on each side, so a controller method serving several routes pairs nothing rather than pairing the wrong two. Two registrations sharing verb, URI and action are still one route written twice, and still read as one set.
+  
+
+### Compatibility
+
+No graph-cache bump: `FORMAT_VERSION` stays at 26. A diff that reported nothing may now report a tier-3 guard removal, which is the point; nothing that already reported changes its level.
+
+**Full Changelog**: https://github.com/SanderMuller/richter/compare/v0.46.0...v0.46.1
+
 ## v0.46.0 - 2026-08-21
 
 A guard written as `->middleware(ThrottleRequests::with(30, 1))` drew nothing at all, removal included. It is read now, which closes the family: the guard as a string landed in 0.43, as a class constant in 0.44, and as a builder here.
@@ -42,6 +63,7 @@ Tightening a rate limit reported a tier-3 HIGH saying the limit was gone. A guar
   
   ```
   the rate limit on the GET /search route in routes/api.php rose from `throttle:60,1` to `throttle:120,1`
+  
   
   
   ```
@@ -449,6 +471,7 @@ dispatch($job);
 
 
 
+
 ```
 That was recorded as a dispatch whose target could not be followed — and the taint is global, so one of them makes every `richter:affected-tests` run report `not determinable` and fall back to the full suite. The graph has carried the edge for this shape all along: the instantiation is in the same method, right above the dispatch. The site pointed at a place to restructure where nothing was hidden and nothing needed restructuring.
 
@@ -544,6 +567,7 @@ Build profile: nothing was built — the diff holds nothing the graph is built f
 
 
 
+
 ```
 On stderr, like the table it stands in for, and before the payload in `--json` mode so stdout stays one document. Building anyway was the alternative, and it would make a no-op run pay for an analysis nothing asked for.
 
@@ -561,6 +585,7 @@ An event named by a class constant resolves in **any** declaration form, includi
 public const string
     SUBTITLE_CHANGED = 'subtitle-changed',
     SUBTITLE_DELETED = 'subtitle-deleted';
+
 
 
 
@@ -604,6 +629,7 @@ Build profile (forced rebuild):
   total                      3.85s
   no scoped rebuild: non-app-change
     config/services.php differs from the cached graph and sits outside app/
+
 
 
 
@@ -702,6 +728,7 @@ It now names every site:
 ```
 the graph contains job dispatches that could not be followed:
 app/Jobs/Fanout.php:88 (App\Jobs\Fanout::handle), app/Services/Importer.php:12 (App\Services\Importer::run)
+
 
 
 
@@ -1088,6 +1115,7 @@ Note: 2 changed file(s) are outside the analysed scope (not PHP under app/, a Bl
 
 
 
+
 ```
 Stderr, like the untracked-file note, so `--json` and `--markdown` stdout stay exactly the report. Frontend sources the configuration declines to scan are not counted: generated Wayfinder output under `frontend.generated_paths` and `.d.ts` declarations were silenced on purpose, and a note that fires loudest on regeneration churn is one people stop reading.
 
@@ -1175,6 +1203,7 @@ One new advisory lane, and a README that finally leads with what the package is 
   
   
   
+  
   ```
   The count comes off the `route:: → middleware::<group>` edges already in the graph, so it counts endpoints only: a controller-level attachment of the same group does not inflate it. Membership is read from `$middlewareGroups` on a Laravel 10 Kernel or the `->web(append: [...])` form in a Laravel 11+ `bootstrap/app.php`. A member written as an alias resolves through the same alias map, parameters are cut first (`tenant:strict` is one alias with an argument), and a group that names another group is expanded transitively, since Laravel runs the inner group's middleware on the outer group's routes too.
   
@@ -1207,6 +1236,7 @@ Two silent-failure shapes that richter used to miss: a call through an applicati
   
   ```text
     ! resources/js/Pages/Posts/Create.vue posts to POST /posts and sends 'subtitle', which this diff removes from App\Http\Requests\StorePostRequest::rules() (renamed to 'sub_title'?)
+  
   
   
   
