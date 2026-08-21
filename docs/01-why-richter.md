@@ -12,7 +12,9 @@ A one-method change seeds that method in the code graph, not the whole class. Th
 
 ### Change hazards
 
-A hazard is a property of the diff saying the change may break something: an authorization guard removed, a rate limit raised, a mass-assignment surface widened, a payload key a consumer still reads. Each is tiered and exact, and every predicate refuses to guess rather than report a comparison it could not read in full. The [risk level](07-risk-levels.md) is decided by the worst hazard and how far it reaches, and where a change carries none, by whether anything would catch a regression in what it does reach.
+A hazard is a property of the diff saying the change may break something: an authorization guard removed, a rate limit raised, a mass-assignment surface widened, a payload key a consumer still reads. Each carries a tier from 1 to 3. A predicate that cannot read both sides of the comparison stays silent instead of guessing, so every hazard on the report is one richter read in full.
+
+The [risk level](07-risk-levels.md) comes from the worst hazard and how far it reaches. A change carrying no hazard is graded on something else: whether anything would catch a regression in what it does reach.
 
 ### Test-coverage prompts
 
