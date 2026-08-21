@@ -5,6 +5,30 @@ All notable changes to `sandermuller/richter` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.40.1 - 2026-08-21
+
+A consumer audit of 0.40.0 found the `auth` lane reporting the one thing the release notes single out as the worst kind of mistake: a false "authorization guard removed", at tier 3, HIGH. The cause is one line, and it disables the defence entirely for any codebase that names its abilities with policy constants.
+
+### Fixed
+
+- **A policy constant counts as an ability.** The moved-not-removed guard compares the ABILITY a check names, so that rewriting `Gate::denies('publish')` as `$user->cannot('publish')` keeps the same token and does not read as a removal. Only a string literal formed that token. A class constant is not a literal, so it fell back to the call's own name — `call:can` against `call:cannot` — which can never match.
+  
+  A project following Laravel's own convention writes `can(PostPolicy::UPDATE, $post)` everywhere and has no string abilities at all, so the defence was switched off for every check it has. Inverting `cannot(Policy::DELETE)` to `can(Policy::DELETE)` — the same ability, on the same policy, in the same callback — reported a removed guard at tier 3.
+  
+  A constant now tokenises on its resolved class and its own name. That needs no value resolution: two references to one constant agree wherever they are written, which is all the comparison asks for.
+  
+- **The same fallback hid a real removal.** Two DIFFERENT constant abilities on one call shape also both tokenised as `call:can`, so exchanging one for another cancelled out and reported nothing at all. Distinct tokens make the swap visible.
+  
+- **A removed policy method is named both ways.** It emitted its own name only, which a caller writing `can(PostPolicy::DELETE)` could never match — the same gap one layer down. It now also emits every constant in its class whose literal value is that method name, read from the policy's own source. That is a value comparison, not a guess at `DELETE` standing for `delete`.
+  
+
+### Internal
+
+- `Hazard::$removedToken` is now `$removedTokens`, a list. One removal can be named more than one way, and the guard has to recognise any of them. The field is internal to the hazard record; the flattened `hazards[]` entries in `--json` and over MCP are unchanged.
+- Benchmark guidance gained a note worth acting on: `max_risk` is checked on every case, but it defaults to `high`, so a signal fixture that never sets it can never trip the cap — and a level that is wrong for the right reach passes green. Setting it on signal fixtures turns the corpus into a check on the LEVEL rather than only on reach. The 0.40.0 upgrade note is also corrected: the controls needing a re-grade from `low` to `medium` are the ones Richter cannot place, not additive-only ones, which stay at ladder step 0.
+
+**Full Changelog**: https://github.com/SanderMuller/richter/compare/v0.40.0...v0.40.1
+
 ## v0.40.0 - 2026-08-21
 
 The risk level scored three things: impacted nodes, entry points reached, and whether the diff touched an entry-point class. All three measure how BIG a change is. A change that removes an authorization check and a change that renames a method on a popular class scored the same, because the model had no notion of what KIND of change it was looking at. The counts also moved on their own — every release that taught Richter to follow more edges raised them for an unchanged diff, so a threshold pinned to them drifted.
@@ -201,6 +225,7 @@ dispatch($job);
 
 
 
+
 ```
 That was recorded as a dispatch whose target could not be followed — and the taint is global, so one of them makes every `richter:affected-tests` run report `not determinable` and fall back to the full suite. The graph has carried the edge for this shape all along: the instantiation is in the same method, right above the dispatch. The site pointed at a place to restructure where nothing was hidden and nothing needed restructuring.
 
@@ -288,6 +313,7 @@ Build profile: nothing was built — the diff holds nothing the graph is built f
 
 
 
+
 ```
 On stderr, like the table it stands in for, and before the payload in `--json` mode so stdout stays one document. Building anyway was the alternative, and it would make a no-op run pay for an analysis nothing asked for.
 
@@ -305,6 +331,7 @@ An event named by a class constant resolves in **any** declaration form, includi
 public const string
     SUBTITLE_CHANGED = 'subtitle-changed',
     SUBTITLE_DELETED = 'subtitle-deleted';
+
 
 
 
@@ -340,6 +367,7 @@ Build profile (forced rebuild):
   total                      3.85s
   no scoped rebuild: non-app-change
     config/services.php differs from the cached graph and sits outside app/
+
 
 
 
@@ -430,6 +458,7 @@ It now names every site:
 ```
 the graph contains job dispatches that could not be followed:
 app/Jobs/Fanout.php:88 (App\Jobs\Fanout::handle), app/Services/Importer.php:12 (App\Services\Importer::run)
+
 
 
 
@@ -800,6 +829,7 @@ Note: 2 changed file(s) are outside the analysed scope (not PHP under app/, a Bl
 
 
 
+
 ```
 Stderr, like the untracked-file note, so `--json` and `--markdown` stdout stay exactly the report. Frontend sources the configuration declines to scan are not counted: generated Wayfinder output under `frontend.generated_paths` and `.d.ts` declarations were silenced on purpose, and a note that fires loudest on regeneration churn is one people stop reading.
 
@@ -879,6 +909,7 @@ One new advisory lane, and a README that finally leads with what the package is 
   
   
   
+  
   ```
   The count comes off the `route:: → middleware::<group>` edges already in the graph, so it counts endpoints only: a controller-level attachment of the same group does not inflate it. Membership is read from `$middlewareGroups` on a Laravel 10 Kernel or the `->web(append: [...])` form in a Laravel 11+ `bootstrap/app.php`. A member written as an alias resolves through the same alias map, parameters are cut first (`tenant:strict` is one alias with an argument), and a group that names another group is expanded transitively, since Laravel runs the inner group's middleware on the outer group's routes too.
   
@@ -911,6 +942,7 @@ Two silent-failure shapes that richter used to miss: a call through an applicati
   
   ```text
     ! resources/js/Pages/Posts/Create.vue posts to POST /posts and sends 'subtitle', which this diff removes from App\Http\Requests\StorePostRequest::rules() (renamed to 'sub_title'?)
+  
   
   
   
