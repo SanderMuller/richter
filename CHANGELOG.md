@@ -5,6 +5,27 @@ All notable changes to `sandermuller/richter` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.46.0 - 2026-08-21
+
+A guard written as `->middleware(ThrottleRequests::with(30, 1))` drew nothing at all, removal included. It is read now, which closes the family: the guard as a string landed in 0.43, as a class constant in 0.44, and as a builder here.
+
+### Added
+
+- **A guard built by a static call is read as that guard**, with its arguments as the parameter. `ThrottleRequests::with(30, 1)` is `throttle:30,1`, so it feeds the rate comparison 0.45 introduced: dropping it is a removed guard at tier 3, raising the limit is tier 2, and tightening it says nothing.
+  
+  An argument becomes part of the parameter only where it can be evaluated where it is written: a scalar, or a `::class` constant. The constant counts because `Authorize::using('update', Post::class)` names an ability and a model the way `can:update,post` does, and reading it as a bare `can` would collapse two different authorization checks onto one token.
+  
+  Anything else answers the bare guard, which is present-or-absent rather than nothing. `ThrottleRequests::using(Limiter::GuestVerification)` names a limiter whose rate lives in a `RateLimiter::for()` closure nothing here follows; a named argument read positionally would invent a limit; a variable is not a value. A removal is still tier 3 in all of those, and only the rate comparison drops out. An unmapped class draws nothing at all, as before.
+  
+
+### Compatibility
+
+No graph-cache bump: `FORMAT_VERSION` stays at 26. No level moves on anything previously reported; what changes is that a guard richter could not read is now read.
+
+One seam stays open, and closing it needs route-model binding: the string form writes `can:update,post` against a binding key while the builder writes the model's fully qualified name, so the two spellings produce different tokens and a refactor between them reads as a removal. Each spelling compares correctly against itself.
+
+**Full Changelog**: https://github.com/SanderMuller/richter/compare/v0.45.0...v0.46.0
+
 ## v0.45.0 - 2026-08-21
 
 Tightening a rate limit reported a tier-3 HIGH saying the limit was gone. A guard's parameter is now read as part of the guard only where it names who gets in.
@@ -21,6 +42,7 @@ Tightening a rate limit reported a tier-3 HIGH saying the limit was gone. A guar
   
   ```
   the rate limit on the GET /search route in routes/api.php rose from `throttle:60,1` to `throttle:120,1`
+  
   
   ```
   Tightening it says nothing. Neither does anything the reader cannot compare: a named limiter such as `throttle:api` keeps its rate in a `RateLimiter::for()` closure nothing here follows, several throttles on one surface bind at the strictest, and two limits counting over different windows have no ordering at all — `throttle:100,60` allows a burst of a hundred in one minute where `throttle:2,1` allows two, yet the second averages the higher rate. Routes, middleware groups and controller constructors share the rule, so a rate change is never a removal on one surface and a change on another.
@@ -426,6 +448,7 @@ dispatch($job);
 
 
 
+
 ```
 That was recorded as a dispatch whose target could not be followed — and the taint is global, so one of them makes every `richter:affected-tests` run report `not determinable` and fall back to the full suite. The graph has carried the edge for this shape all along: the instantiation is in the same method, right above the dispatch. The site pointed at a place to restructure where nothing was hidden and nothing needed restructuring.
 
@@ -520,6 +543,7 @@ Build profile: nothing was built — the diff holds nothing the graph is built f
 
 
 
+
 ```
 On stderr, like the table it stands in for, and before the payload in `--json` mode so stdout stays one document. Building anyway was the alternative, and it would make a no-op run pay for an analysis nothing asked for.
 
@@ -537,6 +561,7 @@ An event named by a class constant resolves in **any** declaration form, includi
 public const string
     SUBTITLE_CHANGED = 'subtitle-changed',
     SUBTITLE_DELETED = 'subtitle-deleted';
+
 
 
 
@@ -579,6 +604,7 @@ Build profile (forced rebuild):
   total                      3.85s
   no scoped rebuild: non-app-change
     config/services.php differs from the cached graph and sits outside app/
+
 
 
 
@@ -676,6 +702,7 @@ It now names every site:
 ```
 the graph contains job dispatches that could not be followed:
 app/Jobs/Fanout.php:88 (App\Jobs\Fanout::handle), app/Services/Importer.php:12 (App\Services\Importer::run)
+
 
 
 
@@ -1060,6 +1087,7 @@ Note: 2 changed file(s) are outside the analysed scope (not PHP under app/, a Bl
 
 
 
+
 ```
 Stderr, like the untracked-file note, so `--json` and `--markdown` stdout stay exactly the report. Frontend sources the configuration declines to scan are not counted: generated Wayfinder output under `frontend.generated_paths` and `.d.ts` declarations were silenced on purpose, and a note that fires loudest on regeneration churn is one people stop reading.
 
@@ -1146,6 +1174,7 @@ One new advisory lane, and a README that finally leads with what the package is 
   
   
   
+  
   ```
   The count comes off the `route:: → middleware::<group>` edges already in the graph, so it counts endpoints only: a controller-level attachment of the same group does not inflate it. Membership is read from `$middlewareGroups` on a Laravel 10 Kernel or the `->web(append: [...])` form in a Laravel 11+ `bootstrap/app.php`. A member written as an alias resolves through the same alias map, parameters are cut first (`tenant:strict` is one alias with an argument), and a group that names another group is expanded transitively, since Laravel runs the inner group's middleware on the outer group's routes too.
   
@@ -1178,6 +1207,7 @@ Two silent-failure shapes that richter used to miss: a call through an applicati
   
   ```text
     ! resources/js/Pages/Posts/Create.vue posts to POST /posts and sends 'subtitle', which this diff removes from App\Http\Requests\StorePostRequest::rules() (renamed to 'sub_title'?)
+  
   
   
   
