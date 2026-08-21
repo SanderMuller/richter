@@ -34,6 +34,9 @@ use PhpParser\Node\Stmt\TryCatch;
 use PhpParser\Node\Stmt\Use_;
 use PhpParser\Node\Stmt\While_;
 use PhpParser\NodeFinder;
+use PhpParser\NodeTraverser;
+use PhpParser\NodeVisitor;
+use PhpParser\NodeVisitorAbstract;
 use SanderMuller\Richter\Graph\CodeGraphBuilder;
 use SanderMuller\Richter\Support\AppFiles;
 use SanderMuller\Richter\Support\DeclaredTypes;
@@ -222,50 +225,74 @@ final class RelationTraversalTracer
         $docblocks = $this->types->docblockTypesIn($scope);
         $seeds = $this->types->parameterTypesOf($scope);
 
-        $finder = new NodeFinder();
-        // `$scope !== $node` because a closure's own body search finds the closure itself, and
-        // recursing into that is a stack overflow rather than a scope.
-        /** @var list<Closure|ArrowFunction> $closures */
-        $closures = $finder->find($scope, static fn (Node $node): bool => $node !== $scope
-            && ($node instanceof Closure || $node instanceof ArrowFunction));
-        $outermost = array_values(array_filter(
-            $closures,
-            static fn (Node $closure): bool => ! array_any(
-                $closures,
-                static fn (Node $other): bool => $other !== $closure
-                    && $other->getStartFilePos() < $closure->getStartFilePos()
-                    && $other->getEndFilePos() > $closure->getEndFilePos(),
-            ),
-        ));
+        // One descent collects everything this scope reads: the outermost closures (their children
+        // skipped, since each is its own scope, recursed into below), the chain-capable nodes in
+        // preorder — which IS start-position order, because a child never starts before its parent —
+        // and the branching ranges. The three separate finds this replaces each walked the same tree
+        // in full, and the containment filters they then needed were quadratic in the found nodes.
+        $walk = new class ($scope) extends NodeVisitorAbstract {
+            /** @var list<Closure|ArrowFunction> */
+            public array $closures = [];
 
-        foreach ($outermost as $closure) {
+            /** @var list<Assign|PropertyFetch|NullsafePropertyFetch|MethodCall|NullsafeMethodCall> */
+            public array $nodes = [];
+
+            /** @var list<array{0: int, 1: int}> */
+            public array $branching = [];
+
+            public function __construct(private readonly FunctionLike $scope) {}
+
+            public function enterNode(Node $node): ?int
+            {
+                // `$node !== $this->scope` because the traversal starts on the scope node itself, and
+                // stopping there would skip the very body this walk exists to read.
+                if ($node !== $this->scope && ($node instanceof Closure || $node instanceof ArrowFunction)) {
+                    $this->closures[] = $node;
+
+                    return NodeVisitor::DONT_TRAVERSE_CHILDREN;
+                }
+
+                if ($node instanceof Assign
+                    || $node instanceof PropertyFetch
+                    || $node instanceof NullsafePropertyFetch
+                    || $node instanceof MethodCall
+                    || $node instanceof NullsafeMethodCall) {
+                    $this->nodes[] = $node;
+
+                    return null;
+                }
+
+                // An assignment inside one of these may or may not run, and a sibling branch may bind
+                // the same name to another model — so its range marks bindings as conditional.
+                if ($node instanceof If_
+                    || $node instanceof Else_
+                    || $node instanceof ElseIf_
+                    || $node instanceof For_
+                    || $node instanceof Foreach_
+                    || $node instanceof While_
+                    || $node instanceof Do_
+                    || $node instanceof Switch_
+                    || $node instanceof Match_
+                    || $node instanceof TryCatch
+                    || $node instanceof Ternary) {
+                    $this->branching[] = [$node->getStartFilePos(), $node->getEndFilePos()];
+                }
+
+                return null;
+            }
+        };
+
+        new NodeTraverser($walk)->traverse([$scope]);
+
+        foreach ($walk->closures as $closure) {
             $this->collectScope($closure, $source, $classFqcn, $properties);
         }
 
-        // One descent for every node kind that can start or continue a chain, then source order:
-        // a local's type comes from the line above it, so the steps have to run as written.
-        $nodes = new NodeFinder()->find(
-            $scope,
-            static fn (Node $node): bool => $node instanceof Assign
-                || $node instanceof PropertyFetch
-                || $node instanceof NullsafePropertyFetch
-                || $node instanceof MethodCall
-                || $node instanceof NullsafeMethodCall,
-        );
-
-        // A node inside a nested closure belongs to that closure's own scope, not to this one.
-        $nodes = array_values(array_filter($nodes, static fn (Node $node): bool => ! array_any(
-            $outermost,
-            static fn (Node $closure): bool => $node !== $closure
-                && $node->getStartFilePos() >= $closure->getStartFilePos()
-                && $node->getEndFilePos() <= $closure->getEndFilePos(),
-        )));
-
-        usort($nodes, static fn (Node $a, Node $b): int => $a->getStartFilePos() <=> $b->getStartFilePos());
+        $nodes = $walk->nodes;
 
         $steps = [];
         $handled = [];
-        $branching = $this->branchRanges($scope);
+        $branching = $walk->branching;
 
         foreach ($nodes as $node) {
             if (isset($handled[spl_object_id($node)])) {
@@ -367,30 +394,6 @@ final class RelationTraversalTracer
         $declared = $docblocks[spl_object_id($node)][$target] ?? null;
 
         $steps[] = ['assign' => $target, 'rootClass' => $declared, 'rootVar' => null, 'names' => [], 'stopAfter' => null];
-    }
-
-    /**
-     * The source ranges of every branching or repeating construct in one scope. An assignment inside
-     * one of them is conditional: it may not run, and a sibling branch may bind the same name to a
-     * different model.
-     *
-     * @return list<array{0: int, 1: int}>
-     */
-    private function branchRanges(FunctionLike $scope): array
-    {
-        $branching = new NodeFinder()->find($scope, static fn (Node $node): bool => $node instanceof If_
-            || $node instanceof Else_
-            || $node instanceof ElseIf_
-            || $node instanceof For_
-            || $node instanceof Foreach_
-            || $node instanceof While_
-            || $node instanceof Do_
-            || $node instanceof Switch_
-            || $node instanceof Match_
-            || $node instanceof TryCatch
-            || $node instanceof Ternary);
-
-        return array_values(array_map(static fn (Node $node): array => [$node->getStartFilePos(), $node->getEndFilePos()], $branching));
     }
 
     /**
