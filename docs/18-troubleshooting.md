@@ -46,7 +46,7 @@ On an application whose subsystems are dispatched through a config-keyed registr
 
 The discrimination is in the cause line, not the level. Read it: `could not place` and `no test referencing them` are different problems with different fixes. `--fail-on-hazard` gates the changes that carry an actual hazard, whatever their level.
 
-If the registry is one richter could follow, teaching it the dispatch is the real fix — see [Configuration](16-configuration.md).
+If the registry is one richter could follow, teaching it the dispatch is the real fix. See [Configuration](16-configuration.md).
 
 ### The risk level does not match the `Impact` counts beside it
 
