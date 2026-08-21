@@ -5,6 +5,39 @@ All notable changes to `sandermuller/richter` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.45.0 - 2026-08-21
+
+Tightening a rate limit reported a tier-3 HIGH saying the limit was gone. A guard's parameter is now read as part of the guard only where it names who gets in.
+
+### Changed
+
+- **A parameter belongs to the guard only when it names WHAT is authorized.** `can:update,post` and `role:admin` are compared with their parameters, because `can:view,post` is a different check and `role:editor` admits different people. `auth:sanctum` is compared as `auth`, because there the parameter picks a driver rather than an audience. Where the parameter is a set it is sorted first, per the separator its package uses: spatie's roles are pipe-separated and take a positional guard name after a comma, so only the pipes sort, and `can` keeps its order entirely since its parameters name an ability and then a model.
+  
+  Comparing the written form verbatim made every parameter change a removal. Tightening `throttle:60,1` to `throttle:30,1` reported tier 3, and since 0.44.0 it reported CWE-770 — a limit went missing — about a limit that got stricter. Switching `auth` to `auth:sanctum` read the same way.
+  
+  The same change fixes a move that was reported as a removal: a route losing `auth:sanctum` while a middleware group gains `Authenticate::class` now produces one token on both sides, so the moved-not-removed guard matches it.
+  
+- **A raised rate limit is a weakened constraint, not a missing guard.** Dropping `throttle:` stays a removed guard at tier 3. Raising the limit is tier 2, CWE-770, with both values named:
+  
+  ```
+  the rate limit on the GET /search route in routes/api.php rose from `throttle:60,1` to `throttle:120,1`
+  
+  ```
+  Tightening it says nothing. Neither does anything the reader cannot compare: a named limiter such as `throttle:api` keeps its rate in a `RateLimiter::for()` closure nothing here follows, several throttles on one surface bind at the strictest, and two limits counting over different windows have no ordering at all — `throttle:100,60` allows a burst of a hundred in one minute where `throttle:2,1` allows two, yet the second averages the higher rate. Routes, middleware groups and controller constructors share the rule, so a rate change is never a removal on one surface and a change on another.
+  
+
+### Added
+
+- **The guard vocabulary runs past the framework's own.** `role`, `permission` and `role_or_permission` from spatie/laravel-permission, and `client`, `scope`, `scopes`, `ability` and `abilities` from Passport and Sanctum, all CWE-862. An application gating on `role:admin` previously got no report at all when that guard was removed. These are curation of the same kind the package already does for the framework's own classes, and they carry real CWE mappings.
+
+### Compatibility
+
+No graph-cache bump: `FORMAT_VERSION` stays at 26.
+
+`removedTokens` values change for parameterised guards. A removed `auth:sanctum` now reports `middleware:auth`, and a removed `throttle:60,1` keeps its limit as `middleware:throttle:60,1`. A `hazards.ignore` entry naming a member is unaffected; nothing keys on these tokens outside the package.
+
+**Full Changelog**: https://github.com/SanderMuller/richter/compare/v0.44.0...v0.45.0
+
 ## v0.44.0 - 2026-08-21
 
 A guard written as an application middleware class drew nothing. The project already declares which class is its `auth` guard, in a file richter was reading for something else.
@@ -392,6 +425,7 @@ dispatch($job);
 
 
 
+
 ```
 That was recorded as a dispatch whose target could not be followed — and the taint is global, so one of them makes every `richter:affected-tests` run report `not determinable` and fall back to the full suite. The graph has carried the edge for this shape all along: the instantiation is in the same method, right above the dispatch. The site pointed at a place to restructure where nothing was hidden and nothing needed restructuring.
 
@@ -485,6 +519,7 @@ Build profile: nothing was built — the diff holds nothing the graph is built f
 
 
 
+
 ```
 On stderr, like the table it stands in for, and before the payload in `--json` mode so stdout stays one document. Building anyway was the alternative, and it would make a no-op run pay for an analysis nothing asked for.
 
@@ -502,6 +537,7 @@ An event named by a class constant resolves in **any** declaration form, includi
 public const string
     SUBTITLE_CHANGED = 'subtitle-changed',
     SUBTITLE_DELETED = 'subtitle-deleted';
+
 
 
 
@@ -543,6 +579,7 @@ Build profile (forced rebuild):
   total                      3.85s
   no scoped rebuild: non-app-change
     config/services.php differs from the cached graph and sits outside app/
+
 
 
 
@@ -639,6 +676,7 @@ It now names every site:
 ```
 the graph contains job dispatches that could not be followed:
 app/Jobs/Fanout.php:88 (App\Jobs\Fanout::handle), app/Services/Importer.php:12 (App\Services\Importer::run)
+
 
 
 
@@ -1021,6 +1059,7 @@ Note: 2 changed file(s) are outside the analysed scope (not PHP under app/, a Bl
 
 
 
+
 ```
 Stderr, like the untracked-file note, so `--json` and `--markdown` stdout stay exactly the report. Frontend sources the configuration declines to scan are not counted: generated Wayfinder output under `frontend.generated_paths` and `.d.ts` declarations were silenced on purpose, and a note that fires loudest on regeneration churn is one people stop reading.
 
@@ -1106,6 +1145,7 @@ One new advisory lane, and a README that finally leads with what the package is 
   
   
   
+  
   ```
   The count comes off the `route:: → middleware::<group>` edges already in the graph, so it counts endpoints only: a controller-level attachment of the same group does not inflate it. Membership is read from `$middlewareGroups` on a Laravel 10 Kernel or the `->web(append: [...])` form in a Laravel 11+ `bootstrap/app.php`. A member written as an alias resolves through the same alias map, parameters are cut first (`tenant:strict` is one alias with an argument), and a group that names another group is expanded transitively, since Laravel runs the inner group's middleware on the outer group's routes too.
   
@@ -1138,6 +1178,7 @@ Two silent-failure shapes that richter used to miss: a call through an applicati
   
   ```text
     ! resources/js/Pages/Posts/Create.vue posts to POST /posts and sends 'subtitle', which this diff removes from App\Http\Requests\StorePostRequest::rules() (renamed to 'sub_title'?)
+  
   
   
   
