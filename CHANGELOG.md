@@ -5,6 +5,51 @@ All notable changes to `sandermuller/richter` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.40.0 - 2026-08-21
+
+The risk level scored three things: impacted nodes, entry points reached, and whether the diff touched an entry-point class. All three measure how BIG a change is. A change that removes an authorization check and a change that renames a method on a popular class scored the same, because the model had no notion of what KIND of change it was looking at. The counts also moved on their own — every release that taught Richter to follow more edges raised them for an unchanged diff, so a threshold pinned to them drifted.
+
+This release replaces that model. A level is decided by the HAZARD a change carries — an exact, tiered property of the diff — and, where it carries none, by whether anything would catch a regression in what it reaches. The breadth numbers stay in the report, under `Impact`, where they describe the change instead of grading it.
+
+Every level now prints the reason for itself. A bare `MEDIUM` is not a result this report will render.
+
+### Breaking
+
+- **`risk` changes meaning, so `--fail-on` gates a different thing.** Read [Risk levels](https://sandermuller.github.io/richter/risk-levels) before a gated build meets this release. Four named behaviours flip: an additive `$fillable` entry moves from `low` to `medium` (it is now a hazard); a change reaching only surfaces no test references moves to `medium`; a change reaching nothing richter can place moves to `medium`; and a broad change whose every surface is test-referenced can move DOWN to `low`. That last one matters most — a team using `--fail-on=high` as a breadth alarm loses that alarm.
+- **`risk_thresholds` is retired.** Nothing reads it. The key is accepted and ignored for one release so an upgrade does not fail on it; remove it. There is nothing to calibrate any more, which was the point.
+- **Three keys leave `--json` and the MCP `detect-changes` schema**: `scoredEntryPoints`, `scoredImpacted` and `coarseCapApplied`. They existed to name the counts the level was scored on, and nothing is scored on counts now. `lowConfidence` stays — it describes the seeding, not the scoring.
+- **A benchmark control capped at `max_risk: low` needs re-grading to `medium`.** A benign change Richter cannot place reports `medium` by design. That is an intended over-report, not the unintended kind a control exists to catch.
+
+### Added
+
+- **Change hazards.** Seven lanes, tiered 1 to 3, each naming something that may break rather than something Richter could not see: an authorization guard or authentication middleware removed, `$hidden` narrowed, a mass-assignment surface widened, a `$casts` value changed on a surviving key, a validation constraint dropped, a queued job's constructor changed, a public or protected member removed, and a surviving member's signature changed. They print under `Hazards`, above `Findings`, with the CWE where a clean mapping exists.
+- **Every predicate is exact.** A lane that cannot read both sides of a comparison in full reports nothing rather than guessing: an unparseable side, a spread in a `$fillable`, a rule list holding a `Rule::unique(…)` object, a validation array passed as a variable. A false "authorization removed" is worse than the number it replaces, because over-reporting is what trains a reader to ignore a report.
+- **A guard that MOVED is not a guard that was removed.** Authorization migrates — a controller's `authorize()` becomes a form request's, a policy method becomes a `Gate::authorize()` call. Every removal predicate is evaluated against what the whole diff ADDED, counted per member so that neither an untouched duplicate elsewhere in the file nor a genuine move between two methods is read the wrong way.
+- **A reach class per hazard.** `public-write`, `gated`, or `no-known-path`, combined with the tier to give the level. Tier 3 is `high` at every reach class: the graph's inability to name a caller is Richter's limit, not evidence of safety, and `no-known-path` means unmeasured, never proven-internal.
+- **`--fail-on-hazard=<1|2|3>`** blocks on hazards alone, whatever the level. Blocking a removed guard and blocking a missing test are different policies, so each has its own flag. `--no-hazards` skips the lanes.
+- **`riskCause`, `hazards` and `verification`** in `--json` and over MCP. `verification` names exactly what the level graded and whether a test references each entry — which is narrower than the printed entry-point list, on purpose.
+
+### Fixed
+
+- **A class-driven surface no longer reads as untested.** The test-reference matcher recognised a route two ways: by route name and by literal URI. A Livewire component or Filament page driven by `livewire(SomePage::class)` is named by neither, so a surface a test genuinely exercises graded `unreferenced`. A route now resolves through its handler edge to the class that serves it — two hops where a Filament resource route needs them — and an import of that class counts. On one audited application, 16 test files drove surfaces that way.
+- **Only a runnable test file counts as a reference to the level.** Richter indexes every PHP file under `tests/`, fixtures and base cases included. A fixture holding `route('posts.edit')` or a literal URI would otherwise verify a surface no test exercises, which is a falsely reassuring `low` — the one direction this model must not fail in. The per-row annotation keeps its broader reading.
+- **A state that could not be checked counts as unverified.** A route miss while the router was unavailable means the check never ran. Reading it as "not unreferenced" would open the `low` path on a surface nothing checked.
+- **Payload parity is a hazard, not a finding.** A payload key a consumer still reads, a model field that never reached the resource mirroring its siblings, a form-request field that stopped being validated: each is a thing that breaks. The three checks keep their predicates and their `payload_parity` config keys unchanged; only the destination moved, and with it their effect on the level.
+- **"Nothing to assess" and "could not place this" are separate answers.** An empty, cosmetic-only or additive-only diff reports `low` because there is no question to answer. A real change to a class the graph never charted reports `medium`, because failing to place a change is a placement failure. Collapsing the two would have reported `medium` for a whitespace commit.
+
+### Compatibility
+
+- **The graph cache is unaffected.** Hazards are read from the diff's two sides, not from the graph, so `FORMAT_VERSION` does not move for this work.
+- **A frontend-only change still cannot move the level.** Its routes are touched surfaces, never walk seeds, so such a diff has nothing to assess and reports `low` — the promise the config has always made, now kept by construction.
+- **Coverage and the level stay separate gates.** An UNRESOLVED file never floors the level; `--fail-on-unresolved` covers it, and the unresolved file still prints its own finding.
+
+### Internal
+
+- Brain's per-route security surface and the test-reference annotation were both documented as never feeding the risk level. Both now do — the first through a hazard's reach class, the second through the verification ladder — and every place that claimed otherwise has been corrected. Pennant gates and middleware group membership genuinely still feed nothing.
+- Matching an imported facade on its bare AST token silently never fires. Two lanes were caught doing it, and the resolved-name helper is now used wherever a lane names a class.
+
+**Full Changelog**: https://github.com/SanderMuller/richter/compare/v0.39.0...v0.40.0
+
 ## v0.39.0 - 2026-08-20
 
 An instance method call drew no edge in any earlier version. Brain resolves calls along its route-anchored lanes only, and Richter's own tracers covered static calls, constants, relations, facades and dispatches — so for every class no route reaches, `$this->doTheWork()` was invisible. That gap, and three narrower ones beside it, came out of a consumer audit of 0.38 on a 4,000-file application.
@@ -155,6 +200,7 @@ dispatch($job);
 
 
 
+
 ```
 That was recorded as a dispatch whose target could not be followed — and the taint is global, so one of them makes every `richter:affected-tests` run report `not determinable` and fall back to the full suite. The graph has carried the edge for this shape all along: the instantiation is in the same method, right above the dispatch. The site pointed at a place to restructure where nothing was hidden and nothing needed restructuring.
 
@@ -241,6 +287,7 @@ Build profile: nothing was built — the diff holds nothing the graph is built f
 
 
 
+
 ```
 On stderr, like the table it stands in for, and before the payload in `--json` mode so stdout stays one document. Building anyway was the alternative, and it would make a no-op run pay for an analysis nothing asked for.
 
@@ -258,6 +305,7 @@ An event named by a class constant resolves in **any** declaration form, includi
 public const string
     SUBTITLE_CHANGED = 'subtitle-changed',
     SUBTITLE_DELETED = 'subtitle-deleted';
+
 
 
 
@@ -292,6 +340,7 @@ Build profile (forced rebuild):
   total                      3.85s
   no scoped rebuild: non-app-change
     config/services.php differs from the cached graph and sits outside app/
+
 
 
 
@@ -381,6 +430,7 @@ It now names every site:
 ```
 the graph contains job dispatches that could not be followed:
 app/Jobs/Fanout.php:88 (App\Jobs\Fanout::handle), app/Services/Importer.php:12 (App\Services\Importer::run)
+
 
 
 
@@ -749,6 +799,7 @@ Note: 2 changed file(s) are outside the analysed scope (not PHP under app/, a Bl
 
 
 
+
 ```
 Stderr, like the untracked-file note, so `--json` and `--markdown` stdout stay exactly the report. Frontend sources the configuration declines to scan are not counted: generated Wayfinder output under `frontend.generated_paths` and `.d.ts` declarations were silenced on purpose, and a note that fires loudest on regeneration churn is one people stop reading.
 
@@ -827,6 +878,7 @@ One new advisory lane, and a README that finally leads with what the package is 
   
   
   
+  
   ```
   The count comes off the `route:: → middleware::<group>` edges already in the graph, so it counts endpoints only: a controller-level attachment of the same group does not inflate it. Membership is read from `$middlewareGroups` on a Laravel 10 Kernel or the `->web(append: [...])` form in a Laravel 11+ `bootstrap/app.php`. A member written as an alias resolves through the same alias map, parameters are cut first (`tenant:strict` is one alias with an argument), and a group that names another group is expanded transitively, since Laravel runs the inner group's middleware on the outer group's routes too.
   
@@ -859,6 +911,7 @@ Two silent-failure shapes that richter used to miss: a call through an applicati
   
   ```text
     ! resources/js/Pages/Posts/Create.vue posts to POST /posts and sends 'subtitle', which this diff removes from App\Http\Requests\StorePostRequest::rules() (renamed to 'sub_title'?)
+  
   
   
   
