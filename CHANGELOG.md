@@ -5,6 +5,30 @@ All notable changes to `sandermuller/richter` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.40.2 - 2026-08-21
+
+Three callers built a test-reference index for the report's renderers and handed none of it to the analysis. Before 0.40 that was harmless — test references were annotation. In 0.40 they decide the risk level wherever a change carries no hazard, so those three graded every surface as unreferenced and floored at `medium`.
+
+### Fixed
+
+- **The MCP `detect-changes` tool contradicted itself.** It built the index on the line after the analysis and passed it to the formatters alone. One report therefore rendered entry-point rows as `referenced` beside a cause line calling those same surfaces unreferenced, and the level came from the second reading. Both now come from the same index.
+- **`richter:benchmark` graded every fixture blind.** It passed no index at all, so every replayed case reported at least `medium` whatever its tests say. That matters beyond the printed level: `max_risk` is asserted against it, so a corpus could stay green while measuring a level computed without the input the level depends on.
+- **`richter:benchmark:add` captured a control's cap from that same blind level**, writing an inflated `max_risk` into the scaffolded stanza.
+
+A historical replay is graded against the CURRENT `tests/` directory. That is the trade `richter:benchmark` already makes for the graph, which is likewise built from the current checkout, and it is the same reason `--head` grades against today's tests: pointing at an old commit deliberately leaves the working tree alone.
+
+### Upgrading
+
+If you keep a [benchmark corpus](https://sandermuller.github.io/richter/benchmark), re-check it after upgrading. Cases that reported `medium` only because the level could not see your tests will now report what they earn, and a control whose `max_risk` was captured by `richter:benchmark:add` on 0.40.0 or 0.40.1 may be capped higher than the change deserves.
+
+The 0.40.1 notes suggested setting `max_risk` on signal fixtures so the corpus checks the level and not only the reach. That advice holds, but do it on this version — a cap chosen on 0.40.1 was chosen against a level computed without the test index.
+
+### Compatibility
+
+No API, config or output-shape changes, and no graph-cache bump: `FORMAT_VERSION` stays at 26. Levels can move DOWN on the surfaces above, wherever a test reference existed that the level was not being shown.
+
+**Full Changelog**: https://github.com/SanderMuller/richter/compare/v0.40.1...v0.40.2
+
 ## v0.40.1 - 2026-08-21
 
 A consumer audit of 0.40.0 found the `auth` lane reporting the one thing the release notes single out as the worst kind of mistake: a false "authorization guard removed", at tier 3, HIGH. The cause is one line, and it disables the defence entirely for any codebase that names its abilities with policy constants.
@@ -238,6 +262,7 @@ dispatch($job);
 
 
 
+
 ```
 That was recorded as a dispatch whose target could not be followed — and the taint is global, so one of them makes every `richter:affected-tests` run report `not determinable` and fall back to the full suite. The graph has carried the edge for this shape all along: the instantiation is in the same method, right above the dispatch. The site pointed at a place to restructure where nothing was hidden and nothing needed restructuring.
 
@@ -326,6 +351,7 @@ Build profile: nothing was built — the diff holds nothing the graph is built f
 
 
 
+
 ```
 On stderr, like the table it stands in for, and before the payload in `--json` mode so stdout stays one document. Building anyway was the alternative, and it would make a no-op run pay for an analysis nothing asked for.
 
@@ -343,6 +369,7 @@ An event named by a class constant resolves in **any** declaration form, includi
 public const string
     SUBTITLE_CHANGED = 'subtitle-changed',
     SUBTITLE_DELETED = 'subtitle-deleted';
+
 
 
 
@@ -379,6 +406,7 @@ Build profile (forced rebuild):
   total                      3.85s
   no scoped rebuild: non-app-change
     config/services.php differs from the cached graph and sits outside app/
+
 
 
 
@@ -470,6 +498,7 @@ It now names every site:
 ```
 the graph contains job dispatches that could not be followed:
 app/Jobs/Fanout.php:88 (App\Jobs\Fanout::handle), app/Services/Importer.php:12 (App\Services\Importer::run)
+
 
 
 
@@ -842,6 +871,7 @@ Note: 2 changed file(s) are outside the analysed scope (not PHP under app/, a Bl
 
 
 
+
 ```
 Stderr, like the untracked-file note, so `--json` and `--markdown` stdout stay exactly the report. Frontend sources the configuration declines to scan are not counted: generated Wayfinder output under `frontend.generated_paths` and `.d.ts` declarations were silenced on purpose, and a note that fires loudest on regeneration churn is one people stop reading.
 
@@ -922,6 +952,7 @@ One new advisory lane, and a README that finally leads with what the package is 
   
   
   
+  
   ```
   The count comes off the `route:: → middleware::<group>` edges already in the graph, so it counts endpoints only: a controller-level attachment of the same group does not inflate it. Membership is read from `$middlewareGroups` on a Laravel 10 Kernel or the `->web(append: [...])` form in a Laravel 11+ `bootstrap/app.php`. A member written as an alias resolves through the same alias map, parameters are cut first (`tenant:strict` is one alias with an argument), and a group that names another group is expanded transitively, since Laravel runs the inner group's middleware on the outer group's routes too.
   
@@ -954,6 +985,7 @@ Two silent-failure shapes that richter used to miss: a call through an applicati
   
   ```text
     ! resources/js/Pages/Posts/Create.vue posts to POST /posts and sends 'subtitle', which this diff removes from App\Http\Requests\StorePostRequest::rules() (renamed to 'sub_title'?)
+  
   
   
   
