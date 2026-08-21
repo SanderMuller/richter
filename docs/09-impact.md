@@ -48,4 +48,4 @@ With `--json`, stdout is a single document:
  entryPointTestReferences}
 ```
 
-The entry-point keys share `detect-changes`' vocabulary and shapes, so a consumer parses both reports identically, and each hop is `{depth, node, via, file?, line?}`. On failure, stdout is `{"error": "…"}`.
+The entry-point keys share `detect-changes`' vocabulary and shapes, so a consumer parses both reports identically. Each `callers`/`dependencies` hop is `{depth, node, via, file?, line?}`; an `entryPointPaths` hop carries no `depth`. On failure, stdout is `{"error": "…"}`.

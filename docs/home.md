@@ -51,8 +51,8 @@ Findings (in the changed source itself):
   ! app/Models/Post.php: eager-load string 'ownerprofile': segment 'ownerprofile' is not a
     method on any model — check the relation name
 
-Impacted nodes: 7
-Risk: MEDIUM (advisory)
+Risk:   MEDIUM (advisory) — no hazard; 1 of 2 reached surfaces have no test referencing them
+Impact: 2 entry point(s) · 7 impacted node(s)
 ```
 
 Install it as a dev dependency and run one command on your branch. The analysis is static: it never executes your application's routes, jobs, or commands.

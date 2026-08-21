@@ -64,7 +64,7 @@ export const sections: DocSection[] = [
             {
                 file: '08-ci-gating',
                 text: 'Gating in CI',
-                blurb: 'Turn the advisory report into a pull-request check with --fail-on and --fail-on-unresolved.',
+                blurb: 'Turn the advisory report into a pull-request check with --fail-on, --fail-on-hazard and --fail-on-unresolved.',
             },
         ],
     },
@@ -109,7 +109,7 @@ export const sections: DocSection[] = [
             {
                 file: '15-coverage',
                 text: 'Coverage beyond Laravel Brain',
-                blurb: 'The edges a route-anchored analysis misses, and the three known limits.',
+                blurb: 'The edges a route-anchored analysis misses, and the known limits.',
             },
         ],
     },

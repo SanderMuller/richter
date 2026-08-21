@@ -35,7 +35,7 @@ With `--json`, stdout is a single JSON document (the full, uncapped report) with
 | `risk` | string | `"low"` / `"medium"` / `"high"`; see [Risk levels](07-risk-levels.md) |
 | `riskCause` | string | why the level is what it is, in one line. Always present — a level without its cause is not a usable verdict |
 | `hazards` | object[] | `{lane, tier, cwe, member, reach, evidence}` per hazard, worst tier first. `reach` is one of four: the findings `public-write` and `gated`, and the admissions `no-guard-found` (reached, no guard visible) and `no-known-path` (nothing reaching it found). Neither admission is evidence of safety; see [Risk levels](07-risk-levels.md#reach-and-the-matrix) |
-| `verification` | object | what the level graded, mapped to whether a test references it: reached entry points, plus a changed class itself where it reached none. A state that could not be checked reads `false` |
+| `verification` | object | what the level graded, mapped to whether a test references it: reached entry points, plus a changed class itself where it reached none. `true` is referenced, `false` unreferenced, `null` could not be checked |
 | `lowConfidence` | bool | a changed member couldn't be pinned, so part of the estimate is coarse |
 | `findings` | string[] | source-level findings |
 | `unresolved` | bool | any changed file is UNRESOLVED |

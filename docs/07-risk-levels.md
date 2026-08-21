@@ -53,8 +53,9 @@ a false "authorization removed" is worse than the breadth number it replaced.
 | 2 | mass-assignment surface widened (`$fillable`/`$guarded`) | `model` | CWE-915 |
 | 2 | a `$casts` value changed on a surviving key | `model` | — |
 | 2 | a validation constraint dropped | `boundary` | CWE-20 |
-| 2 | a queued job's constructor changed | `boundary` | — |
+| 2 | a queued job's payload (its constructor signature) changed | `boundary` | — |
 | 2 | a public or protected member removed | `contract` | — |
+| 2 | a class deleted whole | `contract` | — |
 | 2 | a resource key removed while a consumer reads it | `parity` | — |
 | 2 | a model field never mirrored to its resource | `parity` | — |
 | 2 | a form-request field removed | `parity` | — |
@@ -67,6 +68,15 @@ exists — a stretched CWE teaches a reader the mapping is decorative.
 **A guard that MOVED is not a guard that was removed.** Authorization migrates: a controller's
 `authorize()` becomes a form request's, a policy becomes a gate. Every removal predicate fires only
 when the removed thing is not added somewhere else in the same diff.
+
+**The lanes do not double-report, and a removal is reported once.** A removed public policy method is
+the `auth` lane's at tier 3 — it is a guard, not just a contract — and never also a tier-2 contract
+break. A queued class's changed constructor is the `boundary` lane's at tier 2, never also a tier-1
+signature change. A private member is no one's contract: its removal draws nothing, and a signature
+change is skipped while the member stays private on both sides. A class the diff deletes whole is reported once (`the class is gone`) rather than once per
+member; a deleted policy class is the `auth` lane's, once at tier 3 with every ability it held. And a
+guard can be gutted without being removed: a policy method or form request `authorize()` whose body
+becomes exactly `return true;` is a tier-3 hazard even though the member survives.
 
 The ability is what is compared, not the call shape, so `Gate::denies('publish')` rewritten as
 `$user->cannot('publish')` draws nothing. **A policy constant counts as an ability**, which matters

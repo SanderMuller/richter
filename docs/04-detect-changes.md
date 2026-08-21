@@ -49,8 +49,8 @@ Runs this code without calling it (trait users and overrides — context, not ri
 Findings (in the changed source itself):
   ! app/Models/Post.php: eager-load string 'ownerprofile': segment 'ownerprofile' is not a method on any model — check the relation name (a broken constant concatenation reads exactly like this)
 
-Risk:   MEDIUM (advisory) — no hazard; 5 of 7 reached surfaces have no test referencing them
-Impact: 7 entry point(s) · 7 impacted node(s)
+Risk:   MEDIUM (advisory) — no hazard; 2 of 3 reached surfaces have no test referencing them
+Impact: 2 entry point(s) · 7 impacted node(s)
 ```
 
 ## When a report of nothing is correct
@@ -75,13 +75,15 @@ Entry points reached: 1
 
 ## Test-reference tags
 
-Every reached entry point is tagged `[test-referenced]` or `[⚠ no test references this]`. A referenced entry point whose referencing tests contain no behavioural assertion the scan recognises is tagged `[test-referenced, no behavioural assertion found]`.
+Every reached entry point is tagged `[test-referenced]` or `[⚠ no test references this]`. A referenced entry point whose referencing tests contain no behavioural assertion the scan recognises is tagged `[test-referenced — no behavioural assertion found]`.
 
 These are heuristic prompts rather than coverage verdicts. An entry point whose behaviour you changed with nothing referencing it is a place to add a test; the tag flags a missing reference, not proof the code is untested. The `tests/` scan behind the tags only runs when an entry surface was actually reached.
 
+A `schedule::` surface resolves through the command it runs, so a test driving that command references the scheduled surface too. A schedule reaching no command — a scheduled closure among them — stays "could not be checked" rather than claiming no test drives it.
+
 ## Changed files no lane analyses
 
-Three kinds of changed file carry impact: PHP under `app/`, Blade views, and sources under a configured frontend root. A diff can consist entirely of files that are none of those: a stylesheet, a CI workflow, a lockfile, a `config/` guard, an infrastructure manifest, a routes file. None of them reach a backend entry point through any lane here, so none affect the reach or the risk level, and a diff of nothing else reports `No changed PHP files under app/`.
+Three kinds of changed file carry impact: PHP under `app/`, Blade views, and sources under a configured frontend root. A diff can consist entirely of files that are none of those: a stylesheet, a CI workflow, a lockfile, a `config/` guard, an infrastructure manifest, a routes file. None of them reach a backend entry point through any lane here, so none affect the reach or the risk level, and a diff of nothing else reports `No changed PHP files under app/ against <base>.`
 
 That sentence is accurate about the analyser and misleading about the diff, so the count is named on stderr beside it:
 

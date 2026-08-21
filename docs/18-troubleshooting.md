@@ -10,7 +10,7 @@ Rule this out first. Richter resolves changes to class members, so an edit that 
 
 See [When a report of nothing is correct](04-detect-changes.md#when-a-report-of-nothing-is-correct).
 
-If the diff genuinely changes a member body, check that the file is in scope at all. Only PHP under `app/`, Blade views, and configured frontend roots are analysed. A diff of nothing else prints `No changed PHP files under app/`, with the skipped count on stderr. See [Changed files no lane analyses](04-detect-changes.md#changed-files-no-lane-analyses).
+If the diff genuinely changes a member body, check that the file is in scope at all. Only PHP under `app/`, Blade views, and configured frontend roots are analysed. A diff of nothing else prints `No changed PHP files under app/ against <base>.`, with the skipped count on stderr. See [Changed files no lane analyses](04-detect-changes.md#changed-files-no-lane-analyses).
 
 ### A changed file reads UNRESOLVED
 

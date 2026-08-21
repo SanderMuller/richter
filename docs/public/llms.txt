@@ -4,7 +4,7 @@
 
 Key properties an agent should know before using it:
 
-- **Advisory by default.** `richter:detect-changes` exits 0. A low or empty result is a signal, not a guarantee of no impact. Gating is opt-in via `--fail-on` / `--fail-on-unresolved`.
+- **Advisory by default.** `richter:detect-changes` exits 0. A low or empty result is a signal, not a guarantee of no impact. Gating is opt-in via `--fail-on` / `--fail-on-hazard` / `--fail-on-unresolved`.
 - **Honest degradation.** A change the graph cannot place reads UNRESOLVED, never "no impact". Absence of an annotation means *not classified*, never a negative finding.
 - **Member-level.** A one-method change seeds that method, not the whole class. An edit that changes no member correctly reports nothing.
 - **Reference-based, not proof.** Test-reference tags and affected-test selection are recall heuristics, not coverage verdicts.
@@ -21,7 +21,7 @@ Key properties an agent should know before using it:
 - [Installation](https://sandermuller.github.io/richter/installation): requirements (PHP 8.4+, Laravel 12/13), the `laravel/mcp` version constraint, the command list
 - [Set up your project](https://sandermuller.github.io/richter/project-setup): the config keys that make the analysis accurate for a given app
 - [Detecting change impact](https://sandermuller.github.io/richter/detect-changes): the main command, which diff is analysed, reading the report, `--explain`
-- [Report annotations](https://sandermuller.github.io/richter/report-annotations): security exposure, Pennant gates, payload parity, middleware group membership — all advisory, none feed risk or the gate
+- [Report annotations](https://sandermuller.github.io/richter/report-annotations): security exposure, Pennant gates, payload parity, middleware group membership — payload parity grades as tier-2 hazards and security exposure sets a hazard's reach class; the rest is advisory
 - [Output formats](https://sandermuller.github.io/richter/output-formats): `--markdown`, `--html`, and the semver-governed `--json` key reference
 - [Risk levels](https://sandermuller.github.io/richter/risk-levels): the hazard tiers, the reach matrix, and the ladder that decides the level
 - [Gating in CI](https://sandermuller.github.io/richter/ci-gating): `--fail-on`, `--fail-on-unresolved`, a pull-request workflow, fork safety

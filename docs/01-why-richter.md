@@ -20,7 +20,7 @@ Run `php artisan richter:detect-changes` on a branch and it reports the HTTP and
 
 ## Advisory by default
 
-`richter:detect-changes` exits 0. A low or empty result is a signal, not a guarantee of no impact. Opt into a CI gate with `--fail-on` / `--fail-on-unresolved`; see [Gating in CI](08-ci-gating.md).
+`richter:detect-changes` exits 0. A low or empty result is a signal, not a guarantee of no impact. Opt into a CI gate with `--fail-on`, `--fail-on-hazard` or `--fail-on-unresolved`; see [Gating in CI](08-ci-gating.md).
 
 ## How the analysis runs
 

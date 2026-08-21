@@ -25,7 +25,7 @@ Three read-only resources cover orientation without a tool call:
 |---|---|---|
 | Entry points | `richter://graph/entry-points` | Every statically-known entry surface (routes, commands, schedules, Livewire/Filament/Nova components) with kind and `file:line` where known. |
 | Graph stats | `richter://graph/stats` | Node and edge counts by edge type, plus the honesty flags (`hasUnparseableFiles`, `hasUnresolvedDispatches`) and `unresolvedDispatchSites`, which names each unfollowable dispatch by file, line and dispatching member. |
-| Config | `richter://config` | The effective analysis configuration: base ref, root namespace, entry-point roots, dispatch helpers, feature-gate wrappers, payload-parity settings, the frontend bridge, cache and parallel switches. |
+| Config | `richter://config` | The effective analysis configuration: base ref, root namespace, entry-point roots, dispatch helpers, feature-gate wrappers, payload-parity settings, the frontend bridge, whether the cache is enabled, and the parallel switch. |
 
 ## Supported versions
 
