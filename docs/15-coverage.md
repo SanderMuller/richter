@@ -28,7 +28,7 @@ Brain traces some of these too (view composition, resource references, queue dis
 
 ## Known limits
 
-Five limits are worth knowing before you read a report against them.
+Six limits are worth knowing before you read a report against them.
 
 Relation traversals need a root the source types. Richter follows `$this->post->author` hop by hop, because a relation names its target in the `hasMany(Comment::class)` argument, but the value the chain starts from has to say what it is: `$this`, a typed property or parameter, `new Post`, a model-returning static, a `@var` docblock on the statement, or a local bound to one of those. An untyped property, a `mixed`, a union type, and a value taken from a query builder or a collection all end the chain before it starts.
 
@@ -38,6 +38,22 @@ A class reached only through a static call has the methods those calls name read
 
 The fourth limit is an accessor that picks at runtime. A facade's `getFacadeAccessor()` is carried over when it returns a single `::class`, and resolved against the bindings in `app/Providers` when it returns a single container key. Two `::class` returns, or a key two providers bind to different classes, name no one class. The wrong guess sends a reviewer to the wrong file, so richter draws nothing.
 
+A provider that CONFIGURES a route it does not declare is connected to nothing. A rate limiter
+registered with `RateLimiter::for('login', …)`, or any behaviour a provider attaches to routes
+declared elsewhere, decides what those routes do — and richter draws no edge from the provider to
+them, because nothing in the source names them. The provider is placed, so the change is not
+UNRESOLVED; it simply reaches no entry surface.
+
+Since 0.40 that costs a level as well as reach. A changed class reaching no entry point is graded on
+whether a runnable test imports the class itself, and tests that exercise a throttled route import
+the route helpers rather than the provider — so a provider change with real behavioural tests behind
+it reads `medium`, "no test referencing them". The statement is true about what richter can see. The
+fix is coverage, not a cap: until an edge connects the two, a test that names the class is the only
+thing that changes the answer, and shaping tests to satisfy the tool is the wrong trade.
+
 The last limit costs an explanation rather than reach. Where a node is reached first through type structure and later through a call, the chain the report prints for it keeps the first route, which can name an override hop the walk refuses on that route. The reached set, the impacted count and the risk level are unaffected; only the chain drawn through such a node is.
 
-The first four limits cost reach: fewer edges, so fewer entry points behind a change. None of them makes a change report as unaffected, because a change the graph cannot place reads UNRESOLVED.
+The first five limits cost reach: fewer edges, so fewer entry points behind a change. None of them
+makes a change report as unaffected — a change the graph cannot place reads UNRESOLVED, and one that
+is placed but reaches nothing reads `medium`, never `low`. Reach lost to a coverage limit is reported
+as ignorance, never as safety.
