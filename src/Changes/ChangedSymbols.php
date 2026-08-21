@@ -4,6 +4,7 @@ namespace SanderMuller\Richter\Changes;
 
 use Illuminate\Support\Facades\Process;
 use RuntimeException;
+use SanderMuller\Richter\Analysis\Hazards\GuardMiddleware;
 use SanderMuller\Richter\Analysis\Hazards\HazardLanes;
 use SanderMuller\Richter\Analysis\RequestFieldParser;
 use SanderMuller\Richter\Analysis\ResourceKeyParser;
@@ -90,6 +91,11 @@ final class ChangedSymbols
         // One checker shared across every classified file: its instance cache bounds the model
         // scan to once per invocation, while a fresh run always rebuilds the set — a relation
         // added since the previous run (same long-lived process) is seen, never a false alarm.
+        // Same rule as the checkers below: a fresh run rebuilds. The project's middleware alias map is
+        // read from disk, and a long-lived process that resolved one checkout must not answer for the
+        // next with the first one's map.
+        GuardMiddleware::flush();
+
         $eagerLoadChecker = new EagerLoadStringChecker();
         $featureGateChecker = new FeatureGateChecker(RichterConfig::featureGateMethods());
         $inertiaPageChecker = new InertiaPageChecker();

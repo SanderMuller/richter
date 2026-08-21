@@ -132,7 +132,7 @@ final class AuthHazardLane implements HazardLane
 
         foreach ($lost as $token) {
             $hazards[] = str_starts_with($token, 'middleware:')
-                ? new Hazard('auth', 3, 'CWE-306', $id, "the `{$token}` middleware is gone from the constructor", [$token])
+                ? new Hazard('auth', 3, GuardMiddleware::cweFor($token), $id, "the `{$token}` middleware is gone from the constructor", [$token])
                 : new Hazard('auth', 3, 'CWE-862', $id, "the authorization check `{$token}` is gone from the body", [$token]);
         }
 

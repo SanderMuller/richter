@@ -124,7 +124,7 @@ final class MiddlewareGroupHazards
                 $hazards[] = new Hazard(
                     'auth',
                     3,
-                    str_starts_with($token, 'middleware:can') ? 'CWE-862' : 'CWE-306',
+                    GuardMiddleware::cweFor($token),
                     "middleware group '{$group}'",
                     sprintf("the `%s` middleware is gone from the '%s' middleware group in %s, which guards every route in that group", substr($token, strlen('middleware:')), $group, $file),
                     [$token],

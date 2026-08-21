@@ -77,7 +77,7 @@ final class RouteFileHazards
                 $hazards[] = new Hazard(
                     'auth',
                     3,
-                    str_starts_with($token, 'middleware:can') ? 'CWE-862' : 'CWE-306',
+                    GuardMiddleware::cweFor($token),
                     // The HEAD action, not the base one. One edit can drop a route's middleware and
                     // repoint it at another controller, and the base action is a member the head graph
                     // no longer holds — the reach lane would answer `no-known-path` for a route that

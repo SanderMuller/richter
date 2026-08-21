@@ -5,6 +5,7 @@ namespace SanderMuller\Richter\Tests\Unit;
 use PHPUnit\Framework\Attributes\Test;
 use SanderMuller\Richter\Analysis\Hazard;
 use SanderMuller\Richter\Analysis\HazardFindings;
+use SanderMuller\Richter\Analysis\Hazards\GuardMiddleware;
 use SanderMuller\Richter\Analysis\Hazards\RouteFileHazards;
 use SanderMuller\Richter\Changes\ChangedFileSymbols;
 use SanderMuller\Richter\Tests\TestCase;
@@ -338,6 +339,113 @@ final class RouteFileHazardsTest extends TestCase
 
         $this->assertCount(1, $hazards);
         $this->assertSame(['middleware:auth'], $hazards[0]->removedTokens);
+    }
+
+    #[Test]
+    public function an_application_guard_class_resolves_through_the_projects_own_alias_map(): void
+    {
+        // The fixture project registers `'auth' => App\Http\Middleware\Authenticate::class`, which is
+        // the stock Laravel scaffolding shape. A route naming that class is naming the `auth` guard,
+        // and the project said so itself — this is declared intent, not an inference from `extends`.
+        $original = base_path();
+        app()->setBasePath(self::fixtureProjectPath());
+        GuardMiddleware::flush();
+
+        try {
+            $hazards = RouteFileHazards::for(self::FILE,
+                "<?php\nuse App\\Http\\Controllers\\PostController;\nuse App\\Http\\Middleware\\Authenticate;\nuse Illuminate\\Support\\Facades\\Route;\nRoute::get('/posts', [PostController::class, 'index']);\n",
+                "<?php\nuse App\\Http\\Controllers\\PostController;\nuse App\\Http\\Middleware\\Authenticate;\nuse Illuminate\\Support\\Facades\\Route;\nRoute::middleware(Authenticate::class)->get('/posts', [PostController::class, 'index']);\n",
+            )[0];
+
+            $this->assertCount(1, $hazards);
+            $this->assertSame(['middleware:auth'], $hazards[0]->removedTokens);
+            $this->assertSame('CWE-306', $hazards[0]->cwe);
+        } finally {
+            app()->setBasePath($original);
+            GuardMiddleware::flush();
+        }
+    }
+
+    #[Test]
+    public function a_middleware_class_the_project_registers_under_no_guard_alias_draws_nothing(): void
+    {
+        // The same fixture registers `category.auth`, which is not a name richter knows. An
+        // application middleware richter cannot place is still a guess, and still draws nothing.
+        $original = base_path();
+        app()->setBasePath(self::fixtureProjectPath());
+        GuardMiddleware::flush();
+
+        try {
+            $this->assertSame([], RouteFileHazards::for(self::FILE,
+                "<?php\nuse App\\Http\\Controllers\\PostController;\nuse App\\Http\\Middleware\\CategoryAuthenticate;\nuse Illuminate\\Support\\Facades\\Route;\nRoute::get('/posts', [PostController::class, 'index']);\n",
+                "<?php\nuse App\\Http\\Controllers\\PostController;\nuse App\\Http\\Middleware\\CategoryAuthenticate;\nuse Illuminate\\Support\\Facades\\Route;\nRoute::middleware(CategoryAuthenticate::class)->get('/posts', [PostController::class, 'index']);\n",
+            )[0]);
+        } finally {
+            app()->setBasePath($original);
+            GuardMiddleware::flush();
+        }
+    }
+
+    #[Test]
+    public function a_class_two_guard_aliases_both_name_is_skipped_rather_than_resolved(): void
+    {
+        // The same refusal the group reader makes for a name that is both a group and an alias: the
+        // reader cannot say which guard the class stands for, and the wrong choice names the wrong
+        // failure in the report.
+        $root = sys_get_temp_dir() . '/richter-alias-' . getmypid();
+        mkdir($root . '/app/Http', recursive: true);
+        file_put_contents($root . '/app/Http/Kernel.php', "<?php\nnamespace App\\Http;\nclass Kernel\n{\n    protected \$middlewareAliases = ['auth' => 'App\\Http\\Middleware\\Both', 'signed' => 'App\\Http\\Middleware\\Both'];\n}\n");
+
+        $original = base_path();
+        app()->setBasePath($root);
+        GuardMiddleware::flush();
+
+        try {
+            $this->assertSame([], GuardMiddleware::tokensFor(['App\Http\Middleware\Both']));
+        } finally {
+            app()->setBasePath($original);
+            GuardMiddleware::flush();
+            unlink($root . '/app/Http/Kernel.php');
+            rmdir($root . '/app/Http');
+            rmdir($root . '/app');
+            rmdir($root);
+        }
+    }
+
+    #[Test]
+    public function each_guard_carries_the_cwe_that_names_its_own_failure(): void
+    {
+        // One mapping per guard rather than one test for all of them. A removed `throttle:` is not
+        // missing authentication, and reporting it as CWE-306 is the stretched mapping the hazard
+        // table's own rule warns against.
+        $this->assertSame([
+            'CWE-306' => 'auth:api',
+            'CWE-862' => 'can:update,post',
+            'CWE-345' => 'signed',
+            'CWE-770' => 'throttle:60,1',
+        ], $this->cwesFor(['auth:api', 'can:update,post', 'signed', 'throttle:60,1']));
+
+        $this->assertNull(GuardMiddleware::cweFor('middleware:unmapped'));
+    }
+
+    /**
+     * @param  list<string>  $middleware
+     * @return array<string, string>
+     */
+    private function cwesFor(array $middleware): array
+    {
+        $cwes = [];
+
+        foreach ($middleware as $name) {
+            $hazards = $this->hazards(
+                "Route::get('/posts', [PostController::class, 'index']);",
+                "Route::get('/posts', [PostController::class, 'index'])->middleware('{$name}');",
+            );
+
+            $cwes[(string) $hazards[0]->cwe] = $name;
+        }
+
+        return $cwes;
     }
 
     // ------------------------------------------------------------ deletion

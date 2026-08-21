@@ -50,7 +50,8 @@ a false "authorization removed" is worse than the breadth number it replaced.
 |---|---|---|---|
 | 3 | an authorization guard removed | `auth` | CWE-862 |
 | 3 | an authentication middleware removed | `auth` | CWE-306 |
-| 3 | a guard removed from a route declaration | `auth` | CWE-306 |
+| 3 | a guard removed from a route declaration | `auth` | per guard |
+| 3 | a guard removed from a middleware group | `auth` | per guard |
 | 3 | `$hidden` narrowed | `model` | CWE-200 |
 | 2 | mass-assignment surface widened (`$fillable`/`$guarded`) | `model` | CWE-915 |
 | 2 | a `$casts` value changed on a surviving key | `model` | — |
@@ -66,6 +67,11 @@ a false "authorization removed" is worse than the breadth number it replaced.
 The tiers are fixed and not configurable. A tier is a fact about the change, and a project that could
 re-tier one would be grading its own risk before reading it. `cwe` is null wherever no clean mapping
 exists. A stretched CWE teaches the reader that the mapping is decorative.
+
+A removed guard middleware carries the CWE for the guard it names, not one CWE for all of them: `auth`
+and `password.confirm` are CWE-306, `can` and `verified` are CWE-862, `signed` is CWE-345, and
+`throttle` is CWE-770. Reporting a lost rate limit as missing authentication would be the stretched
+mapping the paragraph above warns about.
 
 Route files are read route by route. `routes/*.php` declares no class, so the lanes above cannot reach
 it. Its own reader compares each route's effective guard set on both sides: the middleware written on
@@ -92,8 +98,12 @@ That comparison is shape-aware where the arrivals are not. Only two shapes are r
 `appendToGroup('name', [...])`). An unrecognised shape produces a finding instead of a hazard. A group
 lists its members as `::class` far more often than as an alias, so the framework guard classes map
 onto the aliases they stand for, and swapping one for the other reads as the refactor it is. An
-application subclass of a framework guard matches no name, the same limit Brain's own matching has,
-and it costs a missed removal rather than an invented one.
+application's own guard class resolves through the alias map the project registers: `$middlewareAliases`
+on a legacy Kernel, or `$middleware->alias([...])` in `bootstrap/app.php`. A project that writes
+`'auth' => Authenticate::class` has said which class is its `auth` guard, so a route naming that class
+and a route naming the string are the same guard. That is declared intent rather than an inference from
+an `extends` clause. A class two guard aliases both name is skipped rather than resolved one way, and a
+class the project registers under no guard alias still draws nothing.
 
 A guard that moved is not a guard that was removed. Authorization migrates: a controller's
 `authorize()` becomes a form request's, a policy becomes a gate. Every removal predicate fires only

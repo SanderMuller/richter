@@ -10,6 +10,7 @@ use PhpParser\Node\Name;
 use PhpParser\Node\Scalar\String_;
 use PhpParser\NodeFinder;
 use SanderMuller\Richter\Analysis\HazardFindings;
+use SanderMuller\Richter\Graph\MiddlewareAliases;
 use SanderMuller\Richter\Support\AppFiles;
 
 /**
@@ -23,7 +24,8 @@ use SanderMuller\Richter\Support\AppFiles;
  *
  * A middleware richter does not recognise draws nothing. Naming an application's own middleware a
  * guard would be a guess, and the whole family leans towards missing a real removal over inventing
- * one.
+ * one. An application's OWN class is recognised only where the project itself says what it is, in the
+ * alias map it registers.
  *
  * @internal
  */
@@ -47,9 +49,9 @@ final class GuardMiddleware
      * Framework guard middleware by class name, mapped onto the alias that stands for the same guard.
      *
      * A middleware group lists its members as `::class` far more often than as an alias, and without
-     * this table swapping `'auth'` for `Authenticate::class` — a pure refactor — would read as an
-     * authentication removal. An application SUBCLASS matches none of these names, which is the same
-     * limit Brain's own name matching has, and it costs a missed removal rather than an invented one.
+     * this table swapping `'auth'` for `Authenticate::class`, a pure refactor, would read as an
+     * authentication removal. An application's own subclass matches none of these names; the project's
+     * own alias map answers for those ({@see projectAliases()}).
      */
     private const array CLASS_ALIASES = [
         'Illuminate\\Auth\\Middleware\\Authenticate' => 'auth',
@@ -62,6 +64,23 @@ final class GuardMiddleware
     ];
 
     /**
+     * CWE by guard, keyed on the alias the token carries. One mapping per guard rather than one test
+     * for all of them: a removed `throttle:` is not missing authentication, and reporting it as
+     * CWE-306 is the stretched mapping the hazard table's own rule warns about.
+     */
+    private const array CWES = [
+        'auth' => 'CWE-306',
+        'password.confirm' => 'CWE-306',
+        'can' => 'CWE-862',
+        'verified' => 'CWE-862',
+        'signed' => 'CWE-345',
+        'throttle' => 'CWE-770',
+    ];
+
+    /** @var array<string, array<string, string>> project root => FQCN => the guard alias it is registered as */
+    private static array $projectAliases = [];
+
+    /**
      * The tokens for a list of middleware names as written, filtered to the guards. A name may be a
      * middleware alias or a fully qualified class; both resolve to the same token.
      *
@@ -70,10 +89,87 @@ final class GuardMiddleware
      */
     public static function tokensFor(array $names): array
     {
-        $aliased = array_map(static fn (string $name): string => self::CLASS_ALIASES[ltrim($name, '\\')] ?? $name, $names);
-        $guards = array_filter($aliased, self::isGuard(...));
+        $guards = array_filter(array_map(self::aliasOf(...), $names), self::isGuard(...));
 
         return array_values(array_unique(array_map(static fn (string $name): string => 'middleware:' . $name, $guards)));
+    }
+
+    /**
+     * The CWE for one guard token, or null where no clean mapping exists.
+     *
+     * `verified` and `signed` are mapped rather than left null because each names a distinct failure:
+     * dropping `verified` lets an unverified account reach an action it was not authorised for, and
+     * dropping `signed` stops the request's authenticity being checked at all.
+     */
+    public static function cweFor(string $token): ?string
+    {
+        $alias = explode(':', substr($token, strlen('middleware:')), 2)[0];
+
+        return self::CWES[$alias] ?? null;
+    }
+
+    /** Reset the per-project alias cache, so a second run in one process re-reads the map. */
+    public static function flush(): void
+    {
+        self::$projectAliases = [];
+    }
+
+    /**
+     * A middleware name as the alias that stands for it: a framework class through {@see CLASS_ALIASES},
+     * an application class through the project's own alias map, and anything else unchanged.
+     */
+    private static function aliasOf(string $name): string
+    {
+        $fqcn = ltrim($name, '\\');
+
+        return self::CLASS_ALIASES[$fqcn] ?? self::projectAliases()[$fqcn] ?? $name;
+    }
+
+    /**
+     * The application's own guard classes, from the alias map it registers — `$middlewareAliases` on a
+     * legacy Kernel, or `$middleware->alias([...])` in `bootstrap/app.php`.
+     *
+     * This is DECLARED intent, not inference: a project that writes `'auth' => Authenticate::class` has
+     * said which class is its `auth` guard, so `Route::middleware(Authenticate::class)` and
+     * `Route::middleware('auth')` are the same guard and a removal of either is the same removal.
+     * Following an `extends` clause instead would be weaker evidence for the same answer.
+     *
+     * A class two different guard aliases both point at is skipped rather than resolved one way, the
+     * same refusal the group reader makes for a name that is both a group and an alias.
+     *
+     * The map is read from the working tree, so it answers for both sides of the diff. A diff that
+     * rewrites the alias map itself is read against its head form; that costs a comparison, never a
+     * wrong one, because an unmapped class still draws nothing.
+     *
+     * @return array<string, string>
+     */
+    private static function projectAliases(): array
+    {
+        $root = base_path();
+
+        if (isset(self::$projectAliases[$root])) {
+            return self::$projectAliases[$root];
+        }
+
+        $byClass = [];
+
+        foreach (MiddlewareAliases::forProject($root) as $alias => $fqcn) {
+            if (self::isGuard($alias)) {
+                $byClass[ltrim($fqcn, '\\')][] = $alias;
+            }
+        }
+
+        $map = [];
+
+        foreach ($byClass as $fqcn => $aliases) {
+            $unique = array_values(array_unique($aliases));
+
+            if (count($unique) === 1) {
+                $map[$fqcn] = $unique[0];
+            }
+        }
+
+        return self::$projectAliases[$root] = $map;
     }
 
     /**
