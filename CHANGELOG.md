@@ -22,6 +22,18 @@ A consumer audit of 0.40.0 found the `auth` lane reporting the one thing the rel
 - **A removed policy method is named both ways.** It emitted its own name only, which a caller writing `can(PostPolicy::DELETE)` could never match — the same gap one layer down. It now also emits every constant in its class whose literal value is that method name, read from the policy's own source. That is a value comparison, not a guess at `DELETE` standing for `delete`.
   
 
+### Also in this release
+
+Work that landed alongside the fix above, extending the dispatch-resolution lane 0.39 introduced.
+
+- **A batch of mapped jobs resolves when the collection is bound to a local.** `Bus::batch($items->map(fn ($i) => new SendInvoice($i))->all())` already proved its own contents at the dispatch site. The chain no longer has to be written there: `$jobs = $items->map(...);` followed by `Bus::batch($jobs->all())` resolves too, because the code between the map and the dispatch has to name the collection. The bar is the locally-built job's, one guard stricter — the method must write that name exactly once, at the top level, before the dispatch, and mention it nowhere else, since a collection is an object and `$jobs->push($other)` would change what the batch holds without writing the name. Anything looser keeps the site unresolved.
+- Consequently, dispatch sites that read as unfollowable on 0.40.0 can now resolve, which is what lets `richter:affected-tests` reach a determinable verdict on a diff that one such site was holding back.
+
+### Compatibility
+
+- **The graph cache rebuilds once.** `FORMAT_VERSION` moves 25 → 26. The batch lane draws edges a 25 entry does not carry, so an entry written by an earlier version would under-report them.
+- The risk-model work in this release adds no edges of its own; hazards are read from the diff's two sides, not from the graph.
+
 ### Internal
 
 - `Hazard::$removedToken` is now `$removedTokens`, a list. One removal can be named more than one way, and the guard has to recognise any of them. The field is internal to the hazard record; the flattened `hazards[]` entries in `--json` and over MCP are unchanged.
