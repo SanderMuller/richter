@@ -38,8 +38,8 @@ final class RiskLadder
      * @param  bool  $seeded  whether the walk was seeded with anything that already existed
      * @param  list<string>  $verificationSet  entry-point nodes, plus a class anchor for each changed
      *   class that reached none of them
-     * @return array{0: RiskLevel, 1: string, 2: array<string, bool>}  level, its cause, and each
-     *   verification-set member's verified state
+     * @return array{0: RiskLevel, 1: string, 2: array<string, bool|null>}  level, its cause, and each
+     *   verification-set member's state: true referenced, false unreferenced, NULL not checked
      */
     public static function decide(array $hazards, bool $seeded, array $verificationSet, ?TestReferenceIndex $tests): array
     {
@@ -57,15 +57,48 @@ final class RiskLadder
             return [RiskLevel::Medium, 'no hazard; richter could not place what this change reaches', $verification];
         }
 
-        $unverified = array_keys(array_filter($verification, static fn (bool $verified): bool => ! $verified));
+        return [...self::fromVerification($verification), $verification];
+    }
 
-        if ($unverified !== []) {
-            $total = count($verification);
+    /**
+     * The level for a change carrying no hazard, and a cause that distinguishes what was CHECKED and
+     * found wanting from what was never checked at all.
+     *
+     * Both read MEDIUM — the safe direction does not change, because a surface nothing looked at is
+     * not a verified one. What changes is the sentence. "3 of 3 reached surfaces have no test
+     * referencing them" is a claim ABOUT TESTS, and stating it when no index was consulted is the
+     * same falsely-reassuring shape this package refuses everywhere else: it reads as evidence when it
+     * is an absence of evidence. It also hides a defect — a caller that forgets to pass the index
+     * produces a report indistinguishable from a project with no tests.
+     *
+     * @param  array<string, bool|null>  $verification
+     * @return array{0: RiskLevel, 1: string}
+     */
+    private static function fromVerification(array $verification): array
+    {
+        $total = count($verification);
+        $unchecked = count(array_filter($verification, static fn (?bool $state): bool => $state === null));
+        $unreferenced = count(array_filter($verification, static fn (?bool $state): bool => $state === false));
 
-            return [RiskLevel::Medium, 'no hazard; ' . count($unverified) . " of {$total} reached surfaces have no test referencing them", $verification];
+        if ($unchecked === $total && $total > 0) {
+            return [RiskLevel::Medium, 'no hazard; test references were not checked, so nothing here is verified'];
         }
 
-        return [RiskLevel::Low, 'no hazard; every reached surface is referenced by a test', $verification];
+        if ($unreferenced === 0 && $unchecked === 0) {
+            return [RiskLevel::Low, 'no hazard; every reached surface is referenced by a test'];
+        }
+
+        $parts = [];
+
+        if ($unreferenced > 0) {
+            $parts[] = "{$unreferenced} of {$total} reached surfaces have no test referencing them";
+        }
+
+        if ($unchecked > 0) {
+            $parts[] = "{$unchecked} could not be checked";
+        }
+
+        return [RiskLevel::Medium, 'no hazard; ' . implode(', and ', $parts)];
     }
 
     /**
@@ -122,9 +155,10 @@ final class RiskLadder
      * contract says a consumer must then fall back to the full suite. Reading null as "not
      * unreferenced" would open the LOW path on surfaces nothing checked.
      *
-     * **An absent index is the same state, not a fourth one.** `detect-changes` always builds one, and
-     * `fromTests()` returns an EMPTY index rather than null when there is no `tests/` directory — so a
-     * project without tests grades every surface unreferenced, which is the intended reading.
+     * **An absent index is UNCHECKED, not unreferenced.** Both keep the level at MEDIUM, so the safe
+     * direction is identical — but only one of them is a statement about tests. `fromTests()` returns
+     * an EMPTY index rather than null when there is no `tests/` directory, so a project genuinely
+     * without tests still grades `unreferenced`, which is a real answer. A missing index is not.
      *
      * The weak-assertion sub-tag counts as VERIFIED. Its grader collapses every uncertainty to plain
      * `referenced` and states under-firing as its safe direction; building the level on the weaker
@@ -138,7 +172,7 @@ final class RiskLadder
      * `hasReference()`'s boolean.
      *
      * @param  list<string>  $members
-     * @return array<string, bool>
+     * @return array<string, bool|null>  true referenced, false unreferenced, null not checked
      */
     private static function verify(array $members, ?TestReferenceIndex $tests): array
     {
@@ -146,12 +180,15 @@ final class RiskLadder
 
         foreach ($members as $member) {
             if (! $tests instanceof TestReferenceIndex) {
-                $verification[$member] = false;
+                // NOT false. No index means the question was never put, and answering "unreferenced"
+                // would assert something about tests that nothing read.
+                $verification[$member] = null;
 
                 continue;
             }
 
             $verification[$member] = AppNamespace::isAppClass($member) && ! str_contains($member, '::')
+                // A class import is a pure text scan, so it always has an answer.
                 ? TestReferenceIndex::runnableOnly($tests->testsImporting($member)) !== []
                 : self::routeIsVerified($member, $tests);
         }
@@ -164,10 +201,12 @@ final class RiskLadder
      * it. Null means the check never ran, which is unverified for the same reason: the LOW path must
      * not open on a surface nothing checked.
      */
-    private static function routeIsVerified(string $member, TestReferenceIndex $tests): bool
+    private static function routeIsVerified(string $member, TestReferenceIndex $tests): ?bool
     {
         $files = $tests->testsReferencing($member);
 
-        return $files !== null && TestReferenceIndex::runnableOnly($files) !== [];
+        // Null propagates: the index's own tri-state says the check could not run — an unrecognised
+        // node shape, or a route miss while the router was unavailable. That is not "unreferenced".
+        return $files === null ? null : TestReferenceIndex::runnableOnly($files) !== [];
     }
 }

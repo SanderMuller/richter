@@ -19,7 +19,7 @@ final class RiskLadderTest extends TestCase
     /**
      * @param  list<Hazard>  $hazards
      * @param  list<string>  $set
-     * @return array{0: RiskLevel, 1: string, 2: array<string, bool>}
+     * @return array{0: RiskLevel, 1: string, 2: array<string, bool|null>}
      */
     private function decide(array $hazards = [], bool $seeded = true, array $set = [], ?TestReferenceIndex $tests = null): array
     {
@@ -185,23 +185,45 @@ final class RiskLadderTest extends TestCase
     }
 
     #[Test]
-    public function an_absent_index_is_unverified_rather_than_a_fourth_state(): void
+    public function an_absent_index_reads_unchecked_and_says_so(): void
     {
-        [$level, , $verification] = $this->decide(set: ['App\Services\Publisher']);
+        // The level is unchanged — a surface nothing looked at is not a verified one. What must not
+        // happen is the REASON claiming something about tests that were never read: "1 of 1 reached
+        // surfaces have no test referencing them" is evidence-shaped, and there is no evidence.
+        [$level, $cause, $verification] = $this->decide(set: ['App\Services\Publisher']);
 
         $this->assertSame(RiskLevel::Medium, $level);
-        $this->assertFalse($verification['App\Services\Publisher']);
+        $this->assertNull($verification['App\Services\Publisher']);
+        $this->assertStringContainsString('were not checked', $cause);
+        $this->assertStringNotContainsString('no test referencing them', $cause);
     }
 
     #[Test]
-    public function a_reference_state_that_could_not_be_checked_reads_unverified(): void
+    public function a_reference_state_that_could_not_be_checked_reads_unchecked(): void
     {
         // `hasReference()` returns null for a node shape it does not recognise. Reading null as
-        // "not unreferenced" would open the LOW path on a surface nothing checked.
-        [$level, , $verification] = $this->decide(set: ['view::posts.show'], tests: new TestReferenceIndex());
+        // "not unreferenced" would open the LOW path on a surface nothing checked; reading it as
+        // "unreferenced" would state a fact nobody established. It is neither.
+        [$level, $cause, $verification] = $this->decide(set: ['view::posts.show'], tests: new TestReferenceIndex());
 
         $this->assertSame(RiskLevel::Medium, $level);
-        $this->assertFalse($verification['view::posts.show']);
+        $this->assertNull($verification['view::posts.show']);
+        $this->assertStringContainsString('were not checked', $cause);
+    }
+
+    #[Test]
+    public function a_mix_of_unreferenced_and_unchecked_names_both(): void
+    {
+        $index = $this->indexReferencing('App\Services\Publisher');
+
+        [$level, $cause] = $this->decide(
+            set: ['App\Services\Publisher', 'App\Services\Archiver', 'view::posts.show'],
+            tests: $index,
+        );
+
+        $this->assertSame(RiskLevel::Medium, $level);
+        $this->assertStringContainsString('1 of 3 reached surfaces have no test referencing them', $cause);
+        $this->assertStringContainsString('1 could not be checked', $cause);
     }
 
     #[Test]

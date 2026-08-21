@@ -5,6 +5,7 @@ namespace SanderMuller\Richter\Tests\Unit;
 use InvalidArgumentException;
 use PHPUnit\Framework\Attributes\Test;
 use SanderMuller\Richter\Analysis\BenchmarkCase;
+use SanderMuller\Richter\Analysis\Hazard;
 use SanderMuller\Richter\Analysis\RiskLevel;
 use SanderMuller\Richter\Tests\TestCase;
 
@@ -188,6 +189,61 @@ final class BenchmarkCaseTest extends TestCase
 
         $this->assertCount(1, $failures);
         $this->assertStringContainsString('layout', $failures[0]);
+    }
+
+    #[Test]
+    public function expect_finding_matches_a_hazard_as_well_as_a_finding(): void
+    {
+        // The three payload-parity checks were findings until 0.40 made them tier-2 hazards. A fixture
+        // that pinned one by its message would otherwise have gone unmatchable overnight and failed
+        // with "no finding contains …" — which reads as lost coverage, not a relocation.
+        $case = BenchmarkCase::fromArray([
+            'key' => 'PARITY-1',
+            'fix_commit' => 'abc1234',
+            'bug_class' => 'a resource key a consumer still reads',
+            'expect_signal' => false,
+            'expect_finding' => 'still reads',
+        ]);
+
+        $result = $this->reportResult(hazards: [
+            new Hazard('parity', 2, null, 'App\Http\Resources\PostResource', "a consumer still reads 'published_at'"),
+        ]);
+
+        $this->assertSame([], $case->evaluate($result));
+    }
+
+    #[Test]
+    public function expect_finding_still_fails_when_the_report_says_it_nowhere(): void
+    {
+        $case = BenchmarkCase::fromArray([
+            'key' => 'PARITY-2',
+            'fix_commit' => 'abc1234',
+            'bug_class' => 'a resource key a consumer still reads',
+            'expect_signal' => false,
+            'expect_finding' => 'still reads',
+        ]);
+
+        $this->assertSame(
+            ['no finding or hazard contains "still reads"'],
+            $case->evaluate($this->reportResult()),
+        );
+    }
+
+    /**
+     * @param  list<Hazard>  $hazards
+     * @param  list<string>  $findings
+     * @return array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, risk: RiskLevel, findings: list<string>, hazards: list<Hazard>}
+     */
+    private function reportResult(array $hazards = [], array $findings = []): array
+    {
+        return [
+            'changed' => ['app/Models/Post.php' => 1],
+            'coverage' => ['app/Models/Post.php' => 'analyzed'],
+            'entryPoints' => ['route::GET::/posts'],
+            'risk' => RiskLevel::Low,
+            'findings' => $findings,
+            'hazards' => $hazards,
+        ];
     }
 
     #[Test]

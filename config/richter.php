@@ -120,8 +120,11 @@ return [
      * Replayable accuracy fixtures for `richter:benchmark`: historical fix commits the change-impact
      * report is re-run against. Bug fixtures (expect_signal: true) must resolve and reach an entry
      * point; controls (expect_signal: false) cap the risk a harmless change may report via max_risk
-     * ('low', 'medium' or 'high'). expect_finding (optional) additionally asserts that one of the
-     * report's advisory findings contains the given substring — e.g. a payload-parity note.
+     * ('low', 'medium' or 'high'). expect_finding (optional) additionally asserts that the report
+     * SAYS the given substring somewhere it could carry it — a finding, or a hazard's evidence or
+     * member. Both, because the destination moves: the payload-parity checks were findings before
+     * they became tier-2 hazards, and a fixture pins what the report says, not which section says
+     * it.
      *
      * max_risk is checked on every fixture, not only on controls; it just does nothing on a bug
      * fixture left at the default 'high', which is why `benchmark:add` writes that value there. Only

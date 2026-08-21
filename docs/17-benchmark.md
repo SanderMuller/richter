@@ -11,6 +11,8 @@ Replays historical fix commits (configured in `richter.benchmark_cases`) through
 
 `richter:benchmark:add` scaffolds a case from a historical fix commit: it dry-runs the commit through the same replay, reports what it would score today, and prints a paste-ready `benchmark_cases` entry. It never edits the config file. Two flags fill in fields you would otherwise edit by hand: `--key=<key>` sets the case key instead of deriving it from the commit, and `--expect-finding=<substring>` records a substring the replay's findings must contain.
 
+`expect_finding` matches a finding OR a hazard's evidence or member. A fixture pins that the report says the thing; which section carries it is richter's business, and it has moved before — the payload-parity checks were findings until they became tier-2 hazards.
+
 **Set `max_risk` on signal fixtures too, not only on controls.** It is checked on every case, but it
 defaults to `high`, so a signal fixture that never sets it can never trip the cap — and a level that
 is wrong for the right reach then passes green. A signal fixture you expect to read `medium` should

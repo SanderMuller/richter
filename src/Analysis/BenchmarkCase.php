@@ -83,7 +83,7 @@ final readonly class BenchmarkCase
     }
 
     /**
-     * @param  array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, risk: RiskLevel, findings: list<string>, ...}  $result  a {@see ImpactAnalyzer::detectChanges()} result
+     * @param  array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, risk: RiskLevel, findings: list<string>, hazards?: list<Hazard>, ...}  $result  a {@see ImpactAnalyzer::detectChanges()} result
      * @return list<string> failure reasons; empty means the case passed
      */
     public function evaluate(array $result): array
@@ -114,10 +114,34 @@ final readonly class BenchmarkCase
             $failures[] = "risk {$result['risk']->value} exceeds the expected maximum of {$this->maxRisk->value} for this change";
         }
 
-        if ($this->expectFinding !== null && ! array_any($result['findings'], fn (string $finding): bool => str_contains($finding, $this->expectFinding))) {
-            $failures[] = "no finding contains \"{$this->expectFinding}\"";
+        if ($this->expectFinding !== null && ! $this->reportSays($result, $this->expectFinding)) {
+            $failures[] = "no finding or hazard contains \"{$this->expectFinding}\"";
         }
 
         return $failures;
+    }
+
+    /**
+     * Whether the report says this anywhere a fixture could reasonably have pinned it — the findings
+     * list, or a hazard's evidence.
+     *
+     * Both, because the destination moved. The three payload-parity checks were findings until they
+     * became tier-2 hazards, so a fixture capturing one of those defects by its message went from
+     * matching to unmatchable, and failed with "no finding contains …" — which reads as lost coverage
+     * and sends the reader hunting a graph regression that never happened. What a fixture pins is that
+     * the report SAYS the thing; which section carries it is richter's business, not the corpus's.
+     *
+     * @param  array{findings: list<string>, hazards?: list<Hazard>, ...}  $result
+     */
+    private function reportSays(array $result, string $needle): bool
+    {
+        if (array_any($result['findings'], static fn (string $finding): bool => str_contains($finding, $needle))) {
+            return true;
+        }
+
+        return array_any(
+            $result['hazards'] ?? [],
+            static fn (Hazard $hazard): bool => str_contains($hazard->evidence, $needle) || str_contains($hazard->member, $needle),
+        );
     }
 }
