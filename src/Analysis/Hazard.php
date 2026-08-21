@@ -17,6 +17,8 @@ final readonly class Hazard
 
     public const string REACH_GATED = 'gated';
 
+    public const string REACH_NO_GUARD_FOUND = 'no-guard-found';
+
     public const string REACH_NO_KNOWN_PATH = 'no-known-path';
 
     /**
@@ -32,7 +34,10 @@ final readonly class Hazard
      *   guard must never suppress it. A LIST because one removal can be named more than one way: a
      *   policy method is referenced both as a string ability and as the class constant standing for
      *   it, and either arriving elsewhere in the diff is the same guard moving.
-     * @param  string|null  $reach  filled by the reach lane after the walk; null until then
+     * @param  string|null  $reach  filled by the reach lane after the walk; null until then. Two of
+     *   the four states are findings — `public-write` and `gated` — and two are admissions:
+     *   `no-guard-found` (reached, nothing guarding it visible) and `no-known-path` (nothing reaching
+     *   it visible). Neither admission is evidence of safety.
      * @param  string|null  $ignoreKey  the `hazards.ignore` entry that silences this hazard; defaults
      *   to `$member` when null
      */

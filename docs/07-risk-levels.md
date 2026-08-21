@@ -78,20 +78,36 @@ either way.
 
 ## Reach, and the matrix
 
-Each hazard carries its own reach class — not the diff's. Three states, two of them carrying positive
-evidence:
+Each hazard carries its own reach class — not the diff's. Four states: **two findings and two
+admissions.**
 
-| State | Meaning |
-|---|---|
-| `public-write` | a route Brain marks `PUBLIC_WRITE`, with no guard richter can point at, reaches the hazardous member |
-| `gated` | a route reaches it, and a guard is visible |
-| `no-known-path` | no reaching entry point was found |
+| State | | Meaning |
+|---|---|---|
+| `public-write` | finding | a route Brain marks `PUBLIC_WRITE`, with no guard richter can point at, reaches the hazardous member |
+| `gated` | finding | every reaching entry point shows a guard — Brain classifies it `authed`, `admin` or `internal`, or the cross-check correlated a policy or auth middleware to it |
+| `no-guard-found` | admission | it is reached, and no guard is visible on at least one of the routes that reach it |
+| `no-known-path` | admission | no reaching entry point was found |
 
-|  | `public-write` | `gated` | `no-known-path` |
-|---|---|---|---|
-| **tier 3** | HIGH | HIGH | HIGH |
-| **tier 2** | HIGH | MEDIUM | MEDIUM |
-| **tier 1** | MEDIUM | MEDIUM | LOW |
+|  | `public-write` | `gated` | `no-guard-found` | `no-known-path` |
+|---|---|---|---|---|
+| **tier 3** | HIGH | HIGH | HIGH | HIGH |
+| **tier 2** | HIGH | MEDIUM | MEDIUM | MEDIUM |
+| **tier 1** | MEDIUM | MEDIUM | MEDIUM | LOW |
+
+**`gated` has to be earned, and it is earned by EVERY reaching entry point or by none.** One route
+with no visible guard is the way in, so a set where the others are guarded still grades
+`no-guard-found` — averaging would hide exactly the surface that matters.
+
+**`no-guard-found` scores as `gated` does, on purpose.** An admission must move the level in neither
+direction. Raising it would report HIGH across every application whose surfaces Brain cannot classify
+— a Livewire or Filament codebase — which punishes a coverage gap as though it were a security one.
+Lowering it would read absence of evidence as evidence. What the two states change is what the report
+*says*, which is the whole reason to tell them apart: a `command::` node, an unclassified Filament
+page and a genuinely authenticated route are three different situations, and one of them is not a
+guard.
+
+A route with no security entry at all is not gated by this test. Absence of classification is absence
+of evidence — the same reason a missing entry never reads as "public" either.
 
 **`no-known-path` is not `internal-only`.** Proving a member internal means proving a negative on a
 graph that under-approximates by design. A member with no known path is unmeasured, not unreachable —

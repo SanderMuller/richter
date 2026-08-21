@@ -45,7 +45,7 @@ final class RiskLadderTest extends TestCase
     {
         // The graph's inability to name a caller is richter's limit, not evidence of safety — and
         // capping here would silence tier 3 on exactly the applications where reach is hardest.
-        foreach ([Hazard::REACH_PUBLIC_WRITE, Hazard::REACH_GATED, Hazard::REACH_NO_KNOWN_PATH] as $reach) {
+        foreach ([Hazard::REACH_PUBLIC_WRITE, Hazard::REACH_GATED, Hazard::REACH_NO_GUARD_FOUND, Hazard::REACH_NO_KNOWN_PATH] as $reach) {
             [$level] = $this->decide([$this->hazard(3, $reach)]);
 
             $this->assertSame(RiskLevel::High, $level, "tier 3 at {$reach}");
@@ -57,6 +57,7 @@ final class RiskLadderTest extends TestCase
     {
         $this->assertSame(RiskLevel::High, $this->decide([$this->hazard(2, Hazard::REACH_PUBLIC_WRITE)])[0]);
         $this->assertSame(RiskLevel::Medium, $this->decide([$this->hazard(2, Hazard::REACH_GATED)])[0]);
+        $this->assertSame(RiskLevel::Medium, $this->decide([$this->hazard(2, Hazard::REACH_NO_GUARD_FOUND)])[0]);
         $this->assertSame(RiskLevel::Medium, $this->decide([$this->hazard(2, Hazard::REACH_NO_KNOWN_PATH)])[0]);
     }
 
@@ -65,7 +66,42 @@ final class RiskLadderTest extends TestCase
     {
         $this->assertSame(RiskLevel::Medium, $this->decide([$this->hazard(1, Hazard::REACH_PUBLIC_WRITE)])[0]);
         $this->assertSame(RiskLevel::Medium, $this->decide([$this->hazard(1, Hazard::REACH_GATED)])[0]);
+        $this->assertSame(RiskLevel::Medium, $this->decide([$this->hazard(1, Hazard::REACH_NO_GUARD_FOUND)])[0]);
         $this->assertSame(RiskLevel::Low, $this->decide([$this->hazard(1, Hazard::REACH_NO_KNOWN_PATH)])[0]);
+    }
+
+    #[Test]
+    public function an_admission_scores_exactly_as_the_finding_beside_it(): void
+    {
+        // `no-guard-found` is an admission, and an admission must move the level in NEITHER direction.
+        // Raising it would report HIGH across every application whose surfaces Brain cannot classify —
+        // punishing a coverage gap as though it were a security one. Lowering it would read absence of
+        // evidence as evidence. Splitting it out of `gated` changes what the report SAYS, not what it
+        // scores, which is the whole reason the two are told apart.
+        foreach ([1, 2, 3] as $tier) {
+            $this->assertSame(
+                $this->decide([$this->hazard($tier, Hazard::REACH_GATED)])[0],
+                $this->decide([$this->hazard($tier, Hazard::REACH_NO_GUARD_FOUND)])[0],
+                "tier {$tier}",
+            );
+        }
+    }
+
+    #[Test]
+    public function only_no_known_path_moves_a_cell_and_only_at_tier_one(): void
+    {
+        // The one admission that does change a score: a signature change nothing reaches is genuinely
+        // low, where one reached by a surface richter could not classify is not.
+        $this->assertSame(RiskLevel::Low, $this->decide([$this->hazard(1, Hazard::REACH_NO_KNOWN_PATH)])[0]);
+        $this->assertSame(RiskLevel::Medium, $this->decide([$this->hazard(1, Hazard::REACH_NO_GUARD_FOUND)])[0]);
+
+        foreach ([2, 3] as $tier) {
+            $this->assertSame(
+                $this->decide([$this->hazard($tier, Hazard::REACH_NO_KNOWN_PATH)])[0],
+                $this->decide([$this->hazard($tier, Hazard::REACH_NO_GUARD_FOUND)])[0],
+                "tier {$tier}",
+            );
+        }
     }
 
     #[Test]

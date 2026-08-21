@@ -29,6 +29,14 @@ use SanderMuller\Richter\Graph\NodeMetadata;
 final readonly class HazardReach
 {
     /**
+     * Brain exposure values that mean the request was authenticated before it arrived. `public` and
+     * `guest` are the other two it emits, and neither is a guard.
+     *
+     * @var list<string>
+     */
+    private const array GATED_EXPOSURES = ['authed', 'admin', 'internal'];
+
+    /**
      * @param  array<string, list<array{node: string, via: string, file?: string, line?: int}>>  $entryPointPaths
      * @param  array<string, SecurityShape>  $entryPointSecurity
      * @param  array<string, list<string>>  $entryPointAuthGates
@@ -68,7 +76,12 @@ final readonly class HazardReach
             }
         }
 
-        return Hazard::REACH_GATED;
+        // `gated` is a FINDING and has to be earned. Every reaching entry point must show a guard —
+        // one that does not is the way in, and calling the set guarded because its siblings are would
+        // be the averaging the loop above refuses.
+        return array_all($entryPoints, fn (string $entryPoint): bool => $this->isGated($entryPoint))
+            ? Hazard::REACH_GATED
+            : Hazard::REACH_NO_GUARD_FOUND;
     }
 
     /**
@@ -150,12 +163,27 @@ final readonly class HazardReach
     }
 
     /**
-     * A guard richter can actually point at: authorization the cross-check correlated to this route,
-     * or authentication middleware on it. Absence is NOT proof of exposure — it is why `gated` is the
-     * fallback for a reached-but-not-public-write surface rather than the other way round.
+     * A guard richter can actually point at. Two kinds of evidence count, and nothing else does.
+     *
+     * Brain's own EXPOSURE is the first, and the one this lane used to ignore. A route classified
+     * `authed`, `admin` or `internal` is authenticated by Brain's reading of its middleware surface;
+     * that is a positive finding, not an absence.
+     *
+     * The cross-check's correlated policy or auth middleware is the second. Note that BOTH of its maps
+     * are populated only for routes Brain flagged `PUBLIC_WRITE` — it exists to contradict Brain, so
+     * it never runs elsewhere. Keying on it alone therefore left `gated` as a fallthrough meaning
+     * "not proven public-write", which is not what the name says: a `command::` node, a Livewire
+     * surface Brain never classified, and a genuinely authenticated route all landed in it together.
+     *
+     * A route with no security entry at all is NOT gated by this test. Absence of classification is
+     * absence of evidence — the same reason a missing entry never reads as "public" either.
      */
     private function isGated(string $entryPoint): bool
     {
+        if (in_array($this->entryPointSecurity[$entryPoint]['exposure'] ?? '', self::GATED_EXPOSURES, strict: true)) {
+            return true;
+        }
+
         return ($this->entryPointAuthGates[$entryPoint] ?? []) !== []
             || ($this->entryPointAuthMiddleware[$entryPoint] ?? []) !== [];
     }

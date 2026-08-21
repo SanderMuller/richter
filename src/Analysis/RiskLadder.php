@@ -137,6 +137,19 @@ final class RiskLadder
         return [$worst, $others > 0 ? "{$cause} (and {$others} more)" : $cause];
     }
 
+    /**
+     * One cell of the matrix.
+     *
+     * `no-guard-found` deliberately scores exactly as `gated` does. It is an ADMISSION, not a
+     * finding, and an admission must move the level in neither direction: raising it would report
+     * HIGH across every application whose surfaces Brain cannot classify — a Livewire or Filament
+     * codebase — which punishes a coverage gap as though it were a security one. Lowering it would
+     * read absence of evidence as evidence. The two states differ in what the report SAYS, which is
+     * the whole reason to tell them apart.
+     *
+     * `no-known-path` is the one admission that does move a cell, and only at tier 1: a signature
+     * change nothing reaches is genuinely low, where one reached by an unclassified surface is not.
+     */
     private static function cell(int $tier, string $reach): RiskLevel
     {
         return match (true) {
