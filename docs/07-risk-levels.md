@@ -108,6 +108,10 @@ ever written. The comparison is the head's operations minus the base's, so a new
 everything it does and a migration edited for an unrelated reason does not re-report what it already
 held.
 
+Deleting a migration raises nothing. Head minus base leaves an empty head with nothing to report, and
+rolling an unrun migration back out of a branch is routine. Whether it already ran against a real
+database is not something richter can see.
+
 The hazard is named for the model that owns the table, so the entry points reaching that model answer
 for it. The table comes from the model the way Eloquent derives it: an explicit `$table` wins, and
 otherwise the snake-cased plural of the class name. Two models claiming one table resolve to neither.

@@ -35,6 +35,11 @@ use SanderMuller\Richter\Support\AppFiles;
  * column `up()` adds. Reading the whole file would report a destructive operation on every migration
  * ever written, additive ones included.
  *
+ * A DELETED migration raises nothing, the same call {@see RouteFileHazards} makes for a route the head
+ * no longer declares. Head minus base leaves an empty head with nothing to report, which is the right
+ * reading: deleting the file removes the instruction, and rolling an unrun migration back out of a
+ * branch is routine. Whether it already ran against a real database is not something richter can see.
+ *
  * **Head minus base**, not head alone. A new file has no base, so every operation in it reports; a
  * migration edited for an unrelated reason does not re-report the operations it already held.
  *

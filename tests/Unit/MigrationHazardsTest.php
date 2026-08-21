@@ -6,8 +6,12 @@ use PHPUnit\Framework\Attributes\Test;
 use SanderMuller\Richter\Analysis\Hazard;
 use SanderMuller\Richter\Analysis\Hazards\MigrationHazards;
 use SanderMuller\Richter\Analysis\Hazards\ModelTables;
+use SanderMuller\Richter\Changes\ChangedFileSymbols;
+use SanderMuller\Richter\Changes\FrontendChanges;
 use SanderMuller\Richter\Changes\MigrationChanges;
+use SanderMuller\Richter\Changes\NonPhpFileChange;
 use SanderMuller\Richter\Tests\TestCase;
+use SanderMuller\Richter\Tracers\FeatureGateChecker;
 
 final class MigrationHazardsTest extends TestCase
 {
@@ -335,6 +339,43 @@ final class MigrationHazardsTest extends TestCase
 
         $this->assertSame([], $symbols->members);
         $this->assertSame('', $symbols->fqcn);
+    }
+
+    #[Test]
+    public function a_deleted_migration_raises_nothing(): void
+    {
+        $symbols = MigrationChanges::resolve(
+            self::FILE,
+            '',
+            $this->migration("Schema::drop('posts');"),
+            isNew: false,
+            hasAdditions: false,
+        );
+
+        $this->assertSame([], $symbols->hazards);
+        $this->assertSame([], $symbols->findings);
+    }
+
+    #[Test]
+    public function a_changed_migration_reaches_the_reader_through_the_diff_dispatch(): void
+    {
+        $head = $this->migration("Schema::drop('posts');");
+
+        $symbols = NonPhpFileChange::resolve(
+            self::FILE,
+            static fn (): string => $head,
+            static fn (): ?string => null,
+            isNew: true,
+            hasAdditions: true,
+            frontend: new FrontendChanges(),
+            gates: new FeatureGateChecker([]),
+        );
+
+        $this->assertInstanceOf(ChangedFileSymbols::class, $symbols);
+        $this->assertSame(['table `posts` dropped'], array_map(
+            static fn (Hazard $hazard): string => $hazard->evidence,
+            $symbols->hazards,
+        ));
     }
 
     #[Test]
