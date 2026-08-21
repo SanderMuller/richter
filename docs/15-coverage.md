@@ -11,7 +11,7 @@ Brain traces some of these too (view composition, resource references, queue dis
 - controllers routed by the legacy string action (`'PostController@show'` rather than `[PostController::class, 'show']`): the action arrives under-qualified, either as a bare basename or partially qualified when a `->namespace()` group applied a namespace without the root a provider adds. The partial form is FQCN-shaped enough to become a node of its own beside the real class. The route then reaches a class nothing else in the graph refers to, so the controller reports no entry surface while every code edge hangs off the class the route never reaches. Both forms are rewritten onto the class they name, provided exactly one candidate matches; an ambiguous one is left alone rather than pointed at the wrong class;
 - polymorphic overrides: a call on an abstract-class or interface method also reaches the concrete overrides in its subclasses/implementors, so a handler chosen at runtime (a config-registry driver, a factory, `app()->make($runtimeClass)`) is not left orphaned. It takes a call to open that door. A node the walk reaches only through type structure does not fan out to every implementor, and the same refusal covers the descendants that inherit an ancestor member rather than override it. The change implements an interface, the interface declares the method, and the implementors behind it are cousins of the change: they neither call it nor run it. A path that carries a call still fans out, wherever it ends;
 - static calls: `Foo::bar()`, the shape a static registry, named constructor or factory is reached through, which a `new`-oriented trace leaves with no node at all;
-- calls a class makes on itself: `$this->doTheWork()` links the two members. The receiver is the enclosing class by definition, so this needs no type inference — and a class no route reaches had no call edges at all before it. The method may be inherited rather than declared here, in which case the inherited-method lane connects it to the ancestor whose body runs. A method no app class in the chain declares is a framework method (`$this->hasMany(…)`) and draws nothing. A call on a property, a parameter or a local is a receiver-typing problem and is not drawn;
+- calls a class makes on itself: `$this->doTheWork()` links the two members. The receiver is the enclosing class by definition, so this needs no type inference, and a class no route reaches had no call edges at all before it. The method may be inherited rather than declared here, in which case the inherited-method lane connects it to the ancestor whose body runs. A method no app class in the chain declares is a framework method (`$this->hasMany(…)`) and draws nothing. A call on a property, a parameter or a local is a receiver-typing problem and is not drawn;
 - inherited methods: a method a class inherits without overriding runs in the parent, so the parent is connected to the subclass its callers actually go through (the same declaring-class resolution the constant lane does);
 - calls through an application facade: a facade is an app class like any other, so `Reports::generate()` otherwise stops at a member the facade does not declare, leaving the class its accessor names reachable from nothing. An accessor naming its concrete (`return ReportGenerator::class`) is read directly; one naming a container key (`return 'reports'`) is resolved through the bindings registered under `app/Providers`, so the older facade idiom reaches its class too. A key nothing there binds, or one two providers bind to different classes, draws nothing;
 - class-constant and enum-case reads: a change to a constant or enum case pins to the methods that read it (resolved to the declaring class, so an inherited constant still connects), instead of coarsely flagging the whole class;
@@ -40,32 +40,32 @@ The fourth limit is an accessor that picks at runtime. A facade's `getFacadeAcce
 
 A provider that CONFIGURES a route it does not declare is connected to nothing. A rate limiter
 registered with `RateLimiter::for('login', …)`, or any behaviour a provider attaches to routes
-declared elsewhere, decides what those routes do — and richter draws no edge from the provider to
+declared elsewhere, decides what those routes do, and richter draws no edge from the provider to
 them, because nothing in the source names them. The provider is placed, so the change is not
 UNRESOLVED; it simply reaches no entry surface.
 
 Since 0.40 that costs a level as well as reach. A changed class reaching no entry point is graded on
 whether a runnable test imports the class itself, and tests that exercise a throttled route import
-the route helpers rather than the provider — so a provider change with real behavioural tests behind
+the route helpers rather than the provider, so a provider change with real behavioural tests behind
 it reads `medium`, "no test referencing them". The statement is true about what richter can see. The
 fix is coverage, not a cap: until an edge connects the two, a test that names the class is the only
 thing that changes the answer, and shaping tests to satisfy the tool is the wrong trade.
 
 A route file is compared for guards, not for exposure. `routes/*.php` is read route by route for the
 guard middleware a route lost, which is a hazard. What it does not do is grade the route's exposure at
-base against its exposure at head — Brain classifies the head graph only, and the base side would need
+base against its exposure at head. Brain classifies the head graph only, and the base side would need
 a second graph build. So a route that was authenticated and is now public is caught by the middleware
 it lost, and not by the exposure it gained. A closure route in a prefixed group also grades
 `no-known-path`, because the URI written in the file is not the URI that was registered. Two registrations that share a verb, a URI and an
 action are read as one route written twice, so a guard dropped from one of them while the other keeps
-it is missed. And a guard lost in one route file while another route file gains one — `routes/web.php` and
-`routes/api.php` in the same diff — reads as the same guard moving and is suppressed. A middleware
+it is missed. And a guard lost in one route file while another route file gains one, `routes/web.php` and
+`routes/api.php` in the same diff, reads as the same guard moving and is suppressed. A middleware
 group written in a shape richter does not read reports a finding rather than a comparison, and an
 application subclass of a framework guard middleware matches no name in a group.
 
 An application that schedules through a legacy `app/Console/Kernel.php` gets no `schedule::` nodes at
 all. Brain models the schedule from the Laravel 11+ `routes/console.php` form; from a Console Kernel
-it yields command nodes only. So a change to the schedule itself — a cron time, a frequency — reaches
+it yields command nodes only. So a change to the schedule itself, a cron time or a frequency, reaches
 no entry point and grades on the `Kernel` class, and every schedule-shaped answer richter can give is
 invisible on that structure. `php artisan schedule:list` still shows the schedule; the graph does not
 carry it.
@@ -73,6 +73,6 @@ carry it.
 The last limit costs an explanation rather than reach. Where a node is reached first through type structure and later through a call, the chain the report prints for it keeps the first route, which can name an override hop the walk refuses on that route. The reached set, the impacted count and the risk level are unaffected; only the chain drawn through such a node is.
 
 The first five limits cost reach: fewer edges, so fewer entry points behind a change. None of them
-makes a change report as unaffected — a change the graph cannot place reads UNRESOLVED, and one that
+makes a change report as unaffected. A change the graph cannot place reads UNRESOLVED, and one that
 is placed but reaches nothing reads `medium`, never `low`. Reach lost to a coverage limit is reported
 as ignorance, never as safety.

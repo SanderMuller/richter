@@ -113,8 +113,8 @@ and a route naming the string are the same guard. That is declared intent rather
 an `extends` clause. A class two guard aliases both name is skipped rather than resolved one way, and a
 class the project registers under no guard alias still draws nothing.
 
-The guard vocabulary is the framework's own — `auth`, `verified`, `signed`, `password.confirm`, `can`
-and `throttle` — plus the guards the common packages ship: `role`, `permission` and
+The guard vocabulary is the framework's own (`auth`, `verified`, `signed`, `password.confirm`, `can`
+and `throttle`) plus the guards the common packages ship: `role`, `permission` and
 `role_or_permission` from spatie/laravel-permission, and `client`, `scope`, `scopes`, `ability` and
 `abilities` from Passport and Sanctum. A middleware outside that list draws nothing, whoever wrote it.
 

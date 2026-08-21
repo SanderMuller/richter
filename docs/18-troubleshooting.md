@@ -18,7 +18,7 @@ The graph could not place that file. The report echoes the FQCN the path derived
 
 - **The FQCN looks wrong.** The root namespace is misread. Set `root_namespace` explicitly in [the configuration reference](16-configuration.md); the default derives it from the PSR-4 entry mapping to `app/`, which is ambiguous when two roots map there.
 - **The FQCN looks right.** Nothing in the graph reaches that class. If it belongs to a subsystem dispatched at runtime (a registry, a form builder), add its narrowest directory to `entry_point_roots` so its methods are traced. That makes the subsystem *placeable*; its classes still do not become entry points.
-- **Neither.** It may be a coverage gap. [Coverage beyond Laravel Brain](15-coverage.md) lists what is traced and the three known limits.
+- **Neither.** It may be a coverage gap. [Coverage beyond Laravel Brain](15-coverage.md) lists what is traced and the known limits.
 
 UNRESOLVED means the reach could not be determined, not that the change has no impact.
 

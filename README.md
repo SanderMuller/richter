@@ -11,7 +11,7 @@
 
 Measures the magnitude of impact of code changes in a Laravel codebase. Like the Richter scale, but for your PHP.
 
-Run `php artisan richter:detect-changes` on a branch and Richter reports the HTTP and CLI entry points the diff can reach, flags the ones no test references, and names the hazards the change carries — a guard removed, a payload key a consumer still reads, a validation constraint dropped. Review then starts from what the change reaches, instead of from a cold diff.
+Run `php artisan richter:detect-changes` on a branch and Richter reports the HTTP and CLI entry points the diff can reach, flags the ones no test references, and names the hazards the change carries: a guard removed, a payload key a consumer still reads, a validation constraint dropped. Review then starts from what the change reaches, instead of from a cold diff.
 
 ```text
 Changed files:
@@ -36,7 +36,6 @@ Impact: 2 entry point(s) · 7 impacted node(s)
 What makes it worth installing:
 
 - **Member-level change impact.** A one-method change seeds that method in the code graph, not the whole class. The graph covers routes, controllers, jobs, listeners, policies, resources, Blade views, and the Eloquent relations your code walks, plus [edges a route-anchored analysis misses](https://sandermuller.github.io/richter/coverage).
-- **Honest degradation.** A change the graph cannot place reads **UNRESOLVED**, never a falsely reassuring "no impact". A coverage gap costs reach, but it never causes anything to be reported as unaffected.
 - **Test-coverage prompts.** Every reached entry point is tagged `[test-referenced]` or `[⚠ no test references this]`, a heuristic prompt rather than a coverage verdict.
 - **Blast radius and traces on demand.** `richter:impact` lists a symbol's callers, its dependencies, and the entry surfaces behind them. `richter:trace` answers "how does this even reach that?" with the shortest call chain.
 - **Affected-test selection.** `richter:affected-tests` turns the diff's reach into a test selection, with an exit-code contract that fails toward running the full suite whenever the selection cannot be trusted.

@@ -5,10 +5,10 @@
 Key properties an agent should know before using it:
 
 - **Advisory by default.** `richter:detect-changes` exits 0. A low or empty result is a signal, not a guarantee of no impact. Gating is opt-in via `--fail-on` / `--fail-on-hazard` / `--fail-on-unresolved`.
-- **Honest degradation.** A change the graph cannot place reads UNRESOLVED, never "no impact". Absence of an annotation means *not classified*, never a negative finding.
 - **Member-level.** A one-method change seeds that method, not the whole class. An edit that changes no member correctly reports nothing.
 - **Reference-based, not proof.** Test-reference tags and affected-test selection are recall heuristics, not coverage verdicts.
 - **MCP server.** With `laravel/mcp` installed, every analysis is exposed read-only as a tool (`impact`, `trace`, `detect-changes`, `affected-tests`) plus three orientation resources. Tool output matches the CLI `--json` shape, so branch on fields rather than parsing prose. For `affected-tests`, `determinable: false` means run the full suite.
+- **Honest degradation.** A change the graph cannot place reads UNRESOLVED, never "no impact". Absence of an annotation means *not classified*, never a negative finding.
 
 ## Formats
 

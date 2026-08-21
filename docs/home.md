@@ -4,7 +4,7 @@ layout: home
 hero:
   name: Richter
   text: Measure the reach of a code change
-  tagline: Static impact analysis for Laravel. See the entry points a diff reaches, the ones no test references, and an advisory risk level, before the review starts.
+  tagline: Static impact analysis for Laravel. See the entry points a diff reaches, the ones no test references, and the hazards it carries, before the review starts.
   image:
     src: /logo.svg
     alt: Richter

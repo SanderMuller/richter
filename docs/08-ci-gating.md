@@ -12,7 +12,7 @@ Either flag also fails an un-assessable diff (a broken or invalid base ref) rath
 
 Before turning any of them on, know what you are signing up for.
 
-`--fail-on-hazard=3` is the narrowest useful gate and the one to start with: tier 3 is a guard removed or a disclosure widened, and on a real corpus it fires rarely. `--fail-on` is broader — it blocks on the level, which on an application richter cannot place well reads `medium` for most changes, so `--fail-on=medium` there is close to blocking everything. Neither blocks on correctness: a one-line logic error in a leaf class trips nothing.
+`--fail-on-hazard=3` is the narrowest useful gate and the one to start with: tier 3 is a guard removed or a disclosure widened, and on a real corpus it fires rarely. `--fail-on` is broader. It blocks on the level, which on an application richter cannot place well reads `medium` for most changes, so `--fail-on=medium` there is close to blocking everything. Neither blocks on correctness: a one-line logic error in a leaf class trips nothing.
 
 A level can also move without your code changing. Reach class and verification state both improve as richter learns to follow more edges, and both push levels UP ([Risk levels](07-risk-levels.md#what-drifts-and-in-which-direction)). Pin the version if a verdict has to stay comparable across a release. `--fail-on-unresolved` trips on any UNRESOLVED changed file, so what it fires on is your app's own coverage: a subsystem the graph cannot place fails every build that touches it until `entry_point_roots` or `root_namespace` covers it ([Troubleshooting](18-troubleshooting.md#a-changed-file-reads-unresolved)).
 

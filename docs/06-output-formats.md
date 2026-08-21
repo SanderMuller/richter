@@ -33,7 +33,7 @@ With `--json`, stdout is a single JSON document (the full, uncapped report) with
 | `traitAndOverrideReachVia` | object | why each `traitAndOverrideReach` entry is listed, keyed by node: the edge types that reached it (`uses-trait`, `override`) |
 | `traitAndOverrideReach` | string[] | classes that run a changed member without calling it, meaning trait users and override implementors (context, not risk; the report prints these under "Runs this code without calling it") |
 | `risk` | string | `"low"` / `"medium"` / `"high"`; see [Risk levels](07-risk-levels.md) |
-| `riskCause` | string | why the level is what it is, in one line. Always present — a level without its cause is not a usable verdict |
+| `riskCause` | string | why the level is what it is, in one line. Always present, because a level without its cause is not a usable verdict |
 | `hazards` | object[] | `{lane, tier, cwe, member, reach, evidence}` per hazard, worst tier first. `reach` is one of four: the findings `public-write` and `gated`, and the admissions `no-guard-found` (reached, no guard visible) and `no-known-path` (nothing reaching it found). Neither admission is evidence of safety; see [Risk levels](07-risk-levels.md#reach-and-the-matrix) |
 | `verification` | object | what the level graded, mapped to whether a test references it: reached entry points, plus a changed class itself where it reached none. `true` is referenced, `false` unreferenced, `null` could not be checked |
 | `lowConfidence` | bool | a changed member couldn't be pinned, so part of the estimate is coarse |

@@ -10,7 +10,7 @@ php artisan richter:affected-tests --json                 # {base, determinable,
 php artisan test $(php artisan richter:affected-tests --plain)   # simple form: coarse but safe
 ```
 
-It selects the test files that reference any entry point the diff reaches, plus the tests that import any changed or reached class, plus any test file the diff itself touched — that last one needs no graph reasoning and gets none, since `tests/` is outside every tree the analysis reads. It diffs the same way [`detect-changes`](04-detect-changes.md#which-diff-is-analysed) does, so staged and unstaged edits are included. Selection is reference-based recall, not proof of coverage.
+It selects the test files that reference any entry point the diff reaches, plus the tests that import any changed or reached class, plus any test file the diff itself touched. That last one needs no graph reasoning and gets none, since `tests/` is outside every tree the analysis reads. It diffs the same way [`detect-changes`](04-detect-changes.md#which-diff-is-analysed) does, so staged and unstaged edits are included. Selection is reference-based recall, not proof of coverage.
 
 ## The exit-code contract
 
@@ -100,8 +100,8 @@ Four shapes look unfollowable and are not counted, because none of them hides an
   method must write that name exactly once, at the top level, before the dispatch, so a binding under
   an `if`, a rebinding, a `foreach` binding or a dynamic write anywhere keeps the site. It must also
   mention the name nowhere else: a collection is an object, and `$jobs->push($other)` changes what the
-  batch holds without writing the name, so any other mention — a mutator call, a pass to a helper that
-  could keep the handle — keeps the site as well. A method that reaches its own locals by name rather
+  batch holds without writing the name, so any other mention keeps the site as well: a mutator call, or
+  a pass to a helper that could keep the handle. A method that reaches its own locals by name rather
   than by writing them proves nothing here either: `compact()` and `get_defined_vars()` hand the
   collection out with no mention to count, and `extract()` and `eval()` can replace it outright.
 
