@@ -2,11 +2,16 @@
 
 namespace SanderMuller\Richter\Analysis\Hazards;
 
+use PhpParser\Node\Arg;
 use PhpParser\Node\ArrayItem;
 use PhpParser\Node\Expr;
 use PhpParser\Node\Expr\Array_;
 use PhpParser\Node\Expr\ClassConstFetch;
+use PhpParser\Node\Expr\StaticCall;
+use PhpParser\Node\Identifier;
 use PhpParser\Node\Name;
+use PhpParser\Node\Scalar\Float_;
+use PhpParser\Node\Scalar\Int_;
 use PhpParser\Node\Scalar\String_;
 use PhpParser\NodeFinder;
 use SanderMuller\Richter\Analysis\HazardFindings;
@@ -233,6 +238,72 @@ final class GuardMiddleware
     }
 
     /**
+     * A guard built by a static call, as the name it stands for, or null when the class is not one this
+     * reader knows: `ThrottleRequests::with(30, 1)` is `throttle:30,1`.
+     *
+     * The arguments become the parameter only where every one of them is a plain scalar written in
+     * place. `ThrottleRequests::using(Limiter::GuestVerification)` names a limiter whose rate lives in
+     * a `RateLimiter::for()` closure, so it answers the bare alias: present or absent, with no rate to
+     * compare — which is what the reader already says about `throttle:api`. A named argument answers
+     * the bare alias too, since reading `with(decayMinutes: 1)` positionally would invent a limit.
+     */
+    private static function builtGuard(StaticCall $call): ?string
+    {
+        if (! $call->class instanceof Name) {
+            return null;
+        }
+
+        $fqcn = AppFiles::resolveName($call->class);
+        $alias = self::aliasOf($fqcn);
+
+        if ($alias === $fqcn) {
+            return null;
+        }
+
+        $parameters = [];
+
+        foreach ($call->args as $arg) {
+            if (! $arg instanceof Arg || $arg->name instanceof Identifier) {
+                return $alias;
+            }
+
+            $parameter = self::argumentText($arg->value);
+
+            if ($parameter === null) {
+                return $alias;
+            }
+
+            $parameters[] = $parameter;
+        }
+
+        return $parameters === [] ? $alias : $alias . ':' . implode(',', $parameters);
+    }
+
+    /**
+     * One builder argument as parameter text, or null where the reader cannot evaluate it.
+     *
+     * A `::class` constant counts, because `Authorize::using('update', Post::class)` names an ability
+     * and a model exactly as `can:update,post` does, and dropping it would collapse two different
+     * authorization checks onto one token. Any other constant does not: `Limiter::GuestVerification`
+     * names a limiter whose rate this reader never sees, and its value is not the parameter either.
+     */
+    private static function argumentText(Expr $argument): ?string
+    {
+        if ($argument instanceof ClassConstFetch) {
+            return $argument->name instanceof Identifier && $argument->name->toString() === 'class' && $argument->class instanceof Name
+                ? AppFiles::resolveName($argument->class)
+                : null;
+        }
+
+        return match (true) {
+            $argument instanceof String_ => $argument->value,
+            $argument instanceof Int_ => (string) $argument->value,
+            $argument instanceof Float_ => (string) $argument->value,
+            default => null,
+        };
+    }
+
+    /**
      * The guard tokens named by one middleware argument: a string literal, a `::class` constant, or an
      * array of either. Shared by every reader, so a route and a middleware group spell the same guard
      * the same way and a move between them matches.
@@ -256,6 +327,14 @@ final class GuardMiddleware
 
             if ($item instanceof ClassConstFetch && $item->class instanceof Name) {
                 $names[] = AppFiles::resolveName($item->class);
+
+                continue;
+            }
+
+            $built = $item instanceof StaticCall ? self::builtGuard($item) : null;
+
+            if ($built !== null) {
+                $names[] = $built;
             }
         }
 

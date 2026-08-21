@@ -130,7 +130,14 @@ follows, and guessing in either direction would be worse than silence. Where a s
 throttles, the strictest one is the limit, so a raised limit beside a tighter one reports nothing, and
 one unreadable rate makes the whole set unreadable. Two limits counting over different windows are not
 compared at all: `throttle:100,60` allows a burst of a hundred in one minute where `throttle:2,1`
-allows two, so the averages rank them the wrong way round. Before this split, every one of
+allows two, so the averages rank them the wrong way round.
+
+A guard can be written three ways and all three read the same: the alias (`'throttle:30,1'`), the class
+(`ThrottleRequests::class`), and the static call that builds one (`ThrottleRequests::with(30, 1)`). The
+call's arguments become the parameter only where each is a plain scalar written in place; a named
+argument, or a limiter named by something the reader cannot evaluate
+(`ThrottleRequests::using(Limiter::Guest)`), answers the bare guard instead. That is present-or-absent:
+a removal is still tier 3, and swapping one limiter for another says nothing. Before this split, every one of
 those edits reported the same tier-3 "the middleware is gone".
 
 A guard that moved is not a guard that was removed. Authorization migrates: a controller's

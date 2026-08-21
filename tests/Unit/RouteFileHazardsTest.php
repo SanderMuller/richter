@@ -443,6 +443,90 @@ final class RouteFileHazardsTest extends TestCase
     }
 
     #[Test]
+    public function a_guard_built_by_a_static_call_is_read(): void
+    {
+        // `->middleware(ThrottleRequests::with(30, 1))` names the same guard as `throttle:30,1`. The
+        // reader saw a string and a class constant and nothing else, so this drew nothing at all —
+        // removal included, on routes whose rate limit was the only guard they had.
+        $route = "<?php\nuse App\\Http\\Controllers\\PostController;\nuse Illuminate\\Routing\\Middleware\\ThrottleRequests;\nuse Illuminate\\Support\\Facades\\Route;\nRoute::get('/streetview', [PostController::class, 'index'])%s;\n";
+
+        $removed = RouteFileHazards::for(self::FILE, sprintf($route, ''), sprintf($route, '->middleware(ThrottleRequests::with(30, 1))'))[0];
+
+        $this->assertCount(1, $removed);
+        $this->assertSame(3, $removed[0]->tier);
+        $this->assertSame(['middleware:throttle:30,1'], $removed[0]->removedTokens);
+
+        // And it feeds the rate comparison this release built, in both directions.
+        $raised = RouteFileHazards::for(self::FILE,
+            sprintf($route, '->middleware(ThrottleRequests::with(120, 1))'),
+            sprintf($route, '->middleware(ThrottleRequests::with(30, 1))'))[0];
+
+        $this->assertSame(2, $raised[0]->tier);
+        $this->assertStringContainsString('rose from `throttle:30,1` to `throttle:120,1`', $raised[0]->evidence);
+
+        $this->assertSame([], RouteFileHazards::for(self::FILE,
+            sprintf($route, '->middleware(ThrottleRequests::with(15, 1))'),
+            sprintf($route, '->middleware(ThrottleRequests::with(30, 1))'))[0]);
+    }
+
+    #[Test]
+    public function a_named_limiter_built_by_a_static_call_is_present_or_absent(): void
+    {
+        // `using()` names a limiter whose rate lives in a `RateLimiter::for()` closure nothing here
+        // follows, so it answers the bare alias: a removal is tier 3, and swapping the limiter says
+        // nothing. The same reading the reader already gives `throttle:api`.
+        $route = "<?php\nuse App\\Http\\Controllers\\PostController;\nuse App\\Support\\Limiter;\nuse Illuminate\\Routing\\Middleware\\ThrottleRequests;\nuse Illuminate\\Support\\Facades\\Route;\nRoute::post('/verify', [PostController::class, 'store'])%s;\n";
+
+        $removed = RouteFileHazards::for(self::FILE, sprintf($route, ''),
+            sprintf($route, '->middleware(ThrottleRequests::using(Limiter::GuestVerification))'))[0];
+
+        $this->assertCount(1, $removed);
+        $this->assertSame(3, $removed[0]->tier);
+        $this->assertSame(['middleware:throttle'], $removed[0]->removedTokens);
+
+        $this->assertSame([], RouteFileHazards::for(self::FILE,
+            sprintf($route, '->middleware(ThrottleRequests::using(Limiter::Signup))'),
+            sprintf($route, '->middleware(ThrottleRequests::using(Limiter::GuestVerification))'))[0]);
+    }
+
+    #[Test]
+    public function a_builders_class_constant_argument_keeps_the_check_it_names(): void
+    {
+        // `Authorize::using('update', Post::class)` names an ability and a model exactly as
+        // `can:update,post` does. Reading it as the bare `can` would collapse two different
+        // authorization checks onto one token and hide the change between them.
+        $route = "<?php\nuse App\\Http\\Controllers\\PostController;\nuse App\\Models\\Post;\nuse Illuminate\\Auth\\Middleware\\Authorize;\nuse Illuminate\\Support\\Facades\\Route;\nRoute::get('/posts', [PostController::class, 'index'])->middleware(Authorize::using('%s', Post::class));\n";
+
+        $hazards = RouteFileHazards::for(self::FILE, sprintf($route, 'view'), sprintf($route, 'update'))[0];
+
+        $this->assertCount(1, $hazards);
+        $this->assertSame(['middleware:can:update,App\Models\Post'], $hazards[0]->removedTokens);
+        $this->assertSame('CWE-862', $hazards[0]->cwe);
+    }
+
+    #[Test]
+    public function a_static_call_the_reader_cannot_evaluate_falls_back_to_the_bare_guard(): void
+    {
+        // A named argument read positionally would invent a limit, so the guard answers present or
+        // absent instead. An unmapped class still draws nothing at all.
+        $route = "<?php\nuse App\\Http\\Controllers\\PostController;\nuse App\\Support\\Tenancy;\nuse Illuminate\\Routing\\Middleware\\ThrottleRequests;\nuse Illuminate\\Support\\Facades\\Route;\nRoute::get('/posts', [PostController::class, 'index'])%s;\n";
+
+        $named = RouteFileHazards::for(self::FILE, sprintf($route, ''),
+            sprintf($route, '->middleware(ThrottleRequests::with(maxAttempts: 30))'))[0];
+
+        $this->assertSame(['middleware:throttle'], $named[0]->removedTokens);
+
+        $this->assertSame([], RouteFileHazards::for(self::FILE, sprintf($route, ''),
+            sprintf($route, '->middleware(Tenancy::strict())'))[0]);
+
+        // An argument that is neither a scalar nor a `::class` constant is not the parameter either.
+        $variable = RouteFileHazards::for(self::FILE, sprintf($route, ''),
+            sprintf($route, '->middleware(ThrottleRequests::with($limit, 1))'))[0];
+
+        $this->assertSame(['middleware:throttle'], $variable[0]->removedTokens);
+    }
+
+    #[Test]
     public function a_route_replacing_several_throttles_reports_the_change_once(): void
     {
         // A route has one effective limit however many throttles it lists. Reading the change per lost
