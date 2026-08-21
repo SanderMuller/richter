@@ -99,14 +99,15 @@ A guard that moved is not a guard that was removed. Authorization migrates: a co
 `authorize()` becomes a form request's, a policy becomes a gate. Every removal predicate fires only
 when the removed thing is not added somewhere else in the same diff.
 
-**The lanes do not double-report, and a removal is reported once.** A removed public policy method is
-the `auth` lane's at tier 3 — it is a guard, not just a contract — and never also a tier-2 contract
-break. A queued class's changed constructor is the `boundary` lane's at tier 2, never also a tier-1
-signature change. A private member is no one's contract: its removal draws nothing, and a signature
-change is skipped while the member stays private on both sides. A class the diff deletes whole is reported once (`the class is gone`) rather than once per
-member; a deleted policy class is the `auth` lane's, once at tier 3 with every ability it held. And a
-guard can be gutted without being removed: a policy method or form request `authorize()` whose body
-becomes exactly `return true;` is a tier-3 hazard even though the member survives.
+The lanes do not double-report, and a removal is reported once. A removed public policy method is the
+`auth` lane's at tier 3, because it is a guard and not only a contract, and never also a tier-2
+contract break. A queued class's changed constructor is the `boundary` lane's at tier 2, never also a
+tier-1 signature change. A private member is no one's contract: its removal draws nothing, and a
+signature change is skipped while the member stays private on both sides. A class the diff deletes
+whole is reported once (`the class is gone`) rather than once per member, and a deleted policy class
+is the `auth` lane's, once at tier 3 with every ability it held. A guard can also be gutted without
+being removed: a policy method or form request `authorize()` whose body becomes exactly `return
+true;` is a tier-3 hazard even though the member survives.
 
 The ability is what is compared, not the call shape, so `Gate::denies('publish')` rewritten as
 `$user->cannot('publish')` draws nothing. A policy constant counts as an ability. A project following

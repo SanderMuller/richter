@@ -79,7 +79,7 @@ Every reached entry point is tagged `[test-referenced]` or `[⚠ no test referen
 
 These are heuristic prompts rather than coverage verdicts. An entry point whose behaviour you changed with nothing referencing it is a place to add a test; the tag flags a missing reference, not proof the code is untested. The `tests/` scan behind the tags only runs when an entry surface was actually reached.
 
-A `schedule::` surface resolves through the command it runs, so a test driving that command references the scheduled surface too. A schedule reaching no command — a scheduled closure among them — stays "could not be checked" rather than claiming no test drives it.
+A `schedule::` surface resolves through the command it runs, so a test driving that command references the scheduled surface too. A schedule reaching no command, a scheduled closure among them, stays "could not be checked" rather than claiming no test drives it.
 
 ## Changed files no lane analyses
 
