@@ -126,6 +126,11 @@ return [
      * they became tier-2 hazards, and a fixture pins what the report says, not which section says
      * it.
      *
+     * max_hazard_tier (optional, 0-3, default 3) caps the worst hazard the change may produce, where
+     * 0 allows none. It is not the same guard as max_risk: the tier x reach matrix maps several
+     * different situations onto MEDIUM, so a case whose honest level is MEDIUM stays green while a
+     * spurious hazard appears underneath it. Cap the tier to catch that.
+     *
      * max_risk is checked on every fixture, not only on controls; it just does nothing on a bug
      * fixture left at the default 'high', which is why `benchmark:add` writes that value there. Only
      * a control is scaffolded with a cap below it, taken from what the replay actually reported.
@@ -137,6 +142,7 @@ return [
         //     'bug_class' => 'background-job change (data not copied on duplication)',
         //     'expect_signal' => true,
         //     'max_risk' => 'high',
+        //     'max_hazard_tier' => 2,
         //     'expect_finding' => 'layout',
         // ],
     ],

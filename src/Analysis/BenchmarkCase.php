@@ -20,6 +20,7 @@ final readonly class BenchmarkCase
         public bool $expectSignal,
         public RiskLevel $maxRisk = RiskLevel::High,
         public ?string $expectFinding = null,
+        public int $maxHazardTier = 3,
     ) {}
 
     public static function fromArray(mixed $case): self
@@ -41,6 +42,7 @@ final readonly class BenchmarkCase
             expectSignal: $case['expect_signal'],
             maxRisk: self::maxRisk($case['key'], $case['max_risk'] ?? null),
             expectFinding: self::expectFinding($case['key'], $case['expect_finding'] ?? null),
+            maxHazardTier: self::maxHazardTier($case['key'], $case['max_hazard_tier'] ?? null),
         );
     }
 
@@ -83,6 +85,31 @@ final readonly class BenchmarkCase
     }
 
     /**
+     * The worst hazard tier this change may produce. Defaults to 3, the ceiling, which constrains
+     * nothing — the same "absent means unconstrained" shape `max_risk` has.
+     *
+     * It exists because `max_risk` cannot see a false hazard. The tier x reach matrix collapses
+     * several different situations onto MEDIUM — a tier-2 at `gated`, a tier-1 at `public-write`, and
+     * no hazard at all with unverified reach — so a fixture whose honest answer is MEDIUM stays green
+     * while a spurious hazard appears underneath it. Only a tier-3 false positive is caught by a level
+     * cap, and only because tier 3 is HIGH everywhere. This constrains the hazards directly.
+     *
+     * `0` means no hazard may fire, which is what a control usually wants to say.
+     */
+    private static function maxHazardTier(string $key, mixed $maxHazardTier): int
+    {
+        if ($maxHazardTier === null) {
+            return 3;
+        }
+
+        if (! is_int($maxHazardTier) || $maxHazardTier < 0 || $maxHazardTier > 3) {
+            throw new InvalidArgumentException("Benchmark case \"{$key}\" has an invalid max_hazard_tier — use an integer 0 to 3, where 0 allows no hazard at all.");
+        }
+
+        return $maxHazardTier;
+    }
+
+    /**
      * @param  array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, risk: RiskLevel, findings: list<string>, hazards?: list<Hazard>, ...}  $result  a {@see ImpactAnalyzer::detectChanges()} result
      * @return list<string> failure reasons; empty means the case passed
      */
@@ -118,7 +145,26 @@ final readonly class BenchmarkCase
             $failures[] = "no finding or hazard contains \"{$this->expectFinding}\"";
         }
 
+        foreach ($this->tiersAbove($result) as $hazard) {
+            $failures[] = "tier {$hazard->tier} `{$hazard->lane}` hazard on {$hazard->member} exceeds the expected maximum tier of {$this->maxHazardTier}";
+        }
+
         return $failures;
+    }
+
+    /**
+     * Every hazard worse than this case allows, named individually — a count would say a cap was
+     * exceeded without saying by what, and the lane and member are the whole diagnosis.
+     *
+     * @param  array{hazards?: list<Hazard>, ...}  $result
+     * @return list<Hazard>
+     */
+    private function tiersAbove(array $result): array
+    {
+        return array_values(array_filter(
+            $result['hazards'] ?? [],
+            fn (Hazard $hazard): bool => $hazard->tier > $this->maxHazardTier,
+        ));
     }
 
     /**

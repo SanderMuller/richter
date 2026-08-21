@@ -192,6 +192,100 @@ final class BenchmarkCaseTest extends TestCase
     }
 
     #[Test]
+    public function a_hazard_above_the_cap_fails_and_names_itself(): void
+    {
+        $case = BenchmarkCase::fromArray([
+            'key' => 'CAP-1', 'fix_commit' => 'abc1234', 'bug_class' => 'a refactor that should carry nothing worse than tier 1',
+            'expect_signal' => true, 'max_hazard_tier' => 1,
+        ]);
+
+        $failures = $case->evaluate($this->reportResult(hazards: [
+            new Hazard('auth', 3, 'CWE-862', 'App\Http\Controllers\PostController::update', 'the guard is gone'),
+        ]));
+
+        $this->assertSame(
+            ['tier 3 `auth` hazard on App\Http\Controllers\PostController::update exceeds the expected maximum tier of 1'],
+            $failures,
+        );
+    }
+
+    #[Test]
+    public function a_hazard_at_the_cap_passes(): void
+    {
+        $case = BenchmarkCase::fromArray([
+            'key' => 'CAP-2', 'fix_commit' => 'abc1234', 'bug_class' => 'a signature change',
+            'expect_signal' => true, 'max_hazard_tier' => 1,
+        ]);
+
+        $this->assertSame([], $case->evaluate($this->reportResult(hazards: [
+            new Hazard('contract', 1, null, 'App\Services\Publisher::publish', 'the parameter list changed'),
+        ])));
+    }
+
+    #[Test]
+    public function a_cap_of_zero_allows_no_hazard_at_all(): void
+    {
+        // What a control usually wants to say, and says far more precisely than a level cap.
+        $case = BenchmarkCase::fromArray([
+            'key' => 'CAP-3', 'fix_commit' => 'abc1234', 'bug_class' => 'a harmless additive change',
+            'expect_signal' => false, 'max_hazard_tier' => 0,
+        ]);
+
+        $this->assertSame([], $case->evaluate($this->reportResult()));
+        $this->assertCount(1, $case->evaluate($this->reportResult(hazards: [
+            new Hazard('model', 2, 'CWE-915', 'App\Models\Post::$fillable', 'gained status'),
+        ])));
+    }
+
+    #[Test]
+    public function the_cap_catches_what_a_level_cap_cannot(): void
+    {
+        // The matrix maps a tier-2 at `gated`, a tier-1 at `public-write` and a hazard-free change
+        // with unverified reach all onto MEDIUM. A case sitting honestly at MEDIUM therefore stays
+        // green under `max_risk: medium` while a false tier-2 appears beneath it.
+        $result = $this->reportResult(hazards: [
+            new Hazard('parity', 2, null, 'App\Models\Post', 'a field never reached its resource', reach: Hazard::REACH_GATED),
+        ]);
+        $result['risk'] = RiskLevel::Medium;
+
+        $levelCapped = BenchmarkCase::fromArray([
+            'key' => 'CAP-4', 'fix_commit' => 'abc1234', 'bug_class' => 'x', 'expect_signal' => true, 'max_risk' => 'medium',
+        ]);
+        $tierCapped = BenchmarkCase::fromArray([
+            'key' => 'CAP-5', 'fix_commit' => 'abc1234', 'bug_class' => 'x', 'expect_signal' => true, 'max_risk' => 'medium', 'max_hazard_tier' => 1,
+        ]);
+
+        $this->assertSame([], $levelCapped->evaluate($result), 'the level cap is blind to this');
+        $this->assertCount(1, $tierCapped->evaluate($result));
+    }
+
+    #[Test]
+    public function an_absent_cap_constrains_nothing(): void
+    {
+        $case = BenchmarkCase::fromArray([
+            'key' => 'CAP-6', 'fix_commit' => 'abc1234', 'bug_class' => 'x', 'expect_signal' => true,
+        ]);
+
+        $this->assertSame(3, $case->maxHazardTier);
+        $this->assertSame([], $case->evaluate($this->reportResult(hazards: [
+            new Hazard('auth', 3, 'CWE-862', 'App\Http\Controllers\PostController::update', 'the guard is gone'),
+        ])));
+    }
+
+    #[Test]
+    public function an_out_of_range_max_hazard_tier_throws_naming_its_key(): void
+    {
+        // Silently defaulting would make the cap unsatisfiable without ever testing it — the same
+        // reason an unrecognised max_risk throws.
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('Benchmark case "CAP-7" has an invalid max_hazard_tier');
+
+        BenchmarkCase::fromArray([
+            'key' => 'CAP-7', 'fix_commit' => 'abc1234', 'bug_class' => 'x', 'expect_signal' => true, 'max_hazard_tier' => 4,
+        ]);
+    }
+
+    #[Test]
     public function expect_finding_matches_a_hazard_as_well_as_a_finding(): void
     {
         // The three payload-parity checks were findings until 0.40 made them tier-2 hazards. A fixture

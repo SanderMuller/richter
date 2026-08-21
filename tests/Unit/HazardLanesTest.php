@@ -652,6 +652,58 @@ final class HazardLanesTest extends TestCase
         $this->assertSame([1], array_column($hazards, 'tier'));
     }
 
+    // ------------------------------------------- against the fixture project
+
+    #[Test]
+    public function the_fixture_projects_own_constant_guard_is_seen_when_it_is_removed(): void
+    {
+        // Every other test here compares source I wrote for the occasion, which is how the constant
+        // idiom went unnoticed: I authored both the lane and the shape it was tested against, and both
+        // used a string literal. The fixture project has held the real idiom the whole time —
+        // `request()->user()?->can(PostPolicy::UPDATE, $post)` in ReviewController::edit — so the
+        // honest test REMOVES that call rather than adding a simpler one beside it.
+        $file = 'app/Http/Controllers/Post/ReviewController.php';
+        $base = (string) file_get_contents(self::fixtureProjectPath() . '/' . $file);
+        $guard = '        request()->user()?->can(PostPolicy::UPDATE, $post);';
+
+        $this->assertStringContainsString($guard, $base, 'the fixture project no longer holds the shape this test exists for');
+
+        $head = str_replace($guard . "\n\n", '', $base);
+        $this->assertNotSame($base, $head);
+
+        $hazards = $this->lanes($file, $head, $base);
+
+        $this->assertSame(['auth'], array_column($hazards, 'lane'));
+        $this->assertSame([3], array_column($hazards, 'tier'));
+        $this->assertSame('App\Http\Controllers\Post\ReviewController::edit', $hazards[0]->member);
+        $this->assertStringContainsString('ability:App\Policies\PostPolicy::UPDATE', $hazards[0]->evidence);
+    }
+
+    #[Test]
+    public function rewriting_the_fixture_projects_guard_between_call_shapes_draws_nothing(): void
+    {
+        // The reported false positive, against the real file: `can(PostPolicy::UPDATE)` becomes
+        // `cannot(...)`, same ability, same policy. On 0.40.0 both sides tokenised `call:can` and
+        // `call:cannot`, which never match, so this reported a removed guard at tier 3, HIGH.
+        $file = 'app/Http/Controllers/Post/ReviewController.php';
+        $base = (string) file_get_contents(self::fixtureProjectPath() . '/' . $file);
+        $head = str_replace('?->can(PostPolicy::UPDATE, $post)', '?->cannot(PostPolicy::UPDATE, $post)', $base);
+
+        $this->assertNotSame($base, $head, 'the fixture project no longer holds the shape this test exists for');
+        $this->assertSame([], $this->lanes($file, $head, $base));
+    }
+
+    #[Test]
+    public function the_fixture_project_untouched_draws_no_hazard(): void
+    {
+        // The other half of the same guarantee: comparing the file with itself must be silent. A lane
+        // that fires on an unchanged file would fire on every diff that merely touches one.
+        $file = 'app/Http/Controllers/Post/ReviewController.php';
+        $source = (string) file_get_contents(self::fixtureProjectPath() . '/' . $file);
+
+        $this->assertSame([], $this->lanes($file, $source, $source));
+    }
+
     // ------------------------------------------------------------ refusals
 
     #[Test]

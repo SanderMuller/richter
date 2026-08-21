@@ -6,6 +6,7 @@ use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Process;
 use RuntimeException;
 use SanderMuller\Richter\Analysis\BenchmarkCase;
+use SanderMuller\Richter\Analysis\Hazard;
 use SanderMuller\Richter\Analysis\ImpactAnalyzer;
 use SanderMuller\Richter\Analysis\RiskLevel;
 use SanderMuller\Richter\Analysis\TestReferenceIndex;
@@ -94,6 +95,10 @@ final class BenchmarkAddCommand extends Command
         $bugClass = $subject === '' ? 'TODO: describe the bug class' : $subject;
         $expectSignal = ! $isControl;
         $maxRisk = $isControl ? $result['risk'] : RiskLevel::High;
+        // A control pins the hazards it produces today, for the same reason it pins the level: any
+        // increase is the over-reporting the case exists to catch. A signal case is left unconstrained
+        // at the ceiling, since what it asserts is that the change is SEEN, not that it stays quiet.
+        $maxHazardTier = $isControl ? $this->worstTier($result['hazards']) : 3;
         $expectFindingOption = $this->option('expect-finding');
         $expectFinding = is_string($expectFindingOption) && $expectFindingOption !== '' ? $expectFindingOption : null;
 
@@ -104,6 +109,7 @@ final class BenchmarkAddCommand extends Command
             expectSignal: $expectSignal,
             maxRisk: $maxRisk,
             expectFinding: $expectFinding,
+            maxHazardTier: $maxHazardTier,
         );
 
         $failures = $case->evaluate($result);
@@ -116,7 +122,7 @@ final class BenchmarkAddCommand extends Command
             }
         }
 
-        $this->printStanza($key, $commit, $bugClass, $expectSignal, $maxRisk, $expectFinding);
+        $this->printStanza($key, $commit, $bugClass, $expectSignal, $maxRisk, $expectFinding, $maxHazardTier);
 
         return $failures === [] ? self::SUCCESS : self::FAILURE;
     }
@@ -150,7 +156,17 @@ final class BenchmarkAddCommand extends Command
         return substr($commit, 0, 7);
     }
 
-    private function printStanza(string $key, string $commit, string $bugClass, bool $expectSignal, RiskLevel $maxRisk, ?string $expectFinding): void
+    /**
+     * The worst tier among the hazards a replay produced, or 0 when it produced none.
+     *
+     * @param  list<Hazard>  $hazards
+     */
+    private function worstTier(array $hazards): int
+    {
+        return array_reduce($hazards, static fn (int $worst, Hazard $hazard): int => max($worst, $hazard->tier), 0);
+    }
+
+    private function printStanza(string $key, string $commit, string $bugClass, bool $expectSignal, RiskLevel $maxRisk, ?string $expectFinding, int $maxHazardTier): void
     {
         $escapedKey = $this->escapeForSingleQuotedString($key);
         $escapedCommit = $this->escapeForSingleQuotedString($commit);
@@ -166,6 +182,10 @@ final class BenchmarkAddCommand extends Command
         $this->line("        'bug_class' => '{$escapedBugClass}',");
         $this->line("        'expect_signal' => {$expectSignalLiteral},");
         $this->line("        'max_risk' => '{$maxRisk->value}',");
+
+        if ($maxHazardTier < 3) {
+            $this->line("        'max_hazard_tier' => {$maxHazardTier},");
+        }
 
         if ($expectFinding !== null) {
             $this->line("        'expect_finding' => '" . $this->escapeForSingleQuotedString($expectFinding) . "',");
