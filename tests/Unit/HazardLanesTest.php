@@ -264,6 +264,19 @@ final class HazardLanesTest extends TestCase
     }
 
     #[Test]
+    public function an_ability_inside_a_closure_that_becomes_an_arrow_function_still_matches(): void
+    {
+        // The reported shape: the check lives inside an `->authorize(function () { … })` callback that
+        // the diff rewrites as an arrow function, inverting `cannot … return false` to `can`. Both
+        // forms have to be traversed, or the base token is found and the head one is not — which reads
+        // as a removal just as surely as the constant fallback did.
+        $base = "<?php\nnamespace App\\Livewire;\nuse App\\Policies\\PostPolicy;\nclass PostIndex\n{\n    public function actions()\n    {\n        return \$this->action()->authorize(function (\$post): bool {\n            if (auth()->user()->cannot(PostPolicy::DELETE, \$post)) {\n                return false;\n            }\n\n            return \$this->stillEditable(\$post);\n        });\n    }\n}\n";
+        $head = "<?php\nnamespace App\\Livewire;\nuse App\\Policies\\PostPolicy;\nclass PostIndex\n{\n    public function actions()\n    {\n        return \$this->action()->authorize(fn (\$post): bool => auth()->user()->can(PostPolicy::DELETE, \$post));\n    }\n}\n";
+
+        $this->assertSame([], $this->lanes('app/Livewire/PostIndex.php', $head, $base));
+    }
+
+    #[Test]
     public function swapping_one_constant_ability_for_another_is_a_removal(): void
     {
         // The under-fire with the same root as the false positive: two DIFFERENT abilities on the same
