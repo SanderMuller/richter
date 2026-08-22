@@ -92,6 +92,23 @@ final class ModelTablesTest extends TestCase
     }
 
     #[Test]
+    public function a_table_declared_on_a_base_model_is_inherited(): void
+    {
+        $root = $this->project([]);
+        file_put_contents(
+            "{$root}/app/Models/BaseModel.php",
+            "<?php declare(strict_types=1);\n\nnamespace App\\Models;\n\nuse Illuminate\\Database\\Eloquent\\Model;\n\nabstract class BaseModel extends Model\n{\n    protected \$table = 'entries';\n}\n",
+        );
+        file_put_contents(
+            "{$root}/app/Models/Article.php",
+            "<?php declare(strict_types=1);\n\nnamespace App\\Models;\n\nfinal class Article extends BaseModel\n{\n}\n",
+        );
+
+        $this->assertSame('App\Models\Article', ModelTables::modelFor('entries', $root));
+        $this->assertNull(ModelTables::modelFor('articles', $root));
+    }
+
+    #[Test]
     public function two_models_claiming_one_table_resolve_to_neither(): void
     {
         $root = $this->project([
@@ -118,7 +135,11 @@ final class ModelTablesTest extends TestCase
     #[Test]
     public function a_model_extending_a_project_base_model_still_owns_its_table(): void
     {
-        $root = $this->project(['BaseModel' => '']);
+        $root = $this->project([]);
+        file_put_contents(
+            "{$root}/app/Models/BaseModel.php",
+            "<?php declare(strict_types=1);\n\nnamespace App\\Models;\n\nuse Illuminate\\Database\\Eloquent\\Model;\n\nabstract class BaseModel extends Model\n{\n}\n",
+        );
         file_put_contents(
             "{$root}/app/Models/Article.php",
             "<?php declare(strict_types=1);\n\nnamespace App\\Models;\n\nfinal class Article extends BaseModel\n{\n}\n",

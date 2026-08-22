@@ -116,13 +116,15 @@ database is not something richter can see.
 
 The hazard is named for the model that owns the table, so the entry points reaching that model answer
 for it. The table comes from the model the way Eloquent derives it: an explicit `$table` wins, and
-otherwise the snake-cased plural of the class name. Two models claiming one table resolve to neither, and a class whose parent chain does not reach
-Eloquent's `Model` owns no table at all, so a helper parked under `app/Models` cannot claim one.
+otherwise the snake-cased plural of the class name. A `$table` on a project base model is inherited, so the nearest declaration in the parent chain
+answers. An abstract base model claims no table of its own. Two models claiming one table resolve to
+neither, and a class whose parent chain does not reach Eloquent's `Model` owns no table at all, so a
+helper parked under `app/Models` cannot claim one.
 A table no model claims keeps its own name and grades `no-known-path`, which is honest — richter
 cannot see what reaches it.
 
-`hazards.ignore` silences a migration hazard by table (`posts`) or by table and column
-(`posts.subtitle`). That is how a framework table, a queue table or a pivot is quietened, rather than
+`hazards.ignore` silences a migration hazard by table and column (`posts.subtitle`), and the table on
+its own (`posts`) silences every hazard on it, column drops included. That is how a framework table, a queue table or a pivot is quietened, rather than
 richter curating a list of table names to skip.
 
 A guard leaves a route in two directions. It can leave the route, and it can leave the group the route

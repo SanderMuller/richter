@@ -402,6 +402,7 @@ final class MigrationHazards
             member: ModelTables::modelFor($table, $projectRoot) ?? $table,
             evidence: $operation['evidence'],
             ignoreKey: $column === null ? $table : "{$table}.{$column}",
+            alsoIgnoredBy: $column === null ? [] : [$table],
         );
     }
 }

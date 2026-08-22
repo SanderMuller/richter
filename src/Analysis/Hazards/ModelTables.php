@@ -34,6 +34,9 @@ use SanderMuller\Richter\Tracers\EagerLoadStringChecker;
  * from the working tree. Resolving the model from the replayed ref could name a class the graph does
  * not hold, which grades `no-known-path` on a model richter can actually see.
  *
+ * An abstract class claims no table. It maps no rows, and letting it claim the one its subclasses
+ * inherit would poison that table as ambiguous.
+ *
  * No-guess, like every other hazard collaborator: two models claiming one table is an ambiguity this
  * refuses rather than picks a side on, and an unparseable model contributes nothing.
  *
@@ -101,7 +104,7 @@ final class ModelTables
      * The one class a file declares, reduced to what table ownership needs. Null when the file declares
      * no class or more than one — the same ambiguity refusal.
      *
-     * @return array{parent: string|null, table: array{table: string|null}|null}|null
+     * @return array{parent: string|null, table: array{table: string|null}|null, abstract: bool}|null
      */
     private static function declarationIn(string $source): ?array
     {
@@ -120,6 +123,7 @@ final class ModelTables
         return [
             'parent' => $classes[0]->extends === null ? null : AppFiles::resolveName($classes[0]->extends),
             'table' => self::declaredTable($classes[0]),
+            'abstract' => $classes[0]->isAbstract(),
         ];
     }
 
@@ -130,17 +134,21 @@ final class ModelTables
      * parked under `app/Models` extends none of them and owns no table — assigning it one would poison
      * a real model's table as ambiguous.
      *
-     * @param  array<string, array{parent: string|null, table: array{table: string|null}|null}|null>  $declarations
+     * @param  array<string, array{parent: string|null, table: array{table: string|null}|null, abstract: bool}|null>  $declarations
      */
     private static function tableOf(string $fqcn, array $declarations): ?string
     {
         $declaration = $declarations[$fqcn] ?? null;
 
-        if ($declaration === null || ! self::isModel($fqcn, $declarations)) {
+        // An abstract base model maps no rows of its own. Letting it claim the table its subclasses
+        // inherit would poison that table as ambiguous and cost every one of them its reach.
+        if ($declaration === null || $declaration['abstract'] || ! self::isModel($fqcn, $declarations)) {
             return null;
         }
 
-        $declared = $declaration['table'];
+        // A `$table` on a project base model is inherited by every subclass at runtime, so the nearest
+        // declaration in the parent chain answers, not the subclass's own absence of one.
+        $declared = self::nearestDeclaredTable($fqcn, $declarations);
 
         // A model that DECLARES `$table` has said the convention does not apply to it. If the value
         // cannot be read — `protected $table = Tables::ARTICLES` — falling back to the convention would
@@ -149,10 +157,37 @@ final class ModelTables
     }
 
     /**
+     * The nearest `$table` declaration in the class's own chain, or null when nothing in it declares
+     * one. Stops at the first declaration, the way PHP resolves an inherited property.
+     *
+     * @param  array<string, array{parent: string|null, table: array{table: string|null}|null, abstract: bool}|null>  $declarations
+     * @return array{table: string|null}|null
+     */
+    private static function nearestDeclaredTable(string $fqcn, array $declarations): ?array
+    {
+        $seen = [];
+
+        while (! isset($seen[$fqcn]) && isset($declarations[$fqcn])) {
+            $seen[$fqcn] = true;
+            // `isset` already skipped an unreadable class: it has no declaration to inherit, and the
+            // chain ends there rather than reaching past it.
+            $declaration = $declarations[$fqcn];
+
+            if ($declaration['table'] !== null) {
+                return $declaration['table'];
+            }
+
+            $fqcn = $declaration['parent'] ?? '';
+        }
+
+        return null;
+    }
+
+    /**
      * Whether the class's parent chain reaches Eloquent's `Model`. A chain that leaves the scanned set
      * without reaching it answers no, and a cycle terminates on the seen-set rather than recursing.
      *
-     * @param  array<string, array{parent: string|null, table: array{table: string|null}|null}|null>  $declarations
+     * @param  array<string, array{parent: string|null, table: array{table: string|null}|null, abstract: bool}|null>  $declarations
      */
     private static function isModel(string $fqcn, array $declarations): bool
     {

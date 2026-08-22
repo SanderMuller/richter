@@ -89,7 +89,7 @@ final class HazardFindings
             return true;
         }
 
-        return in_array($hazard->suppressionKey(), $ignore, strict: true);
+        return array_intersect($hazard->suppressionKeys(), $ignore) !== [];
     }
 
     /**

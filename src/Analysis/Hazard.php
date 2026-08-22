@@ -48,6 +48,10 @@ final readonly class Hazard
      *   member is in no chain — means the entry points the report lists are not this hazard's
      *   evidence, so the two read as a contradiction unexplained. A diff whose counts are zero
      *   because nothing seeded the walk is the sharpest case, not the only one.
+     * @param  list<string>  $alsoIgnoredBy  further `hazards.ignore` entries that silence this hazard,
+     *   for one that sits inside something a reader would silence whole. A migration's column drop is
+     *   keyed `posts.subtitle` and answers to `posts` as well, so a noisy table is silenced once rather
+     *   than column by column.
      */
     public function __construct(
         public string $lane,
@@ -59,11 +63,12 @@ final readonly class Hazard
         public ?string $reach = null,
         public ?string $ignoreKey = null,
         public bool $reachViaDeclaringClass = false,
+        public array $alsoIgnoredBy = [],
     ) {}
 
     public function withReach(string $reach, bool $viaDeclaringClass = false): self
     {
-        return new self($this->lane, $this->tier, $this->cwe, $this->member, $this->evidence, $this->removedTokens, $reach, $this->ignoreKey, $viaDeclaringClass);
+        return new self($this->lane, $this->tier, $this->cwe, $this->member, $this->evidence, $this->removedTokens, $reach, $this->ignoreKey, $viaDeclaringClass, $this->alsoIgnoredBy);
     }
 
     /**
@@ -82,5 +87,15 @@ final readonly class Hazard
     public function suppressionKey(): string
     {
         return $this->ignoreKey ?? $this->member;
+    }
+
+    /**
+     * Every `hazards.ignore` entry that silences this hazard, narrowest first.
+     *
+     * @return list<string>
+     */
+    public function suppressionKeys(): array
+    {
+        return [$this->suppressionKey(), ...$this->alsoIgnoredBy];
     }
 }

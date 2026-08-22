@@ -378,6 +378,15 @@ final class MigrationHazardsTest extends TestCase
     }
 
     #[Test]
+    public function a_column_drop_answers_to_its_table_as_well(): void
+    {
+        $hazards = $this->hazards("Schema::table('posts', function (Blueprint \$table) { \$table->dropColumn('subtitle'); });");
+
+        // Silencing a noisy table once, rather than column by column.
+        $this->assertSame(['posts.subtitle', 'posts'], $hazards[0]->suppressionKeys());
+    }
+
+    #[Test]
     public function a_table_drop_is_silenced_by_its_table(): void
     {
         $hazards = $this->hazards("Schema::drop('posts');");

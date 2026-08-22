@@ -200,8 +200,8 @@ return [
         // ('App\Http\Controllers\PostController::update'), a model's config member
         // ('App\Models\Post::$fillable'), or an inline-validated field
         // ('App\Http\Controllers\PostController::store::subtitle'). A migration hazard is named by
-        // the table it changes ('posts') or by table and column ('posts.subtitle') — the way to
-        // quieten a framework table, a queue table or a pivot.
+        // table and column ('posts.subtitle'), and the table on its own ('posts') quietens every
+        // hazard on it — the way to silence a framework table, a queue table or a pivot in one entry.
         'ignore' => [],
     ],
 ];
