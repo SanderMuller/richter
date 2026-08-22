@@ -5,6 +5,52 @@ All notable changes to `sandermuller/richter` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.47.0 - 2026-08-22
+
+Migrations are read for what they destroy, and a hazard's reach now says where it came from.
+
+### Added
+
+**A `migration` hazard lane.** `database/migrations/*.php` is compared for the destructive schema operations its `up()` performs: a dropped column, a dropped table, a renamed column. Each is tier 2 whether or not anything still names the column — losing the data is the break, and richter cannot see the rows.
+
+- **Only `up()` is read.** A conventional `down()` reverses `up()`, so it holds a `dropColumn` for every column `up()` adds; reading the whole file would report a destructive operation on every migration ever written.
+- **Head minus base**, so a new migration reports everything it does and a migration edited for an unrelated reason does not re-report what it already held.
+- **Deleting a migration raises nothing.** Rolling an unrun migration back out of a branch is routine, and whether it already ran against a real database is not something richter can see.
+- **The hazard is named for the model that owns the table**, so the entry points reaching that model answer for it. The table is derived the way Eloquent derives it: an explicit `$table` wins, otherwise the snake-cased plural of the class name. Two models claiming one table resolve to neither, and a table no model claims keeps its own name and grades `no-known-path`.
+- **Untracked migrations ride along.** A brand-new file is the normal shape for a migration, so an un-added one is the commonest way a schema drop reaches a branch unseen.
+- A migration seeds no reach of its own. It names a table, not a class.
+
+`hazards.ignore` silences a migration hazard by table (`posts`) or by table and column (`posts.subtitle`) — that is how a framework table, a queue table or a pivot is quietened, rather than richter curating a list of table names to skip.
+
+### Changed
+
+**A hazard's reach says when it came from a class rather than from the walk.** Two lanes answer a hazard's reach: the walk's own entry-point chains, and — for a member that sits in no chain — the callers of its class. The second lane answers precisely where the diff's own counts cannot corroborate it, and the report used to print both answers with no way to tell them apart. An additive `$fillable` edit seeds no walk, so it reports zero entry points and zero impacted nodes while its reach class stands on real evidence, and the pair read as a contradiction: `no-guard-found` beside `0 entry point(s)` looked like richter calling the same absence two different things.
+
+It never was. `no-guard-found` says a reaching surface was found and at least one of them showed no guard; `no-known-path` is the answer when nothing was found, and the two have always been graded apart. The prose formats now name the lane:
+
+```text
+Hazards (1):
+  ! [tier 2 model CWE-915] App\Models\Post::$fillable — $fillable gained owner_id
+      reach: gated (via its class)
+
+```
+The suffix says "via its class" rather than naming a declaring class, because a `migration` hazard is named for a model and a `contract` hazard can name a class deleted whole — neither has a declaring class to point at.
+
+The `reach` field in `--json` and in MCP structured content is unchanged and still carries one of the four states, so a consumer matching on them keeps working. `riskCause` keeps the bare value too: it explains the level, and the provenance moves no cell.
+
+### Upgrade note
+
+A diff that touches a migration can now carry a tier-2 hazard where it previously carried none. Tier 2 is `medium` at every reach class except `public-write`, so a migration-only diff that used to pass `--fail-on=medium` or `--fail-on-hazard=2` can now trip it. That is the lane doing its job — a dropped column is a destructive change — but it is worth knowing before the first pipeline run on this version. Where a table is expected to lose columns, name it in `hazards.ignore`.
+
+### Limits worth knowing
+
+- A column **added** is not read at all, so a column added to the schema and never added to the model stays invisible: a column reaches richter through the model's `$fillable` or `$casts`.
+- A column name built at runtime still reports the drop, under a name richter could not read — silence on a destructive operation is the wrong direction to fail in. A table name built at runtime is refused instead, because the operation cannot be placed at all.
+- A squashed schema dump under `database/schema/` is not PHP and holds no `up()`, so a project that squashes has no migration file to read for the squashed range.
+- The model owning a table is looked for under `app/Models` only. An application that keeps its models elsewhere gets the table name as the hazard's member and `no-known-path` as its reach: the hazard still reports, with less reach than the graph could give it.
+
+**Full Changelog**: https://github.com/SanderMuller/richter/compare/v0.46.1...v0.47.0
+
 ## v0.46.1 - 2026-08-21
 
 Two routes mounted at the same path under different prefixes were one route to the guard reader, so a guard deleted from one read as still present.
@@ -63,6 +109,7 @@ Tightening a rate limit reported a tier-3 HIGH saying the limit was gone. A guar
   
   ```
   the rate limit on the GET /search route in routes/api.php rose from `throttle:60,1` to `throttle:120,1`
+  
   
   
   
@@ -472,6 +519,7 @@ dispatch($job);
 
 
 
+
 ```
 That was recorded as a dispatch whose target could not be followed — and the taint is global, so one of them makes every `richter:affected-tests` run report `not determinable` and fall back to the full suite. The graph has carried the edge for this shape all along: the instantiation is in the same method, right above the dispatch. The site pointed at a place to restructure where nothing was hidden and nothing needed restructuring.
 
@@ -568,6 +616,7 @@ Build profile: nothing was built — the diff holds nothing the graph is built f
 
 
 
+
 ```
 On stderr, like the table it stands in for, and before the payload in `--json` mode so stdout stays one document. Building anyway was the alternative, and it would make a no-op run pay for an analysis nothing asked for.
 
@@ -585,6 +634,7 @@ An event named by a class constant resolves in **any** declaration form, includi
 public const string
     SUBTITLE_CHANGED = 'subtitle-changed',
     SUBTITLE_DELETED = 'subtitle-deleted';
+
 
 
 
@@ -629,6 +679,7 @@ Build profile (forced rebuild):
   total                      3.85s
   no scoped rebuild: non-app-change
     config/services.php differs from the cached graph and sits outside app/
+
 
 
 
@@ -728,6 +779,7 @@ It now names every site:
 ```
 the graph contains job dispatches that could not be followed:
 app/Jobs/Fanout.php:88 (App\Jobs\Fanout::handle), app/Services/Importer.php:12 (App\Services\Importer::run)
+
 
 
 
@@ -1116,6 +1168,7 @@ Note: 2 changed file(s) are outside the analysed scope (not PHP under app/, a Bl
 
 
 
+
 ```
 Stderr, like the untracked-file note, so `--json` and `--markdown` stdout stay exactly the report. Frontend sources the configuration declines to scan are not counted: generated Wayfinder output under `frontend.generated_paths` and `.d.ts` declarations were silenced on purpose, and a note that fires loudest on regeneration churn is one people stop reading.
 
@@ -1204,6 +1257,7 @@ One new advisory lane, and a README that finally leads with what the package is 
   
   
   
+  
   ```
   The count comes off the `route:: → middleware::<group>` edges already in the graph, so it counts endpoints only: a controller-level attachment of the same group does not inflate it. Membership is read from `$middlewareGroups` on a Laravel 10 Kernel or the `->web(append: [...])` form in a Laravel 11+ `bootstrap/app.php`. A member written as an alias resolves through the same alias map, parameters are cut first (`tenant:strict` is one alias with an argument), and a group that names another group is expanded transitively, since Laravel runs the inner group's middleware on the outer group's routes too.
   
@@ -1236,6 +1290,7 @@ Two silent-failure shapes that richter used to miss: a call through an applicati
   
   ```text
     ! resources/js/Pages/Posts/Create.vue posts to POST /posts and sends 'subtitle', which this diff removes from App\Http\Requests\StorePostRequest::rules() (renamed to 'sub_title'?)
+  
   
   
   
