@@ -19,9 +19,10 @@ use SanderMuller\Richter\Graph\CodeGraph;
  * - The owning model's own `$fillable`/`$casts` ({@see EloquentConfig::fieldSet()}). Exact, with no
  *   association to guess: the model is the hazard's member. A dropped column still listed here is a
  *   mass-assignment or cast pointing at nothing.
- * - The resources that belong to that model ({@see ModelResources}). `toArray()` KEYS are what is
- *   compared, so a match means the resource still carries a key by that name — not that it reads the
- *   column. The evidence says so.
+ * - The resources that belong to that model ({@see ModelResources}), and that mirror it: a caller may
+ *   touch several models, so a wired resource has to share fields with this model before its keys
+ *   count. `toArray()` KEYS are what is compared, so a match means the resource still carries a key by
+ *   that name — not that it reads the column. The evidence says so.
  *
  * A LOOKUP, not an index. Given one model and one column it costs one graph query and a file read per
  * candidate; nothing walks the whole tree except {@see ModelResources}'s name fallback, which memoizes.
@@ -36,6 +37,9 @@ final class ColumnReferences
 {
     /** @var array<string, list<string>|null> path => resolved toArray() keys, null meaning unreadable */
     private array $keysCache = [];
+
+    /** @var array<string, list<string>> model FQCN => the fields it declares */
+    private array $fieldsCache = [];
 
     private readonly ModelResources $resources;
 
@@ -92,21 +96,52 @@ final class ColumnReferences
     /** Whether the model still lists the column among the fields it exposes to mass assignment or casting. */
     private function modelDeclares(string $model, string $column): bool
     {
-        $location = $this->graph->locationOf($model);
-        $source = $location === null ? null : $this->read($location['file']);
-
-        return $source !== null && in_array($column, EloquentConfig::fieldSet($source), strict: true);
+        return in_array($column, $this->modelFields($model), strict: true);
     }
 
     /**
+     * The model's own field union, empty where the model names no file richter can read.
+     *
+     * @return list<string>
+     */
+    private function modelFields(string $model): array
+    {
+        if (array_key_exists($model, $this->fieldsCache)) {
+            return $this->fieldsCache[$model];
+        }
+
+        $location = $this->graph->locationOf($model);
+        $source = $location === null ? null : $this->read($location['file']);
+
+        return $this->fieldsCache[$model] = $source === null ? [] : EloquentConfig::fieldSet($source);
+    }
+
+    /**
+     * The key alone is not evidence. A caller may touch several models and return several resources, so
+     * a wired candidate can belong to a different model entirely — a controller reading `Post` and
+     * returning a `User` resource would answer for a dropped `posts.id` on the strength of the name
+     * `id`. The candidate has to mirror the model as well, which is the gate
+     * {@see PayloadParityChecker} applies for the same reason, with the same minimum: one shared field
+     * where wiring produced the candidate, two where only a name did.
+     *
      * @return list<string> the resource paths whose `toArray()` still carries a key of that name
      */
     private function resourcesCarrying(string $model, string $column): array
     {
+        ['candidates' => $candidates, 'viaGraph' => $viaGraph] = $this->resources->candidatesFor($model);
+        $mirrored = array_values(array_diff($this->modelFields($model), [$column]));
+        $minimumShared = $viaGraph ? 1 : 2;
+
         $paths = [];
 
-        foreach ($this->resources->candidatesFor($model)['candidates'] as $candidate) {
-            if (in_array($column, $this->keysFor($candidate['path']) ?? [], strict: true)) {
+        foreach ($candidates as $candidate) {
+            $keys = $this->keysFor($candidate['path']);
+
+            if ($keys === null || ! in_array($column, $keys, strict: true)) {
+                continue;
+            }
+
+            if (count(array_intersect($mirrored, $keys)) >= $minimumShared) {
                 $paths[] = $candidate['path'];
             }
         }

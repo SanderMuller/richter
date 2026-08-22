@@ -133,14 +133,38 @@ final class ColumnReferencesTest extends TestCase
     #[Test]
     public function a_resource_reachable_only_by_name_is_still_named(): void
     {
-        $this->putModel("'title'");
-        $this->putResource("'subtitle' => \$this->subtitle");
+        $this->putModel("'title', 'slug'");
+        $this->putResource("'title' => \$this->title, 'slug' => \$this->slug, 'subtitle' => \$this->subtitle");
 
-        // The graph wires no resource here, so the name fallback is what finds `PostResource`.
+        // The graph wires no resource here, so the name fallback is what finds `PostResource` — and a
+        // name match must mirror two of the model's fields, not one.
         $this->assertStringContainsString(
             'PostResource.php',
             $this->attach($this->dropOf('subtitle'), $this->graph(wireResource: false))->evidence,
         );
+    }
+
+    #[Test]
+    public function a_wired_resource_that_does_not_mirror_the_model_is_not_named(): void
+    {
+        $this->putModel("'title', 'slug'");
+
+        // One controller may touch several models and return several resources. A resource carrying a
+        // key of the same name is not this model's resource on the strength of that name alone.
+        file_put_contents("{$this->projectRoot}/app/Http/Resources/PostResource.php", <<<'PHP'
+            <?php declare(strict_types=1);
+            namespace App\Http\Resources;
+            use Illuminate\Http\Resources\Json\JsonResource;
+            final class PostResource extends JsonResource
+            {
+                public function toArray($request): array
+                {
+                    return ['subtitle' => $this->subtitle, 'locale' => $this->locale];
+                }
+            }
+            PHP);
+
+        $this->assertSame('column `posts`.`subtitle` dropped', $this->attach($this->dropOf('subtitle'))->evidence);
     }
 
     #[Test]

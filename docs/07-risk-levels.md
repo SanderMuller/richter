@@ -126,7 +126,9 @@ cannot see what reaches it.
 
 A dropped or renamed column is then checked against what still names it, and the hazard says where.
 Two surfaces are read: the owning model's own `$fillable`/`$casts`, and the `toArray()` keys of the
-resources that belong to that model. A resource match means the resource still carries a key of that
+resources that belong to that model and mirror it. The mirror gate matters: one controller may touch
+several models and return several resources, so a resource carrying a key of that name is not evidence
+on its own. A resource match means the resource still carries a key of that
 name, not that it reads the column, and the evidence says so. This is evidence only — it never moves
 the tier or the reach, and a surface richter cannot read is skipped rather than guessed at, because
 the hazard has already fired and a missed reference only under-informs.
