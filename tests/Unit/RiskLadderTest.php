@@ -129,7 +129,7 @@ final class RiskLadderTest extends TestCase
         [, $cause] = $this->decide([$hazard]);
 
         $this->assertStringContainsString('reach no-guard-found', $cause);
-        $this->assertStringNotContainsString('via its declaring class', $cause);
+        $this->assertStringNotContainsString('via its class', $cause);
     }
 
     // -------------------------------------------------------- the ladder

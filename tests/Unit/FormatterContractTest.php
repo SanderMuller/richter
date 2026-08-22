@@ -129,7 +129,7 @@ final class FormatterContractTest extends TestCase
         $this->assertStringContainsString('reach public-write', $output);
         // This fixture's hazard was graded from the walk's own chains, so nothing may claim otherwise:
         // an annotation applied to every hazard would still satisfy the substring assertions above.
-        $this->assertStringNotContainsString('via its declaring class', $output);
+        $this->assertStringNotContainsString('via its class', $output);
     }
 
     #[Test]
@@ -160,7 +160,7 @@ final class FormatterContractTest extends TestCase
         $this->assertStringContainsString('reach public-write', $output);
         // This fixture's hazard was graded from the walk's own chains, so nothing may claim otherwise:
         // an annotation applied to every hazard would still satisfy the substring assertions above.
-        $this->assertStringNotContainsString('via its declaring class', $output);
+        $this->assertStringNotContainsString('via its class', $output);
     }
 
     #[Test]
@@ -175,7 +175,7 @@ final class FormatterContractTest extends TestCase
             new Hazard('model', 2, 'CWE-915', 'App\Models\Comment::$fillable', '$fillable gained `role`', [], Hazard::REACH_NO_GUARD_FOUND, null, true),
         ];
 
-        $suffix = 'no-guard-found (via its declaring class)';
+        $suffix = 'no-guard-found (via its class)';
 
         $this->assertStringContainsString($suffix, ImpactFormatter::detectChanges($fixture, $this->richTestIndex(), explain: true));
         $this->assertStringContainsString($suffix, MarkdownFormatter::detectChanges($fixture, $this->richTestIndex(), explain: true));

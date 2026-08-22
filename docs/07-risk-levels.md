@@ -250,7 +250,7 @@ Entry points reached: 0
 
 Hazards (1):
   ! [tier 2 model CWE-915] App\Models\Order::$fillable — $fillable gained `status`
-      reach: no-guard-found (via its declaring class)
+      reach: no-guard-found (via its class)
 
 Risk:   MEDIUM (advisory) — tier 2 `model` hazard on App\Models\Order::$fillable, reach no-guard-found
 Impact: 0 entry point(s) · 0 impacted node(s)
@@ -263,7 +263,7 @@ found, and no guard was visible on at least one of them. It is not the "nothing 
 that one is `no-known-path`, and richter grades the two apart. A model no surface reaches at all,
 graded on the same diff, reports `no-known-path` with the same zero counts.
 
-The `(via its declaring class)` suffix marks exactly this case, and it belongs to the prose. The
+The `(via its class)` suffix marks exactly this case, and it belongs to the prose. The
 `reach` field in `--json` and in MCP structured content never carries it — that value stays one of
 the four states, so a consumer matching on them keeps working. Over MCP the text block is the same
 prose the terminal prints, so the suffix does appear there.
@@ -273,6 +273,11 @@ counts, as above, is the sharpest case rather than the only one: a diff that als
 resolvable controller reports entry points and impacted nodes for that controller, while a hazard on
 an unrelated service member still earns the suffix. In every case it says the same thing — the entry
 points the report lists are not this hazard's evidence.
+
+The class it names is the declaring class for a member (`Order::$fillable` resolves through `Order`)
+and the class itself where the hazard is class-level. A `migration` hazard is named for the model
+owning the table and a `contract` hazard can name a deleted class, and neither has a declaring class
+to point at, so the suffix says "via its class" rather than claiming one.
 
 The same reading applies to a hazard graded beside a list of entry points that all look guarded. The
 hazard's reach is its declaring class's whole caller set, which is usually wider than the surfaces

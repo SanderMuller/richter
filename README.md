@@ -24,7 +24,7 @@ Entry points reached: 2 (some changed files could not be fully placed — see UN
 
 Hazards (1):
   ! [tier 2 model CWE-915] App\Models\Post::$fillable — $fillable gained owner_id
-      reach: gated
+      reach: gated (via its class)
 
 Findings (in the changed source itself):
   ! app/Models/Post.php: eager-load string 'ownerprofile': segment 'ownerprofile' is not a method on any model — check the relation name

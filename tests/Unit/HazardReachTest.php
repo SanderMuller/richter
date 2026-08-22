@@ -225,7 +225,7 @@ final class HazardReachTest extends TestCase
 
         $this->assertSame(Hazard::REACH_GATED, $reach[0]->reach);
         $this->assertTrue($reach[0]->reachViaDeclaringClass);
-        $this->assertSame('gated (via its declaring class)', $reach[0]->reachLabel());
+        $this->assertSame('gated (via its class)', $reach[0]->reachLabel());
     }
 
     #[Test]
@@ -242,7 +242,7 @@ final class HazardReachTest extends TestCase
 
         $this->assertSame(Hazard::REACH_PUBLIC_WRITE, $reach[0]->reach);
         $this->assertTrue($reach[0]->reachViaDeclaringClass);
-        $this->assertSame('public-write (via its declaring class)', $reach[0]->reachLabel());
+        $this->assertSame('public-write (via its class)', $reach[0]->reachLabel());
     }
 
     #[Test]
@@ -327,7 +327,7 @@ final class HazardReachTest extends TestCase
 
         $this->assertSame(Hazard::REACH_NO_GUARD_FOUND, $hazards[0]->reach);
         $this->assertTrue($hazards[0]->reachViaDeclaringClass);
-        $this->assertSame('no-guard-found (via its declaring class)', $hazards[0]->reachLabel());
+        $this->assertSame('no-guard-found (via its class)', $hazards[0]->reachLabel());
     }
 
     #[Test]
@@ -347,6 +347,25 @@ final class HazardReachTest extends TestCase
         $this->assertSame(Hazard::REACH_GATED, $hazards[0]->reach);
         $this->assertFalse($hazards[0]->reachViaDeclaringClass);
         $this->assertSame('gated', $hazards[0]->reachLabel());
+    }
+
+    #[Test]
+    public function a_class_level_hazard_is_annotated_without_claiming_a_declaring_class(): void
+    {
+        // The `migration` lane names its hazard for the model owning the table, and the `contract` lane
+        // can name a deleted class: the member IS the class, so there is no declaring class to point
+        // at. The lane still answers through that class's callers, so the suffix has to be true for
+        // both shapes — which is why it says "via its class".
+        $graph = new CodeGraph([
+            ['source' => self::ROUTE, 'target' => 'App\Models\Post', 'type' => 'route-to-controller'],
+        ], hasUnparseableFiles: false);
+
+        $hazards = new HazardReach($graph, [], [self::ROUTE => $this->security('admin')], [], [], 6)
+            ->attach([new Hazard('migration', 2, null, 'App\Models\Post', 'the `subtitle` column is dropped', ignoreKey: 'posts.subtitle')]);
+
+        $this->assertSame(Hazard::REACH_GATED, $hazards[0]->reach);
+        $this->assertSame('gated (via its class)', $hazards[0]->reachLabel());
+        $this->assertStringNotContainsString('declaring', $hazards[0]->reachLabel());
     }
 
     #[Test]
