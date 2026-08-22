@@ -1153,7 +1153,7 @@ final class CommandsTest extends TestCase
         // Nothing but the stderr warning landed in the combined buffer — an undetermined selection
         // prints no test path, so --plain's own stdout contract stays exactly empty.
         $this->assertSame(
-            'Note: 1 untracked file(s) under app/, resources/views/, or a configured frontend root are invisible to `git diff` and were not analysed: app/Models/Report.php',
+            'Note: 1 untracked file(s) are invisible to `git diff` and were not analysed: app/Models/Report.php',
             trim($output),
         );
     }
@@ -1231,9 +1231,101 @@ final class CommandsTest extends TestCase
 
         $this->assertSame(2, $exitCode);
         $this->assertSame(
-            'Note: 1 untracked file(s) under app/, resources/views/, or a configured frontend root are invisible to `git diff` and were not analysed: app/Jobs/Foo.php',
+            'Note: 1 untracked file(s) are invisible to `git diff` and were not analysed: app/Jobs/Foo.php',
             trim($output),
         );
+    }
+
+    /**
+     * @return array{0: string, 1: string} the project-relative path, and the source written there
+     */
+    private function writeUntrackedMigration(): array
+    {
+        $file = 'database/migrations/2026_08_22_000000_drop_subtitle.php';
+        @mkdir(base_path('database/migrations'), 0777, true);
+        file_put_contents(base_path($file), <<<'PHP'
+            <?php
+
+            use Illuminate\Database\Migrations\Migration;
+            use Illuminate\Database\Schema\Blueprint;
+            use Illuminate\Support\Facades\Schema;
+
+            return new class extends Migration
+            {
+                public function up(): void
+                {
+                    Schema::table('posts', function (Blueprint $table): void {
+                        $table->dropColumn('subtitle');
+                    });
+                }
+            };
+            PHP);
+
+        return [$file, base_path($file)];
+    }
+
+    #[Test]
+    public function detect_changes_analyses_an_untracked_migration_instead_of_only_naming_it(): void
+    {
+        // Every other watched root holds files that are normally EDITED, so a diff sees them. A
+        // migration is normally a brand-new file, which left this lane silent locally at exactly the
+        // moment the migration is newest — the pre-commit check on the one just written.
+        [$file, $absolute] = $this->writeUntrackedMigration();
+
+        Process::fake([
+            '*merge-base*' => Process::result("abc123\n"),
+            '*rev-parse*' => Process::result(),
+            '*show*' => Process::result(errorOutput: 'bad object', exitCode: 128),
+            '*diff*' => Process::result(''),
+            '*status*' => Process::result("?? {$file}\n"),
+        ]);
+
+        $this->withoutMockingConsoleOutput();
+
+        try {
+            Artisan::call('richter:detect-changes', ['--base' => 'some-base']);
+            $output = Artisan::output();
+        } finally {
+            @unlink($absolute);
+        }
+
+        $this->assertStringContainsString('tier 2 migration', $output);
+        $this->assertStringContainsString('subtitle', $output);
+        // And it must not also be named as unanalysed: that sentence would report a gap now closed.
+        $this->assertStringNotContainsString('were not analysed', $output);
+    }
+
+    #[Test]
+    public function an_untracked_migration_is_not_analysed_against_an_explicit_head(): void
+    {
+        // `--head` names a COMMITTED tree, which a file that was never `git add`-ed cannot be part of.
+        // Folding it in would report a hazard the named tree does not carry.
+        [$file, $absolute] = $this->writeUntrackedMigration();
+
+        // `git show` RESOLVES here, returning the migration's own source. Without that, dropping the
+        // HEAD-mode guard would still raise no hazard — the read would simply fail — and this test
+        // would pass while proving nothing.
+        Process::fake([
+            '*merge-base*' => Process::result("abc123\n"),
+            // `--show-prefix` first and empty: a non-empty prefix would re-root the status path and
+            // drop the file before the guard under test is ever consulted.
+            '*show-prefix*' => Process::result(),
+            '*rev-parse*' => Process::result("some-head\n"),
+            '*show*' => Process::result((string) file_get_contents($absolute)),
+            '*diff*' => Process::result(''),
+            '*status*' => Process::result("?? {$file}\n"),
+        ]);
+
+        $this->withoutMockingConsoleOutput();
+
+        try {
+            Artisan::call('richter:detect-changes', ['--base' => 'some-base', '--head' => 'some-head']);
+            $output = Artisan::output();
+        } finally {
+            @unlink($absolute);
+        }
+
+        $this->assertStringNotContainsString('tier 2 migration', $output);
     }
 
     #[Test]

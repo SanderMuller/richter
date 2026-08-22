@@ -17,6 +17,7 @@ use SanderMuller\Richter\Analysis\RiskLevel;
 use SanderMuller\Richter\Analysis\TestReferenceIndex;
 use SanderMuller\Richter\Changes\ChangedFileSymbols;
 use SanderMuller\Richter\Changes\ChangedSymbols;
+use SanderMuller\Richter\Changes\MigrationChanges;
 use SanderMuller\Richter\Console\Concerns\WarnsAboutEntryPointCoverage;
 use SanderMuller\Richter\Console\Concerns\WarnsAboutRootNamespace;
 use SanderMuller\Richter\Graph\CodeGraph;
@@ -142,14 +143,24 @@ final class DetectChangesCommand extends Command
             return;
         }
 
-        $untracked = ChangedSymbols::untrackedRelevantFiles();
+        // A migration is excluded because it IS analysed from the working tree
+        // ({@see ChangedSymbols::untrackedMigrations()}). Naming it here would report a gap that was
+        // closed, under a sentence that says the file was not analysed.
+        $untracked = array_values(array_filter(
+            ChangedSymbols::untrackedRelevantFiles(),
+            static fn (string $file): bool => ! MigrationChanges::handles($file),
+        ));
 
         if ($untracked === []) {
             return;
         }
 
+        // The watched roots are deliberately not listed. They have grown twice — `routes/` and
+        // `bootstrap/app.php`, then `database/migrations/` — and both times this sentence kept naming
+        // the old three, so it named a file under a rule that did not cover it. The paths follow it,
+        // which is what a reader needs.
         $this->getOutput()->getErrorStyle()->writeln(sprintf(
-            'Note: %d untracked file(s) under app/, resources/views/, or a configured frontend root are invisible to `git diff` and were not analysed: %s',
+            'Note: %d untracked file(s) are invisible to `git diff` and were not analysed: %s',
             count($untracked),
             implode(', ', $untracked),
         ));

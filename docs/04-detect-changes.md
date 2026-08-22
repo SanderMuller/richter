@@ -18,7 +18,9 @@ Against the default `HEAD`, the diff is the working tree compared to the merge-b
 
 `--head=<ref>` analyses that ref's committed tree instead, for a run in a dirty checkout whose uncommitted work is not the subject. `--head=HEAD` resolves to the commit, so it means the last commit rather than the working tree.
 
-The one gap `git diff` cannot close is a brand-new file that was never `git add`-ed: it shows in no diff form. A stderr-only note flags any such untracked file under `app/`, `resources/views/`, or a configured frontend root. The note never reaches stdout, so `--json` and `--markdown` output stays exactly the report. Under `--head` there is no such note, because a file never added cannot be part of a committed tree.
+The one gap `git diff` cannot close is a brand-new file that was never `git add`-ed: it shows in no diff form. A stderr-only note flags any such untracked file under a watched root, naming the paths rather than the roots. The note never reaches stdout, so `--json` and `--markdown` output stays exactly the report. Under `--head` there is no such note, because a file never added cannot be part of a committed tree.
+
+An untracked **migration** is the exception: it is read from the working tree and analysed, so it raises its hazards like any other migration and is not named in that note. Every other watched root holds files that are normally edited, which a diff sees; a migration is normally a brand-new file, so the gap fell on this lane's whole subject at exactly the moment the migration is newest. It is analysed as what it is — a new file, so everything its `up()` does, against no base. Under `--head` it is skipped with everything else untracked.
 
 `--head` is also how you replay history without losing your own configuration. Checking an old commit out reverts every tracked file, `config/richter.php` among them, so a replayed diff silently runs on package defaults instead of your own `hazards.ignore` and `payload_parity` settings: the same diff, a different report. Pointing `--head` at the commit leaves the working tree alone, and the config with it.
 

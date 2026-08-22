@@ -2,6 +2,7 @@
 
 namespace SanderMuller\Richter\Changes;
 
+use Closure;
 use SanderMuller\Richter\Analysis\Hazards\MigrationHazards;
 
 /**
@@ -50,6 +51,32 @@ final class MigrationChanges
         [$hazards, $added, $findings] = MigrationHazards::for($file, $headSrc ?? '', $isNew ? null : $baseSrc);
 
         return new ChangedFileSymbols($file, '', [], cosmeticOnly: false, findings: $findings, hazards: $hazards, addedHazardTokens: $added);
+    }
+
+    /**
+     * The untracked migrations, read from the working tree. Every other watched root holds files that
+     * are normally EDITED, so a diff sees them; a migration is normally a brand-new file, which left
+     * `git diff` blind to this lane's whole subject at exactly the moment it is newest — the
+     * pre-commit check on the migration just written. Each is analysed as what it is, a new file:
+     * everything its `up()` does, against no base.
+     *
+     * Lives here rather than in {@see ChangedSymbols} for the reason {@see NonPhpFileChange} does —
+     * that class sits at its cognitive-complexity ceiling, and reading a migration is this class's
+     * concern either way.
+     *
+     * @param  list<string>  $files  project-relative paths, already filtered to migrations
+     * @param  Closure(string): ?string  $source  reads one path at head; null when it cannot be read
+     * @return list<ChangedFileSymbols>
+     */
+    public static function resolveUntracked(array $files, Closure $source): array
+    {
+        // `hasAdditions: true` because `git status` just named the file, so it exists: an unreadable
+        // head is an I/O failure, and the branch reports that rather than reading the migration as
+        // holding no operations at all.
+        return array_map(
+            static fn (string $file): ChangedFileSymbols => self::resolve($file, $source($file), null, isNew: true, hasAdditions: true),
+            $files,
+        );
     }
 
     private static function unreadable(string $file, string $side): ChangedFileSymbols

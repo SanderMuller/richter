@@ -158,7 +158,29 @@ final class ChangedSymbols
             }
         }
 
+        // HEAD mode only: an explicit head names a committed tree that a file which was never
+        // `git add`-ed cannot be part of. {@see MigrationChanges::resolveUntracked()} says why a
+        // migration is the one untracked shape worth reading rather than only warning about.
+        if ($head === 'HEAD') {
+            $changed = [...$changed, ...MigrationChanges::resolveUntracked(
+                self::untrackedMigrations(),
+                fn (string $file): ?string => self::headSource($head, $file, $prefix),
+            )];
+        }
+
         return ['changed' => $changed, 'outOfScope' => $outOfScope];
+    }
+
+    /**
+     * The untracked migrations {@see resolveWithScope()} analyses in HEAD mode — the subset of
+     * {@see untrackedRelevantFiles()} that has a reader able to work from the working tree alone.
+     * Callers that only WARN about untracked files exclude these, because they are not unanalysed.
+     *
+     * @return list<string>
+     */
+    public static function untrackedMigrations(): array
+    {
+        return array_values(array_filter(self::untrackedRelevantFiles(), MigrationChanges::handles(...)));
     }
 
     /**

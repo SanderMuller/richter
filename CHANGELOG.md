@@ -17,7 +17,7 @@ Migrations are read for what they destroy, and a hazard's reach now says where i
 - **Head minus base**, so a new migration reports everything it does and a migration edited for an unrelated reason does not re-report what it already held.
 - **Deleting a migration raises nothing.** Rolling an unrun migration back out of a branch is routine, and whether it already ran against a real database is not something richter can see.
 - **The hazard is named for the model that owns the table**, so the entry points reaching that model answer for it. The table is derived the way Eloquent derives it: an explicit `$table` wins, otherwise the snake-cased plural of the class name. Two models claiming one table resolve to neither, and a table no model claims keeps its own name and grades `no-known-path`.
-- **Untracked migrations ride along.** A brand-new file is the normal shape for a migration, so an un-added one is the commonest way a schema drop reaches a branch unseen.
+- **An untracked migration is named, not analysed.** A file that was never `git add`-ed is invisible to `git diff`, so it is listed in the untracked-file note on stderr and no hazard is raised for it. `git add -N` makes it visible. (Corrected after release: the original note claimed these were analysed, which they are not on this version. Fixed in 0.48.0.)
 - A migration seeds no reach of its own. It names a table, not a class.
 
 `hazards.ignore` silences a migration hazard by table (`posts`) or by table and column (`posts.subtitle`) — that is how a framework table, a queue table or a pivot is quietened, rather than richter curating a list of table names to skip.

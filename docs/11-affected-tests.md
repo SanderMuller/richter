@@ -127,7 +127,7 @@ Four shapes look unfollowable and are not counted, because none of them hides an
 
 ## Untracked files
 
-An untracked (never `git add`-ed) file under `app/`, `resources/views/`, or a frontend root is one `git diff` cannot see, so it makes the selection **undeterminable** (exit 2) rather than emit a narrowed set that silently omits it. The stderr note still fires, and `git add`-ing the file includes it. The note is stderr-only, never on stdout, so `--plain`/`--json` stay clean.
+An untracked (never `git add`-ed) file under a watched root is one `git diff` cannot see, so it makes the selection **undeterminable** (exit 2) rather than emit a narrowed set that silently omits it. That includes an untracked migration, which `detect-changes` does analyse: this command stays conservative because its contract is a test SELECTION, and the safe direction is the full suite. The stderr note still fires, and `git add`-ing the file includes it. The note is stderr-only, never on stdout, so `--plain`/`--json` stay clean.
 
 ## `--plain` degradation
 

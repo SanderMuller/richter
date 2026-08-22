@@ -97,7 +97,7 @@ final class AffectedTestsCommand extends Command
         }
 
         $this->getOutput()->getErrorStyle()->writeln(sprintf(
-            'Note: %d untracked file(s) under app/, resources/views/, or a configured frontend root are invisible to `git diff` and were not analysed: %s',
+            'Note: %d untracked file(s) are invisible to `git diff` and were not analysed: %s',
             count($untracked),
             implode(', ', $untracked),
         ));

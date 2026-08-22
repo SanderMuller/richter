@@ -62,7 +62,7 @@ final class AffectedTests
                 // one gap the analysis can never close, so the selection is undetermined,
                 // never silently narrowed.
                 return self::undeterminedForCurrentDiff($base, [sprintf(
-                    '%d untracked file(s) under app/, resources/views/, or a configured frontend root can\'t be analysed — `git add` them or run the full suite: %s',
+                    '%d untracked file(s) can\'t be analysed — `git add` them or run the full suite: %s',
                     count($untracked),
                     implode(', ', $untracked),
                 )], $untracked);
