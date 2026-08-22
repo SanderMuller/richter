@@ -186,6 +186,51 @@ final class ModelTablesTest extends TestCase
     }
 
     #[Test]
+    public function a_bare_table_property_on_a_base_model_leaves_the_convention_alone(): void
+    {
+        $root = $this->project([]);
+        file_put_contents(
+            "{$root}/app/Models/BaseModel.php",
+            "<?php declare(strict_types=1);\n\nnamespace App\\Models;\n\nuse Illuminate\\Database\\Eloquent\\Model;\n\nabstract class BaseModel extends Model\n{\n    protected \$table;\n}\n",
+        );
+        file_put_contents(
+            "{$root}/app/Models/Article.php",
+            "<?php declare(strict_types=1);\n\nnamespace App\\Models;\n\nfinal class Article extends BaseModel\n{\n}\n",
+        );
+
+        // Eloquent reads `$this->table ?? convention`, so a property declared with no value is not a
+        // table the model claims — it is the convention, spelled with a placeholder above it.
+        $this->assertSame('App\Models\Article', ModelTables::modelFor('articles', $root));
+    }
+
+    #[Test]
+    public function an_explicit_null_table_leaves_the_convention_alone_too(): void
+    {
+        $root = $this->project(['Article' => '    protected $table = null;']);
+
+        $this->assertSame('App\Models\Article', ModelTables::modelFor('articles', $root));
+    }
+
+    #[Test]
+    public function a_child_blanking_an_inherited_table_falls_to_its_own_convention(): void
+    {
+        $root = $this->project([]);
+        file_put_contents(
+            "{$root}/app/Models/BaseModel.php",
+            "<?php declare(strict_types=1);\n\nnamespace App\\Models;\n\nuse Illuminate\\Database\\Eloquent\\Model;\n\nabstract class BaseModel extends Model\n{\n    protected \$table = 'entries';\n}\n",
+        );
+        file_put_contents(
+            "{$root}/app/Models/Article.php",
+            "<?php declare(strict_types=1);\n\nnamespace App\\Models;\n\nfinal class Article extends BaseModel\n{\n    protected \$table;\n}\n",
+        );
+
+        // Verified against PHP: redeclaring the property with no value overrides the inherited string
+        // with null, so `getTable()` falls to the convention rather than reading the parent's table.
+        $this->assertSame('App\Models\Article', ModelTables::modelFor('articles', $root));
+        $this->assertNull(ModelTables::modelFor('entries', $root));
+    }
+
+    #[Test]
     public function a_table_no_model_claims_resolves_to_nothing(): void
     {
         $this->assertNull(ModelTables::modelFor('legacy_imports', self::PROJECT));

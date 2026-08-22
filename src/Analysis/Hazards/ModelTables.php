@@ -3,6 +3,8 @@
 namespace SanderMuller\Richter\Analysis\Hazards;
 
 use Illuminate\Support\Str;
+use PhpParser\Node\Expr;
+use PhpParser\Node\Expr\ConstFetch;
 use PhpParser\Node\PropertyItem;
 use PhpParser\Node\Scalar\String_;
 use PhpParser\Node\Stmt\Class_;
@@ -105,7 +107,7 @@ final class ModelTables
      * The one class a file declares, reduced to what table ownership needs. Null when the file declares
      * no class or more than one — the same ambiguity refusal.
      *
-     * @return array{parent: string|null, table: array{table: string|null}|null, abstract: bool}|null
+     * @return array{parent: string|null, table: array{kind: 'convention'|'named'|'unreadable', table: string|null}|null, abstract: bool}|null
      */
     private static function declarationIn(string $source): ?array
     {
@@ -135,7 +137,7 @@ final class ModelTables
      * parked under `app/Models` extends none of them and owns no table — assigning it one would poison
      * a real model's table as ambiguous.
      *
-     * @param  array<string, array{parent: string|null, table: array{table: string|null}|null, abstract: bool}|null>  $declarations
+     * @param  array<string, array{parent: string|null, table: array{kind: 'convention'|'named'|'unreadable', table: string|null}|null, abstract: bool}|null>  $declarations
      */
     private static function tableOf(string $fqcn, array $declarations): ?string
     {
@@ -149,18 +151,22 @@ final class ModelTables
 
         $declared = self::nearestDeclaredTable($fqcn, $declarations);
 
-        // A model that DECLARES `$table` has said the convention does not apply to it. If the value
-        // cannot be read — `protected $table = Tables::ARTICLES` — falling back to the convention would
-        // claim a table the model does not map to, and hand a migration for it the wrong model.
-        return $declared === null ? self::conventionalTable($fqcn) : $declared['table'];
+        // A model that NAMES a table has said the convention does not apply to it. A value this cannot
+        // read — `protected $table = Tables::ARTICLES` — refuses rather than falling back, because the
+        // convention is the thing the declaration overrode and using it would claim the wrong table.
+        return match ($declared['kind'] ?? 'convention') {
+            'named' => $declared['table'],
+            'unreadable' => null,
+            default => self::conventionalTable($fqcn),
+        };
     }
 
     /**
      * The nearest `$table` declaration in the class's own chain, or null when nothing in it declares
      * one. Stops at the first declaration, the way PHP resolves an inherited property.
      *
-     * @param  array<string, array{parent: string|null, table: array{table: string|null}|null, abstract: bool}|null>  $declarations
-     * @return array{table: string|null}|null
+     * @param  array<string, array{parent: string|null, table: array{kind: 'convention'|'named'|'unreadable', table: string|null}|null, abstract: bool}|null>  $declarations
+     * @return array{kind: 'convention'|'named'|'unreadable', table: string|null}|null
      */
     private static function nearestDeclaredTable(string $fqcn, array $declarations): ?array
     {
@@ -193,7 +199,7 @@ final class ModelTables
      * would cost every model behind it the reach this class exists to give. Refusing only what is
      * provably not a model keeps the cost on the rarer shape: a helper extending an unknown class.
      *
-     * @param  array<string, array{parent: string|null, table: array{table: string|null}|null, abstract: bool}|null>  $declarations
+     * @param  array<string, array{parent: string|null, table: array{kind: 'convention'|'named'|'unreadable', table: string|null}|null, abstract: bool}|null>  $declarations
      */
     private static function isModel(string $fqcn, array $declarations): bool
     {
@@ -230,22 +236,41 @@ final class ModelTables
     }
 
     /**
-     * Null when the class declares no `$table` property at all. Otherwise the declared value, which is
-     * itself null when it is not a plain string.
+     * How the class declares `$table`, or null when it declares no such property.
      *
-     * @return array{table: string|null}|null
+     * Three answers, because PHP and Eloquent give three. A property redeclared with no value — or with
+     * `null` — OVERRIDES an inherited string with null, and `getTable()` reads `$this->table ??
+     * convention`, so the class falls to the convention and the chain stops there. That is `convention`.
+     * A readable string is `named`. Anything else is a value this cannot read, and guessing past it
+     * would claim a table the model does not map to.
+     *
+     * @return array{kind: 'convention'|'named'|'unreadable', table: string|null}|null
      */
     private static function declaredTable(Class_ $class): ?array
     {
         foreach (new NodeFinder()->findInstanceOf($class, Property::class) as $property) {
             foreach ($property->props as $prop) {
-                if ($prop instanceof PropertyItem && $prop->name->toString() === 'table') {
-                    return ['table' => $prop->default instanceof String_ ? $prop->default->value : null];
+                if (! $prop instanceof PropertyItem || $prop->name->toString() !== 'table') {
+                    continue;
                 }
+
+                if (! $prop->default instanceof Expr || self::isNullLiteral($prop->default)) {
+                    return ['kind' => 'convention', 'table' => null];
+                }
+
+                return $prop->default instanceof String_
+                    ? ['kind' => 'named', 'table' => $prop->default->value]
+                    : ['kind' => 'unreadable', 'table' => null];
             }
         }
 
         return null;
+    }
+
+    /** `protected $table = null;` sets the same nothing the bare declaration does. */
+    private static function isNullLiteral(Expr $default): bool
+    {
+        return $default instanceof ConstFetch && $default->name->toLowerString() === 'null';
     }
 
     /**

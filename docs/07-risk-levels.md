@@ -117,7 +117,9 @@ database is not something richter can see.
 The hazard is named for the model that owns the table, so the entry points reaching that model answer
 for it. The table comes from the model the way Eloquent derives it: an explicit `$table` wins, and
 otherwise the snake-cased plural of the class name. A `$table` on a project base model is inherited, so the nearest declaration in the parent chain
-answers. An abstract base model claims no table of its own. Two models claiming one table resolve to
+answers. A property declared with no value sets nothing — Eloquent reads `$this->table ?? convention` — so a
+base declaring `protected $table;` as a placeholder leaves its subclasses on the convention, and a
+subclass declaring it that way falls to its own convention rather than inheriting the parent's table. An abstract base model claims no table of its own. Two models claiming one table resolve to
 neither, and a class this can prove is not an Eloquent model owns no table at all, so a
 helper parked under `app/Models` cannot claim one. A base class the scan cannot see is accepted rather
 than refused, since a base model outside `app/Models` is an ordinary layout.
