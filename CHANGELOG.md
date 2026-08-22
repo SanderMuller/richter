@@ -5,6 +5,32 @@ All notable changes to `sandermuller/richter` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.48.0 - 2026-08-22
+
+An untracked migration is analysed rather than only named, and a stale warning stops naming roots it no longer covers. Sourced from production dogfood on a large Laravel 12 application.
+
+### Fixed
+
+**An untracked migration is analysed.** A file that was never `git add`-ed is invisible to `git diff`, so it was listed in the untracked-file note and nothing more — which left the `migration` lane silent in the one place it is needed most.
+
+Every other watched root holds files that are normally *edited*, so a diff sees them. A migration is normally a brand-new file, so the untracked gap fell on this lane's whole subject at exactly the moment the migration is newest: the pre-commit or pre-push check on the migration just written. The lane worked in CI, where everything is committed, and was silent locally.
+
+An untracked migration is now read from the working tree and analysed as what it is — a new file, so everything its `up()` does, against no base — and it raises its hazards like any other migration. It is no longer named in the untracked note, which would otherwise report a gap that is closed. Under `--head` it is skipped along with everything else untracked, because an explicit head names a committed tree that an un-added file cannot be part of.
+
+`richter:affected-tests` deliberately keeps treating every untracked file as undeterminable (exit 2). Its contract is a test *selection*, and the safe direction there is the full suite.
+
+**The untracked-file note stopped naming roots that had drifted.** It read "untracked file(s) under app/, resources/views/, or a configured frontend root", while the roots it actually collects had grown twice — `routes/` and `bootstrap/app.php`, then `database/migrations/`. So it named a file under a rule that did not cover it, which reads as a bug in the matching rather than a stale sentence. The note no longer enumerates the roots; the paths follow it, which is what a reader needs. Same correction in the `richter:affected-tests` note and in its undeterminable reason.
+
+### Corrected
+
+The 0.47.0 release notes and CHANGELOG entry claimed "untracked migrations ride along", which read as "are analysed". They were not, on that version — they were named in the untracked note. Both have been corrected in place, and this release is what makes the original claim true.
+
+### Upgrade note
+
+A working-tree run (`richter:detect-changes` with no `--head`) can now report a tier-2 `migration` hazard for a migration you have written but not yet `git add`-ed. That is the point of the change, and it is the same hazard the run would have raised after `git add`. Nothing moves for a committed diff, and no CI run changes behaviour: on CI the file is committed either way.
+
+**Full Changelog**: https://github.com/SanderMuller/richter/compare/v0.47.0...v0.48.0
+
 ## v0.47.0 - 2026-08-22
 
 Migrations are read for what they destroy, and a hazard's reach now says where it came from.
@@ -32,6 +58,7 @@ It never was. `no-guard-found` says a reaching surface was found and at least on
 Hazards (1):
   ! [tier 2 model CWE-915] App\Models\Post::$fillable — $fillable gained owner_id
       reach: gated (via its class)
+
 
 ```
 The suffix says "via its class" rather than naming a declaring class, because a `migration` hazard is named for a model and a `contract` hazard can name a class deleted whole — neither has a declaring class to point at.
@@ -109,6 +136,7 @@ Tightening a rate limit reported a tier-3 HIGH saying the limit was gone. A guar
   
   ```
   the rate limit on the GET /search route in routes/api.php rose from `throttle:60,1` to `throttle:120,1`
+  
   
   
   
@@ -520,6 +548,7 @@ dispatch($job);
 
 
 
+
 ```
 That was recorded as a dispatch whose target could not be followed — and the taint is global, so one of them makes every `richter:affected-tests` run report `not determinable` and fall back to the full suite. The graph has carried the edge for this shape all along: the instantiation is in the same method, right above the dispatch. The site pointed at a place to restructure where nothing was hidden and nothing needed restructuring.
 
@@ -617,6 +646,7 @@ Build profile: nothing was built — the diff holds nothing the graph is built f
 
 
 
+
 ```
 On stderr, like the table it stands in for, and before the payload in `--json` mode so stdout stays one document. Building anyway was the alternative, and it would make a no-op run pay for an analysis nothing asked for.
 
@@ -634,6 +664,7 @@ An event named by a class constant resolves in **any** declaration form, includi
 public const string
     SUBTITLE_CHANGED = 'subtitle-changed',
     SUBTITLE_DELETED = 'subtitle-deleted';
+
 
 
 
@@ -679,6 +710,7 @@ Build profile (forced rebuild):
   total                      3.85s
   no scoped rebuild: non-app-change
     config/services.php differs from the cached graph and sits outside app/
+
 
 
 
@@ -779,6 +811,7 @@ It now names every site:
 ```
 the graph contains job dispatches that could not be followed:
 app/Jobs/Fanout.php:88 (App\Jobs\Fanout::handle), app/Services/Importer.php:12 (App\Services\Importer::run)
+
 
 
 
@@ -1169,6 +1202,7 @@ Note: 2 changed file(s) are outside the analysed scope (not PHP under app/, a Bl
 
 
 
+
 ```
 Stderr, like the untracked-file note, so `--json` and `--markdown` stdout stay exactly the report. Frontend sources the configuration declines to scan are not counted: generated Wayfinder output under `frontend.generated_paths` and `.d.ts` declarations were silenced on purpose, and a note that fires loudest on regeneration churn is one people stop reading.
 
@@ -1258,6 +1292,7 @@ One new advisory lane, and a README that finally leads with what the package is 
   
   
   
+  
   ```
   The count comes off the `route:: → middleware::<group>` edges already in the graph, so it counts endpoints only: a controller-level attachment of the same group does not inflate it. Membership is read from `$middlewareGroups` on a Laravel 10 Kernel or the `->web(append: [...])` form in a Laravel 11+ `bootstrap/app.php`. A member written as an alias resolves through the same alias map, parameters are cut first (`tenant:strict` is one alias with an argument), and a group that names another group is expanded transitively, since Laravel runs the inner group's middleware on the outer group's routes too.
   
@@ -1290,6 +1325,7 @@ Two silent-failure shapes that richter used to miss: a call through an applicati
   
   ```text
     ! resources/js/Pages/Posts/Create.vue posts to POST /posts and sends 'subtitle', which this diff removes from App\Http\Requests\StorePostRequest::rules() (renamed to 'sub_title'?)
+  
   
   
   
