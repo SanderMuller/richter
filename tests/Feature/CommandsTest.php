@@ -1265,6 +1265,48 @@ final class CommandsTest extends TestCase
     }
 
     #[Test]
+    public function a_dropped_column_names_the_model_that_still_lists_it(): void
+    {
+        // The destructive half says the column is gone; this says who has not been told.
+        [$file, $absolute] = $this->writeUntrackedMigration();
+        @mkdir(base_path('app/Models'), 0777, true);
+        $model = base_path('app/Models/Post.php');
+        file_put_contents($model, <<<'PHP'
+            <?php declare(strict_types=1);
+
+            namespace App\Models;
+
+            use Illuminate\Database\Eloquent\Model;
+
+            final class Post extends Model
+            {
+                protected $fillable = ['title', 'subtitle'];
+            }
+            PHP);
+
+        Process::fake([
+            '*merge-base*' => Process::result("abc123\n"),
+            '*rev-parse*' => Process::result(),
+            '*show*' => Process::result(errorOutput: 'bad object', exitCode: 128),
+            '*diff*' => Process::result(''),
+            '*status*' => Process::result("?? {$file}\n"),
+        ]);
+
+        $this->withoutMockingConsoleOutput();
+
+        try {
+            Artisan::call('richter:detect-changes', ['--base' => 'some-base', '--no-cache' => true]);
+            $output = Artisan::output();
+        } finally {
+            @unlink($absolute);
+            @unlink($model);
+        }
+
+        $this->assertStringContainsString('still named by', $output);
+        $this->assertStringContainsString('fillable', $output);
+    }
+
+    #[Test]
     public function detect_changes_analyses_an_untracked_migration_instead_of_only_naming_it(): void
     {
         // Every other watched root holds files that are normally EDITED, so a diff sees them. A

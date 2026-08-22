@@ -3,7 +3,6 @@
 namespace SanderMuller\Richter\Analysis;
 
 use SanderMuller\Richter\Graph\CodeGraph;
-use SanderMuller\Richter\Support\AppFiles;
 use SanderMuller\Richter\Tracers\EagerLoadStringChecker;
 use SanderMuller\Richter\Tracers\ReferenceEdgeTracer;
 
@@ -23,17 +22,22 @@ final class PayloadParityChecker
     /** @var array<string, list<string>|null> path => resolved toArray() keys, null meaning "skip this resource" */
     private array $keysCache = [];
 
+    /** Which resources belong to a model, and whether wiring or a name said so. */
+    private readonly ModelResources $resources;
+
     /**
      * @param  float  $mirrorThreshold  fraction of a candidate's PRE-EXISTING fields it must mirror to count as a mirror
      * @param  list<string>  $ignore  `App\Models\X::field` or resource FQCN entries, from richter.payload_parity.ignore
      * @param  string|null  $projectRoot  overrides base_path() for tests; resource files are read relative to it
      */
     public function __construct(
-        private readonly CodeGraph $graph,
+        CodeGraph $graph,
         private readonly float $mirrorThreshold = 1.0,
         private readonly array $ignore = [],
         private readonly ?string $projectRoot = null,
-    ) {}
+    ) {
+        $this->resources = new ModelResources($graph, $projectRoot);
+    }
 
     /**
      * @param  list<string>  $fieldSet  the model's full head-side field union
@@ -61,12 +65,10 @@ final class PayloadParityChecker
             return [];
         }
 
-        $graphCandidates = $this->graphCandidates($modelFqcn);
+        ['candidates' => $candidates, 'viaGraph' => $viaGraph] = $this->resources->candidatesFor($modelFqcn);
         // Wiring is independent evidence the two belong together; a name match on an empty graph
-        // result is not — hence the stricter shared-field minimum for the fallback path below.
-        $usingFallback = $graphCandidates === [];
-        $candidates = $usingFallback ? $this->nameFallbackCandidates($modelFqcn) : $graphCandidates;
-        $minimumShared = $usingFallback ? 2 : 1;
+        // result is not — hence the stricter shared-field minimum on that path.
+        $minimumShared = $viaGraph ? 1 : 2;
 
         $findings = [];
 
@@ -122,101 +124,6 @@ final class PayloadParityChecker
         }
 
         return $fields;
-    }
-
-    /**
-     * Resources reached from the model's own nodes via {@see CodeGraph::callersOf()} at depth 2, then
-     * those callers' own outgoing `resource`-typed edges. Depth 2, not the analyzer's default 6 — the
-     * point of preferring wiring over names is locality; a hub model at depth 6 would pull in
-     * unrelated features' resources.
-     *
-     * @return list<array{fqcn: string, path: string}>
-     */
-    private function graphCandidates(string $modelFqcn): array
-    {
-        $seeds = $this->graph->nodesContaining(ltrim($modelFqcn, '\\'));
-
-        if ($seeds === []) {
-            return [];
-        }
-
-        $callerNodes = array_values(array_unique(array_map(
-            static fn (array $hop): string => $hop['node'],
-            $this->graph->callersOf($seeds, maxDepth: 2),
-        )));
-
-        if ($callerNodes === []) {
-            return [];
-        }
-
-        $resourceFqcns = [];
-
-        foreach ($callerNodes as $node) {
-            foreach ($this->graph->dependencyEdgesOf([$node], maxDepth: 1) as $edge) {
-                if ($edge['via'] === 'resource') {
-                    $resourceFqcns[$edge['target']] = true;
-                }
-            }
-        }
-
-        $candidates = [];
-
-        foreach (array_keys($resourceFqcns) as $fqcn) {
-            $location = $this->graph->locationOf($fqcn);
-
-            // No known location means no readable source — silently uncheckable, not a guess.
-            if ($location !== null) {
-                $candidates[] = ['fqcn' => $fqcn, 'path' => $location['file']];
-            }
-        }
-
-        return $candidates;
-    }
-
-    /**
-     * Only reached when the graph gave nothing: resources whose FQCN carries the model's short name
-     * as a class-name or namespace segment, under the two namespaces
-     * {@see ReferenceEdgeTracer} already treats as resources.
-     *
-     * @return list<array{fqcn: string, path: string}>
-     */
-    private function nameFallbackCandidates(string $modelFqcn): array
-    {
-        $lastSeparator = strrchr($modelFqcn, '\\');
-        $shortName = substr($lastSeparator !== false ? $lastSeparator : "\\{$modelFqcn}", 1);
-        $projectRoot = rtrim($this->projectRoot ?? base_path(), '/');
-
-        $candidates = [];
-
-        foreach (['app/Http/Resources', 'app/Transformers'] as $relativeDir) {
-            foreach (AppFiles::phpClasses("{$projectRoot}/{$relativeDir}", $projectRoot) as $class) {
-                if ($this->matchesModelName($class['fqcn'], $shortName)) {
-                    $candidates[] = ['fqcn' => $class['fqcn'], 'path' => "{$relativeDir}/" . substr($class['path'], strlen("{$projectRoot}/{$relativeDir}/"))];
-                }
-            }
-        }
-
-        return $candidates;
-    }
-
-    /**
-     * The model's short name as an exact namespace/class segment anywhere in the FQCN (the
-     * `Api\v2\Post\ReviewResource` shape), OR the conventional `{Model}Resource`/`{Model}Collection`
-     * class name (the far more common `PostResource`/`PostCollection` shape) — exact equality on the
-     * class's own last segment, never a substring/prefix match, so model `Post` never matches
-     * `PostRevisionResource`, a different model's conventionally-named resource.
-     */
-    private function matchesModelName(string $resourceFqcn, string $shortName): bool
-    {
-        $segments = explode('\\', $resourceFqcn);
-
-        if (in_array($shortName, $segments, strict: true)) {
-            return true;
-        }
-
-        $className = $segments[array_key_last($segments)];
-
-        return $className === "{$shortName}Resource" || $className === "{$shortName}Collection";
     }
 
     /**

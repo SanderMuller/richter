@@ -52,6 +52,9 @@ final readonly class Hazard
      *   for one that sits inside something a reader would silence whole. A migration's column drop is
      *   keyed `posts.subtitle` and answers to `posts` as well, so a noisy table is silenced once rather
      *   than column by column.
+     * @param  string|null  $field  the one field of `$member` the hazard is about — a dropped column
+     *   for a migration hazard. Carried as data rather than left inside `$evidence`, so a later pass
+     *   can look the field up without parsing a sentence written for a human.
      */
     public function __construct(
         public string $lane,
@@ -64,11 +67,21 @@ final readonly class Hazard
         public ?string $ignoreKey = null,
         public bool $reachViaDeclaringClass = false,
         public array $alsoIgnoredBy = [],
+        public ?string $field = null,
     ) {}
 
     public function withReach(string $reach, bool $viaDeclaringClass = false): self
     {
-        return new self($this->lane, $this->tier, $this->cwe, $this->member, $this->evidence, $this->removedTokens, $reach, $this->ignoreKey, $viaDeclaringClass, $this->alsoIgnoredBy);
+        return new self($this->lane, $this->tier, $this->cwe, $this->member, $this->evidence, $this->removedTokens, $reach, $this->ignoreKey, $viaDeclaringClass, $this->alsoIgnoredBy, $this->field);
+    }
+
+    /**
+     * The same hazard, saying more about itself. Evidence only: a later pass may add what it found,
+     * and may never move the tier or the reach, which are decided from the diff alone.
+     */
+    public function withEvidence(string $evidence): self
+    {
+        return new self($this->lane, $this->tier, $this->cwe, $this->member, $evidence, $this->removedTokens, $this->reach, $this->ignoreKey, $this->reachViaDeclaringClass, $this->alsoIgnoredBy, $this->field);
     }
 
     /**

@@ -68,7 +68,8 @@ dropped table and a renamed column are hazards. A column ADDED is not read at al
 to the schema and never added to the model is invisible: today a column reaches richter only through
 the model's `$fillable` or `$casts`. A column name built at runtime still reports the drop, under a
 name richter could not read, because silence on a destructive operation is the wrong direction to fail
-in. A table name built at runtime is refused instead, since the operation cannot be placed at all. Only operations written directly on the `Schema` facade are read, so a connection-scoped chain such as `Schema::connection('reporting')->drop('posts')` draws nothing. A
+in. A table name built at runtime is refused instead, since the operation cannot be placed at all. Only operations written directly on the `Schema` facade are read, so a connection-scoped chain such as `Schema::connection('reporting')->drop('posts')` draws nothing. Form requests are not checked for a dropped column. The graph carries no model-to-request association,
+and a name-based one would be the weakest evidence rather than the strongest. A
 squashed schema dump under `database/schema/` is not PHP and holds no `up()`, so a project that
 squashes has no migration file to read for the squashed range. The model owning a table is looked for
 under `app/Models` only, so an application that keeps its models elsewhere gets the table name as the

@@ -393,6 +393,11 @@ final readonly class ImpactAnalyzer
         // none of them — it only counted.
         $hazards = new HazardReach($this->graph, $entryPointPaths, $entryPointSecurity, $entryPointAuthGates, $entryPointAuthMiddleware, $maxDepth, $this->entryPointsAmong(...))
             ->attach(HazardFindings::for($changed, $hazardsEnabled, $parityHazards));
+
+        // Runs on what survived suppression, so a silenced column costs no lookup. Evidence only: it
+        // names what still refers to a dropped column and moves neither tier nor reach.
+        $hazards = new ColumnReferences($this->graph)->attach($hazards);
+
         $graded = new VerificationSet($reachedEntryPoints, $changed, $perFileSeeds);
         $members = $graded->members(fn (array $seeds): int => $this->riskInputs($seeds, $maxDepth, $riskInputsMemo)[0]);
         [$risk, $riskCause, $verification] = RiskLadder::decide($hazards, $graded->analysesExistingCode(), $members, $tests);

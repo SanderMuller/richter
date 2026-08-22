@@ -403,6 +403,7 @@ final class MigrationHazards
             evidence: $operation['evidence'],
             ignoreKey: $column === null ? $table : "{$table}.{$column}",
             alsoIgnoredBy: $column === null ? [] : [$table],
+            field: $column,
         );
     }
 }

@@ -124,6 +124,13 @@ than refused, since a base model outside `app/Models` is an ordinary layout.
 A table no model claims keeps its own name and grades `no-known-path`, which is honest — richter
 cannot see what reaches it.
 
+A dropped or renamed column is then checked against what still names it, and the hazard says where.
+Two surfaces are read: the owning model's own `$fillable`/`$casts`, and the `toArray()` keys of the
+resources that belong to that model. A resource match means the resource still carries a key of that
+name, not that it reads the column, and the evidence says so. This is evidence only — it never moves
+the tier or the reach, and a surface richter cannot read is skipped rather than guessed at, because
+the hazard has already fired and a missed reference only under-informs.
+
 `hazards.ignore` silences a migration hazard by table and column (`posts.subtitle`), and the table on
 its own (`posts`) silences every hazard on it, column drops included. That is how a framework table, a queue table or a pivot is quietened, rather than
 richter curating a list of table names to skip.
