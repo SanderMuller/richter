@@ -12,6 +12,7 @@ use SanderMuller\Richter\Changes\ChangedSymbols;
 use SanderMuller\Richter\Graph\GraphSplitter;
 use SanderMuller\Richter\Support\AppFiles;
 use SanderMuller\Richter\Tracers\EagerLoadStringChecker;
+use Throwable;
 
 /**
  * The table a model maps to, inverted: given `articles`, which model owns it. {@see MigrationHazards}
@@ -184,7 +185,8 @@ final class ModelTables
     /**
      * Whether the class is an Eloquent model. Reflection answers exactly where the class loads, which
      * is the case richter's own autoloading of the analysed checkout usually gives it. Where it does
-     * not load, the scanned parent chain answers instead, and a cycle terminates on the seen-set.
+     * not load — or throws while trying — the scanned parent chain answers instead, and a cycle
+     * terminates on the seen-set.
      *
      * A chain that leaves the scanned set is ACCEPTED. A base model parked outside `app/Models` —
      * `App\Models\Article extends App\Support\BaseModel` — is an ordinary layout, and refusing it
@@ -195,8 +197,10 @@ final class ModelTables
      */
     private static function isModel(string $fqcn, array $declarations): bool
     {
-        if (class_exists($fqcn)) {
-            return is_subclass_of($fqcn, self::ELOQUENT_MODEL);
+        $loaded = self::loadedAncestry($fqcn);
+
+        if ($loaded !== null) {
+            return $loaded;
         }
 
         $seen = [];
@@ -242,6 +246,22 @@ final class ModelTables
         }
 
         return null;
+    }
+
+    /**
+     * Reflection's answer, or null when the class cannot be loaded at all. Autoloading runs the file,
+     * and a model whose parent or trait is missing from the analysed checkout throws while it does —
+     * which would abort the whole run over one unloadable class. Advisory tooling degrades to the AST
+     * walk instead, the same rule {@see AppFiles::stringConstantValue()} holds for a constant it
+     * cannot resolve.
+     */
+    private static function loadedAncestry(string $fqcn): ?bool
+    {
+        try {
+            return class_exists($fqcn) ? is_subclass_of($fqcn, self::ELOQUENT_MODEL) : null;
+        } catch (Throwable) {
+            return null;
+        }
     }
 
     /** Eloquent's fallback: the snake-cased plural of the short class name. */

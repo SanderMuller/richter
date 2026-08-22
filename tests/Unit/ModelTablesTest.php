@@ -3,6 +3,7 @@
 namespace SanderMuller\Richter\Tests\Unit;
 
 use PHPUnit\Framework\Attributes\Test;
+use RuntimeException;
 use SanderMuller\Richter\Analysis\Hazards\ModelTables;
 use SanderMuller\Richter\Tests\TestCase;
 
@@ -160,6 +161,28 @@ final class ModelTablesTest extends TestCase
         // Refusing a parent this scan cannot see would cost every model behind it its reach, and a
         // base model outside app/Models is an ordinary layout.
         $this->assertSame('App\Models\Article', ModelTables::modelFor('articles', $root));
+    }
+
+    #[Test]
+    public function an_autoloader_that_throws_does_not_abort_the_scan(): void
+    {
+        $root = $this->project(['Article' => '']);
+
+        // Autoloading runs the file, and a model whose parent or trait is missing from the analysed
+        // checkout throws while it does. One unloadable class must not take the whole run down.
+        $thrower = static function (string $class): void {
+            if ($class === 'App\Models\Article') {
+                throw new RuntimeException('missing dependency');
+            }
+        };
+
+        spl_autoload_register($thrower);
+
+        try {
+            $this->assertSame('App\Models\Article', ModelTables::modelFor('articles', $root));
+        } finally {
+            spl_autoload_unregister($thrower);
+        }
     }
 
     #[Test]
