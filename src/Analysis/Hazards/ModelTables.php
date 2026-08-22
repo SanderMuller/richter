@@ -25,7 +25,8 @@ use SanderMuller\Richter\Tracers\EagerLoadStringChecker;
  * answer only once a graph-stage consumer exists.
  *
  * The derivation matches Eloquent's own: an explicit `$table` wins, otherwise the snake-cased plural
- * of the short class name. `Str::pluralStudly()` is the same call Eloquent makes, so an irregular
+ * of the short class name. A `$table` declared with a value this cannot read resolves to nothing rather
+ * than falling back to the convention the declaration overrides. `Str::pluralStudly()` is the same call Eloquent makes, so an irregular
  * plural (`Person` → `people`) resolves the way the framework resolves it.
  *
  * The scan reads the WORKING TREE, including when a run replays a historical `$head` ref. That is
@@ -44,6 +45,9 @@ use SanderMuller\Richter\Tracers\EagerLoadStringChecker;
  */
 final class ModelTables
 {
+    /** The base class every Eloquent model's parent chain reaches. */
+    private const string ELOQUENT_MODEL = 'Illuminate\\Database\\Eloquent\\Model';
+
     /** @var array<string, string|null>|null table => model FQCN, null where two models claim it */
     private static ?array $byTable = null;
 
@@ -68,10 +72,18 @@ final class ModelTables
     {
         $projectRoot = rtrim($projectRoot ?? base_path(), '/');
 
-        $byTable = [];
+        // Read every class first: a model's parent chain may run through another class in the same
+        // directory, and the ancestry check needs the whole set before it can answer for any one.
+        $declarations = [];
 
         foreach (AppFiles::phpClasses("{$projectRoot}/app/Models", $projectRoot) as $class) {
-            $table = self::tableOf((string) file_get_contents($class['path']), $class['fqcn']);
+            $declarations[$class['fqcn']] = self::declarationIn((string) file_get_contents($class['path']));
+        }
+
+        $byTable = [];
+
+        foreach (array_keys($declarations) as $fqcn) {
+            $table = self::tableOf($fqcn, $declarations);
 
             if ($table === null) {
                 continue;
@@ -79,16 +91,21 @@ final class ModelTables
 
             // Two models on one table cannot be told apart from the table name alone, so the entry is
             // poisoned rather than resolved to whichever was scanned first.
-            $byTable[$table] = array_key_exists($table, $byTable) ? null : $class['fqcn'];
+            $byTable[$table] = array_key_exists($table, $byTable) ? null : $fqcn;
         }
 
         return $byTable;
     }
 
-    /** Null when the file declares no class, or declares more than one — the same ambiguity refusal. */
-    private static function tableOf(string $source, string $fqcn): ?string
+    /**
+     * The one class a file declares, reduced to what table ownership needs. Null when the file declares
+     * no class or more than one — the same ambiguity refusal.
+     *
+     * @return array{parent: string|null, table: array{table: string|null}|null}|null
+     */
+    private static function declarationIn(string $source): ?array
     {
-        $ast = AppFiles::parse($source);
+        $ast = AppFiles::parseResolved($source);
 
         if ($ast === null) {
             return null;
@@ -100,16 +117,77 @@ final class ModelTables
             return null;
         }
 
-        return self::declaredTable($classes[0]) ?? self::conventionalTable($fqcn);
+        return [
+            'parent' => $classes[0]->extends === null ? null : AppFiles::resolveName($classes[0]->extends),
+            'table' => self::declaredTable($classes[0]),
+        ];
     }
 
-    /** The `protected $table = '...'` value, or null when absent or not a plain string. */
-    private static function declaredTable(Class_ $class): ?string
+    /**
+     * The table a scanned class owns, or null when it is not an Eloquent model at all. A model usually
+     * extends the framework's `Model` directly, and a project base model puts one or more of its own
+     * classes in between, so the parent chain is followed through the scanned set. A helper or DTO
+     * parked under `app/Models` extends none of them and owns no table — assigning it one would poison
+     * a real model's table as ambiguous.
+     *
+     * @param  array<string, array{parent: string|null, table: array{table: string|null}|null}|null>  $declarations
+     */
+    private static function tableOf(string $fqcn, array $declarations): ?string
+    {
+        $declaration = $declarations[$fqcn] ?? null;
+
+        if ($declaration === null || ! self::isModel($fqcn, $declarations)) {
+            return null;
+        }
+
+        $declared = $declaration['table'];
+
+        // A model that DECLARES `$table` has said the convention does not apply to it. If the value
+        // cannot be read — `protected $table = Tables::ARTICLES` — falling back to the convention would
+        // claim a table the model does not map to, and hand a migration for it the wrong model.
+        return $declared === null ? self::conventionalTable($fqcn) : $declared['table'];
+    }
+
+    /**
+     * Whether the class's parent chain reaches Eloquent's `Model`. A chain that leaves the scanned set
+     * without reaching it answers no, and a cycle terminates on the seen-set rather than recursing.
+     *
+     * @param  array<string, array{parent: string|null, table: array{table: string|null}|null}|null>  $declarations
+     */
+    private static function isModel(string $fqcn, array $declarations): bool
+    {
+        $seen = [];
+
+        while (! isset($seen[$fqcn])) {
+            $seen[$fqcn] = true;
+            $parent = ($declarations[$fqcn] ?? null)['parent'] ?? null;
+
+            if ($parent === null) {
+                return false;
+            }
+
+            if ($parent === self::ELOQUENT_MODEL) {
+                return true;
+            }
+
+            $fqcn = $parent;
+        }
+
+        return false;
+    }
+
+    /**
+     * Null when the class declares no `$table` property at all. Otherwise the declared value, which is
+     * itself null when it is not a plain string.
+     *
+     * @return array{table: string|null}|null
+     */
+    private static function declaredTable(Class_ $class): ?array
     {
         foreach (new NodeFinder()->findInstanceOf($class, Property::class) as $property) {
             foreach ($property->props as $prop) {
-                if ($prop instanceof PropertyItem && $prop->name->toString() === 'table' && $prop->default instanceof String_) {
-                    return $prop->default->value;
+                if ($prop instanceof PropertyItem && $prop->name->toString() === 'table') {
+                    return ['table' => $prop->default instanceof String_ ? $prop->default->value : null];
                 }
             }
         }

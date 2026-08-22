@@ -99,7 +99,9 @@ entry point whenever the declared URI is the registered one, and grades `no-know
 prefix made it something else.
 
 Migrations are read for the destructive operations their `up()` performs: a dropped column, a dropped
-table, a renamed column. Each is tier 2 whether or not anything still names the column. Losing the data
+table, a renamed column. Laravel's shorthand helpers are read as the column drops they are, so
+`dropTimestamps()`, `dropSoftDeletes()`, `dropRememberToken()` and `dropMorphs()` each report the
+columns the framework removes for them. Each is tier 2 whether or not anything still names the column. Losing the data
 is the break, and richter cannot see the rows.
 
 Only `up()` is read. A conventional `down()` reverses `up()`, so it holds a `dropColumn` for every
@@ -114,7 +116,8 @@ database is not something richter can see.
 
 The hazard is named for the model that owns the table, so the entry points reaching that model answer
 for it. The table comes from the model the way Eloquent derives it: an explicit `$table` wins, and
-otherwise the snake-cased plural of the class name. Two models claiming one table resolve to neither.
+otherwise the snake-cased plural of the class name. Two models claiming one table resolve to neither, and a class whose parent chain does not reach
+Eloquent's `Model` owns no table at all, so a helper parked under `app/Models` cannot claim one.
 A table no model claims keeps its own name and grades `no-known-path`, which is honest — richter
 cannot see what reaches it.
 

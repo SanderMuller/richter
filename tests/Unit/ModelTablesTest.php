@@ -36,7 +36,7 @@ final class ModelTablesTest extends TestCase
     }
 
     /** @param  array<string, string>  $models  short class name => class body */
-    private function project(array $models): string
+    private function project(array $models, string $extends = 'Model'): string
     {
         $this->temporaryRoot = sys_get_temp_dir() . '/richter-model-tables-' . bin2hex(random_bytes(6));
         mkdir("{$this->temporaryRoot}/app/Models", recursive: true);
@@ -44,7 +44,7 @@ final class ModelTablesTest extends TestCase
         foreach ($models as $name => $body) {
             file_put_contents(
                 "{$this->temporaryRoot}/app/Models/{$name}.php",
-                "<?php declare(strict_types=1);\n\nnamespace App\\Models;\n\nuse Illuminate\\Database\\Eloquent\\Model;\n\nfinal class {$name} extends Model\n{\n{$body}\n}\n",
+                "<?php declare(strict_types=1);\n\nnamespace App\\Models;\n\nuse Illuminate\\Database\\Eloquent\\Model;\n\nclass {$name} extends {$extends}\n{\n{$body}\n}\n",
             );
         }
 
@@ -82,6 +82,16 @@ final class ModelTablesTest extends TestCase
     }
 
     #[Test]
+    public function a_table_declared_with_a_value_that_cannot_be_read_claims_nothing(): void
+    {
+        $root = $this->project(['Article' => '    protected $table = self::TABLE;']);
+
+        // The convention is what the declaration overrides, so falling back to it would claim a table
+        // the model does not map to.
+        $this->assertNull(ModelTables::modelFor('articles', $root));
+    }
+
+    #[Test]
     public function two_models_claiming_one_table_resolve_to_neither(): void
     {
         $root = $this->project([
@@ -90,6 +100,31 @@ final class ModelTablesTest extends TestCase
         ]);
 
         $this->assertNull(ModelTables::modelFor('entries', $root));
+    }
+
+    #[Test]
+    public function a_class_that_is_not_an_eloquent_model_owns_no_table(): void
+    {
+        $this->temporaryRoot = sys_get_temp_dir() . '/richter-model-tables-' . bin2hex(random_bytes(6));
+        mkdir("{$this->temporaryRoot}/app/Models", recursive: true);
+        file_put_contents(
+            "{$this->temporaryRoot}/app/Models/Article.php",
+            "<?php declare(strict_types=1);\n\nnamespace App\\Models;\n\nfinal class Article\n{\n}\n",
+        );
+
+        $this->assertNull(ModelTables::modelFor('articles', $this->temporaryRoot));
+    }
+
+    #[Test]
+    public function a_model_extending_a_project_base_model_still_owns_its_table(): void
+    {
+        $root = $this->project(['BaseModel' => '']);
+        file_put_contents(
+            "{$root}/app/Models/Article.php",
+            "<?php declare(strict_types=1);\n\nnamespace App\\Models;\n\nfinal class Article extends BaseModel\n{\n}\n",
+        );
+
+        $this->assertSame('App\Models\Article', ModelTables::modelFor('articles', $root));
     }
 
     #[Test]

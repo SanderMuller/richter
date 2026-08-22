@@ -119,6 +119,57 @@ final class MigrationHazardsTest extends TestCase
         );
     }
 
+    #[Test]
+    public function the_timestamps_shorthand_reports_both_columns(): void
+    {
+        $this->assertSame(
+            ['column `posts`.`created_at` dropped', 'column `posts`.`updated_at` dropped'],
+            $this->evidence("Schema::table('posts', function (Blueprint \$table) { \$table->dropTimestamps(); });"),
+        );
+    }
+
+    #[Test]
+    public function the_soft_deletes_shorthand_reports_its_default_column(): void
+    {
+        $this->assertSame(
+            ['column `posts`.`deleted_at` dropped'],
+            $this->evidence("Schema::table('posts', function (Blueprint \$table) { \$table->dropSoftDeletes(); });"),
+        );
+    }
+
+    #[Test]
+    public function the_soft_deletes_shorthand_reports_the_column_it_is_given(): void
+    {
+        $this->assertSame(
+            ['column `posts`.`archived_at` dropped'],
+            $this->evidence("Schema::table('posts', function (Blueprint \$table) { \$table->dropSoftDeletes('archived_at'); });"),
+        );
+    }
+
+    #[Test]
+    public function the_morphs_shorthand_reports_both_columns_it_names(): void
+    {
+        $this->assertSame(
+            ['column `posts`.`author_type` dropped', 'column `posts`.`author_id` dropped'],
+            $this->evidence("Schema::table('posts', function (Blueprint \$table) { \$table->dropMorphs('author'); });"),
+        );
+    }
+
+    #[Test]
+    public function the_remember_token_shorthand_reports_its_column(): void
+    {
+        $this->assertSame(
+            ['column `posts`.`remember_token` dropped'],
+            $this->evidence("Schema::table('posts', function (Blueprint \$table) { \$table->dropRememberToken(); });"),
+        );
+    }
+
+    #[Test]
+    public function an_additive_blueprint_helper_reports_nothing(): void
+    {
+        $this->assertSame([], $this->hazards("Schema::table('posts', function (Blueprint \$table) { \$table->timestamps(); \$table->softDeletes(); });"));
+    }
+
     // ------------------------------------------------------------ dropped tables
 
     #[Test]
@@ -243,6 +294,25 @@ final class MigrationHazardsTest extends TestCase
         $this->assertSame([], $this->hazards(
             "Schema::table('posts', function (Blueprint \$table) use (\$service) { \$service->dropColumn('subtitle'); });",
         ));
+    }
+
+    #[Test]
+    public function a_connection_scoped_chain_draws_nothing(): void
+    {
+        $this->assertSame([], $this->hazards("Schema::connection('reporting')->drop('posts');"));
+    }
+
+    #[Test]
+    public function a_base_that_does_not_parse_reports_every_head_operation(): void
+    {
+        // The safe direction: an over-report on a broken base, never a silent all-clear.
+        $this->assertSame(
+            ['table `posts` dropped'],
+            array_map(
+                static fn (Hazard $hazard): string => $hazard->evidence,
+                MigrationHazards::for(self::FILE, $this->migration("Schema::drop('posts');"), '<?php class {', self::PROJECT)[0],
+            ),
+        );
     }
 
     #[Test]

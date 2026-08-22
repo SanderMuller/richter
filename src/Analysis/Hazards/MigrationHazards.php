@@ -43,6 +43,14 @@ use SanderMuller\Richter\Support\AppFiles;
  * **Head minus base**, not head alone. A new file has no base, so every operation in it reports; a
  * migration edited for an unrelated reason does not re-report the operations it already held.
  *
+ * Only operations written directly on the `Schema` facade are read. A connection-scoped chain
+ * (`Schema::connection('reporting')->drop('posts')`) is a method call on the facade's return value, and
+ * reading it would mean following what that call resolves to. It draws nothing rather than a guess.
+ *
+ * A base side that does not parse contributes no operations, so every operation in the head reports as
+ * new. That over-reports rather than under-reports, which is the only direction a destructive-change
+ * reader may fail in.
+ *
  * `removedTokens` stays empty deliberately. The moved-not-removed index {@see HazardFindings} owns is
  * guard-token space, and a column named `auth` or `role` entering it would collide across lanes. A
  * column dropped here and added back by another migration in the same diff is the additive half's
@@ -60,6 +68,31 @@ final class MigrationHazards
 
     /** Facade methods whose second argument is a blueprint closure worth walking. */
     private const array BLUEPRINT_CALLS = ['table', 'create'];
+
+    /**
+     * Blueprint helpers that drop a fixed set of columns. Read from the framework's own bodies, which
+     * each forward to `dropColumn()` with these names — a helper is a column drop written shorter, and
+     * matching only `dropColumn` would miss every one of them in silence.
+     *
+     * @var array<string, list<string>>
+     */
+    private const array FIXED_COLUMN_DROPS = [
+        'dropTimestamps' => ['created_at', 'updated_at'],
+        'dropTimestampsTz' => ['created_at', 'updated_at'],
+        'dropRememberToken' => ['remember_token'],
+    ];
+
+    /**
+     * Blueprint helpers dropping one column, named by their first argument. `dropSoftDeletes()` takes
+     * the column it drops and defaults it, so an omitted argument is the default rather than unreadable.
+     *
+     * @var array<string, string|null>  method => the default when no argument is given
+     */
+    private const array NAMED_COLUMN_DROPS = [
+        'dropSoftDeletes' => 'deleted_at',
+        'dropSoftDeletesTz' => 'deleted_at',
+        'dropConstrainedForeignId' => null,
+    ];
 
     /**
      * @param  string|null  $baseSrc  null for a new migration — then every operation in `up()` is new
@@ -164,41 +197,68 @@ final class MigrationHazards
                 continue;
             }
 
-            $name = $method->name->toString();
+            $operations = [...$operations, ...self::operationsForCall($method, $method->name->toString(), $table)];
+        }
 
-            if ($name === 'dropColumn') {
-                foreach (self::droppedColumns($method) as $position => $column) {
-                    $operations[$column === null ? "drop-unread\0{$table}\0{$position}" : "drop-column\0{$table}\0{$column}"] = [
-                        'table' => $table,
-                        'column' => $column,
-                        'evidence' => $column === null
-                            ? "a column was dropped from `{$table}`, under a name richter could not read"
-                            : "column `{$table}`.`{$column}` dropped",
-                    ];
-                }
+        return $operations;
+    }
 
-                continue;
-            }
+    /**
+     * One blueprint call's destructive operations, keyed the same canonical way.
+     *
+     * @return array<string, array{table: string, column: string|null, evidence: string}>
+     */
+    private static function operationsForCall(MethodCall $call, string $name, string $table): array
+    {
+        if ($name === 'dropColumn') {
+            return self::dropOperations(self::droppedColumns($call), $table);
+        }
 
-            if ($name !== 'renameColumn') {
-                continue;
-            }
+        if ($name === 'renameColumn') {
+            return self::renameOperation($call, $table);
+        }
 
-            $from = self::literalArgument($method, 0);
-            $to = self::literalArgument($method, 1);
+        return self::dropOperations(self::shorthandColumns($call, $name), $table);
+    }
 
-            if ($from === null || $to === null) {
-                continue;
-            }
+    /**
+     * @param  list<string|null>  $columns  null for a column whose name is built at runtime
+     * @return array<string, array{table: string, column: string|null, evidence: string}>
+     */
+    private static function dropOperations(array $columns, string $table): array
+    {
+        $operations = [];
 
-            $operations["rename-column\0{$table}\0{$from}\0{$to}"] = [
+        foreach ($columns as $position => $column) {
+            $operations[$column === null ? "drop-unread\0{$table}\0{$position}" : "drop-column\0{$table}\0{$column}"] = [
                 'table' => $table,
-                'column' => $from,
-                'evidence' => "column `{$table}`.`{$from}` renamed to `{$to}`",
+                'column' => $column,
+                'evidence' => $column === null
+                    ? "a column was dropped from `{$table}`, under a name richter could not read"
+                    : "column `{$table}`.`{$column}` dropped",
             ];
         }
 
         return $operations;
+    }
+
+    /**
+     * @return array<string, array{table: string, column: string|null, evidence: string}>
+     */
+    private static function renameOperation(MethodCall $call, string $table): array
+    {
+        $from = self::literalArgument($call, 0);
+        $to = self::literalArgument($call, 1);
+
+        if ($from === null || $to === null) {
+            return [];
+        }
+
+        return ["rename-column\0{$table}\0{$from}\0{$to}" => [
+            'table' => $table,
+            'column' => $from,
+            'evidence' => "column `{$table}`.`{$from}` renamed to `{$to}`",
+        ]];
     }
 
     /**
@@ -256,6 +316,39 @@ final class MigrationHazards
     private static function callsOn(MethodCall $call, string $variable): bool
     {
         return $call->var instanceof Variable && $call->var->name === $variable;
+    }
+
+    /**
+     * The columns a Blueprint drop helper removes, empty when the call is not one of them.
+     * `dropMorphs('x')` removes two columns named after its argument.
+     *
+     * @return list<string|null> null for a column the helper drops under a name this cannot read
+     */
+    private static function shorthandColumns(MethodCall $call, string $name): array
+    {
+        if (array_key_exists($name, self::FIXED_COLUMN_DROPS)) {
+            return self::FIXED_COLUMN_DROPS[$name];
+        }
+
+        if (array_key_exists($name, self::NAMED_COLUMN_DROPS)) {
+            // An argument written but unreadable leaves the column unnamed, not the drop unreported —
+            // the same rule `dropColumn()` follows.
+            return [self::literalArgument($call, 0) ?? (self::hasArgument($call, 0) ? null : self::NAMED_COLUMN_DROPS[$name])];
+        }
+
+        if ($name !== 'dropMorphs') {
+            return [];
+        }
+
+        $morph = self::literalArgument($call, 0);
+
+        return $morph === null ? [null] : ["{$morph}_type", "{$morph}_id"];
+    }
+
+    /** Whether an argument was written at this position at all, present but unreadable included. */
+    private static function hasArgument(MethodCall $call, int $index): bool
+    {
+        return ($call->args[$index] ?? null) !== null;
     }
 
     /** The `up()` body. Null when the file declares no `up()`, or more than one — an ambiguity to refuse. */
