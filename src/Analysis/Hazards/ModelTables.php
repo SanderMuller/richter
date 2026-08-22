@@ -146,8 +146,6 @@ final class ModelTables
             return null;
         }
 
-        // A `$table` on a project base model is inherited by every subclass at runtime, so the nearest
-        // declaration in the parent chain answers, not the subclass's own absence of one.
         $declared = self::nearestDeclaredTable($fqcn, $declarations);
 
         // A model that DECLARES `$table` has said the convention does not apply to it. If the value
@@ -184,24 +182,40 @@ final class ModelTables
     }
 
     /**
-     * Whether the class's parent chain reaches Eloquent's `Model`. A chain that leaves the scanned set
-     * without reaching it answers no, and a cycle terminates on the seen-set rather than recursing.
+     * Whether the class is an Eloquent model. Reflection answers exactly where the class loads, which
+     * is the case richter's own autoloading of the analysed checkout usually gives it. Where it does
+     * not load, the scanned parent chain answers instead, and a cycle terminates on the seen-set.
+     *
+     * A chain that leaves the scanned set is ACCEPTED. A base model parked outside `app/Models` —
+     * `App\Models\Article extends App\Support\BaseModel` — is an ordinary layout, and refusing it
+     * would cost every model behind it the reach this class exists to give. Refusing only what is
+     * provably not a model keeps the cost on the rarer shape: a helper extending an unknown class.
      *
      * @param  array<string, array{parent: string|null, table: array{table: string|null}|null, abstract: bool}|null>  $declarations
      */
     private static function isModel(string $fqcn, array $declarations): bool
     {
+        if (class_exists($fqcn)) {
+            return is_subclass_of($fqcn, self::ELOQUENT_MODEL);
+        }
+
         $seen = [];
 
         while (! isset($seen[$fqcn])) {
             $seen[$fqcn] = true;
             $parent = ($declarations[$fqcn] ?? null)['parent'] ?? null;
 
+            // Nothing to climb: a class declaring no parent is not a model, and neither is one whose
+            // file this could not read.
             if ($parent === null) {
                 return false;
             }
 
             if ($parent === self::ELOQUENT_MODEL) {
+                return true;
+            }
+
+            if (! array_key_exists($parent, $declarations)) {
                 return true;
             }
 

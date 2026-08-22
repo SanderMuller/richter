@@ -170,6 +170,35 @@ final class MigrationHazardsTest extends TestCase
         $this->assertSame([], $this->hazards("Schema::table('posts', function (Blueprint \$table) { \$table->timestamps(); \$table->softDeletes(); });"));
     }
 
+    #[Test]
+    public function the_timezone_variants_of_the_shorthands_report_the_same_columns(): void
+    {
+        $this->assertSame(
+            ['column `posts`.`created_at` dropped', 'column `posts`.`updated_at` dropped', 'column `posts`.`deleted_at` dropped'],
+            $this->evidence("Schema::table('posts', function (Blueprint \$table) { \$table->dropTimestampsTz(); \$table->dropSoftDeletesTz(); });"),
+        );
+    }
+
+    #[Test]
+    public function a_constrained_foreign_id_drop_reports_its_column(): void
+    {
+        $this->assertSame(
+            ['column `posts`.`author_id` dropped'],
+            $this->evidence("Schema::table('posts', function (Blueprint \$table) { \$table->dropConstrainedForeignId('author_id'); });"),
+        );
+    }
+
+    #[Test]
+    public function a_drop_inside_a_create_is_read_too(): void
+    {
+        // Unusual, but `Schema::create()` takes the same blueprint, so refusing to read it would be an
+        // arbitrary blind spot rather than a decision.
+        $this->assertSame(
+            ['column `posts`.`subtitle` dropped'],
+            $this->evidence("Schema::create('posts', function (Blueprint \$table) { \$table->id(); \$table->dropColumn('subtitle'); });"),
+        );
+    }
+
     // ------------------------------------------------------------ dropped tables
 
     #[Test]

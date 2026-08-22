@@ -149,6 +149,20 @@ final class ModelTablesTest extends TestCase
     }
 
     #[Test]
+    public function a_model_extending_a_base_class_outside_the_scan_still_owns_its_table(): void
+    {
+        $root = $this->project([]);
+        file_put_contents(
+            "{$root}/app/Models/Article.php",
+            "<?php declare(strict_types=1);\n\nnamespace App\\Models;\n\nuse App\\Support\\BaseModel;\n\nfinal class Article extends BaseModel\n{\n}\n",
+        );
+
+        // Refusing a parent this scan cannot see would cost every model behind it its reach, and a
+        // base model outside app/Models is an ordinary layout.
+        $this->assertSame('App\Models\Article', ModelTables::modelFor('articles', $root));
+    }
+
+    #[Test]
     public function a_table_no_model_claims_resolves_to_nothing(): void
     {
         $this->assertNull(ModelTables::modelFor('legacy_imports', self::PROJECT));
