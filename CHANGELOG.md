@@ -5,6 +5,38 @@ All notable changes to `sandermuller/richter` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.49.0 - 2026-08-22
+
+A dropped column now names what still refers to it, so the report says who has not been told rather than only that the column is gone.
+
+### Added
+
+- **A dropped or renamed column names what still refers to it.** The migration lane reported that a column was gone; it now says where the code still expects it, on the same hazard:
+  
+  ```
+  ! [tier 2 migration] App\Models\Post — column `posts`.`subtitle` dropped, still named by
+    App\Models\Post's own $fillable/$casts, a `subtitle` key in app/Http/Resources/PostResource.php
+  
+  ```
+  Two surfaces are read: the owning model's own `$fillable`/`$casts`, and the `toArray()` keys of the API resources that belong to that model and mirror it. A resource match means the resource still carries a key of that name, not that it reads the column, and the sentence says so.
+  
+  Evidence only. The tier and the reach are decided from the diff, and a reference found here moves neither. A surface that cannot be read is skipped in silence: the hazard has already fired, so a missed reference under-informs rather than letting a destructive change go unreported.
+  
+  Which resources belong to a model is the resolution the payload-parity lane already made — wiring first, names only where the graph gave nothing — now shared between the two rather than written a second, weaker time. A resource must mirror the model before its keys count, because one controller may touch several models and return several resources.
+  
+  Form requests are deliberately not read. The graph carries no model-to-request association, and a name-based one would be the weakest evidence here rather than the strongest.
+  
+
+### Fixed
+
+- **A `$table` declared with no value no longer takes the table away.** Eloquent reads `$this->table ?? convention`, so `protected $table;` sets nothing. The inheritance walk read a base model's bare declaration as a value it could not resolve and refused the table, which cost every subclass relying on the convention its reach. The reverse holds too: a subclass redeclaring the property with no value overrides an inherited string with null, so it falls to its own convention rather than taking the parent's table.
+
+### Compatibility
+
+No graph-cache bump: `FORMAT_VERSION` stays at 26. A migration hazard's `evidence` string may now carry a trailing clause naming what still refers to the column; its `tier`, `reach`, `member` and suppression keys are unchanged.
+
+**Full Changelog**: https://github.com/SanderMuller/richter/compare/v0.48.1...v0.49.0
+
 ## v0.48.1 - 2026-08-22
 
 The migration lane missed Laravel's shorthand column drops, and the table-level `hazards.ignore` entry the documentation promised did not work.
@@ -84,6 +116,7 @@ Hazards (1):
 
 
 
+
 ```
 The suffix says "via its class" rather than naming a declaring class, because a `migration` hazard is named for a model and a `contract` hazard can name a class deleted whole — neither has a declaring class to point at.
 
@@ -160,6 +193,7 @@ Tightening a rate limit reported a tier-3 HIGH saying the limit was gone. A guar
   
   ```
   the rate limit on the GET /search route in routes/api.php rose from `throttle:60,1` to `throttle:120,1`
+  
   
   
   
@@ -575,6 +609,7 @@ dispatch($job);
 
 
 
+
 ```
 That was recorded as a dispatch whose target could not be followed — and the taint is global, so one of them makes every `richter:affected-tests` run report `not determinable` and fall back to the full suite. The graph has carried the edge for this shape all along: the instantiation is in the same method, right above the dispatch. The site pointed at a place to restructure where nothing was hidden and nothing needed restructuring.
 
@@ -674,6 +709,7 @@ Build profile: nothing was built — the diff holds nothing the graph is built f
 
 
 
+
 ```
 On stderr, like the table it stands in for, and before the payload in `--json` mode so stdout stays one document. Building anyway was the alternative, and it would make a no-op run pay for an analysis nothing asked for.
 
@@ -691,6 +727,7 @@ An event named by a class constant resolves in **any** declaration form, includi
 public const string
     SUBTITLE_CHANGED = 'subtitle-changed',
     SUBTITLE_DELETED = 'subtitle-deleted';
+
 
 
 
@@ -738,6 +775,7 @@ Build profile (forced rebuild):
   total                      3.85s
   no scoped rebuild: non-app-change
     config/services.php differs from the cached graph and sits outside app/
+
 
 
 
@@ -840,6 +878,7 @@ It now names every site:
 ```
 the graph contains job dispatches that could not be followed:
 app/Jobs/Fanout.php:88 (App\Jobs\Fanout::handle), app/Services/Importer.php:12 (App\Services\Importer::run)
+
 
 
 
@@ -1234,6 +1273,7 @@ Note: 2 changed file(s) are outside the analysed scope (not PHP under app/, a Bl
 
 
 
+
 ```
 Stderr, like the untracked-file note, so `--json` and `--markdown` stdout stay exactly the report. Frontend sources the configuration declines to scan are not counted: generated Wayfinder output under `frontend.generated_paths` and `.d.ts` declarations were silenced on purpose, and a note that fires loudest on regeneration churn is one people stop reading.
 
@@ -1325,6 +1365,7 @@ One new advisory lane, and a README that finally leads with what the package is 
   
   
   
+  
   ```
   The count comes off the `route:: → middleware::<group>` edges already in the graph, so it counts endpoints only: a controller-level attachment of the same group does not inflate it. Membership is read from `$middlewareGroups` on a Laravel 10 Kernel or the `->web(append: [...])` form in a Laravel 11+ `bootstrap/app.php`. A member written as an alias resolves through the same alias map, parameters are cut first (`tenant:strict` is one alias with an argument), and a group that names another group is expanded transitively, since Laravel runs the inner group's middleware on the outer group's routes too.
   
@@ -1357,6 +1398,7 @@ Two silent-failure shapes that richter used to miss: a call through an applicati
   
   ```text
     ! resources/js/Pages/Posts/Create.vue posts to POST /posts and sends 'subtitle', which this diff removes from App\Http\Requests\StorePostRequest::rules() (renamed to 'sub_title'?)
+  
   
   
   
