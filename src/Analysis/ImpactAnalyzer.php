@@ -128,7 +128,7 @@ final readonly class ImpactAnalyzer
             'dependencies' => $this->withHopLocations($this->graph->dependenciesOf($seeds, $maxDepth)),
             'entryPoints' => $entryPoints,
             'associationEntryPoints' => $associationEntryPoints,
-            'associationEntryPointsVia' => $this->associationReasons($associationEntryPoints, $seeds, $maxDepth),
+            'associationEntryPointsVia' => $this->associationReasons($associationEntryPoints, $seeds, $maxDepth, $callers),
             'entryPointPaths' => $this->entryPointPathsFor($entryPoints, $callers, $seeds, $maxDepth),
             'entryPointLocations' => $entryPointLocations,
             'entryPointSecurity' => $entryPointSecurity,
@@ -419,7 +419,7 @@ final readonly class ImpactAnalyzer
             'edges' => $edges,
             'entryPoints' => $entryPoints,
             'associationEntryPoints' => $associationEntryPoints,
-            'associationEntryPointsVia' => $this->associationReasons($associationEntryPoints, $seeds, $maxDepth),
+            'associationEntryPointsVia' => $this->associationReasons($associationEntryPoints, $seeds, $maxDepth, $callers),
             'registryEntryPoints' => $registryEntryPoints,
             'entryPointPaths' => $entryPointPaths,
             'entryPointLocations' => $entryPointLocations,
@@ -949,24 +949,37 @@ final readonly class ImpactAnalyzer
      * resource is `call` and the association is a hop further down. Keying on the final hop reported
      * no reason at all for exactly the common shape this section exists to describe.
      *
+     * A UI-component surface is reported CLASS-level while the walk reached one of its MEMBERS, so the
+     * class node is a target no path ends on. {@see uiMembersAmong()} names the member that stood in
+     * for it, the same stand-in {@see entryPointPathsFor()} uses to draw that surface's chain. Without
+     * it every Livewire, Filament and Nova surface answered with no reason at all — the majority of
+     * this section on an admin-panel application.
+     *
      * @param  list<string>  $associationEntryPoints
      * @param  list<string>  $seeds
+     * @param  list<array{depth: int, node: string, via: string, file?: string, line?: int}>  $callers
      * @return array<string, list<string>>
      */
-    private function associationReasons(array $associationEntryPoints, array $seeds, int $maxDepth): array
+    private function associationReasons(array $associationEntryPoints, array $seeds, int $maxDepth, array $callers): array
     {
         if ($associationEntryPoints === []) {
             return [];
         }
 
+        $memberByClass = $this->uiMembersAmong($callers);
+
         // No excluded types: this walk is looking FOR the association edges, where the entry-point
         // chains deliberately refuse them.
-        $paths = $this->graph->callerPathsTo($seeds, $associationEntryPoints, $maxDepth);
+        $paths = $this->graph->callerPathsTo(
+            $seeds,
+            array_values(array_unique([...$associationEntryPoints, ...array_values($memberByClass)])),
+            $maxDepth,
+        );
         $reasons = [];
 
         foreach ($associationEntryPoints as $surface) {
-            $onPath = array_intersect(array_column($paths[$surface] ?? [], 'via'), self::ASSOCIATION_EDGE_TYPES);
-            $types = array_values(array_unique($onPath));
+            $path = $paths[$surface] ?? $paths[$memberByClass[$surface] ?? ''] ?? [];
+            $types = array_values(array_unique(array_intersect(array_column($path, 'via'), self::ASSOCIATION_EDGE_TYPES)));
             sort($types);
             $reasons[$surface] = $types;
         }

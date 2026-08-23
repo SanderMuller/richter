@@ -16,8 +16,9 @@ use SanderMuller\Richter\Analysis\ImpactAnalyzer;
  * first place ({@see ImpactAnalyzer::ASSOCIATION_EDGE_TYPES}). Fifty of those are one fact about a
  * registry, not fifty facts about the diff.
  *
- * So the fan-out group collapses under the single cause it shares, and the discriminating links stay
- * in front of the reader. Nothing is dropped: a caller that collapses a group still prints its count,
+ * The weakest link on a path decides: a surface whose path carries a fan-out hop collapses under the
+ * single cause it shares, and only surfaces reached entirely by named links stay in front of the
+ * reader. Nothing is dropped: a caller that collapses a group still prints its count,
  * because a section that silently shortened itself would be the falsely-reassuring report this package
  * refuses to write.
  *
@@ -42,7 +43,12 @@ final class AssociationSurfaces
         foreach ($surfaces as $surface) {
             $reasons = $via[$surface] ?? [];
 
-            if ($reasons === ['config-registry-fanout']) {
+            // CONTAINS, not equals. A fan-out hop anywhere on the path means the identical path
+            // exists for every class the registry names, so the surface cannot tell one of them from
+            // another — a named relation further along does not restore what the fan-out destroyed.
+            // Keying on `=== ['config-registry-fanout']` instead put 42 of 44 surfaces back inline on a
+            // real admin-panel application, because most of those paths carry a model relation too.
+            if (in_array('config-registry-fanout', $reasons, strict: true)) {
                 $fanoutOnly[] = $surface;
 
                 continue;

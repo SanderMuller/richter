@@ -114,6 +114,45 @@ final class AssociationEntryPointRenderingTest extends TestCase
         $this->assertStringContainsString('and 1 reached only through a registry lookup', $text);
     }
 
+    #[Test]
+    public function a_path_carrying_both_a_named_relation_and_a_fanout_still_collapses(): void
+    {
+        // The weakest link decides. On a real admin-panel application 42 of 44 surfaces carried BOTH
+        // a registry fan-out and a model relation on one path, so a rule keyed on "only a fan-out"
+        // left almost every surface inline — the fan-out hop is what makes the path unspecific, and a
+        // named relation further along does not restore what it destroyed.
+        $surface = 'App\\Filament\\Pages\\FormulaSetup';
+
+        $result = new ImpactAnalyzer(new CodeGraph([
+            ['source' => 'App\\Models\\Comment', 'target' => 'App\\Models\\Post', 'type' => 'model-relationship'],
+            ['source' => $surface, 'target' => 'App\\Models\\Comment', 'type' => 'config-registry-fanout'],
+        ], hasUnparseableFiles: false))->detectChanges($this->changed());
+
+        $this->assertSame(['config-registry-fanout', 'model-relationship'], $result['associationEntryPointsVia'][$surface]);
+
+        $markdown = MarkdownFormatter::detectChanges($result);
+        $collapsed = substr($markdown, (int) strpos($markdown, '<details>'));
+        $this->assertStringContainsString($surface, $collapsed);
+    }
+
+    #[Test]
+    public function a_ui_surface_reached_through_one_of_its_members_still_records_its_reason(): void
+    {
+        // A Livewire/Filament/Nova surface is reported CLASS-level while the walk reached one of its
+        // MEMBERS, so the class node is a target no path ends on. Reading the reason without that
+        // stand-in returned nothing for every such surface — the majority of this section on an
+        // admin-panel application, where the unit fixtures happened to reach classes directly.
+        $component = 'App\\Livewire\\CommentPanel';
+
+        $result = new ImpactAnalyzer(new CodeGraph([
+            ['source' => 'App\\Models\\Comment', 'target' => 'App\\Models\\Post', 'type' => 'model-relationship'],
+            ['source' => $component . '::render', 'target' => 'App\\Models\\Comment', 'type' => 'call'],
+        ], hasUnparseableFiles: false))->detectChanges($this->changed());
+
+        $this->assertContains($component, $result['associationEntryPoints']);
+        $this->assertSame(['model-relationship'], $result['associationEntryPointsVia'][$component]);
+    }
+
     /** A Filament resource that touches a model RELATED to the changed one: associated, not a caller. */
     private function analyzer(): ImpactAnalyzer
     {
