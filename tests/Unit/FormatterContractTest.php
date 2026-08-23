@@ -227,6 +227,42 @@ final class FormatterContractTest extends TestCase
     }
 
     #[Test]
+    public function every_collapsed_block_keeps_the_blank_lines_github_needs(): void
+    {
+        // GitHub does not parse markdown inside a `<details>` unless a blank line follows
+        // `</summary>` — without it a bullet list renders as literal text, checked against GitHub's own
+        // renderer. `collapsed()` writes those lines and four sections share it — the association
+        // fan-out, related models, the entry-point checklist overflow and the hop-list overflow — so
+        // nothing pinned them, and tidying that helper would break every fold at once with the suite
+        // still green. This fixture drives the first three; the hop-list overflow belongs to the impact
+        // report. The inheritance list is NOT one of them: it renders inline, uncollapsed, which is why
+        // that section stays long.
+        $output = MarkdownFormatter::detectChanges($this->richFixture(), $this->richTestIndex(), explain: true);
+        $lines = explode("\n", $output);
+
+        $folds = 0;
+
+        foreach ($lines as $i => $line) {
+            if (! str_starts_with($line, '<summary>')) {
+                continue;
+            }
+
+            ++$folds;
+            $this->assertSame('', $lines[$i + 1] ?? null, "fold {$folds}: no blank line after </summary>");
+        }
+
+        // The whole point is that several folds share the helper — assert the fixture actually exercises
+        // more than one, or this test could pass while covering nothing.
+        $this->assertGreaterThan(1, $folds, 'the fixture should render more than one fold');
+
+        foreach ($lines as $i => $line) {
+            if ($line === '</details>') {
+                $this->assertSame('', $lines[$i - 1] ?? null, 'no blank line before </details>');
+            }
+        }
+    }
+
+    #[Test]
     public function the_json_presenter_carries_every_documented_key(): void
     {
         $json = JsonPresenter::detectChanges($this->richFixture(), 'origin/main', $this->richTestIndex());
