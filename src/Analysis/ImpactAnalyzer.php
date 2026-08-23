@@ -8,6 +8,7 @@ use SanderMuller\Richter\Changes\ChangedFileSymbols;
 use SanderMuller\Richter\Graph\CodeGraph;
 use SanderMuller\Richter\Graph\NodeMetadata;
 use SanderMuller\Richter\Support\AppNamespace;
+use SanderMuller\Richter\Support\AssociationReasons;
 use SanderMuller\Richter\Support\Fqcn;
 use SanderMuller\Richter\Support\ReachReasons;
 
@@ -932,28 +933,10 @@ final readonly class ImpactAnalyzer
     }
 
     /**
-     * Why each association surface is listed, so a reader — and a renderer — can tell one kind of
-     * weak link from another. `traitAndOverrideReachVia` has answered this for its own section since
-     * 0.39; without the same map here the section can only hedge across the whole list ("a model
-     * relation OR a registry lookup"), and every entry reads as equally weak.
-     *
-     * They are not equally weak, which is the point. A `model-relationship` names ONE model, so it
-     * says something true of this change and not of every other one. A `config-registry-fanout` names
-     * no single class: the surfaces behind it are identical for every class the registry lists, so it
-     * cannot tell one change from another. A renderer can then keep the discriminating links in front
-     * of the reader and collapse the rest under the one cause they share.
-     *
-     * Read from the surface's PATH, not from the hop that reached it. A surface lands in this section
-     * because an association edge sits somewhere on the way to it, which is rarely its own last hop:
-     * a Filament resource CALLS a model that is merely related to the changed one, so the hop into the
-     * resource is `call` and the association is a hop further down. Keying on the final hop reported
-     * no reason at all for exactly the common shape this section exists to describe.
-     *
-     * A UI-component surface is reported CLASS-level while the walk reached one of its MEMBERS, so the
-     * class node is a target no path ends on. {@see uiMembersAmong()} names the member that stood in
-     * for it, the same stand-in {@see entryPointPathsFor()} uses to draw that surface's chain. Without
-     * it every Livewire, Filament and Nova surface answered with no reason at all — the majority of
-     * this section on an admin-panel application.
+     * Why each association surface is listed. Delegated to {@see AssociationReasons} — the computation
+     * has two subtleties worth explaining in one place (the UI-member stand-in, and asking whether a
+     * fan-out is REQUIRED rather than merely on the shortest path), and this class is at its
+     * cognitive-complexity ceiling.
      *
      * @param  list<string>  $associationEntryPoints
      * @param  list<string>  $seeds
@@ -962,29 +945,8 @@ final readonly class ImpactAnalyzer
      */
     private function associationReasons(array $associationEntryPoints, array $seeds, int $maxDepth, array $callers): array
     {
-        if ($associationEntryPoints === []) {
-            return [];
-        }
-
-        $memberByClass = $this->uiMembersAmong($callers);
-
-        // No excluded types: this walk is looking FOR the association edges, where the entry-point
-        // chains deliberately refuse them.
-        $paths = $this->graph->callerPathsTo(
-            $seeds,
-            array_values(array_unique([...$associationEntryPoints, ...array_values($memberByClass)])),
-            $maxDepth,
-        );
-        $reasons = [];
-
-        foreach ($associationEntryPoints as $surface) {
-            $path = $paths[$surface] ?? $paths[$memberByClass[$surface] ?? ''] ?? [];
-            $types = array_values(array_unique(array_intersect(array_column($path, 'via'), self::ASSOCIATION_EDGE_TYPES)));
-            sort($types);
-            $reasons[$surface] = $types;
-        }
-
-        return $reasons;
+        return new AssociationReasons($this->graph)
+            ->for($associationEntryPoints, $seeds, $maxDepth, $this->uiMembersAmong($callers));
     }
 
     /**

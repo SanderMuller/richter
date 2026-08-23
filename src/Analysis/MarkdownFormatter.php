@@ -102,9 +102,13 @@ final class MarkdownFormatter
         // The fan-out group carries one cause between all of them, so it is stated once and the list
         // folds away. Spelling out how many classes the registry names is what tells the reader why
         // these say so little: the same surfaces answer for every one of those classes.
+        //
+        // Not "N more": on an application whose reach is entirely registry fan-out nothing stays
+        // inline, and "more" than an empty list invites the reader to hunt for the list it contrasts
+        // with. The count says the same thing without implying a comparison.
         if ($fanout !== []) {
-            $lines = [...$lines, '', ...self::collapsed(
-                sprintf('%d more, reached only through a registry lookup that names no single class — the same surfaces answer for every class it lists', count($fanout)),
+            $lines = [...$lines, ...($named === [] ? [] : ['']), ...self::collapsed(
+                sprintf('%d reached only through a registry lookup that names no single class — the same surfaces answer for every class it lists', count($fanout)),
                 array_map(static fn (string $node): string => "- `{$node}`", self::sorted($fanout)),
             )];
         }

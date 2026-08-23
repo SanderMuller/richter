@@ -285,8 +285,11 @@ final class ImpactFormatter
         // The fan-out group shares one cause, so it is counted and named once rather than listed. A
         // registry that names sixty classes answers the same for every one of them, so sixty lines
         // would spend the reader's attention on a single fact.
+        // "… and N" only reads right after a list; where nothing stayed inline it contrasts with
+        // nothing. Same reason the markdown summary does not say "N more".
         $tail = $fanout === [] ? [] : [sprintf(
-            '  … and %d reached only through a registry lookup that names no single class — the same surfaces answer for every class it lists',
+            '  %s%d reached only through a registry lookup that names no single class — the same surfaces answer for every class it lists',
+            $named === [] ? '' : '… and ',
             count($fanout),
         )];
 

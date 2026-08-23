@@ -498,7 +498,7 @@ final class HtmlFormatter
         // The fan-out group folds into a <details> under the one cause it shares. Never dropped: the
         // count stays on the summary line, so the card cannot read as shorter than the reach it found.
         $collapsed = $fanout === [] ? '' : sprintf(
-            '<details><summary>%d more, reached only through a registry lookup that names no single class — the same surfaces answer for every class it lists</summary>%s</details>',
+            '<details><summary>%d reached only through a registry lookup that names no single class — the same surfaces answer for every class it lists</summary>%s</details>',
             count($fanout),
             self::nodeList($fanout),
         );

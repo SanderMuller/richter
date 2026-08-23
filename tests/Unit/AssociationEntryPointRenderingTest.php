@@ -101,7 +101,7 @@ final class AssociationEntryPointRenderingTest extends TestCase
         $this->assertStringContainsString($fanout, $markdown);
         $this->assertStringContainsString(self::SURFACE, $markdown);
         $this->assertMatchesRegularExpression(
-            '/<summary>1 more, reached only through a registry lookup that names no single class/',
+            '/<summary>1 reached only through a registry lookup that names no single class/',
             $markdown,
         );
         // The discriminating surface must NOT be the one inside the collapsed block.
@@ -111,7 +111,7 @@ final class AssociationEntryPointRenderingTest extends TestCase
         // The text report states the count rather than listing them, and never hides the total.
         $text = ImpactFormatter::detectChanges($result);
         $this->assertStringContainsString('only by association (context, not callers): 2', $text);
-        $this->assertStringContainsString('and 1 reached only through a registry lookup', $text);
+        $this->assertStringContainsString('… and 1 reached only through a registry lookup', $text);
     }
 
     #[Test]
@@ -151,6 +151,33 @@ final class AssociationEntryPointRenderingTest extends TestCase
 
         $this->assertContains($component, $result['associationEntryPoints']);
         $this->assertSame(['model-relationship'], $result['associationEntryPointsVia'][$component]);
+    }
+
+    #[Test]
+    public function a_surface_with_a_registry_free_path_stays_inline_even_though_a_fanout_path_exists(): void
+    {
+        // `callerPathsTo()` answers with ONE shortest route. A surface reachable BOTH through a registry
+        // fan-out and through a named relation would show the fan-out hop on whichever route is
+        // shorter, and fold on evidence about a path it does not depend on. What decides is whether the
+        // fan-out is REQUIRED.
+        $surface = 'App\\Filament\\Pages\\FormulaSetup';
+
+        $result = new ImpactAnalyzer(new CodeGraph([
+            // The short route: a registry fan-out straight onto the changed model.
+            ['source' => $surface, 'target' => 'App\\Models\\Post', 'type' => 'config-registry-fanout'],
+            // The longer route to the same surface, carrying no fan-out at all.
+            ['source' => 'App\\Models\\Comment', 'target' => 'App\\Models\\Post', 'type' => 'model-relationship'],
+            ['source' => 'App\\Services\\Reporter::run', 'target' => 'App\\Models\\Comment', 'type' => 'call'],
+            ['source' => $surface, 'target' => 'App\\Services\\Reporter::run', 'type' => 'call'],
+        ], hasUnparseableFiles: false))->detectChanges($this->changed());
+
+        // The fan-out is not required, so it is not reported as a reason and the surface stays inline.
+        $this->assertSame(['model-relationship'], $result['associationEntryPointsVia'][$surface]);
+
+        $markdown = MarkdownFormatter::detectChanges($result);
+        $details = strpos($markdown, '<details>');
+        $collapsed = $details === false ? '' : substr($markdown, $details);
+        $this->assertStringNotContainsString($surface, $collapsed);
     }
 
     /** A Filament resource that touches a model RELATED to the changed one: associated, not a caller. */
