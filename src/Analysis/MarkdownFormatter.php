@@ -3,6 +3,7 @@
 namespace SanderMuller\Richter\Analysis;
 
 use SanderMuller\Richter\Graph\NodeMetadata;
+use SanderMuller\Richter\Support\AssociationSurfaces;
 
 /**
  * Renders {@see ImpactAnalyzer} results as GitHub-flavoured markdown for pull-request descriptions
@@ -22,7 +23,7 @@ final class MarkdownFormatter
     private const int LIST_CAP = 15;
 
     /**
-     * @param  array{target: string, callers: list<array{depth: int, node: string, via: string, file?: string, line?: int}>, dependencies: list<array{depth: int, node: string, via: string, file?: string, line?: int}>, entryPoints?: list<string>, associationEntryPoints?: list<string>, entryPointPaths?: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations?: array<string, array{file: string, line?: int}>, entryPointSecurity?: array<string, SecurityShape>, entryPointGates?: array<string, list<string>>, entryPointAuthGates?: array<string, list<string>>, entryPointAuthMiddleware?: array<string, list<string>>, suggestions?: list<string>, graphNodeCount?: int}  $result
+     * @param  array{target: string, callers: list<array{depth: int, node: string, via: string, file?: string, line?: int}>, dependencies: list<array{depth: int, node: string, via: string, file?: string, line?: int}>, entryPoints?: list<string>, associationEntryPoints?: list<string>, associationEntryPointsVia?: array<string, list<string>>, entryPointPaths?: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations?: array<string, array{file: string, line?: int}>, entryPointSecurity?: array<string, SecurityShape>, entryPointGates?: array<string, list<string>>, entryPointAuthGates?: array<string, list<string>>, entryPointAuthMiddleware?: array<string, list<string>>, suggestions?: list<string>, graphNodeCount?: int}  $result
      * @param  bool  $explain  render the call chain from each reached entry surface down to the symbol
      */
     public static function impact(array $result, ?TestReferenceIndex $tests = null, bool $explain = false): string
@@ -63,7 +64,7 @@ final class MarkdownFormatter
             $result['entryPointAuthGates'] ?? [],
             $result['entryPointAuthMiddleware'] ?? [],
             $tests,
-        )), '', ...self::associationSection($result['associationEntryPoints'] ?? [])];
+        )), '', ...self::associationSection($result['associationEntryPoints'] ?? [], $result['associationEntryPointsVia'] ?? [])];
         $lines[] = sprintf('### Dependencies (what it reaches) (%d)', count($result['dependencies']));
         $lines[] = '';
         $lines = [...$lines, ...self::hopList($result['dependencies'])];
@@ -72,27 +73,43 @@ final class MarkdownFormatter
     }
 
     /**
-     * Surfaces a model relation connects to the change rather than a call. Rendered in both
-     * commands: demoting them out of the reached list without printing them anywhere would lose
-     * them outright, which is a worse report than the over-counting this split exists to end.
+     * Surfaces a model relation or a registry lookup connects to the change rather than a call.
+     * Rendered in both commands: demoting them out of the reached list without printing them anywhere
+     * would lose them outright, which is a worse report than the over-counting this split exists to
+     * end. Split by {@see AssociationSurfaces::partition()} so the registry fan-out folds under its
+     * one shared cause instead of spending the reader's attention line by line.
      *
      * @param  list<string>  $association
+     * @param  array<string, list<string>>  $via  surface => the association edge types that reached it
      * @return list<string>
      */
-    private static function associationSection(array $association): array
+    private static function associationSection(array $association, array $via): array
     {
         if ($association === []) {
             return [];
         }
 
-        return [
+        [$named, $fanout] = AssociationSurfaces::partition($association, $via);
+
+        $lines = [
             sprintf('### Entry surfaces reached only by association (%d)', count($association)),
             '',
-            '_Connected by a model relation or a registry lookup that names no single class, not by a caller — context, not reach._',
+            '_Connected by a model relation or a registry lookup, not by a caller — context, not reach._',
             '',
-            ...array_map(static fn (string $node): string => "- `{$node}`", self::sorted($association)),
-            '',
+            ...array_map(static fn (string $node): string => "- `{$node}`", self::sorted($named)),
         ];
+
+        // The fan-out group carries one cause between all of them, so it is stated once and the list
+        // folds away. Spelling out how many classes the registry names is what tells the reader why
+        // these say so little: the same surfaces answer for every one of those classes.
+        if ($fanout !== []) {
+            $lines = [...$lines, '', ...self::collapsed(
+                sprintf('%d more, reached only through a registry lookup that names no single class — the same surfaces answer for every class it lists', count($fanout)),
+                array_map(static fn (string $node): string => "- `{$node}`", self::sorted($fanout)),
+            )];
+        }
+
+        return [...$lines, ''];
     }
 
     /** @param  array{from: string, to: string, resolvedFrom: list<string>, resolvedTo: list<string>, found: bool, path: list<array{node: string, via: string, file?: string, line?: int}>, furthestReached?: array{node: string, depth: int, file?: string, line?: int}}  $result */
@@ -144,7 +161,7 @@ final class MarkdownFormatter
     }
 
     /**
-     * @param  array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, newFiles?: list<string>, fqcns?: array<string, string>, entryPoints: list<string>, associationEntryPoints?: list<string>, entryPointPaths?: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations?: array<string, array{file: string, line?: int}>, entryPointSecurity?: array<string, SecurityShape>, entryPointGates?: array<string, list<string>>, entryPointAuthGates?: array<string, list<string>>, entryPointAuthMiddleware?: array<string, list<string>>, impacted: int, relatedModels: list<string>, traitAndOverrideReach?: list<string>, traitAndOverrideReachVia?: array<string, list<string>>, risk: RiskLevel, riskCause?: string, hazards?: list<Hazard>, lowConfidence: bool, findings?: list<string>, ...}  $result
+     * @param  array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, newFiles?: list<string>, fqcns?: array<string, string>, entryPoints: list<string>, associationEntryPoints?: list<string>, associationEntryPointsVia?: array<string, list<string>>, entryPointPaths?: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations?: array<string, array{file: string, line?: int}>, entryPointSecurity?: array<string, SecurityShape>, entryPointGates?: array<string, list<string>>, entryPointAuthGates?: array<string, list<string>>, entryPointAuthMiddleware?: array<string, list<string>>, impacted: int, relatedModels: list<string>, traitAndOverrideReach?: list<string>, traitAndOverrideReachVia?: array<string, list<string>>, risk: RiskLevel, riskCause?: string, hazards?: list<Hazard>, lowConfidence: bool, findings?: list<string>, ...}  $result
      * @param  bool  $gateActive  when a `--fail-on*` gate is active the command appends its own verdict, so the advisory suffix is dropped to avoid contradicting it
      * @param  bool  $explain  render the call chain from each reached entry point down to the changed symbol
      * @param  string|null  $notice  a caveat about the analysis to render inside the document (the
@@ -223,13 +240,13 @@ final class MarkdownFormatter
 
         // Beside the call-reached list, never dropped: demoting a surface out of `entryPoints`
         // without printing it here would lose it entirely in this format.
-        $lines = [...$lines, ...self::associationSection($result['associationEntryPoints'] ?? [])];
+        $lines = [...$lines, ...self::associationSection($result['associationEntryPoints'] ?? [], $result['associationEntryPointsVia'] ?? [])];
 
         if (($result['traitAndOverrideReach'] ?? []) !== []) {
             /** @var array<string, list<string>> $via */
             $via = $result['traitAndOverrideReachVia'] ?? [];
             $lines = [...$lines, '', sprintf(
-                'Runs this code without calling it (trait users and overrides — context, not risk): %d',
+                'Related by inheritance, not by a call (trait or override — context, not risk): %d',
                 count($result['traitAndOverrideReach'] ?? []),
             ), ...array_map(
                 static fn (string $user): string => sprintf('- `%s`%s', $user, ($via[$user] ?? []) === [] ? '' : ' — ' . implode(', ', $via[$user])),

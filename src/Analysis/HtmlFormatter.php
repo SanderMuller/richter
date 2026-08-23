@@ -6,6 +6,7 @@ use SanderMuller\Richter\Changes\ChangedFileSymbols;
 use SanderMuller\Richter\Changes\MemberChange;
 use SanderMuller\Richter\Graph\CodeGraph;
 use SanderMuller\Richter\Graph\NodeMetadata;
+use SanderMuller\Richter\Support\AssociationSurfaces;
 
 /**
  * Renders {@see ImpactAnalyzer} results as one self-contained HTML file — all CSS and JS inline —
@@ -21,7 +22,7 @@ use SanderMuller\Richter\Graph\NodeMetadata;
  * @phpstan-import-type SecurityShape from NodeMetadata
  * @phpstan-import-type Layout from RadialLayout
  * @phpstan-type GateVerdict array{failOn: string|null, failOnHazard: int|null, failOnUnresolved: bool, tripped: bool, reasons: list<string>}
- * @phpstan-type DetectChangesResult array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, associationEntryPoints?: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, SecurityShape>, entryPointGates: array<string, list<string>>, entryPointAuthGates?: array<string, list<string>>, entryPointAuthMiddleware?: array<string, list<string>>, seeds: list<string>, reach: array<string, array<string, true>>, edges: list<array{source: string, target: string, via: string, depth: int}>, impacted: int, relatedModels: list<string>, traitAndOverrideReach?: list<string>, traitAndOverrideReachVia?: array<string, list<string>>, risk: RiskLevel, riskCause?: string, hazards?: list<Hazard>, lowConfidence: bool, findings: list<string>, ...}
+ * @phpstan-type DetectChangesResult array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, associationEntryPoints?: list<string>, associationEntryPointsVia?: array<string, list<string>>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, SecurityShape>, entryPointGates: array<string, list<string>>, entryPointAuthGates?: array<string, list<string>>, entryPointAuthMiddleware?: array<string, list<string>>, seeds: list<string>, reach: array<string, array<string, true>>, edges: list<array{source: string, target: string, via: string, depth: int}>, impacted: int, relatedModels: list<string>, traitAndOverrideReach?: list<string>, traitAndOverrideReachVia?: array<string, list<string>>, risk: RiskLevel, riskCause?: string, hazards?: list<Hazard>, lowConfidence: bool, findings: list<string>, ...}
  */
 final class HtmlFormatter
 {
@@ -443,7 +444,7 @@ final class HtmlFormatter
     private static function advisory(array $result, array $rows, bool $gateActive, ?array $gate): string
     {
         return self::unresolvedNote($result)
-            . self::associationCard($result['associationEntryPoints'] ?? [])
+            . self::associationCard($result['associationEntryPoints'] ?? [], $result['associationEntryPointsVia'] ?? [])
             . self::traitAndOverrideCard($result['traitAndOverrideReach'] ?? [], $result['traitAndOverrideReachVia'] ?? [])
             . self::card('Findings (in the changed source itself)', $result['findings'] === [] ? '<p class="muted">None.</p>' : self::findings($result['findings']))
             . self::card('Test references', self::testReferenceList($rows))
@@ -470,7 +471,7 @@ final class HtmlFormatter
         ));
 
         return self::card(
-            'Runs this code without calling it',
+            'Related by inheritance, not by a call',
             '<p class="muted">Uses the trait declaring the changed member, or implements the ancestor it overrides — context, not counted toward impact or risk.</p><ul role="list">' . $items . '</ul>',
         );
     }
@@ -480,23 +481,43 @@ final class HtmlFormatter
      * demoting them out of the reached list without showing them anywhere loses them outright, which
      * is a worse report than the over-counting the split exists to end.
      *
+     * Split by {@see AssociationSurfaces::partition()}: the registry fan-out folds under the one
+     * cause it shares, so the card spends its space on the links that discriminate.
+     *
      * @param  list<string>  $association
+     * @param  array<string, list<string>>  $via  surface => the association edge types that reached it
      */
-    private static function associationCard(array $association): string
+    private static function associationCard(array $association, array $via): string
     {
         if ($association === []) {
             return '';
         }
 
-        $items = implode('', array_map(
-            static fn (string $node): string => '<li><code>' . Html::e(NodeLabel::display($node)) . '</code></li>',
-            $association,
-        ));
+        [$named, $fanout] = AssociationSurfaces::partition($association, $via);
+
+        // The fan-out group folds into a <details> under the one cause it shares. Never dropped: the
+        // count stays on the summary line, so the card cannot read as shorter than the reach it found.
+        $collapsed = $fanout === [] ? '' : sprintf(
+            '<details><summary>%d more, reached only through a registry lookup that names no single class — the same surfaces answer for every class it lists</summary>%s</details>',
+            count($fanout),
+            self::nodeList($fanout),
+        );
 
         return self::card(
             'Entry surfaces reached only by association',
-            '<p class="muted">Connected by a model relation or a registry lookup that names no single class, not by a caller — context, not reach.</p><ul role="list">' . $items . '</ul>',
+            '<p class="muted">Connected by a model relation or a registry lookup, not by a caller — context, not reach.</p>'
+                . ($named === [] ? '' : self::nodeList($named))
+                . $collapsed,
         );
+    }
+
+    /** @param  list<string>  $nodes */
+    private static function nodeList(array $nodes): string
+    {
+        return '<ul role="list">' . implode('', array_map(
+            static fn (string $node): string => '<li><code>' . Html::e(NodeLabel::display($node)) . '</code></li>',
+            $nodes,
+        )) . '</ul>';
     }
 
     /** @param  GateVerdict  $gate */

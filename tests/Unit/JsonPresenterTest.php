@@ -38,6 +38,7 @@ final class JsonPresenterTest extends TestCase
             'dependencies',
             'entryPoints',
             'associationEntryPoints',
+            'associationEntryPointsVia',
             'entryPointPaths',
             'entryPointLocations',
             'entryPointSecurity',

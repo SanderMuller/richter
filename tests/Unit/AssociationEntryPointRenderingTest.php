@@ -64,6 +64,56 @@ final class AssociationEntryPointRenderingTest extends TestCase
         $this->assertNotContains('model-relationship', $vias);
     }
 
+    #[Test]
+    public function each_association_surface_records_why_it_is_listed(): void
+    {
+        $result = $this->analyzer()->detectChanges($this->changed());
+
+        // Without this map the section can only hedge across the whole list ("a model relation OR a
+        // registry lookup"), and a reader cannot tell a link that names one model from one that names
+        // every class a registry lists.
+        $this->assertSame(['model-relationship'], $result['associationEntryPointsVia'][self::SURFACE]);
+        $this->assertSame(
+            ['model-relationship'],
+            JsonPresenter::detectChanges($result, 'main')['associationEntryPointsVia'][self::SURFACE],
+        );
+    }
+
+    #[Test]
+    public function a_registry_fanout_surface_collapses_while_a_named_relation_stays_inline(): void
+    {
+        // The whole point of the split: a registry names no single class, so the same surfaces answer
+        // for every class it lists. Those fold under one shared cause; a model relation names ONE
+        // model and keeps its line.
+        $fanout = 'App\\Filament\\Pages\\FormulaSetup';
+
+        $result = new ImpactAnalyzer(new CodeGraph([
+            ['source' => 'App\\Models\\Comment', 'target' => 'App\\Models\\Post', 'type' => 'model-relationship'],
+            ['source' => self::SURFACE, 'target' => 'App\\Models\\Comment', 'type' => 'call'],
+            ['source' => $fanout, 'target' => 'App\\Models\\Post', 'type' => 'config-registry-fanout'],
+        ], hasUnparseableFiles: false))->detectChanges($this->changed());
+
+        $this->assertSame(['config-registry-fanout'], $result['associationEntryPointsVia'][$fanout]);
+
+        $markdown = MarkdownFormatter::detectChanges($result);
+
+        // Both are still reported — nothing is dropped — but only the fan-out one is behind a summary.
+        $this->assertStringContainsString($fanout, $markdown);
+        $this->assertStringContainsString(self::SURFACE, $markdown);
+        $this->assertMatchesRegularExpression(
+            '/<summary>1 more, reached only through a registry lookup that names no single class/',
+            $markdown,
+        );
+        // The discriminating surface must NOT be the one inside the collapsed block.
+        $collapsed = substr($markdown, (int) strpos($markdown, '<details>'));
+        $this->assertStringNotContainsString(self::SURFACE, $collapsed);
+
+        // The text report states the count rather than listing them, and never hides the total.
+        $text = ImpactFormatter::detectChanges($result);
+        $this->assertStringContainsString('only by association (context, not callers): 2', $text);
+        $this->assertStringContainsString('and 1 reached only through a registry lookup', $text);
+    }
+
     /** A Filament resource that touches a model RELATED to the changed one: associated, not a caller. */
     private function analyzer(): ImpactAnalyzer
     {

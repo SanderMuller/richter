@@ -552,7 +552,7 @@ final class HtmlFormatterTest extends TestCase
             'traitAndOverrideReach' => ['App\\Builders\\InvoiceBuilder'],
         ], [], 'main');
 
-        $this->assertStringContainsString('Runs this code without calling it', $html);
+        $this->assertStringContainsString('Related by inheritance, not by a call', $html);
         $this->assertStringContainsString('App\\Builders\\InvoiceBuilder', $html);
     }
 
@@ -561,6 +561,6 @@ final class HtmlFormatterTest extends TestCase
     {
         $html = HtmlFormatter::detectChanges($this->minimalResult(), [], 'main');
 
-        $this->assertStringNotContainsString('Runs this code without calling it', $html);
+        $this->assertStringNotContainsString('Related by inheritance, not by a call', $html);
     }
 }

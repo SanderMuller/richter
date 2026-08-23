@@ -82,7 +82,9 @@ final class DetectChangesTool extends Tool
                 ->description('Changed file => "analyzed" or "unresolved". Empty map serializes as [].'),
             'entryPoints' => $schema->array()->items($schema->string()),
             'associationEntryPoints' => $schema->array()->items($schema->string())
-                ->description('Entry surfaces connected to the change only by a model relation. Associated with it, not callers of it — context, and excluded from the risk level.'),
+                ->description('Entry surfaces connected to the change only by a model relation or a registry lookup. Associated with it, not callers of it — context, and excluded from the risk level.'),
+            'associationEntryPointsVia' => $schema->object()
+                ->description('Association surface => the association edge types that reached it (model-relationship, model-to-policy, config-registry-fanout). Reads why each entry is listed: a model-relationship names ONE model and says something true of this change, while a config-registry-fanout names no single class, so the same surfaces answer for every class the registry lists. Prose reports keep the first group inline and collapse the second under that one shared cause. Empty map serializes as [].'),
             'entryPointPaths' => $schema->object()
                 ->description('Entry-point node => call chain down to the changed code; each hop may carry a project-relative file/line. Empty map serializes as [].'),
             'entryPointLocations' => $schema->object()

@@ -1034,6 +1034,7 @@ final class CommandsTest extends TestCase
             'dependencies',
             'entryPoints',
             'associationEntryPoints',
+            'associationEntryPointsVia',
             'entryPointPaths',
             'entryPointLocations',
             'entryPointSecurity',

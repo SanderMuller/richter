@@ -99,6 +99,7 @@ final readonly class ImpactAnalyzer
      *     dependencies: list<array{depth: int, node: string, via: string, file?: string, line?: int}>,
      *     entryPoints: list<string>,
      *     associationEntryPoints: list<string>,
+     *     associationEntryPointsVia: array<string, list<string>>,
      *     entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>,
      *     entryPointLocations: array<string, array{file: string, line?: int}>,
      *     entryPointSecurity: array<string, SecurityShape>,
@@ -127,6 +128,7 @@ final readonly class ImpactAnalyzer
             'dependencies' => $this->withHopLocations($this->graph->dependenciesOf($seeds, $maxDepth)),
             'entryPoints' => $entryPoints,
             'associationEntryPoints' => $associationEntryPoints,
+            'associationEntryPointsVia' => $this->associationReasons($associationEntryPoints, $seeds, $maxDepth),
             'entryPointPaths' => $this->entryPointPathsFor($entryPoints, $callers, $seeds, $maxDepth),
             'entryPointLocations' => $entryPointLocations,
             'entryPointSecurity' => $entryPointSecurity,
@@ -159,13 +161,13 @@ final readonly class ImpactAnalyzer
      * draw "nothing changed" without a graph build. {@see JsonPresenter::emptyDetectChanges()} is
      * the separate JSON-shaped equivalent; the two differ in `risk` (enum here, string there).
      *
-     * @return array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, newFiles: list<string>, fqcns: array<string, string>, callers: list<array{depth: int, node: string, via: string}>, dependencies: list<array{depth: int, node: string, via: string}>, seeds: list<string>, reach: array<string, array<string, true>>, edges: list<array{source: string, target: string, via: string, depth: int}>, entryPoints: list<string>, associationEntryPoints: list<string>, registryEntryPoints: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, SecurityShape>, entryPointGates: array<string, list<string>>, entryPointAuthGates: array<string, list<string>>, entryPointAuthMiddleware: array<string, list<string>>, impacted: int, relatedModels: list<string>, traitAndOverrideReach: list<string>, traitAndOverrideReachVia: array<string, list<string>>, risk: RiskLevel, riskCause: string, hazards: list<Hazard>, verification: array<string, bool|null>, lowConfidence: bool, findings: list<string>}
+     * @return array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, newFiles: list<string>, fqcns: array<string, string>, callers: list<array{depth: int, node: string, via: string}>, dependencies: list<array{depth: int, node: string, via: string}>, seeds: list<string>, reach: array<string, array<string, true>>, edges: list<array{source: string, target: string, via: string, depth: int}>, entryPoints: list<string>, associationEntryPoints: list<string>, associationEntryPointsVia: array<string, list<string>>, registryEntryPoints: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, SecurityShape>, entryPointGates: array<string, list<string>>, entryPointAuthGates: array<string, list<string>>, entryPointAuthMiddleware: array<string, list<string>>, impacted: int, relatedModels: list<string>, traitAndOverrideReach: list<string>, traitAndOverrideReachVia: array<string, list<string>>, risk: RiskLevel, riskCause: string, hazards: list<Hazard>, verification: array<string, bool|null>, lowConfidence: bool, findings: list<string>}
      */
     public static function emptyDetectChanges(): array
     {
         return [
             'changed' => [], 'coverage' => [], 'newFiles' => [], 'fqcns' => [], 'callers' => [], 'dependencies' => [],
-            'seeds' => [], 'reach' => [], 'edges' => [], 'entryPoints' => [], 'associationEntryPoints' => [], 'entryPointPaths' => [],
+            'seeds' => [], 'reach' => [], 'edges' => [], 'entryPoints' => [], 'associationEntryPoints' => [], 'associationEntryPointsVia' => [], 'entryPointPaths' => [],
             'entryPointLocations' => [], 'entryPointSecurity' => [], 'entryPointGates' => [],
             'entryPointAuthGates' => [], 'entryPointAuthMiddleware' => [],
             'impacted' => 0, 'relatedModels' => [], 'registryEntryPoints' => [], 'traitAndOverrideReach' => [], 'traitAndOverrideReachVia' => [], 'risk' => RiskLevel::Low,
@@ -199,6 +201,7 @@ final readonly class ImpactAnalyzer
      *     edges: list<array{source: string, target: string, via: string, depth: int}>,
      *     entryPoints: list<string>,
      *     associationEntryPoints: list<string>,
+     *     associationEntryPointsVia: array<string, list<string>>,
      *     entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>,
      *     entryPointLocations: array<string, array{file: string, line?: int}>,
      *     entryPointSecurity: array<string, SecurityShape>,
@@ -416,6 +419,7 @@ final readonly class ImpactAnalyzer
             'edges' => $edges,
             'entryPoints' => $entryPoints,
             'associationEntryPoints' => $associationEntryPoints,
+            'associationEntryPointsVia' => $this->associationReasons($associationEntryPoints, $seeds, $maxDepth),
             'registryEntryPoints' => $registryEntryPoints,
             'entryPointPaths' => $entryPointPaths,
             'entryPointLocations' => $entryPointLocations,
@@ -925,6 +929,49 @@ final readonly class ImpactAnalyzer
             fn (array $viaTypes): bool => ! $this->isRiskBearing($viaTypes)
                 && array_intersect_key($viaTypes, array_flip($types)) !== [],
         ));
+    }
+
+    /**
+     * Why each association surface is listed, so a reader — and a renderer — can tell one kind of
+     * weak link from another. `traitAndOverrideReachVia` has answered this for its own section since
+     * 0.39; without the same map here the section can only hedge across the whole list ("a model
+     * relation OR a registry lookup"), and every entry reads as equally weak.
+     *
+     * They are not equally weak, which is the point. A `model-relationship` names ONE model, so it
+     * says something true of this change and not of every other one. A `config-registry-fanout` names
+     * no single class: the surfaces behind it are identical for every class the registry lists, so it
+     * cannot tell one change from another. A renderer can then keep the discriminating links in front
+     * of the reader and collapse the rest under the one cause they share.
+     *
+     * Read from the surface's PATH, not from the hop that reached it. A surface lands in this section
+     * because an association edge sits somewhere on the way to it, which is rarely its own last hop:
+     * a Filament resource CALLS a model that is merely related to the changed one, so the hop into the
+     * resource is `call` and the association is a hop further down. Keying on the final hop reported
+     * no reason at all for exactly the common shape this section exists to describe.
+     *
+     * @param  list<string>  $associationEntryPoints
+     * @param  list<string>  $seeds
+     * @return array<string, list<string>>
+     */
+    private function associationReasons(array $associationEntryPoints, array $seeds, int $maxDepth): array
+    {
+        if ($associationEntryPoints === []) {
+            return [];
+        }
+
+        // No excluded types: this walk is looking FOR the association edges, where the entry-point
+        // chains deliberately refuse them.
+        $paths = $this->graph->callerPathsTo($seeds, $associationEntryPoints, $maxDepth);
+        $reasons = [];
+
+        foreach ($associationEntryPoints as $surface) {
+            $onPath = array_intersect(array_column($paths[$surface] ?? [], 'via'), self::ASSOCIATION_EDGE_TYPES);
+            $types = array_values(array_unique($onPath));
+            sort($types);
+            $reasons[$surface] = $types;
+        }
+
+        return $reasons;
     }
 
     /**

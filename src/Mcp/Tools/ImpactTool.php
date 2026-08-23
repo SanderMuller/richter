@@ -72,7 +72,9 @@ final class ImpactTool extends Tool
             // an empty PHP map JSON-encodes as [] — the description carries that caveat instead.
             'entryPoints' => $schema->array()->items($schema->string())->description('Entry surfaces among the callers: route::/command::/schedule:: nodes and Livewire/Filament/Nova component classes.'),
             'associationEntryPoints' => $schema->array()->items($schema->string())
-                ->description('Entry surfaces connected to the symbol only by a model relation. Associated with it, not callers of it.'),
+                ->description('Entry surfaces connected to the symbol only by a model relation or a registry lookup. Associated with it, not callers of it.'),
+            'associationEntryPointsVia' => $schema->object()
+                ->description('Association surface => the association edge types that reached it (model-relationship, model-to-policy, config-registry-fanout). Reads why each entry is listed: a model-relationship names ONE model and says something true of this change, while a config-registry-fanout names no single class, so the same surfaces answer for every class the registry lists. Prose reports keep the first group inline and collapse the second under that one shared cause. Empty map serializes as [].'),
             'entryPointPaths' => $schema->object()
                 ->description('Entry-point node => shortest call chain down to the symbol; each hop may carry a project-relative file/line. Empty map serializes as [].'),
             'entryPointLocations' => $schema->object()

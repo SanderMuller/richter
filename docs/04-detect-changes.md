@@ -44,7 +44,7 @@ Entry points reached: 2 (some changed files could not be fully placed — see UN
 Related models (association reach — context, not risk): 1
   - App\Models\Category
 
-Runs this code without calling it (trait users and overrides — context, not risk): 2
+Related by inheritance, not by a call (trait or override — context, not risk): 2
   - App\Builders\InvoiceBuilder
   - App\Builders\QuoteBuilder
 
