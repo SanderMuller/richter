@@ -485,7 +485,7 @@ final class HtmlFormatter
      * cause it shares, so the card spends its space on the links that discriminate.
      *
      * @param  list<string>  $association
-     * @param  array<string, list<string>>  $via  surface => the association edge types that reached it
+     * @param  array<string, list<string>>  $via  surface => the association edge types on the path the surface DEPENDS on; a fan-out is named only where it is required
      */
     private static function associationCard(array $association, array $via): string
     {
@@ -498,8 +498,9 @@ final class HtmlFormatter
         // The fan-out group folds into a <details> under the one cause it shares. Never dropped: the
         // count stays on the summary line, so the card cannot read as shorter than the reach it found.
         $collapsed = $fanout === [] ? '' : sprintf(
-            '<details><summary>%d reached only through a registry lookup that names no single class — the same surfaces answer for every class it lists</summary>%s</details>',
+            '<details><summary>%d %s reached only through a registry lookup that names no single class — the same surfaces answer for every class it lists</summary>%s</details>',
             count($fanout),
+            count($fanout) === 1 ? 'surface' : 'surfaces',
             self::nodeList($fanout),
         );
 

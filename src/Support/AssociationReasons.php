@@ -9,9 +9,10 @@ use SanderMuller\Richter\Graph\CodeGraph;
  * Why each association surface is listed: the association edge types a report needs in order to tell a
  * link that names ONE model from one that names every class a registry lists.
  *
- * Split out of {@see ImpactAnalyzer} for the reason {@see AssociationSurfaces} is separate from the
- * formatters — that class sits at its cognitive-complexity ceiling, and "why is this surface here" is
- * one question with two awkward parts, both of which want explaining in one place.
+ * Split out of {@see ImpactAnalyzer} because that class had no headroom: it measured 80 against
+ * phpstan.neon's class cognitive-complexity ceiling of 80 before this lane moved out. The split is
+ * forced, not stylistic — though "why is this surface here" is also one question with two awkward
+ * parts, and they are easier to explain together.
  *
  * @internal
  */
@@ -44,15 +45,17 @@ final readonly class AssociationReasons
 
         $targets = array_values(array_unique($targets));
 
-        // Two path maps, because one path is only evidence about itself. `callerPathsTo()` answers with
-        // ONE shortest route, so a surface reachable BOTH through a registry fan-out and through a
-        // named relation would report the fan-out whenever that route is shorter — and fold on evidence
-        // about a path it does not depend on. The second map excludes the fan-out edge, so an entry in
-        // it IS the proof that the surface does not require one, and its types are the ones worth
-        // reporting. No excluded types in the first map: it is looking FOR the association edges the
-        // entry-point chains deliberately refuse.
+        // The second map excludes the fan-out edge, so an entry in it proves the surface does not
+        // require one. The first excludes nothing: it is looking FOR the association edges the
+        // entry-point chains refuse.
         $anyPath = $this->graph->callerPathsTo($seeds, $targets, $maxDepth);
-        $withoutFanout = $this->graph->callerPathsTo($seeds, $targets, $maxDepth, ['config-registry-fanout']);
+        // Where the graph holds no fan-out edge at all the two walks coincide, so the second is skipped
+        // — output-identical, one BFS saved. A narrower guard ("no fan-out hop on any chosen path") is
+        // NOT equivalent: the second walk explores a different frontier and can pick a different
+        // fan-out-free chain, which changes a reported reason without changing any fold.
+        $withoutFanout = $this->graph->hasEdgeType('config-registry-fanout')
+            ? $this->graph->callerPathsTo($seeds, $targets, $maxDepth, ['config-registry-fanout'])
+            : $anyPath;
 
         $reasons = [];
 
@@ -97,7 +100,7 @@ final readonly class AssociationReasons
                 continue;
             }
 
-            if (! in_array($hop['node'], $members[$class] ?? [], true)) {
+            if (! in_array($hop['node'], $members[$class] ?? [], strict: true)) {
                 $members[$class][] = $hop['node'];
             }
         }

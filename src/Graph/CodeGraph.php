@@ -128,6 +128,23 @@ final class CodeGraph
     }
 
     /**
+     * Whether any edge in the graph carries this type. Lets a caller skip a second walk that would
+     * only differ by excluding an edge type the graph does not contain.
+     */
+    public function hasEdgeType(string $type): bool
+    {
+        foreach ($this->downstream as $hops) {
+            foreach ($hops as $hop) {
+                if ($hop['via'] === $type) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * The defining source location of a node, when the build could pin one. Sparse like the
      * metadata itself: `line` is present only when known, so JSON consumers never see nulls.
      *

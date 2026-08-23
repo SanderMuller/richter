@@ -33,7 +33,7 @@ final class FormatterContractTest extends TestCase
      * unresolved changed file, related models, source findings, and a coarse-capped low-confidence
      * risk — every field either formatter can render, on at once.
      *
-     * @return array{seeds: list<string>, reach: array<string, array<string, true>>, edges: list<array{source: string, target: string, via: string, depth: int}>, changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, array{exposure: string, riskLevel: string, issues: list<array{type: string, severity: string, message: string, file?: string, line?: int}>}>, entryPointGates: array<string, list<string>>, entryPointAuthMiddleware: array<string, list<string>>, impacted: int, relatedModels: list<string>, risk: RiskLevel, riskCause: string, hazards: list<Hazard>, verification: array<string, bool>, lowConfidence: bool, findings: list<string>}
+     * @return array{seeds: list<string>, reach: array<string, array<string, true>>, edges: list<array{source: string, target: string, via: string, depth: int}>, changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, array{exposure: string, riskLevel: string, issues: list<array{type: string, severity: string, message: string, file?: string, line?: int}>}>, entryPointGates: array<string, list<string>>, entryPointAuthMiddleware: array<string, list<string>>, impacted: int, associationEntryPoints: list<string>, associationEntryPointsVia: array<string, list<string>>, relatedModels: list<string>, risk: RiskLevel, riskCause: string, hazards: list<Hazard>, verification: array<string, bool>, lowConfidence: bool, findings: list<string>}
      */
     private function richFixture(): array
     {
@@ -77,6 +77,13 @@ final class FormatterContractTest extends TestCase
                 ['source' => 'App\Services\AnnotatedService::run', 'target' => 'App\Models\Comment', 'via' => 'model-relationship', 'depth' => 1],
             ],
             'impacted' => 42,
+            // Both an inline (named-relation) and a folded (registry fan-out) surface, so the section's
+            // two branches are part of the every-field contract rather than only the dedicated test.
+            'associationEntryPoints' => ['App\Filament\Resources\CommentResource', 'App\Filament\Pages\SettingsPage'],
+            'associationEntryPointsVia' => [
+                'App\Filament\Resources\CommentResource' => ['model-relationship'],
+                'App\Filament\Pages\SettingsPage' => ['config-registry-fanout'],
+            ],
             'relatedModels' => ['App\Models\Comment'],
             'risk' => RiskLevel::Medium,
             'lowConfidence' => true,
@@ -187,6 +194,39 @@ final class FormatterContractTest extends TestCase
     }
 
     #[Test]
+    public function every_format_renders_both_branches_of_the_association_fold(): void
+    {
+        // The section splits per surface: a named relation stays inline, a registry fan-out folds under
+        // one shared cause. Each format writes that summary in its own words, and the HTML one had no
+        // test at all — a wording change there was invisible to the suite.
+        $fixture = $this->richFixture();
+        $inline = 'App\Filament\Resources\CommentResource';
+        $folded = 'App\Filament\Pages\SettingsPage';
+
+        $text = ImpactFormatter::detectChanges($fixture, $this->richTestIndex(), explain: true);
+        $markdown = MarkdownFormatter::detectChanges($fixture, $this->richTestIndex(), explain: true);
+        $html = HtmlFormatter::detectChanges($fixture, [], 'origin/main', $this->richTestIndex());
+
+        // Every format names the surface that stayed inline, and every format states the fold's count.
+        foreach (['text' => $text, 'markdown' => $markdown, 'html' => $html] as $format => $output) {
+            $this->assertStringContainsString($inline, $output, "{$format} lost the inline surface");
+            $this->assertStringContainsString('1 surface reached only through a registry lookup', $output, "{$format} lost the fold summary");
+        }
+
+        // The FOLDED names are where the formats legitimately differ. Markdown and HTML truncate
+        // nothing — the fold is a `<details>`, one click away. The text report caps its lists by design
+        // ({@see ImpactFormatter::summarisedList()}), so there the count IS the whole record, and
+        // asserting otherwise would demand a completeness that format never promised.
+        $this->assertStringContainsString($folded, $markdown, 'markdown must keep the folded surface');
+        $this->assertStringContainsString($folded, $html, 'html must keep the folded surface');
+        $this->assertStringNotContainsString($folded, $text, 'the text report caps rather than folds');
+
+        // The payload keeps the raw reasons; the fold is a rendering decision, not a payload one.
+        $json = JsonPresenter::detectChanges($fixture, 'origin/main', $this->richTestIndex());
+        $this->assertSame(['config-registry-fanout'], $json['associationEntryPointsVia'][$folded]);
+    }
+
+    #[Test]
     public function the_json_presenter_carries_every_documented_key(): void
     {
         $json = JsonPresenter::detectChanges($this->richFixture(), 'origin/main', $this->richTestIndex());
@@ -194,6 +234,7 @@ final class FormatterContractTest extends TestCase
         foreach ([
             'base', 'changed', 'coverage', 'entryPoints', 'entryPointPaths', 'entryPointLocations',
             'entryPointSecurity', 'entryPointGates', 'entryPointTestReferences', 'impacted',
+            'associationEntryPoints', 'associationEntryPointsVia',
             'relatedModels', 'risk', 'riskCause', 'hazards', 'verification', 'lowConfidence', 'findings', 'unresolved',
         ] as $key) {
             $this->assertArrayHasKey($key, $json);

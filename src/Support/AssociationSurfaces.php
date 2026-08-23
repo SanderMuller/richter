@@ -31,7 +31,7 @@ final class AssociationSurfaces
 {
     /**
      * @param  list<string>  $surfaces  the reported association entry points
-     * @param  array<string, list<string>>  $via  surface => the association edge types that reached it
+     * @param  array<string, list<string>>  $via  surface => the association edge types on the path the surface DEPENDS on; a fan-out is named only where it is required
      * @return array{0: list<string>, 1: list<string>} the discriminating surfaces, then the ones
      *                                                reached only by a registry fan-out
      */

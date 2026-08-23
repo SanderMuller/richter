@@ -101,7 +101,7 @@ final class AssociationEntryPointRenderingTest extends TestCase
         $this->assertStringContainsString($fanout, $markdown);
         $this->assertStringContainsString(self::SURFACE, $markdown);
         $this->assertMatchesRegularExpression(
-            '/<summary>1 reached only through a registry lookup that names no single class/',
+            '/<summary>1 surface reached only through a registry lookup that names no single class/',
             $markdown,
         );
         // The discriminating surface must NOT be the one inside the collapsed block.
@@ -111,7 +111,7 @@ final class AssociationEntryPointRenderingTest extends TestCase
         // The text report states the count rather than listing them, and never hides the total.
         $text = ImpactFormatter::detectChanges($result);
         $this->assertStringContainsString('only by association (context, not callers): 2', $text);
-        $this->assertStringContainsString('… and 1 reached only through a registry lookup', $text);
+        $this->assertStringContainsString('… and 1 surface reached only through a registry lookup', $text);
     }
 
     #[Test]

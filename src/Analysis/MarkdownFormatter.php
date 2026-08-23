@@ -80,7 +80,7 @@ final class MarkdownFormatter
      * one shared cause instead of spending the reader's attention line by line.
      *
      * @param  list<string>  $association
-     * @param  array<string, list<string>>  $via  surface => the association edge types that reached it
+     * @param  array<string, list<string>>  $via  surface => the association edge types on the path the surface DEPENDS on; a fan-out is named only where it is required
      * @return list<string>
      */
     private static function associationSection(array $association, array $via): array
@@ -108,7 +108,11 @@ final class MarkdownFormatter
         // with. The count says the same thing without implying a comparison.
         if ($fanout !== []) {
             $lines = [...$lines, ...($named === [] ? [] : ['']), ...self::collapsed(
-                sprintf('%d reached only through a registry lookup that names no single class — the same surfaces answer for every class it lists', count($fanout)),
+                sprintf(
+                    '%d %s reached only through a registry lookup that names no single class — the same surfaces answer for every class it lists',
+                    count($fanout),
+                    count($fanout) === 1 ? 'surface' : 'surfaces',
+                ),
                 array_map(static fn (string $node): string => "- `{$node}`", self::sorted($fanout)),
             )];
         }

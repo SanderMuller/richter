@@ -271,7 +271,7 @@ final class ImpactFormatter
      * them outright, which is a worse report than the over-counting this split exists to end.
      *
      * @param  list<string>  $association
-     * @param  array<string, list<string>>  $via  surface => the association edge types that reached it
+     * @param  array<string, list<string>>  $via  surface => the association edge types on the path the surface DEPENDS on; a fan-out is named only where it is required
      * @return list<string>
      */
     private static function associationSurfaces(array $association, array $via): array
@@ -285,12 +285,15 @@ final class ImpactFormatter
         // The fan-out group shares one cause, so it is counted and named once rather than listed. A
         // registry that names sixty classes answers the same for every one of them, so sixty lines
         // would spend the reader's attention on a single fact.
-        // "… and N" only reads right after a list; where nothing stayed inline it contrasts with
-        // nothing. Same reason the markdown summary does not say "N more".
+        // "… and N" only reads directly after a list. It contrasts with nothing where nothing stayed
+        // inline, and where the inline list was CAPPED {@see summarisedList()} has already written its
+        // own "… and N more" plus a breadth note, so a second one would follow a sentence. Both cases
+        // drop the prefix. Same reason no format says "more" any more.
         $tail = $fanout === [] ? [] : [sprintf(
-            '  %s%d reached only through a registry lookup that names no single class — the same surfaces answer for every class it lists',
-            $named === [] ? '' : '… and ',
+            '  %s%d %s reached only through a registry lookup that names no single class — the same surfaces answer for every class it lists',
+            $named === [] || count($named) > self::LIST_CAP ? '' : '… and ',
             count($fanout),
+            count($fanout) === 1 ? 'surface' : 'surfaces',
         )];
 
         return [
