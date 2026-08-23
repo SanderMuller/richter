@@ -5,6 +5,37 @@ All notable changes to `sandermuller/richter` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.52.0 - 2026-08-23
+
+The inheritance list is split by what each entry claims: a class that runs the changed code stays in front of the reader, and the overrides fold, grouped by member name. Sourced from production dogfood.
+
+### Changed
+
+**"Related by inheritance, not by a call" no longer prints one flat list.** The section reports two edge types that do not make the same claim, and the walk already recorded which one reached each entry:
+
+- A `uses-trait` entry has the changed method copied into it, so the changed code runs there. It stays inline, named, with its reason.
+- An `override` entry declares its own version of the member. `ClassHierarchyTracer::overrideEdges()` draws that edge from a method the class writes out and from nothing else, so the entry has a body of its own. These fold under one summary, grouped by member name, with every class kept nested under its group.
+
+A change to a widely implemented hook used to fill the section with entries that all said the same thing. Now one line says it once, and the classes are a click away rather than a scroll away.
+
+**The summary claims only that each entry declares the member itself.** The stronger sentence — that the changed body does not run in them — is true in almost every case: an override delegating to `parent::m()` draws a `static-call` edge, which is risk-bearing, so that entry is never in this section to begin with. It is not universal. The model-static-method dedup in `StaticCallEdgeTracer::isBrainsToDraw()` suppresses that edge and leaves the hop to laravel-brain, and whether that edge is risk-bearing is not traced. A universal claim with a known exception is the falsely-reassuring line this package refuses to print, so the narrow claim is the one that ships.
+
+**Every string in the section is direction-agnostic on purpose.** A folded entry is the *ancestor*, not a descendant, whenever the changed member is the concrete override — the graph walk allows a hierarchy hop out of a seed in both directions, which is what keeps Class-Hierarchy Analysis working from either end. The claim holds either way, because an `override` edge needs the method declared at both ends.
+
+**Two descriptions that were wrong are corrected.** The MCP `traitAndOverrideReach` schema description called these "classes that run the changed member without calling it". True of the trait lane, false of the override lane — which is the distinction this release exists to draw.
+
+### Upgrade note
+
+`traitAndOverrideReach` and `traitAndOverrideReachVia` are unchanged. Both keys carry every entry, ungrouped, exactly as before: the split and the grouping are rendering decisions and never remove a name. `--json` remains the machine output.
+
+What changes is the prose. A consumer reading the text report's inheritance list will find member-grouped lines where it previously found one line per entry, and the format's list cap now bounds member names rather than siblings of the same member — fifteen lines that describe fifteen members instead of fifteen implementations of one. The markdown and HTML reports fold that lane instead of printing it inline. The markdown and text reports are documented as prose rather than a contract; parse `--json`.
+
+### Fixed
+
+- The section appeared in no cross-format contract test, so its text and markdown wording was pinned by nothing and only the HTML card had a presence check. All three formats are covered now, both lanes and both single-lane cases — including the one where a markdown report with no override lane would have opened an empty fold.
+
+**Full Changelog**: https://github.com/SanderMuller/richter/compare/v0.51.0...v0.52.0
+
 ## v0.51.0 - 2026-08-23
 
 A fan-out is named only where a surface depends on one, and the fold summary stops saying "more" when nothing stayed inline. Sourced from production dogfood.
@@ -60,6 +91,7 @@ The three prose formats now keep the discriminating surfaces inline and fold the
 <details><summary>12 more, reached only through a registry lookup that names no single class — the same surfaces answer for every class it lists</summary>
 
 
+
 ```
 **Nothing is dropped.** The section still counts every surface, and the collapsed group states its own count, so the report cannot read as shorter than the reach it found. A surface whose reason the walk could not record stays inline: absence of a reason is not evidence of a weak one.
 
@@ -88,6 +120,7 @@ A dropped column now names what still refers to it, so the report says who has n
   ```
   ! [tier 2 migration] App\Models\Post — column `posts`.`subtitle` dropped, still named by
     App\Models\Post's own $fillable/$casts, a `subtitle` key in app/Http/Resources/PostResource.php
+  
   
   
   
@@ -193,6 +226,7 @@ Hazards (1):
 
 
 
+
 ```
 The suffix says "via its class" rather than naming a declaring class, because a `migration` hazard is named for a model and a `contract` hazard can name a class deleted whole — neither has a declaring class to point at.
 
@@ -269,6 +303,7 @@ Tightening a rate limit reported a tier-3 HIGH saying the limit was gone. A guar
   
   ```
   the rate limit on the GET /search route in routes/api.php rose from `throttle:60,1` to `throttle:120,1`
+  
   
   
   
@@ -690,6 +725,7 @@ dispatch($job);
 
 
 
+
 ```
 That was recorded as a dispatch whose target could not be followed — and the taint is global, so one of them makes every `richter:affected-tests` run report `not determinable` and fall back to the full suite. The graph has carried the edge for this shape all along: the instantiation is in the same method, right above the dispatch. The site pointed at a place to restructure where nothing was hidden and nothing needed restructuring.
 
@@ -792,6 +828,7 @@ Build profile: nothing was built — the diff holds nothing the graph is built f
 
 
 
+
 ```
 On stderr, like the table it stands in for, and before the payload in `--json` mode so stdout stays one document. Building anyway was the alternative, and it would make a no-op run pay for an analysis nothing asked for.
 
@@ -809,6 +846,7 @@ An event named by a class constant resolves in **any** declaration form, includi
 public const string
     SUBTITLE_CHANGED = 'subtitle-changed',
     SUBTITLE_DELETED = 'subtitle-deleted';
+
 
 
 
@@ -859,6 +897,7 @@ Build profile (forced rebuild):
   total                      3.85s
   no scoped rebuild: non-app-change
     config/services.php differs from the cached graph and sits outside app/
+
 
 
 
@@ -964,6 +1003,7 @@ It now names every site:
 ```
 the graph contains job dispatches that could not be followed:
 app/Jobs/Fanout.php:88 (App\Jobs\Fanout::handle), app/Services/Importer.php:12 (App\Services\Importer::run)
+
 
 
 
@@ -1364,6 +1404,7 @@ Note: 2 changed file(s) are outside the analysed scope (not PHP under app/, a Bl
 
 
 
+
 ```
 Stderr, like the untracked-file note, so `--json` and `--markdown` stdout stay exactly the report. Frontend sources the configuration declines to scan are not counted: generated Wayfinder output under `frontend.generated_paths` and `.d.ts` declarations were silenced on purpose, and a note that fires loudest on regeneration churn is one people stop reading.
 
@@ -1458,6 +1499,7 @@ One new advisory lane, and a README that finally leads with what the package is 
   
   
   
+  
   ```
   The count comes off the `route:: → middleware::<group>` edges already in the graph, so it counts endpoints only: a controller-level attachment of the same group does not inflate it. Membership is read from `$middlewareGroups` on a Laravel 10 Kernel or the `->web(append: [...])` form in a Laravel 11+ `bootstrap/app.php`. A member written as an alias resolves through the same alias map, parameters are cut first (`tenant:strict` is one alias with an argument), and a group that names another group is expanded transitively, since Laravel runs the inner group's middleware on the outer group's routes too.
   
@@ -1490,6 +1532,7 @@ Two silent-failure shapes that richter used to miss: a call through an applicati
   
   ```text
     ! resources/js/Pages/Posts/Create.vue posts to POST /posts and sends 'subtitle', which this diff removes from App\Http\Requests\StorePostRequest::rules() (renamed to 'sub_title'?)
+  
   
   
   
