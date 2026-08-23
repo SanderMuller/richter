@@ -946,7 +946,7 @@ final readonly class ImpactAnalyzer
     private function associationReasons(array $associationEntryPoints, array $seeds, int $maxDepth, array $callers): array
     {
         return new AssociationReasons($this->graph)
-            ->for($associationEntryPoints, $seeds, $maxDepth, $this->uiMembersAmong($callers));
+            ->for($associationEntryPoints, $seeds, $maxDepth, $callers, $this->uiComponentClassOf(...));
     }
 
     /**

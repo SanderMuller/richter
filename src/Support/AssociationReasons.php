@@ -22,19 +22,27 @@ final readonly class AssociationReasons
     /**
      * @param  list<string>  $surfaces  the reported association entry points
      * @param  list<string>  $seeds
-     * @param  array<string, string>  $memberByClass  UI-component class => the member that stood in for
-     *   it. A UI surface is reported CLASS-level while the walk reached one of its MEMBERS, so the
-     *   class node is a target no path ends on; without the stand-in every Livewire, Filament and Nova
-     *   surface answers with no reason at all.
+     * @param  list<array{depth: int, node: string, via: string, file?: string, line?: int}>  $callers
+     * @param  callable(string): (string|null)  $uiComponentClassOf  the analyzer's own UI-class test,
+     *   passed in rather than reimplemented — a second copy of that namespace vocabulary would drift.
      * @return array<string, list<string>>
      */
-    public function for(array $surfaces, array $seeds, int $maxDepth, array $memberByClass): array
+    public function for(array $surfaces, array $seeds, int $maxDepth, array $callers, callable $uiComponentClassOf): array
     {
         if ($surfaces === []) {
             return [];
         }
 
-        $targets = array_values(array_unique([...$surfaces, ...array_values($memberByClass)]));
+        $membersByClass = $this->membersByClass($callers, $uiComponentClassOf);
+        $targets = $surfaces;
+
+        foreach ($membersByClass as $members) {
+            foreach ($members as $member) {
+                $targets[] = $member;
+            }
+        }
+
+        $targets = array_values(array_unique($targets));
 
         // Two path maps, because one path is only evidence about itself. `callerPathsTo()` answers with
         // ONE shortest route, so a surface reachable BOTH through a registry fan-out and through a
@@ -49,12 +57,11 @@ final readonly class AssociationReasons
         $reasons = [];
 
         foreach ($surfaces as $surface) {
-            $member = $memberByClass[$surface] ?? '';
-            $path = $withoutFanout[$surface]
-                ?? $withoutFanout[$member]
-                ?? $anyPath[$surface]
-                ?? $anyPath[$member]
-                ?? [];
+            // The surface itself first, then each member that stood in for it — and the fan-out-free
+            // map before the unrestricted one, so ANY route without a fan-out beats every route with
+            // one.
+            $candidates = [$surface, ...($membersByClass[$surface] ?? [])];
+            $path = $this->firstPath($withoutFanout, $candidates) ?? $this->firstPath($anyPath, $candidates) ?? [];
 
             $types = array_values(array_unique(array_intersect(
                 array_column($path, 'via'),
@@ -65,5 +72,54 @@ final readonly class AssociationReasons
         }
 
         return $reasons;
+    }
+
+    /**
+     * EVERY reached member per UI-component class. A UI surface is reported CLASS-level while the walk
+     * reached one of its MEMBERS, so the class node is a target no path ends on — and it has to be ALL
+     * of them, not the first: one member can have a short route carrying a fan-out while another has a
+     * longer route carrying none, and the class does not depend on an edge only one member's shortest
+     * path happened to use. {@see ImpactAnalyzer::uiMembersAmong()} keeps the first deliberately, being
+     * the donor of a single shortest explain chain, which is a different question.
+     *
+     * @param  list<array{depth: int, node: string, via: string, file?: string, line?: int}>  $callers
+     * @param  callable(string): (string|null)  $uiComponentClassOf
+     * @return array<string, list<string>>
+     */
+    private function membersByClass(array $callers, callable $uiComponentClassOf): array
+    {
+        $members = [];
+
+        foreach ($callers as $hop) {
+            $class = $uiComponentClassOf($hop['node']);
+
+            if ($class === null || $class === $hop['node']) {
+                continue;
+            }
+
+            if (! in_array($hop['node'], $members[$class] ?? [], true)) {
+                $members[$class][] = $hop['node'];
+            }
+        }
+
+        return $members;
+    }
+
+    /**
+     * The first of these nodes the map has a path for, or null.
+     *
+     * @param  array<string, list<array{node: string, via: string, file?: string, line?: int}>>  $paths
+     * @param  list<string>  $candidates
+     * @return list<array{node: string, via: string, file?: string, line?: int}>|null
+     */
+    private function firstPath(array $paths, array $candidates): ?array
+    {
+        foreach ($candidates as $candidate) {
+            if (isset($paths[$candidate])) {
+                return $paths[$candidate];
+            }
+        }
+
+        return null;
     }
 }

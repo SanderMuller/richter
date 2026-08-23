@@ -180,6 +180,31 @@ final class AssociationEntryPointRenderingTest extends TestCase
         $this->assertStringNotContainsString($surface, $collapsed);
     }
 
+    #[Test]
+    public function a_ui_class_is_judged_on_every_member_not_just_the_first_reached(): void
+    {
+        // A UI surface is reported class-level, and the walk reaches its MEMBERS. Judging the class on
+        // the first member alone folds it whenever that member's shortest route happens to carry a
+        // fan-out — even where another member reaches the change without one. The class does not depend
+        // on an edge only one of its members used.
+        $component = 'App\\Livewire\\OrderPanel';
+
+        $result = new ImpactAnalyzer(new CodeGraph([
+            // `render` is the shallower member and its only route is a registry fan-out.
+            ['source' => $component . '::render', 'target' => 'App\\Models\\Post', 'type' => 'config-registry-fanout'],
+            // `save` reaches the same change through a named relation, carrying no fan-out at all.
+            ['source' => 'App\\Models\\Comment', 'target' => 'App\\Models\\Post', 'type' => 'model-relationship'],
+            ['source' => $component . '::save', 'target' => 'App\\Models\\Comment', 'type' => 'call'],
+        ], hasUnparseableFiles: false))->detectChanges($this->changed());
+
+        $this->assertContains($component, $result['associationEntryPoints']);
+        $this->assertSame(['model-relationship'], $result['associationEntryPointsVia'][$component]);
+
+        $markdown = MarkdownFormatter::detectChanges($result);
+        $details = strpos($markdown, '<details>');
+        $this->assertStringNotContainsString($component, $details === false ? '' : substr($markdown, $details));
+    }
+
     /** A Filament resource that touches a model RELATED to the changed one: associated, not a caller. */
     private function analyzer(): ImpactAnalyzer
     {
