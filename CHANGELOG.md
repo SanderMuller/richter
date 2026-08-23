@@ -5,6 +5,46 @@ All notable changes to `sandermuller/richter` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.50.0 - 2026-08-23
+
+The association section says why each surface is listed, and folds the entries that only say "this class is in a registry". Sourced from production dogfood on a large admin-panel application.
+
+### Added
+
+**`associationEntryPointsVia`** — a new `--json` and MCP structured-content key: association surface => the association edge types on the path that reached it. It mirrors what `traitAndOverrideReachVia` has answered for its own section since 0.39. The `reach` values are unchanged; this is an additive key.
+
+### Changed
+
+**The association section ranks its entries instead of listing them flat.** Every entry in it is context rather than reach, but they are not equally informative, and one flat list spends a reviewer's attention as though they were.
+
+A `model-relationship` or `model-to-policy` link names ONE model or policy: it says something true of this change and not of every sibling. A `config-registry-fanout` names no single class — the surfaces behind it are identical for every class the registry lists, which is exactly why the edge is excluded from reach in the first place. A change to one registered class was reporting dozens of admin surfaces that are one fact about a registry, not dozens of facts about the diff.
+
+The three prose formats now keep the discriminating surfaces inline and fold the fan-out group under the single cause it shares:
+
+```text
+### Entry surfaces reached only by association (13)
+
+- `App\Livewire\QuoteBuilder`
+
+<details><summary>12 more, reached only through a registry lookup that names no single class — the same surfaces answer for every class it lists</summary>
+
+```
+**Nothing is dropped.** The section still counts every surface, and the collapsed group states its own count, so the report cannot read as shorter than the reach it found. A surface whose reason the walk could not record stays inline: absence of a reason is not evidence of a weak one.
+
+The weakest link on a path decides. A fan-out hop anywhere on a path means the identical path exists for every class the registry names, so a named relation further along does not restore what the fan-out destroyed.
+
+**The inheritance section's heading was overclaiming.** It read "Runs this code without calling it (trait users and overrides)". For a changed class that list holds the ancestor member an override dispatches through **and** a trait the class itself uses — and a trait does not run its user's code. It now reads "Related by inheritance, not by a call", and each entry still carries `override` or `uses-trait`.
+
+### Upgrade note
+
+`--json` and MCP structured content gain one key. Nothing existing changes shape, and no risk level moves: this release only changes which entries a prose report shows inline. A consumer that renders `associationEntryPoints` itself is unaffected and can adopt the new key when it wants the same split.
+
+### Known limit
+
+The inheritance section can still be long on an application with a wide hierarchy behind an abstract base. That is a reach question rather than a rendering one — the walk reaches sibling overrides the changed class never runs — and it is specced separately, because fixing it changes the impacted count and belongs behind a benchmark corpus.
+
+**Full Changelog**: https://github.com/SanderMuller/richter/compare/v0.49.0...v0.50.0
+
 ## v0.49.0 - 2026-08-22
 
 A dropped column now names what still refers to it, so the report says who has not been told rather than only that the column is gone.
@@ -16,6 +56,7 @@ A dropped column now names what still refers to it, so the report says who has n
   ```
   ! [tier 2 migration] App\Models\Post — column `posts`.`subtitle` dropped, still named by
     App\Models\Post's own $fillable/$casts, a `subtitle` key in app/Http/Resources/PostResource.php
+  
   
   ```
   Two surfaces are read: the owning model's own `$fillable`/`$casts`, and the `toArray()` keys of the API resources that belong to that model and mirror it. A resource match means the resource still carries a key of that name, not that it reads the column, and the sentence says so.
@@ -117,6 +158,7 @@ Hazards (1):
 
 
 
+
 ```
 The suffix says "via its class" rather than naming a declaring class, because a `migration` hazard is named for a model and a `contract` hazard can name a class deleted whole — neither has a declaring class to point at.
 
@@ -193,6 +235,7 @@ Tightening a rate limit reported a tier-3 HIGH saying the limit was gone. A guar
   
   ```
   the rate limit on the GET /search route in routes/api.php rose from `throttle:60,1` to `throttle:120,1`
+  
   
   
   
@@ -610,6 +653,7 @@ dispatch($job);
 
 
 
+
 ```
 That was recorded as a dispatch whose target could not be followed — and the taint is global, so one of them makes every `richter:affected-tests` run report `not determinable` and fall back to the full suite. The graph has carried the edge for this shape all along: the instantiation is in the same method, right above the dispatch. The site pointed at a place to restructure where nothing was hidden and nothing needed restructuring.
 
@@ -710,6 +754,7 @@ Build profile: nothing was built — the diff holds nothing the graph is built f
 
 
 
+
 ```
 On stderr, like the table it stands in for, and before the payload in `--json` mode so stdout stays one document. Building anyway was the alternative, and it would make a no-op run pay for an analysis nothing asked for.
 
@@ -727,6 +772,7 @@ An event named by a class constant resolves in **any** declaration form, includi
 public const string
     SUBTITLE_CHANGED = 'subtitle-changed',
     SUBTITLE_DELETED = 'subtitle-deleted';
+
 
 
 
@@ -775,6 +821,7 @@ Build profile (forced rebuild):
   total                      3.85s
   no scoped rebuild: non-app-change
     config/services.php differs from the cached graph and sits outside app/
+
 
 
 
@@ -878,6 +925,7 @@ It now names every site:
 ```
 the graph contains job dispatches that could not be followed:
 app/Jobs/Fanout.php:88 (App\Jobs\Fanout::handle), app/Services/Importer.php:12 (App\Services\Importer::run)
+
 
 
 
@@ -1274,6 +1322,7 @@ Note: 2 changed file(s) are outside the analysed scope (not PHP under app/, a Bl
 
 
 
+
 ```
 Stderr, like the untracked-file note, so `--json` and `--markdown` stdout stay exactly the report. Frontend sources the configuration declines to scan are not counted: generated Wayfinder output under `frontend.generated_paths` and `.d.ts` declarations were silenced on purpose, and a note that fires loudest on regeneration churn is one people stop reading.
 
@@ -1366,6 +1415,7 @@ One new advisory lane, and a README that finally leads with what the package is 
   
   
   
+  
   ```
   The count comes off the `route:: → middleware::<group>` edges already in the graph, so it counts endpoints only: a controller-level attachment of the same group does not inflate it. Membership is read from `$middlewareGroups` on a Laravel 10 Kernel or the `->web(append: [...])` form in a Laravel 11+ `bootstrap/app.php`. A member written as an alias resolves through the same alias map, parameters are cut first (`tenant:strict` is one alias with an argument), and a group that names another group is expanded transitively, since Laravel runs the inner group's middleware on the outer group's routes too.
   
@@ -1398,6 +1448,7 @@ Two silent-failure shapes that richter used to miss: a call through an applicati
   
   ```text
     ! resources/js/Pages/Posts/Create.vue posts to POST /posts and sends 'subtitle', which this diff removes from App\Http\Requests\StorePostRequest::rules() (renamed to 'sub_title'?)
+  
   
   
   
