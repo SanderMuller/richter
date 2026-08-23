@@ -353,8 +353,11 @@ final readonly class ImpactAnalyzer
         $reach = $this->graph->reachedViaTypes($seeds, $maxDepth, $dependencySeeds);
         $impacted = count(array_filter($reach, $this->isRiskBearing(...)));
         $relatedModels = $this->uncountedReachVia($reach, ['model-relationship']);
-        // Classes that RUN the changed member without calling it: they use the trait declaring it, or
-        // they implement the ancestor it overrides. Excluded from the count for the saturation reason
+        // What the change reaches through the hierarchy rather than through a call: a class using the
+        // trait that declares the changed member, and the other end of an override relationship. Only
+        // the first RUNS the changed body — an `override` edge is drawn from a method the class declares
+        // itself, so it has its own. {@see InheritanceSurfaces} is where that difference is acted on;
+        // this key carries both, ungrouped. Excluded from the count for the saturation reason
         // in {@see RISK_EXCLUDED_EDGE_TYPES} — fifty using classes must not decide a risk level — but
         // excluding them from the COUNT and excluding them from the REPORT are different decisions,
         // and only the first one is about saturation. Without this, a one-method change to a hub trait
@@ -365,9 +368,10 @@ final readonly class ImpactAnalyzer
         // Sorted at the source rather than per format: the JSON list, the via map's key order and
         // every rendered list then read the same way round.
         sort($traitAndOverrideReach);
-        // Why each of them is listed. Without it the section names classes and gives no way to tell a
-        // trait user from an override implementor — the reader is left grepping the source to
-        // classify what the walk already knew.
+        // Why each of them is listed — and what the prose formats split the section on, so this is not
+        // annotation alone. Without it the section names classes and gives no way to tell a trait user
+        // from an override implementor: the reader is left grepping the source to classify what the walk
+        // already knew.
         $traitAndOverrideReachVia = ReachReasons::forNodes($traitAndOverrideReach, $reach, ['uses-trait', 'override']);
 
         $findings = $newFileFindings;

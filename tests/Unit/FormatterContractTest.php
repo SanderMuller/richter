@@ -33,7 +33,7 @@ final class FormatterContractTest extends TestCase
      * unresolved changed file, related models, source findings, and a coarse-capped low-confidence
      * risk — every field either formatter can render, on at once.
      *
-     * @return array{seeds: list<string>, reach: array<string, array<string, true>>, edges: list<array{source: string, target: string, via: string, depth: int}>, changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, array{exposure: string, riskLevel: string, issues: list<array{type: string, severity: string, message: string, file?: string, line?: int}>}>, entryPointGates: array<string, list<string>>, entryPointAuthMiddleware: array<string, list<string>>, impacted: int, associationEntryPoints: list<string>, associationEntryPointsVia: array<string, list<string>>, relatedModels: list<string>, risk: RiskLevel, riskCause: string, hazards: list<Hazard>, verification: array<string, bool>, lowConfidence: bool, findings: list<string>}
+     * @return array{seeds: list<string>, reach: array<string, array<string, true>>, edges: list<array{source: string, target: string, via: string, depth: int}>, changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, array{exposure: string, riskLevel: string, issues: list<array{type: string, severity: string, message: string, file?: string, line?: int}>}>, entryPointGates: array<string, list<string>>, entryPointAuthMiddleware: array<string, list<string>>, impacted: int, associationEntryPoints: list<string>, associationEntryPointsVia: array<string, list<string>>, relatedModels: list<string>, traitAndOverrideReach: list<string>, traitAndOverrideReachVia: array<string, list<string>>, risk: RiskLevel, riskCause: string, hazards: list<Hazard>, verification: array<string, bool>, lowConfidence: bool, findings: list<string>}
      */
     private function richFixture(): array
     {
@@ -85,6 +85,24 @@ final class FormatterContractTest extends TestCase
                 'App\Filament\Pages\SettingsPage' => ['config-registry-fanout'],
             ],
             'relatedModels' => ['App\Models\Comment'],
+            // Both inheritance lanes, and both group shapes. Until this landed the section was in no
+            // contract test at all: the text and markdown wording was unpinned, and only the HTML card
+            // had a presence check. One trait user stays inline; four overrides fold onto two member
+            // names, one group of three and one of one.
+            'traitAndOverrideReach' => [
+                'App\Http\Resources\PostResource::toArray',
+                'App\Jobs\ArchivePost::handle',
+                'App\Jobs\GenerateReport::handle',
+                'App\Jobs\SendDigest::handle',
+                'App\Models\Post',
+            ],
+            'traitAndOverrideReachVia' => [
+                'App\Http\Resources\PostResource::toArray' => ['override'],
+                'App\Jobs\ArchivePost::handle' => ['override'],
+                'App\Jobs\GenerateReport::handle' => ['override'],
+                'App\Jobs\SendDigest::handle' => ['override'],
+                'App\Models\Post' => ['uses-trait'],
+            ],
             'risk' => RiskLevel::Medium,
             'lowConfidence' => true,
             'riskCause' => 'tier 3 `auth` hazard on App\\Http\\Controllers\\PostController::update, reach public-write',
@@ -227,16 +245,96 @@ final class FormatterContractTest extends TestCase
     }
 
     #[Test]
+    public function every_format_splits_the_inheritance_section_into_its_two_lanes(): void
+    {
+        // A trait user has the changed method copied into it, so the changed bytes run there. An override
+        // declares its own version, so it does not. The section printed both as one flat list, which
+        // spent the reader's attention as though they were the same fact.
+        $fixture = $this->richFixture();
+        $text = ImpactFormatter::detectChanges($fixture, $this->richTestIndex(), explain: true);
+        $markdown = MarkdownFormatter::detectChanges($fixture, $this->richTestIndex(), explain: true);
+        $html = HtmlFormatter::detectChanges($fixture, [], 'origin/main', $this->richTestIndex());
+
+        foreach (['text' => $text, 'markdown' => $markdown, 'html' => $html] as $format => $output) {
+            // The trait user stays named and keeps its reason; the overrides are counted both ways —
+            // how many entries, across how many member names — so the fold can never read as shorter
+            // than the reach it found.
+            $this->assertStringContainsString('App\Models\Post', $output, "{$format} lost the trait user");
+            $this->assertStringContainsString('uses-trait', $output, "{$format} lost the inline reason");
+            $this->assertStringContainsString('4 overrides across 2 member names', $output, "{$format} lost the fold counts");
+
+            // Grouped by member name, with every class kept. The class names are the only thing that
+            // identifies the entry, and the fold — not truncation — is what solves the length problem.
+            $this->assertStringContainsString('handle', $output, "{$format} lost the multi-class group");
+            $this->assertStringContainsString('toArray', $output, "{$format} lost the single-class group");
+
+            foreach (['App\Jobs\ArchivePost', 'App\Jobs\GenerateReport', 'App\Jobs\SendDigest', 'App\Http\Resources\PostResource'] as $class) {
+                $this->assertStringContainsString($class, $output, "{$format} dropped the grouped class {$class}");
+            }
+
+            // The claim is exactly what the `override` edge proves and no more. `overrideEdges()` draws
+            // it from a method the class declares itself; that the changed BODY does not run there is
+            // usually true as well but has a traced exception, so no format may say it.
+            $this->assertStringContainsString('each declares the member itself', $output, "{$format} lost the fold's claim");
+            $this->assertStringNotContainsString('does not run', $output, "{$format} states a claim with a known exception");
+        }
+
+        // Markdown and HTML fold; the text report has no fold and states the counts on a plain line.
+        $this->assertStringContainsString('<summary>4 overrides across 2 member names', $markdown);
+        $this->assertStringContainsString('<details><summary>4 overrides across 2 member names', $html);
+        $this->assertStringNotContainsString('<details>', $text);
+
+        // A rendering decision, not a payload one: both keys keep every entry, ungrouped.
+        $json = JsonPresenter::detectChanges($fixture, 'origin/main', $this->richTestIndex());
+        $this->assertCount(5, $json['traitAndOverrideReach']);
+        $this->assertSame(['override'], $json['traitAndOverrideReachVia']['App\Jobs\ArchivePost::handle']);
+        $this->assertSame(['uses-trait'], $json['traitAndOverrideReachVia']['App\Models\Post']);
+    }
+
+    #[Test]
+    public function the_inheritance_section_prints_only_the_lane_it_has(): void
+    {
+        // Two single-lane cases, both normal in the wild: an application whose inheritance reach is all
+        // overrides prints no inline list, and one with only trait users prints no fold. Neither may
+        // leave an empty `<details>`, and — the reason "N more" was dropped everywhere — neither may
+        // imply a list that is not above it.
+        $overridesOnly = [...$this->richFixture(), 'traitAndOverrideReach' => ['App\Jobs\Archive::handle'], 'traitAndOverrideReachVia' => ['App\Jobs\Archive::handle' => ['override']]];
+        $traitsOnly = [...$this->richFixture(), 'traitAndOverrideReach' => ['App\Models\Post'], 'traitAndOverrideReachVia' => ['App\Models\Post' => ['uses-trait']]];
+
+        $markdown = MarkdownFormatter::detectChanges($overridesOnly, $this->richTestIndex(), explain: true);
+        $this->assertStringContainsString('1 override across 1 member name', $markdown);
+        $this->assertStringNotContainsString('more', substr($markdown, (int) strpos($markdown, 'Related by inheritance'), 200));
+        // Singular throughout, and the fold still carries a body — an all-folded section is the normal
+        // case on a real application, not the edge case, so this is the branch that has to read right.
+        $this->assertStringContainsString("- `handle` — 1 class\n  - `App\Jobs\Archive`", $markdown);
+        $this->assertStringNotContainsString('overrides across', $markdown);
+
+        // Every format, not only the two that fold: markdown with no override lane must not open a
+        // `<details>` at all, because `collapsed()` would happily write "0 overrides across 0 member
+        // names" over an empty body.
+        foreach ([
+            'html' => HtmlFormatter::detectChanges($traitsOnly, [], 'origin/main', $this->richTestIndex()),
+            'text' => ImpactFormatter::detectChanges($traitsOnly, $this->richTestIndex(), explain: true),
+            'markdown' => MarkdownFormatter::detectChanges($traitsOnly, $this->richTestIndex(), explain: true),
+        ] as $format => $output) {
+            $this->assertStringContainsString('App\Models\Post', $output, "{$format} lost the trait user");
+            $this->assertStringNotContainsString('declares the member itself', $output, "{$format} rendered an empty override lane");
+        }
+    }
+
+    #[Test]
     public function every_collapsed_block_keeps_the_blank_lines_github_needs(): void
     {
         // GitHub does not parse markdown inside a `<details>` unless a blank line follows
         // `</summary>` — without it a bullet list renders as literal text, checked against GitHub's own
-        // renderer. `collapsed()` writes those lines and four sections share it — the association
-        // fan-out, related models, the entry-point checklist overflow and the hop-list overflow — so
-        // nothing pinned them, and tidying that helper would break every fold at once with the suite
-        // still green. This fixture drives the first three; the hop-list overflow belongs to the impact
-        // report. The inheritance list is NOT one of them: it renders inline, uncollapsed, which is why
-        // that section stays long.
+        // renderer. `collapsed()` writes those lines and five sections share it — the association
+        // fan-out, the inheritance override lane, related models, the entry-point checklist overflow and
+        // the hop-list overflow — so nothing pinned them, and tidying that helper would break every fold
+        // at once with the suite still green. This fixture drives the first four; the hop-list overflow
+        // belongs to the impact report.
+        //
+        // The inheritance fold is the one whose body is NESTED (a member group, then its classes), so it
+        // is also the one a blank-line regression would disfigure most.
         $output = MarkdownFormatter::detectChanges($this->richFixture(), $this->richTestIndex(), explain: true);
         $lines = explode("\n", $output);
 

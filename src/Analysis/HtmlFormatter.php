@@ -452,7 +452,8 @@ final class HtmlFormatter
     }
 
     /**
-     * Classes that run the changed code without calling it, in their own card.
+     * Entries the change reaches through the hierarchy rather than a call, in their own card. The two
+     * lanes behind it claim different things and are rendered differently — {@see InheritanceCard}.
      *
      * @param  list<string>  $reach
      * @param  array<string, list<string>>  $via  the edge types that put each node here
@@ -463,17 +464,7 @@ final class HtmlFormatter
             return '';
         }
 
-        $items = implode('', array_map(
-            static fn (string $node): string => '<li><code>' . Html::e(NodeLabel::display($node)) . '</code>'
-                . (($via[$node] ?? []) === [] ? '' : ' <span class="muted">' . Html::e(implode(', ', $via[$node])) . '</span>')
-                . '</li>',
-            $reach,
-        ));
-
-        return self::card(
-            'Related by inheritance, not by a call',
-            '<p class="muted">Uses the trait declaring the changed member, or implements the ancestor it overrides — context, not counted toward impact or risk.</p><ul role="list">' . $items . '</ul>',
-        );
+        return self::card('Related by inheritance, not by a call', InheritanceCard::body($reach, $via));
     }
 
     /**

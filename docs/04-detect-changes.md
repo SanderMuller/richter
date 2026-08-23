@@ -44,9 +44,10 @@ Entry points reached: 2 (some changed files could not be fully placed — see UN
 Related models (association reach — context, not risk): 1
   - App\Models\Category
 
-Related by inheritance, not by a call (trait or override — context, not risk): 2
-  - App\Builders\InvoiceBuilder
-  - App\Builders\QuoteBuilder
+Related by inheritance, not by a call (trait or override — context, not risk): 3
+  - App\Models\Post (uses-trait)
+  2 overrides across 1 member name — each declares the member itself:
+  - applyFilters — 2 classes: App\Builders\InvoiceBuilder, App\Builders\QuoteBuilder
 
 Findings (in the changed source itself):
   ! app/Models/Post.php: eager-load string 'ownerprofile': segment 'ownerprofile' is not a method on any model — check the relation name (a broken constant concatenation reads exactly like this)

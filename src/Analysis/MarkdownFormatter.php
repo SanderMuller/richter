@@ -4,6 +4,7 @@ namespace SanderMuller\Richter\Analysis;
 
 use SanderMuller\Richter\Graph\NodeMetadata;
 use SanderMuller\Richter\Support\AssociationSurfaces;
+use SanderMuller\Richter\Support\InheritanceSurfaces;
 
 /**
  * Renders {@see ImpactAnalyzer} results as GitHub-flavoured markdown for pull-request descriptions
@@ -118,6 +119,57 @@ final class MarkdownFormatter
         }
 
         return [...$lines, ''];
+    }
+
+    /**
+     * The inheritance-reach list, split by what each entry claims.
+     *
+     * A trait user stays in front of the reader: the changed method is copied into it, so the changed
+     * bytes execute there. The overrides fold, grouped by member name, because each one declares its own
+     * version of that member — see {@see InheritanceSurfaces} for why the summary claims only that, and
+     * why every string here has to read the same whichever end of the hierarchy changed.
+     *
+     * @param  list<string>  $reach  already sorted by the caller
+     * @param  array<string, list<string>>  $via  entry => the edge types that put it here
+     * @return list<string>
+     */
+    private static function inheritanceSection(array $reach, array $via): array
+    {
+        [$inline, $groups] = InheritanceSurfaces::partition($reach, $via);
+
+        $lines = array_map(
+            static fn (string $entry): string => sprintf('- `%s`%s', $entry, ($via[$entry] ?? []) === [] ? '' : ' — ' . implode(', ', $via[$entry])),
+            $inline,
+        );
+
+        if ($groups === []) {
+            return $lines;
+        }
+
+        $body = [];
+
+        foreach ($groups as $member => $classes) {
+            $body[] = sprintf('- `%s` — %d %s', $member, count($classes), count($classes) === 1 ? 'class' : 'classes');
+
+            foreach ($classes as $class) {
+                $body[] = sprintf('  - `%s`', $class);
+            }
+        }
+
+        // Nothing is dropped and nothing is called "more": where every entry is an override the inline
+        // list above is empty, and "N more" than nothing sends the reader hunting for a list that is not
+        // there. Both counts are on the summary line so the fold can never read as shorter than the
+        // reach it found.
+        return [...$lines, ...($inline === [] ? [] : ['']), ...self::collapsed(
+            sprintf(
+                '%d override%s across %d member name%s — each declares the member itself',
+                count($reach) - count($inline),
+                count($reach) - count($inline) === 1 ? '' : 's',
+                count($groups),
+                count($groups) === 1 ? '' : 's',
+            ),
+            $body,
+        )];
     }
 
     /** @param  array{from: string, to: string, resolvedFrom: list<string>, resolvedTo: list<string>, found: bool, path: list<array{node: string, via: string, file?: string, line?: int}>, furthestReached?: array{node: string, depth: int, file?: string, line?: int}}  $result */
@@ -256,10 +308,7 @@ final class MarkdownFormatter
             $lines = [...$lines, '', sprintf(
                 'Related by inheritance, not by a call (trait or override — context, not risk): %d',
                 count($result['traitAndOverrideReach'] ?? []),
-            ), ...array_map(
-                static fn (string $user): string => sprintf('- `%s`%s', $user, ($via[$user] ?? []) === [] ? '' : ' — ' . implode(', ', $via[$user])),
-                self::sorted($result['traitAndOverrideReach'] ?? []),
-            )];
+            ), ...self::inheritanceSection(self::sorted($result['traitAndOverrideReach'] ?? []), $via)];
         }
 
         if ($result['relatedModels'] !== []) {

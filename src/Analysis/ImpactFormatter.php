@@ -5,6 +5,7 @@ namespace SanderMuller\Richter\Analysis;
 use Illuminate\Support\Str;
 use SanderMuller\Richter\Graph\NodeMetadata;
 use SanderMuller\Richter\Support\AssociationSurfaces;
+use SanderMuller\Richter\Support\InheritanceSurfaces;
 
 /**
  * Renders {@see ImpactAnalyzer} results as plain text, shared by the artisan commands
@@ -133,10 +134,7 @@ final class ImpactFormatter
             $lines[] = 'Related by inheritance, not by a call (trait or override — context, not risk): ' . count($result['traitAndOverrideReach'] ?? []);
             /** @var array<string, list<string>> $via */
             $via = $result['traitAndOverrideReachVia'] ?? [];
-            $lines = [...$lines, ...self::summarisedList(array_map(
-                static fn (string $node): string => $node . (($via[$node] ?? []) === [] ? '' : ' (' . implode(', ', $via[$node]) . ')'),
-                $result['traitAndOverrideReach'] ?? [],
-            ))];
+            $lines = [...$lines, ...self::inheritanceLines($result['traitAndOverrideReach'] ?? [], $via)];
         }
 
         $lines = [...$lines, ...self::hazardLines($result['hazards'] ?? [])];
@@ -263,6 +261,57 @@ final class ImpactFormatter
         }
 
         return $lines;
+    }
+
+    /**
+     * The inheritance-reach list, split by what each entry claims: a trait user runs the changed method
+     * verbatim, an override declares its own version of it. See {@see InheritanceSurfaces} for the split
+     * and for why the grouped lane claims only the second thing.
+     *
+     * @param  list<string>  $reach
+     * @param  array<string, list<string>>  $via  entry => the edge types that put it here
+     * @return list<string>
+     */
+    private static function inheritanceLines(array $reach, array $via): array
+    {
+        [$inline, $groups] = InheritanceSurfaces::partition($reach, $via);
+
+        $lines = self::summarisedList(array_map(
+            static fn (string $entry): string => $entry . (($via[$entry] ?? []) === [] ? '' : ' (' . implode(', ', $via[$entry]) . ')'),
+            $inline,
+        ));
+
+        if ($groups === []) {
+            return $lines;
+        }
+
+        // One line per member name rather than one per class. This format caps its lists, so fifteen
+        // lines describing fifteen members say far more than fifteen siblings of the same member — and
+        // the classes stay on the line, because a cap is a promise about LENGTH and dropping every name
+        // would be a different promise.
+        $grouped = [];
+
+        foreach ($groups as $member => $classes) {
+            $grouped[] = sprintf(
+                '%s — %d %s: %s',
+                $member,
+                count($classes),
+                count($classes) === 1 ? 'class' : 'classes',
+                implode(', ', $classes),
+            );
+        }
+
+        return [
+            ...$lines,
+            sprintf(
+                '  %d override%s across %d member name%s — each declares the member itself:',
+                count($reach) - count($inline),
+                count($reach) - count($inline) === 1 ? '' : 's',
+                count($groups),
+                count($groups) === 1 ? '' : 's',
+            ),
+            ...self::summarisedList($grouped),
+        ];
     }
 
     /**
