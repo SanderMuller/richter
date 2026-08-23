@@ -5,6 +5,37 @@ All notable changes to `sandermuller/richter` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.51.0 - 2026-08-23
+
+A fan-out is named only where a surface depends on one, and the fold summary stops saying "more" when nothing stayed inline. Sourced from production dogfood.
+
+### Changed
+
+**`associationEntryPointsVia` now reports the path a surface DEPENDS on, not the shortest one that reached it.** This changes the values that key returns, which is why this is a minor rather than a patch — see the upgrade note.
+
+`callerPathsTo()` answers with one shortest route. Reading the association edge types off it meant a surface reachable *both* through a registry fan-out and through a named relation reported the fan-out whenever that route happened to be shorter, and was then folded on evidence about a path it does not depend on. Two corrections:
+
+- A second path walk, taken with `config-registry-fanout` excluded, is the proof that a surface does not require a fan-out. Where such a route exists, its edge types are the ones reported.
+- A UI surface is reported class-level while the walk reaches its **members**, and the reason lane looked up only the first member reached — the chain donor, which is right for drawing one shortest explain chain and wrong for asking whether the class depends on a fan-out. Every reached member is now a candidate, and any route without a fan-out beats every route with one.
+
+Together these mean a fan-out is named — and the surface folded — only where every route to it, through every one of its members, carries one.
+
+**The fold summary no longer says "N more".** On an application whose association reach is entirely registry fan-out nothing stays inline, and "more" than an empty list invites the reader to hunt for the list it contrasts with. The text report keeps "… and N" only where entries did stay inline.
+
+**The markdown and text reports are documented as prose, not a contract.** Both are written for a reviewer, and their headings and summary lines change whenever a clearer sentence is found — this release changes one of them. `--json` is the machine output and carries every value those reports render; the docs now name the keys that answer the same questions.
+
+### Upgrade note
+
+If you adopted `associationEntryPointsVia` on 0.50.0, its values can change: a surface that reported `config-registry-fanout` will stop reporting it wherever a fan-out-free route exists. The key's shape is unchanged, and the four possible edge types are unchanged. Nothing else in the payload moves, and no risk level moves — the key feeds a rendering decision, never the ladder.
+
+Measured on the application this came from: no change at all. All 44 association surfaces still fold, because there every member of every surface genuinely requires the registry hop. The correction shows up on codebases where a surface has a second, cleaner route.
+
+### Fixed
+
+- A `<details>` block reported as rendering raw markdown on GitHub was investigated and is not a defect: `collapsed()` is the only markdown emitter of that construct and already writes a blank line after `</summary>` and before `</details>`. GitHub's own renderer, given the real output, returns a proper list — including nested inside an outer `<details>` wrapper.
+
+**Full Changelog**: https://github.com/SanderMuller/richter/compare/v0.50.0...v0.51.0
+
 ## v0.50.0 - 2026-08-23
 
 The association section says why each surface is listed, and folds the entries that only say "this class is in a registry". Sourced from production dogfood on a large admin-panel application.
@@ -27,6 +58,7 @@ The three prose formats now keep the discriminating surfaces inline and fold the
 - `App\Livewire\QuoteBuilder`
 
 <details><summary>12 more, reached only through a registry lookup that names no single class — the same surfaces answer for every class it lists</summary>
+
 
 ```
 **Nothing is dropped.** The section still counts every surface, and the collapsed group states its own count, so the report cannot read as shorter than the reach it found. A surface whose reason the walk could not record stays inline: absence of a reason is not evidence of a weak one.
@@ -56,6 +88,7 @@ A dropped column now names what still refers to it, so the report says who has n
   ```
   ! [tier 2 migration] App\Models\Post — column `posts`.`subtitle` dropped, still named by
     App\Models\Post's own $fillable/$casts, a `subtitle` key in app/Http/Resources/PostResource.php
+  
   
   
   ```
@@ -159,6 +192,7 @@ Hazards (1):
 
 
 
+
 ```
 The suffix says "via its class" rather than naming a declaring class, because a `migration` hazard is named for a model and a `contract` hazard can name a class deleted whole — neither has a declaring class to point at.
 
@@ -235,6 +269,7 @@ Tightening a rate limit reported a tier-3 HIGH saying the limit was gone. A guar
   
   ```
   the rate limit on the GET /search route in routes/api.php rose from `throttle:60,1` to `throttle:120,1`
+  
   
   
   
@@ -654,6 +689,7 @@ dispatch($job);
 
 
 
+
 ```
 That was recorded as a dispatch whose target could not be followed — and the taint is global, so one of them makes every `richter:affected-tests` run report `not determinable` and fall back to the full suite. The graph has carried the edge for this shape all along: the instantiation is in the same method, right above the dispatch. The site pointed at a place to restructure where nothing was hidden and nothing needed restructuring.
 
@@ -755,6 +791,7 @@ Build profile: nothing was built — the diff holds nothing the graph is built f
 
 
 
+
 ```
 On stderr, like the table it stands in for, and before the payload in `--json` mode so stdout stays one document. Building anyway was the alternative, and it would make a no-op run pay for an analysis nothing asked for.
 
@@ -772,6 +809,7 @@ An event named by a class constant resolves in **any** declaration form, includi
 public const string
     SUBTITLE_CHANGED = 'subtitle-changed',
     SUBTITLE_DELETED = 'subtitle-deleted';
+
 
 
 
@@ -821,6 +859,7 @@ Build profile (forced rebuild):
   total                      3.85s
   no scoped rebuild: non-app-change
     config/services.php differs from the cached graph and sits outside app/
+
 
 
 
@@ -925,6 +964,7 @@ It now names every site:
 ```
 the graph contains job dispatches that could not be followed:
 app/Jobs/Fanout.php:88 (App\Jobs\Fanout::handle), app/Services/Importer.php:12 (App\Services\Importer::run)
+
 
 
 
@@ -1323,6 +1363,7 @@ Note: 2 changed file(s) are outside the analysed scope (not PHP under app/, a Bl
 
 
 
+
 ```
 Stderr, like the untracked-file note, so `--json` and `--markdown` stdout stay exactly the report. Frontend sources the configuration declines to scan are not counted: generated Wayfinder output under `frontend.generated_paths` and `.d.ts` declarations were silenced on purpose, and a note that fires loudest on regeneration churn is one people stop reading.
 
@@ -1416,6 +1457,7 @@ One new advisory lane, and a README that finally leads with what the package is 
   
   
   
+  
   ```
   The count comes off the `route:: → middleware::<group>` edges already in the graph, so it counts endpoints only: a controller-level attachment of the same group does not inflate it. Membership is read from `$middlewareGroups` on a Laravel 10 Kernel or the `->web(append: [...])` form in a Laravel 11+ `bootstrap/app.php`. A member written as an alias resolves through the same alias map, parameters are cut first (`tenant:strict` is one alias with an argument), and a group that names another group is expanded transitively, since Laravel runs the inner group's middleware on the outer group's routes too.
   
@@ -1448,6 +1490,7 @@ Two silent-failure shapes that richter used to miss: a call through an applicati
   
   ```text
     ! resources/js/Pages/Posts/Create.vue posts to POST /posts and sends 'subtitle', which this diff removes from App\Http\Requests\StorePostRequest::rules() (renamed to 'sub_title'?)
+  
   
   
   
