@@ -292,6 +292,47 @@ final class FormatterContractTest extends TestCase
     }
 
     #[Test]
+    public function a_nested_markdown_list_keeps_the_two_spaces_github_needs_to_nest_it(): void
+    {
+        // GFM nests a list item under a `- ` parent only from TWO spaces. At one space the child becomes
+        // a SIBLING, checked against GitHub's own renderer, which silently flattens a member group back
+        // into the flat list the grouping replaced — the group headings then read as if they were members.
+        // Nothing pinned this: the indent was asserted only incidentally by a test about singular
+        // wording, so narrowing it would have kept the suite green. Same shape of gap as the blank lines
+        // below, and the same fix.
+        $fixture = [...$this->richFixture(), 'traitAndOverrideReach' => [
+            'App\Jobs\ArchivePost::handle',
+            'App\Jobs\GenerateReport::handle',
+        ], 'traitAndOverrideReachVia' => [
+            'App\Jobs\ArchivePost::handle' => ['override'],
+            'App\Jobs\GenerateReport::handle' => ['override'],
+        ]];
+
+        $markdown = MarkdownFormatter::detectChanges($fixture, $this->richTestIndex(), explain: true);
+        $lines = explode("\n", $markdown);
+        $nested = 0;
+
+        foreach ($lines as $line) {
+            if (preg_match('/^( +)- /', $line, $m) !== 1) {
+                continue;
+            }
+
+            ++$nested;
+            $this->assertSame(
+                0,
+                strlen($m[1]) % 2,
+                "a nested list item must be indented in twos for GFM to nest it, got {$m[1]} on: {$line}",
+            );
+            $this->assertGreaterThanOrEqual(2, strlen($m[1]), "one space makes this a sibling, not a child: {$line}");
+        }
+
+        // Assert the fixture actually renders a nested list, or this passes while covering nothing — the
+        // single-class shape has no sub-list at all, which is why this fixture uses a group of two.
+        $this->assertGreaterThan(0, $nested, 'the fixture should render at least one nested list item');
+        $this->assertStringContainsString("- `handle` — 2 classes\n  - `App\Jobs\ArchivePost`\n  - `App\Jobs\GenerateReport`", $markdown);
+    }
+
+    #[Test]
     public function the_inheritance_section_prints_only_the_lane_it_has(): void
     {
         // Two single-lane cases, both normal in the wild: an application whose inheritance reach is all
@@ -306,7 +347,9 @@ final class FormatterContractTest extends TestCase
         $this->assertStringNotContainsString('more', substr($markdown, (int) strpos($markdown, 'Related by inheritance'), 200));
         // Singular throughout, and the fold still carries a body — an all-folded section is the normal
         // case on a real application, not the edge case, so this is the branch that has to read right.
-        $this->assertStringContainsString("- `handle` — 1 class\n  - `App\Jobs\Archive`", $markdown);
+        // A lone class sits on the member's line: no "1 class" count and no sub-list of one.
+        $this->assertStringContainsString('- `handle` — `App\Jobs\Archive`', $markdown);
+        $this->assertStringNotContainsString('1 class', $markdown);
         $this->assertStringNotContainsString('overrides across', $markdown);
 
         // Every format, not only the two that fold: markdown with no override lane must not open a

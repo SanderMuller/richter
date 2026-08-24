@@ -64,25 +64,18 @@ final class DetectChangesCommand extends Command
     public function handle(GraphCache $graphs): int
     {
         $json = (bool) $this->option('json');
-
-        if ($json && (bool) $this->option('markdown')) {
-            // With --json present the usage error honours the JSON contract: stdout stays one parseable document.
-            return $this->emitFailure($json, 'The --json and --markdown options are mutually exclusive.');
-        }
-
         $html = $this->option('html');
 
-        if ($html !== null && ($json || (bool) $this->option('markdown'))) {
-            return $this->emitFailure($json, 'The --html option cannot be combined with --json or --markdown.');
-        }
+        $formatError = OutputFormatRules::firstError(
+            $json,
+            (bool) $this->option('markdown'),
+            $html === null ? null : (string) $html,
+            $this->input->hasParameterOption('--html'),
+            (bool) $this->option('open'),
+        );
 
-        if ($html === '') {
-            return $this->emitFailure($json, 'The --html option requires a path: --html=<path>.');
-        }
-
-        // --open without --html would silently do nothing; fail instead.
-        if ($html === null && (bool) $this->option('open')) {
-            return $this->emitFailure($json, 'The --open option requires --html=<path>.');
+        if ($formatError !== null) {
+            return $this->emitFailure($json, $formatError);
         }
 
         $failOnRaw = $this->option('fail-on');

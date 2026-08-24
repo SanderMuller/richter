@@ -737,6 +737,20 @@ final class CommandsTest extends TestCase
     }
 
     #[Test]
+    public function detect_changes_rejects_a_bare_html_flag_with_no_value(): void
+    {
+        // `--html` with no value parses to null — indistinguishable from an absent flag through
+        // `option()` — so before the token check it fell through and wrote the TEXT report to stdout,
+        // producing no file and no message. A reader who asked for HTML got something else in silence.
+        // The `--fail-on` flags already fail closed the same way, via the same `hasParameterOption()`.
+        $this->withoutMockingConsoleOutput();
+        $exitCode = Artisan::call('richter:detect-changes', ['--html' => null]);
+
+        $this->assertSame(1, $exitCode);
+        $this->assertStringContainsString('requires a path', Artisan::output());
+    }
+
+    #[Test]
     public function detect_changes_html_renders_editor_links_when_configured(): void
     {
         // The editor config drives clickable file references end to end.

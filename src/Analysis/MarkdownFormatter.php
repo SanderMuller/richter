@@ -149,8 +149,21 @@ final class MarkdownFormatter
         $body = [];
 
         foreach ($groups as $member => $classes) {
-            $body[] = sprintf('- `%s` — %d %s', $member, count($classes), count($classes) === 1 ? 'class' : 'classes');
+            // A lone class goes on the member's own line. A sub-list of one costs a second line to say
+            // "1 class" and then name it, which on a real application was most of the fold: seventeen of
+            // twenty-one groups held exactly one class, so the grouped body ran LONGER than the flat list
+            // it replaced. This is line economy only — the same two names, one line — and makes no claim
+            // about the entry that the multi-class shape does not also make.
+            if (count($classes) === 1) {
+                $body[] = sprintf('- `%s` — `%s`', $member, $classes[0]);
 
+                continue;
+            }
+
+            $body[] = sprintf('- `%s` — %d classes', $member, count($classes));
+
+            // Two spaces, which is the minimum GFM accepts to nest under a `- ` parent. One space makes
+            // the child a SIBLING, which silently flattens the grouping back into the list it replaced.
             foreach ($classes as $class) {
                 $body[] = sprintf('  - `%s`', $class);
             }
