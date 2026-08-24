@@ -10,6 +10,7 @@ use SanderMuller\Richter\Analysis\MarkdownFormatter;
 use SanderMuller\Richter\Analysis\TestReferenceIndex;
 use SanderMuller\Richter\Console\Concerns\WarnsAboutEntryPointCoverage;
 use SanderMuller\Richter\Console\Concerns\WarnsAboutRootNamespace;
+use SanderMuller\Richter\Console\Concerns\WritesDocuments;
 use SanderMuller\Richter\Graph\CodeGraph;
 use SanderMuller\Richter\Graph\GraphCache;
 use Throwable;
@@ -18,6 +19,7 @@ final class ImpactCommand extends Command
 {
     use WarnsAboutEntryPointCoverage;
     use WarnsAboutRootNamespace;
+    use WritesDocuments;
 
     /** @var string */
     protected $signature = 'richter:impact
@@ -40,7 +42,7 @@ final class ImpactCommand extends Command
         if ($this->option('json')) {
             if ($markdown) {
                 // JSON mode owns stdout even for usage errors — one parseable document, never plain text.
-                $this->line(JsonPresenter::encode(['error' => 'The --json and --markdown options are mutually exclusive.']));
+                $this->writeDocument(JsonPresenter::encode(['error' => 'The --json and --markdown options are mutually exclusive.']));
 
                 return self::FAILURE;
             }
@@ -57,7 +59,14 @@ final class ImpactCommand extends Command
         $explain = (bool) $this->option('explain');
         $tests = $this->testIndexFor($result);
 
-        $this->line($markdown ? MarkdownFormatter::impact($result, $tests, $explain) : ImpactFormatter::impact($result, $tests, $explain));
+        if ($markdown) {
+            // Markdown carries meaning in its blank lines, its two-space nesting and its `→`/`⚠` glyphs, so
+            // it goes where a rebound OutputStyle cannot rewrite it. The prose report loses only
+            // presentation. {@see WritesDocuments}
+            $this->writeDocument(MarkdownFormatter::impact($result, $tests, $explain));
+        } else {
+            $this->line(ImpactFormatter::impact($result, $tests, $explain));
+        }
 
         return self::SUCCESS;
     }
@@ -82,11 +91,11 @@ final class ImpactCommand extends Command
         try {
             $result = new ImpactAnalyzer($this->graph($graphs))->impact($symbol);
 
-            $this->line(JsonPresenter::encode(JsonPresenter::impact($result, $this->testIndexFor($result))));
+            $this->writeDocument(JsonPresenter::encode(JsonPresenter::impact($result, $this->testIndexFor($result))));
 
             return self::SUCCESS;
         } catch (Throwable $throwable) {
-            $this->line(JsonPresenter::encode(['error' => $throwable->getMessage()]));
+            $this->writeDocument(JsonPresenter::encode(['error' => $throwable->getMessage()]));
 
             return self::FAILURE;
         }

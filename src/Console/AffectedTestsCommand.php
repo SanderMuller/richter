@@ -6,6 +6,7 @@ use Illuminate\Console\Command;
 use SanderMuller\Richter\Analysis\AffectedTests;
 use SanderMuller\Richter\Analysis\JsonPresenter;
 use SanderMuller\Richter\Console\Concerns\WarnsAboutRootNamespace;
+use SanderMuller\Richter\Console\Concerns\WritesDocuments;
 use SanderMuller\Richter\Graph\GraphCache;
 use Throwable;
 
@@ -22,6 +23,7 @@ use Throwable;
 final class AffectedTestsCommand extends Command
 {
     use WarnsAboutRootNamespace;
+    use WritesDocuments;
 
     /** The selection could not be determined — the caller must run the full suite. */
     public const int UNDETERMINED = 2;
@@ -44,7 +46,7 @@ final class AffectedTestsCommand extends Command
 
         if ($json && $plain) {
             // With --json present the usage error honours the JSON contract: stdout stays one parseable document.
-            $this->line(JsonPresenter::encode(['error' => 'The --json and --plain options are mutually exclusive.']));
+            $this->writeDocument(JsonPresenter::encode(['error' => 'The --json and --plain options are mutually exclusive.']));
 
             return self::FAILURE;
         }
@@ -67,7 +69,7 @@ final class AffectedTestsCommand extends Command
             // Backstop: an unexpected failure is not "no affected tests" — in JSON stdout stays a
             // single parseable document, in plain stdout stays empty (= run everything).
             if ($json) {
-                $this->line(JsonPresenter::encode(['error' => $throwable->getMessage()]));
+                $this->writeDocument(JsonPresenter::encode(['error' => $throwable->getMessage()]));
 
                 return self::FAILURE;
             }
@@ -113,7 +115,7 @@ final class AffectedTestsCommand extends Command
         unset($selection['untrackedFiles']);
 
         if ($json) {
-            $this->line(JsonPresenter::encode($selection));
+            $this->writeDocument(JsonPresenter::encode($selection));
 
             return $exit;
         }
@@ -124,7 +126,7 @@ final class AffectedTestsCommand extends Command
             // this output feeds the PHP test runner.
             if ($selection['determinable']) {
                 foreach ($selection['tests'] as $test) {
-                    $this->line($test);
+                    $this->writeDocument($test);
                 }
             }
 

@@ -20,6 +20,7 @@ use SanderMuller\Richter\Changes\ChangedSymbols;
 use SanderMuller\Richter\Changes\MigrationChanges;
 use SanderMuller\Richter\Console\Concerns\WarnsAboutEntryPointCoverage;
 use SanderMuller\Richter\Console\Concerns\WarnsAboutRootNamespace;
+use SanderMuller\Richter\Console\Concerns\WritesDocuments;
 use SanderMuller\Richter\Graph\CodeGraph;
 use SanderMuller\Richter\Graph\GraphCache;
 use SanderMuller\Richter\Support\AppNamespace;
@@ -37,6 +38,7 @@ final class DetectChangesCommand extends Command
 {
     use WarnsAboutEntryPointCoverage;
     use WarnsAboutRootNamespace;
+    use WritesDocuments;
 
     /** Enough to recognise what was skipped without turning a 130-file PR's note into the report. */
     private const int OUT_OF_SCOPE_NAMES_SHOWN = 5;
@@ -235,10 +237,14 @@ final class DetectChangesCommand extends Command
             if (! $this->writeHtml($htmlPath, $result, $changed, $base, $tests, $gateActive, $gate, $failOn, $failOnUnresolved)) {
                 return self::FAILURE;
             }
+        } elseif ($markdown) {
+            // Split on what a host cleaner would COST, not on the format looking structured: markdown
+            // carries meaning in its blank lines, its two-space nesting and its `→`/`⚠` glyphs, so it goes
+            // where a rebound OutputStyle cannot reach it. The prose report loses only presentation, and
+            // compacting it for an agent is what such a cleaner is for. {@see WritesDocuments}
+            $this->writeDocument(MarkdownFormatter::detectChanges($result, $tests, $gateActive, $explain, AppNamespace::unmatchedRootNote()));
         } else {
-            $this->line($markdown
-                ? MarkdownFormatter::detectChanges($result, $tests, $gateActive, $explain, AppNamespace::unmatchedRootNote())
-                : ImpactFormatter::detectChanges($result, $tests, $gateActive, $explain));
+            $this->line(ImpactFormatter::detectChanges($result, $tests, $gateActive, $explain));
         }
 
         if (! $gateActive || $gate === null) {
@@ -246,7 +252,13 @@ final class DetectChangesCommand extends Command
         }
 
         $verdict = $gate['tripped'] ? 'FAIL — ' . implode('; ', $gate['reasons']) : 'PASS';
-        $this->line($markdown ? "\n**Gate:** {$verdict}" : "Gate: {$verdict}");
+
+        // Part of whichever report was just written, so it follows the same rule as the report.
+        if ($markdown) {
+            $this->writeDocument("\n**Gate:** {$verdict}");
+        } else {
+            $this->line("Gate: {$verdict}");
+        }
 
         return $gate['tripped'] ? self::FAILURE : self::SUCCESS;
     }
@@ -295,7 +307,7 @@ final class DetectChangesCommand extends Command
             // reader decoding stdout from the first '{' onward would otherwise find this appended
             // inside the document it is trying to parse.
             $this->noteNothingToProfile();
-            $this->line(JsonPresenter::encode($payload));
+            $this->writeDocument(JsonPresenter::encode($payload));
 
             return self::SUCCESS;
         }
@@ -308,7 +320,7 @@ final class DetectChangesCommand extends Command
         $payload = JsonPresenter::detectChanges($result, $base, $tests);
 
         if (! $gateActive) {
-            $this->line(JsonPresenter::encode($payload));
+            $this->writeDocument(JsonPresenter::encode($payload));
 
             return self::SUCCESS;
         }
@@ -316,7 +328,7 @@ final class DetectChangesCommand extends Command
         $gate = Gate::evaluate($result['risk'], $this->unresolvedCount($result['coverage']), $failOn, $failOnUnresolved, $result['hazards'], $this->failOnHazard());
         $payload['gate'] = $this->gatePayload($gate['tripped'], $gate['reasons'], $failOn, $failOnUnresolved);
 
-        $this->line(JsonPresenter::encode($payload));
+        $this->writeDocument(JsonPresenter::encode($payload));
 
         return $gate['tripped'] ? self::FAILURE : self::SUCCESS;
     }
@@ -543,7 +555,7 @@ final class DetectChangesCommand extends Command
 
     private function jsonError(string $message, int $exitCode): int
     {
-        $this->line(JsonPresenter::encode(['error' => $message]));
+        $this->writeDocument(JsonPresenter::encode(['error' => $message]));
 
         return $exitCode;
     }
@@ -551,7 +563,7 @@ final class DetectChangesCommand extends Command
     private function emitFailure(bool $json, string $message): int
     {
         if ($json) {
-            $this->line(JsonPresenter::encode(['error' => $message]));
+            $this->writeDocument(JsonPresenter::encode(['error' => $message]));
         } else {
             $this->error($message);
         }

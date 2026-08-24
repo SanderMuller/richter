@@ -10,6 +10,7 @@ use SanderMuller\Richter\Analysis\JsonPresenter;
 use SanderMuller\Richter\Analysis\MarkdownFormatter;
 use SanderMuller\Richter\Console\Concerns\WarnsAboutEntryPointCoverage;
 use SanderMuller\Richter\Console\Concerns\WarnsAboutRootNamespace;
+use SanderMuller\Richter\Console\Concerns\WritesDocuments;
 use SanderMuller\Richter\Graph\CodeGraph;
 use SanderMuller\Richter\Graph\GraphCache;
 use Throwable;
@@ -25,6 +26,7 @@ final class TraceCommand extends Command
 {
     use WarnsAboutEntryPointCoverage;
     use WarnsAboutRootNamespace;
+    use WritesDocuments;
 
     /** @var string */
     protected $signature = 'richter:trace
@@ -62,7 +64,7 @@ final class TraceCommand extends Command
     private function usageError(string $message): int
     {
         if ($this->option('json')) {
-            $this->line(JsonPresenter::encode(['error' => $message]));
+            $this->writeDocument(JsonPresenter::encode(['error' => $message]));
         } else {
             $this->error($message);
         }
@@ -89,7 +91,7 @@ final class TraceCommand extends Command
         if ($this->option('json')) {
             if ($markdown) {
                 // JSON mode owns stdout even for usage errors — one parseable document, never plain text.
-                $this->line(JsonPresenter::encode(['error' => 'The --json and --markdown options are mutually exclusive.']));
+                $this->writeDocument(JsonPresenter::encode(['error' => 'The --json and --markdown options are mutually exclusive.']));
 
                 return self::FAILURE;
             }
@@ -110,7 +112,14 @@ final class TraceCommand extends Command
             return self::FAILURE;
         }
 
-        $this->line($markdown ? MarkdownFormatter::trace($result) : ImpactFormatter::trace($result));
+        if ($markdown) {
+            // Markdown carries meaning in its blank lines, its two-space nesting and its `→`/`⚠` glyphs, so
+            // it goes where a rebound OutputStyle cannot rewrite it. The prose report loses only
+            // presentation. {@see WritesDocuments}
+            $this->writeDocument(MarkdownFormatter::trace($result));
+        } else {
+            $this->line(ImpactFormatter::trace($result));
+        }
 
         return self::SUCCESS;
     }
@@ -124,11 +133,11 @@ final class TraceCommand extends Command
         try {
             $result = new ImpactAnalyzer($this->graph($graphs))->trace($from, $to, $maxDepth);
 
-            $this->line(JsonPresenter::encode(JsonPresenter::trace($result)));
+            $this->writeDocument(JsonPresenter::encode(JsonPresenter::trace($result)));
 
             return self::SUCCESS;
         } catch (Throwable $throwable) {
-            $this->line(JsonPresenter::encode(['error' => $throwable->getMessage()]));
+            $this->writeDocument(JsonPresenter::encode(['error' => $throwable->getMessage()]));
 
             return self::FAILURE;
         }

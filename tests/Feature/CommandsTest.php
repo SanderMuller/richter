@@ -13,10 +13,13 @@ use Illuminate\Testing\PendingCommand;
 use InvalidArgumentException;
 use PHPUnit\Framework\Attributes\Test;
 use SanderMuller\Richter\Support\RichterConfig;
+use SanderMuller\Richter\Tests\Support\RebindsConsoleOutput;
 use SanderMuller\Richter\Tests\TestCase;
 
 final class CommandsTest extends TestCase
 {
+    use RebindsConsoleOutput;
+
     #[Test]
     public function benchmark_warns_when_no_cases_are_configured(): void
     {
@@ -1609,6 +1612,24 @@ final class CommandsTest extends TestCase
         $this->runArtisan('richter:benchmark:add', ['fix-commit' => '--upload-pack=x'])
             ->expectsOutputToContain('may not start with')
             ->assertFailed();
+    }
+
+    #[Test]
+    public function benchmark_add_keeps_the_stanza_exact_under_a_rebound_console_writer(): void
+    {
+        // The stanza is pasted into a config file by hand, so its bytes are the deliverable. A host
+        // package that rewrites console output would change what the user copies: the double space in
+        // this commit subject reaches `bug_class`, and a cleaner collapsing whitespace runs would hand
+        // them a value they did not ask for. {@see WritesDocuments}
+        $this->fakeBenchmarkReplayReachingRoutes(['*log*' => Process::result("PROJ-42 Fix  duplicated post reviews\n")]);
+        $this->installPaoLikeCleaner();
+
+        Artisan::call('richter:benchmark:add', ['fix-commit' => 'abc1234']);
+        $output = Artisan::output();
+
+        $this->assertStringContainsString("'bug_class' => 'PROJ-42 Fix  duplicated post reviews'", $output);
+        // And the fixed indentation the pasted block relies on.
+        $this->assertStringContainsString("        'key' => 'PROJ-42',", $output);
     }
 
     #[Test]

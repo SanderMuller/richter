@@ -11,6 +11,7 @@ use SanderMuller\Richter\Analysis\ImpactAnalyzer;
 use SanderMuller\Richter\Analysis\RiskLevel;
 use SanderMuller\Richter\Analysis\TestReferenceIndex;
 use SanderMuller\Richter\Changes\ChangedSymbols;
+use SanderMuller\Richter\Console\Concerns\WritesDocuments;
 use SanderMuller\Richter\Graph\GraphCache;
 
 /**
@@ -22,6 +23,8 @@ use SanderMuller\Richter\Graph\GraphCache;
  */
 final class BenchmarkAddCommand extends Command
 {
+    use WritesDocuments;
+
     /** @var string */
     protected $signature = 'richter:benchmark:add
         {fix-commit : Historical fix commit to replay}
@@ -176,22 +179,38 @@ final class BenchmarkAddCommand extends Command
         $this->newLine();
         $this->line('Add this entry to the benchmark_cases list in config/richter.php:');
         $this->newLine();
-        $this->line('    [');
-        $this->line("        'key' => '{$escapedKey}',");
-        $this->line("        'fix_commit' => '{$escapedCommit}',");
-        $this->line("        'bug_class' => '{$escapedBugClass}',");
-        $this->line("        'expect_signal' => {$expectSignalLiteral},");
-        $this->line("        'max_risk' => '{$maxRisk->value}',");
+
+        // The stanza is PASTED into a config file by hand, so its bytes are the deliverable: the fixed
+        // four- and eight-space indentation, and values that came from this command's own input. A host
+        // cleaner that collapses whitespace runs would change what the user copies, and one that strips a
+        // glyph would change a value they asked for. The heading above it is prose and stays compacted.
+        // {@see WritesDocuments}
+        $stanza = [
+            '    [',
+            "        'key' => '{$escapedKey}',",
+            "        'fix_commit' => '{$escapedCommit}',",
+            "        'bug_class' => '{$escapedBugClass}',",
+            "        'expect_signal' => {$expectSignalLiteral},",
+            "        'max_risk' => '{$maxRisk->value}',",
+        ];
 
         if ($maxHazardTier < 3) {
-            $this->line("        'max_hazard_tier' => {$maxHazardTier},");
+            $stanza[] = "        'max_hazard_tier' => {$maxHazardTier},";
         }
 
         if ($expectFinding !== null) {
-            $this->line("        'expect_finding' => '" . $this->escapeForSingleQuotedString($expectFinding) . "',");
+            $stanza[] = "        'expect_finding' => '" . $this->escapeForSingleQuotedString($expectFinding) . "',";
         }
 
-        $this->line('    ],');
+        $stanza[] = '    ],';
+
+        // One write per line, not one write for the block. Both are equally protected — the cleaner acts
+        // per write either way — but `expectsOutputToContain()` registers one Mockery expectation per
+        // underlying write call, and one call can satisfy only one expectation, so a batched block would
+        // leave every assertion after the first unmatched.
+        foreach ($stanza as $line) {
+            $this->writeDocument($line);
+        }
     }
 
     private function escapeForSingleQuotedString(string $value): string
