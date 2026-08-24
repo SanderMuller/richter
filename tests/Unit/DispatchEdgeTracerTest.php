@@ -720,4 +720,116 @@ final class DispatchEdgeTracerTest extends TestCase
         $this->assertSame([], $result['unresolvedSites']);
         $this->assertSame([], $result['edges']);
     }
+
+    /**
+     * A `$chain = []; $chain[] = new Job(...); Bus::chain($chain)` accumulator names every job right there,
+     * so the graph already holds the edges and the dispatch is not unfollowable.
+     *
+     * One unread site is enough to make every run report `not determinable`, so this shape costs the
+     * command everywhere it appears, not only in the method that holds it.
+     */
+    #[Test]
+    public function an_array_accumulator_resolves_every_job_it_appends(): void
+    {
+        $body = "\$chain = [];\n\$chain[] = new ImportJob();\n\$chain[] = new ArchiveJob();\nBus::chain(\$chain)->dispatch();";
+        $uses = "use App\Jobs\ImportJob;\nuse App\Jobs\ArchiveJob;\nuse Illuminate\Support\Facades\Bus;";
+
+        $this->assertSame([
+            ['source' => self::DISPATCHER . '::store', 'target' => 'App\Jobs\ImportJob::handle', 'type' => 'action-to-job'],
+            ['source' => self::DISPATCHER . '::store', 'target' => 'App\Jobs\ArchiveJob::handle', 'type' => 'action-to-job'],
+        ], $this->edges($body, $uses));
+        $this->assertSame(0, $this->unresolved($body, $uses));
+    }
+
+    #[Test]
+    public function a_conditional_append_is_still_provable(): void
+    {
+        // The one rule that differs from the single-local proof. There a conditional assignment is fatal,
+        // because the claim is what the variable IS and a branch not taken leaves it holding something
+        // else. Here the claim is what the array CONTAINS, and a branch either appends a named job or
+        // appends nothing.
+        $body = "\$chain = [];\n\$chain[] = new ImportJob();\nif (\$this->flag) { \$chain[] = new ArchiveJob(); }\nBus::chain(\$chain)->dispatch();";
+        $uses = "use App\Jobs\ImportJob;\nuse App\Jobs\ArchiveJob;\nuse Illuminate\Support\Facades\Bus;";
+
+        $this->assertSame(
+            ['App\Jobs\ImportJob::handle', 'App\Jobs\ArchiveJob::handle'],
+            array_column($this->edges($body, $uses), 'target'),
+        );
+        $this->assertSame(0, $this->unresolved($body, $uses));
+    }
+
+    #[Test]
+    public function an_accumulator_of_only_closures_resolves_to_no_jobs_and_no_site(): void
+    {
+        // Not a gap: a closure IS the queued work and its body is in the source the tracers read, which
+        // is why an inline `Bus::chain([fn () => ...])` already records nothing. An accumulator built the
+        // same way gets the same reading.
+        $body = "\$chain = [];\n\$chain[] = function () {};\n\$chain[] = fn () => null;\nBus::chain(\$chain)->dispatch();";
+        $uses = 'use Illuminate\Support\Facades\Bus;';
+
+        $this->assertSame([], $this->edges($body, $uses));
+        $this->assertSame(0, $this->unresolved($body, $uses));
+    }
+
+    /**
+     * Every shape that must stay unfollowable. The cost of a wrong "resolved" here is a test the
+     * selection omits, so each of these fails closed — and none of them is visible to the write counting
+     * {@see LocallyConstructedJobs} does, which is why the proof is stated over occurrences instead.
+     *
+     * @return Iterator<string, array{string}>
+     */
+    public static function unprovableAccumulators(): Iterator
+    {
+        yield 'an append of something this pass cannot see' => ["\$chain[] = new ImportJob();\n\$chain[] = \$mystery;"];
+        yield 'a keyed write replaces rather than appends' => ["\$chain[] = new ImportJob();\n\$chain[0] = \$mystery;"];
+        yield 'array_push mutates it without mentioning an append' => ["\$chain[] = new ImportJob();\narray_push(\$chain, \$mystery);"];
+        yield 'reassigned wholesale after the appends' => ["\$chain[] = new ImportJob();\n\$chain = \$mystery;"];
+        yield 'an append that is not a dispatch target' => ["\$chain[] = new \DateTimeImmutable();"];
+        yield 'started empty twice, so the appends span two arrays' => ["\$chain[] = new ImportJob();\n\$chain = [];\n\$chain[] = \$mystery;"];
+        yield 'the scope handed out by name' => ["\$chain[] = new ImportJob();\n\$seen = compact('chain');"];
+        yield 'a keyed write twice, so the last one wins and the first is not in it' => ["\$chain[0] = new ImportJob();\n\$chain[0] = new ArchiveJob();"];
+        yield 'a second read the proof did not account for' => ["\$chain[] = new ImportJob();\n\$copy = \$chain;"];
+    }
+
+    #[Test]
+    #[DataProvider('unprovableAccumulators')]
+    public function an_unprovable_accumulator_stays_unfollowable(string $middle): void
+    {
+        $body = "\$chain = [];\n{$middle}\nBus::chain(\$chain)->dispatch();";
+        $uses = "use App\Jobs\ImportJob;\nuse Illuminate\Support\Facades\Bus;";
+
+        $this->assertSame(1, $this->unresolved($body, $uses));
+    }
+
+    #[Test]
+    public function an_accumulator_dispatched_before_it_is_filled_stays_unfollowable(): void
+    {
+        // An append below the dispatch says nothing about the array that was dispatched above it.
+        $body = "\$chain = [];\nBus::chain(\$chain)->dispatch();\n\$chain[] = new ImportJob();";
+        $uses = "use App\Jobs\ImportJob;\nuse Illuminate\Support\Facades\Bus;";
+
+        $this->assertSame(1, $this->unresolved($body, $uses));
+    }
+
+    #[Test]
+    public function an_accumulator_that_did_not_start_empty_stays_unfollowable(): void
+    {
+        // `$chain = [$mystery]` puts an element in the array that no append accounts for, so reading only
+        // the appends would claim contents the array does not have.
+        $body = "\$chain = [\$mystery];\n\$chain[] = new ImportJob();\nBus::chain(\$chain)->dispatch();";
+        $uses = "use App\Jobs\ImportJob;\nuse Illuminate\Support\Facades\Bus;";
+
+        $this->assertSame(1, $this->unresolved($body, $uses));
+    }
+
+    #[Test]
+    public function an_accumulator_started_inside_a_branch_stays_unfollowable(): void
+    {
+        // Top level only, for the reason the sibling proofs give: on the path that skipped the `if`, the
+        // name holds whatever it held before, and the appends below say nothing about it.
+        $body = "if (\$this->flag) { \$chain = []; }\n\$chain[] = new ImportJob();\nBus::chain(\$chain)->dispatch();";
+        $uses = "use App\Jobs\ImportJob;\nuse Illuminate\Support\Facades\Bus;";
+
+        $this->assertSame(1, $this->unresolved($body, $uses));
+    }
 }

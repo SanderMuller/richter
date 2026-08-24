@@ -49,8 +49,8 @@ use SanderMuller\Richter\Tracers\DispatchEdgeTracer;
  */
 final class LocallyConstructedJobs
 {
-    /** @var array{jobs: array<string, array{pos: int, jobs: list<string>}>, collections: array<string, array{pos: int, jobs: list<string>}>} */
-    private const array NOTHING = ['jobs' => [], 'collections' => []];
+    /** @var array{jobs: array<string, array{pos: int, jobs: list<string>}>, collections: array<string, array{pos: int, jobs: list<string>}>, arrays: array<string, array{pos: int, jobs: list<string>}>} */
+    private const array NOTHING = ['jobs' => [], 'collections' => [], 'arrays' => []];
 
     /**
      * Variables this method provably fills with a dispatch target, by name, and the ones it fills
@@ -85,16 +85,20 @@ final class LocallyConstructedJobs
      * construction and the dispatch, which needs the callee's signature to see. Every other unknown
      * shape lands on "not provable", which keeps the site.
      *
-     * @return array{jobs: array<string, array{pos: int, jobs: list<string>}>, collections: array<string, array{pos: int, jobs: list<string>}>}
+     * @return array{jobs: array<string, array{pos: int, jobs: list<string>}>, collections: array<string, array{pos: int, jobs: list<string>}>, arrays: array<string, array{pos: int, jobs: list<string>}>}
      */
     public static function in(ClassMethod $method): array
     {
         $assignments = self::topLevelAssignments($method);
 
-        // Nothing built or mapped at the top level means nothing to prove, and most methods are that
-        // case. The write count below walks the whole method, so asking the cheap question first keeps
-        // that walk off every method that could never qualify.
-        if (! self::hasCandidate($assignments)) {
+        // Nothing built, mapped or STARTED EMPTY at the top level means nothing to prove, and most
+        // methods are that case. The write count below walks the whole method, so asking the cheap
+        // questions first keeps that walk off every method that could never qualify — the graph build
+        // runs this per method, and a whole extra AST pass over each one is not free.
+        $hasCandidate = self::hasCandidate($assignments);
+        $starts = AccumulatedArrayJobs::startsIn($method);
+
+        if (! $hasCandidate && $starts === []) {
             return self::NOTHING;
         }
 
@@ -107,6 +111,12 @@ final class LocallyConstructedJobs
         }
 
         ['writes' => $writes, 'occurrences' => $occurrences, 'exposesLocals' => $exposesLocals] = $counts;
+
+        $arrays = $starts === [] ? [] : AccumulatedArrayJobs::in($method, $starts, $occurrences, $exposesLocals);
+
+        if (! $hasCandidate) {
+            return ['jobs' => [], 'collections' => [], 'arrays' => $arrays];
+        }
 
         $jobs = [];
         $collections = [];
@@ -141,7 +151,9 @@ final class LocallyConstructedJobs
             }
         }
 
-        return ['jobs' => $jobs, 'collections' => $collections];
+        // The accumulator is proved over OCCURRENCES rather than the write count above, because
+        // `$chain[] = …` assigns to an ArrayDimFetch and that count never sees it. {@see AccumulatedArrayJobs}
+        return ['jobs' => $jobs, 'collections' => $collections, 'arrays' => $arrays];
     }
 
     /**

@@ -330,6 +330,20 @@ final class AffectedTests
      * edge inserts a missing caller only when such a target reaches the change. The uncertainty
      * direction is safe — DispatchTarget fails toward "yes", so this over-fires rather than under.
      *
+     * Why this is not FINER, since a finer version is the obvious thing to ask for — scope the reason to
+     * what the diff can reach, so a dispatch in an unrelated subtree stops vetoing selection.
+     *
+     * It already is, as far as it soundly can be. The hidden edge is `dispatcher → unknownJob::handle`, and
+     * it matters exactly when that job is upstream of the change — which is the question this asks.
+     * Narrowing it to "the job THIS site could dispatch" needs the target, and not naming the target is
+     * what made the dispatch unfollowable in the first place; for a chain of closures there is no class to
+     * name at all. In a large application with jobs throughout, the honest answer to the sound question is
+     * simply yes.
+     *
+     * So the way past a site is not a looser rule here but a stricter reader there: a shape that can be
+     * followed stops being a site at all. {@see AccumulatedArrayJobs} is the most recent of those, and
+     * removing a site outright is always better than excusing one.
+     *
      * @param  array{callers?: list<array{node: string, depth: int, via: string, file?: string, line?: int}>, ...}  $result
      * @param  list<ChangedFileSymbols>  $changed
      */

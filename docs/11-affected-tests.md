@@ -72,7 +72,7 @@ report `not determinable`, a project whose remaining sites are all of that kind 
 reach past, and restructuring the others buys nothing until the last one goes. Check the list for these
 before planning that work.
 
-Four shapes look unfollowable and are not counted, because none of them hides anything:
+Five shapes look unfollowable and are not counted, because none of them hides anything:
 
 - An inline closure. `dispatch(function () { … })` queues the closure itself, and its body sits in the
   same source the tracers already read, so its work already appears as edges out of the dispatching
@@ -108,6 +108,23 @@ Four shapes look unfollowable and are not counted, because none of them hides an
   The receiver is the one thing this does not check. It reads method names, not types, so a class of
   your own that spells `map()` and `all()` with different semantics is believed. Typing the receiver
   needs the inference the relation lane uses, and it is not wired here.
+
+- An array the dispatching method filled itself. `$chain = []; $chain[] = new FirstJob(...); $chain[] =
+  new SecondJob(...); Bus::chain($chain)->dispatch();` names every job right there, so the graph already
+  carries the edges and there is nothing to restructure. Unlike the single local above, an append inside
+  an `if` is fine: the claim is what the array *contains*, and a branch either appends a named job or
+  appends nothing. Appending an inline closure is fine too, for the same reason a closure inside an
+  inline `Bus::chain([...])` is — so a chain built only from closures resolves to no jobs and no site.
+
+  The bar is otherwise absolute, and it has to be, because `$chain[] = …` assigns to an array element
+  rather than to the variable: the write counting that guards the shapes above cannot see an append at
+  all, so leaning on it would accept a method that also mutates the array some other way. Instead every
+  single mention of the name in the method must be one of three things — the `= []` that starts it, the
+  left side of an append whose value is a `new` dispatch target or an inline closure, or the read that
+  dispatches it. One mention that is none of those keeps the site, whatever it does. That is what makes
+  `array_push($chain, $x)`, a keyed write like `$chain[0] = $x`, starting from a non-empty literal,
+  starting inside a branch, a wholesale reassignment, a second read, and a scope handed out by
+  `compact()` all keep the site without needing to be listed as special cases.
 
 - A string argument. `$this->dispatch('some-event')` is not a job dispatch. `DispatchesJobs::dispatch()`
   takes a job *object*, so a string can never be one. The common case is a Livewire component emitting
