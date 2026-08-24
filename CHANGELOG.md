@@ -5,6 +5,42 @@ All notable changes to `sandermuller/richter` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.53.0 - 2026-08-24
+
+A member group holding one class no longer costs two lines, and a bare `--html` is a usage error instead of a silent no-op. Sourced from production dogfood.
+
+### Changed
+
+**A lone override sits on its member's own line.** 0.52.0 gave every group a heading and a sub-list, so a group of one spent a line saying "1 class" and a second naming it. On the application this came from that was most of the fold: 17 of 21 groups held exactly one class, and the grouped body ran *longer* than the flat list the grouping replaced. Single-class groups now read `- `member` — `App\Some\Class``, and multi-class groups keep the nested list.
+
+This is line economy, not a new claim. The same two names on one line, and nothing the multi-class shape does not also say.
+
+### Fixed
+
+**A bare `--html` no longer does nothing quietly.** `--html` takes an optional value, so passing it with no path resolved to `null` — indistinguishable from an absent flag — and the command fell through to the text report: no file written, nothing said. A reader who asked for an HTML report got a different format and no explanation. It is a usage error now:
+
+```
+The --html option requires a path: --html=<path>.
+
+```
+This is the rule `--fail-on` and `--fail-on-hazard` already apply, through the same mechanism: a flag the user actually typed fails closed rather than being silently ignored. `--open` without `--html` was already guarded for exactly this reason; `--html` itself was the gap.
+
+The four rules governing `--json`, `--markdown`, `--html` and `--open` now live together in `Console\OutputFormatRules`, which is `@internal`.
+
+**The two-space indent GFM needs to nest a list item is pinned by its own test.** It was asserted only incidentally, by a test about singular wording, so narrowing it to one space would have kept the suite green while silently flattening every member group back into the list the grouping replaced — the headings then reading as if they were members. The blank lines inside a `<details>` got the same treatment in 0.51.0, after the same kind of gap.
+
+### Investigated, not a defect
+
+A report of one-space indents and missing blank lines in captured `--markdown` stdout does not reproduce. Measured through the whole chain: the formatter emits two spaces, `collapsed()` writes the blank lines, and `$this->line()` — the console layer, which earlier rounds had not tested — preserves both byte for byte. The bytes richter writes are correct, so the loss happens after it. To localise it, compare `richter:detect-changes --markdown | cat -A` at the point of capture against the file the pipeline ultimately posts.
+
+### Upgrade note
+
+If a pipeline passes a bare `--html` with no path today, it currently gets the text report on stdout and exit 0. It will now get exit 1 and a usage error. Either give the flag a path, or drop it to keep the text report.
+
+Nothing else moves: no payload key changes, no risk level changes, and `--json` is unaffected.
+
+**Full Changelog**: https://github.com/SanderMuller/richter/compare/v0.52.0...v0.53.0
+
 ## v0.52.0 - 2026-08-23
 
 The inheritance list is split by what each entry claims: a class that runs the changed code stays in front of the reader, and the overrides fold, grouped by member name. Sourced from production dogfood.
@@ -92,6 +128,7 @@ The three prose formats now keep the discriminating surfaces inline and fold the
 
 
 
+
 ```
 **Nothing is dropped.** The section still counts every surface, and the collapsed group states its own count, so the report cannot read as shorter than the reach it found. A surface whose reason the walk could not record stays inline: absence of a reason is not evidence of a weak one.
 
@@ -120,6 +157,7 @@ A dropped column now names what still refers to it, so the report says who has n
   ```
   ! [tier 2 migration] App\Models\Post — column `posts`.`subtitle` dropped, still named by
     App\Models\Post's own $fillable/$casts, a `subtitle` key in app/Http/Resources/PostResource.php
+  
   
   
   
@@ -227,6 +265,7 @@ Hazards (1):
 
 
 
+
 ```
 The suffix says "via its class" rather than naming a declaring class, because a `migration` hazard is named for a model and a `contract` hazard can name a class deleted whole — neither has a declaring class to point at.
 
@@ -303,6 +342,7 @@ Tightening a rate limit reported a tier-3 HIGH saying the limit was gone. A guar
   
   ```
   the rate limit on the GET /search route in routes/api.php rose from `throttle:60,1` to `throttle:120,1`
+  
   
   
   
@@ -726,6 +766,7 @@ dispatch($job);
 
 
 
+
 ```
 That was recorded as a dispatch whose target could not be followed — and the taint is global, so one of them makes every `richter:affected-tests` run report `not determinable` and fall back to the full suite. The graph has carried the edge for this shape all along: the instantiation is in the same method, right above the dispatch. The site pointed at a place to restructure where nothing was hidden and nothing needed restructuring.
 
@@ -829,6 +870,7 @@ Build profile: nothing was built — the diff holds nothing the graph is built f
 
 
 
+
 ```
 On stderr, like the table it stands in for, and before the payload in `--json` mode so stdout stays one document. Building anyway was the alternative, and it would make a no-op run pay for an analysis nothing asked for.
 
@@ -846,6 +888,7 @@ An event named by a class constant resolves in **any** declaration form, includi
 public const string
     SUBTITLE_CHANGED = 'subtitle-changed',
     SUBTITLE_DELETED = 'subtitle-deleted';
+
 
 
 
@@ -897,6 +940,7 @@ Build profile (forced rebuild):
   total                      3.85s
   no scoped rebuild: non-app-change
     config/services.php differs from the cached graph and sits outside app/
+
 
 
 
@@ -1003,6 +1047,7 @@ It now names every site:
 ```
 the graph contains job dispatches that could not be followed:
 app/Jobs/Fanout.php:88 (App\Jobs\Fanout::handle), app/Services/Importer.php:12 (App\Services\Importer::run)
+
 
 
 
@@ -1405,6 +1450,7 @@ Note: 2 changed file(s) are outside the analysed scope (not PHP under app/, a Bl
 
 
 
+
 ```
 Stderr, like the untracked-file note, so `--json` and `--markdown` stdout stay exactly the report. Frontend sources the configuration declines to scan are not counted: generated Wayfinder output under `frontend.generated_paths` and `.d.ts` declarations were silenced on purpose, and a note that fires loudest on regeneration churn is one people stop reading.
 
@@ -1500,6 +1546,7 @@ One new advisory lane, and a README that finally leads with what the package is 
   
   
   
+  
   ```
   The count comes off the `route:: → middleware::<group>` edges already in the graph, so it counts endpoints only: a controller-level attachment of the same group does not inflate it. Membership is read from `$middlewareGroups` on a Laravel 10 Kernel or the `->web(append: [...])` form in a Laravel 11+ `bootstrap/app.php`. A member written as an alias resolves through the same alias map, parameters are cut first (`tenant:strict` is one alias with an argument), and a group that names another group is expanded transitively, since Laravel runs the inner group's middleware on the outer group's routes too.
   
@@ -1532,6 +1579,7 @@ Two silent-failure shapes that richter used to miss: a call through an applicati
   
   ```text
     ! resources/js/Pages/Posts/Create.vue posts to POST /posts and sends 'subtitle', which this diff removes from App\Http\Requests\StorePostRequest::rules() (renamed to 'sub_title'?)
+  
   
   
   
