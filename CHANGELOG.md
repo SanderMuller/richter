@@ -5,6 +5,31 @@ All notable changes to `sandermuller/richter` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.57.1 - 2026-08-24
+
+The named low-confidence reason from 0.57.0 now names the right kind. Sourced from production dogfood.
+
+### Fixed
+
+**`richter:affected-tests` no longer reports `class declaration` for a declaration that did not change.** Adding two ordinary methods to a class — nothing else touched, not the class line, its attributes, its `extends`, its `implements`, nor its docblock — withdrew the selection and read:
+
+```
+a changed member could not be pinned to a graph node (low confidence):
+app/Models/Post.php (App\Models\Post, class declaration)
+
+```
+The threshold was the member count, not the declaration. Git puts a blank separator line above each added or removed member, and that line sits outside every member span, so it counted as a class-level edit. One blank normalized to the empty string and compared equal to the other side, so a single added method stayed determinable; two blanks did not compare equal, so two added or removed members reported the class declaration as unpinnable. Additions and deletions both tripped it; one deletion paired with one addition did not.
+
+**This mattered more than a wording nit, because the kind is what tells the reader whether there is anything to fix.** 0.57.0 states that a `property` or a `class declaration` has no member node by design, so the verdict is correct and there is nothing to restructure. Applied to two ordinary methods that reading was the opposite of the truth, and a reader who trusted the kind stopped investigating at the point where investigating would pay. Any feature commit that adds a second method to a class hit it.
+
+A whitespace-only line is now skipped in the class-level scan, by the same whitespace class the comparison already strips, so the two rules cannot disagree. A real declaration change in the same diff — a new attribute beside two new methods — still seeds coarsely.
+
+### Upgrade note
+
+Nothing moves. A change that only adds or removes members now reports `determinable` where it reported low confidence, so a selection is returned where the full suite was demanded before. Exit codes, `--plain` stdout, the payload keys and the risk level are unchanged.
+
+**Full Changelog**: https://github.com/SanderMuller/richter/compare/v0.57.0...v0.57.1
+
 ## v0.57.0 - 2026-08-24
 
 A low-confidence verdict now names the member it could not pin, so the one reason that could not be investigated can be. Sourced from production dogfood.
@@ -18,6 +43,7 @@ It now names each one:
 ```
 a changed member could not be pinned to a graph node (low confidence):
 app/Models/Post.php (App\Models\Post::perPage, property)
+
 
 ```
 **The kind is the part that says what to do.** A `property` or a `class declaration` has no member node by design — the graph pins methods, class constants and enum cases — so the verdict is correct and there is nothing to restructure. That is a materially different message from a name alone, and it is the difference between a reader eliminating possibilities by hand and reading one line. A class-declaration change carries no member name at all, so it reads as the class rather than as `Class::`.
@@ -147,6 +173,7 @@ The --html option requires a path: --html=<path>.
 
 
 
+
 ```
 This is the rule `--fail-on` and `--fail-on-hazard` already apply, through the same mechanism: a flag the user actually typed fails closed rather than being silently ignored. `--open` without `--html` was already guarded for exactly this reason; `--html` itself was the gap.
 
@@ -258,6 +285,7 @@ The three prose formats now keep the discriminating surfaces inline and fold the
 
 
 
+
 ```
 **Nothing is dropped.** The section still counts every surface, and the collapsed group states its own count, so the report cannot read as shorter than the reach it found. A surface whose reason the walk could not record stays inline: absence of a reason is not evidence of a weak one.
 
@@ -286,6 +314,7 @@ A dropped column now names what still refers to it, so the report says who has n
   ```
   ! [tier 2 migration] App\Models\Post — column `posts`.`subtitle` dropped, still named by
     App\Models\Post's own $fillable/$casts, a `subtitle` key in app/Http/Resources/PostResource.php
+  
   
   
   
@@ -403,6 +432,7 @@ Hazards (1):
 
 
 
+
 ```
 The suffix says "via its class" rather than naming a declaring class, because a `migration` hazard is named for a model and a `contract` hazard can name a class deleted whole — neither has a declaring class to point at.
 
@@ -479,6 +509,7 @@ Tightening a rate limit reported a tier-3 HIGH saying the limit was gone. A guar
   
   ```
   the rate limit on the GET /search route in routes/api.php rose from `throttle:60,1` to `throttle:120,1`
+  
   
   
   
@@ -912,6 +943,7 @@ dispatch($job);
 
 
 
+
 ```
 That was recorded as a dispatch whose target could not be followed — and the taint is global, so one of them makes every `richter:affected-tests` run report `not determinable` and fall back to the full suite. The graph has carried the edge for this shape all along: the instantiation is in the same method, right above the dispatch. The site pointed at a place to restructure where nothing was hidden and nothing needed restructuring.
 
@@ -1020,6 +1052,7 @@ Build profile: nothing was built — the diff holds nothing the graph is built f
 
 
 
+
 ```
 On stderr, like the table it stands in for, and before the payload in `--json` mode so stdout stays one document. Building anyway was the alternative, and it would make a no-op run pay for an analysis nothing asked for.
 
@@ -1037,6 +1070,7 @@ An event named by a class constant resolves in **any** declaration form, includi
 public const string
     SUBTITLE_CHANGED = 'subtitle-changed',
     SUBTITLE_DELETED = 'subtitle-deleted';
+
 
 
 
@@ -1093,6 +1127,7 @@ Build profile (forced rebuild):
   total                      3.85s
   no scoped rebuild: non-app-change
     config/services.php differs from the cached graph and sits outside app/
+
 
 
 
@@ -1204,6 +1239,7 @@ It now names every site:
 ```
 the graph contains job dispatches that could not be followed:
 app/Jobs/Fanout.php:88 (App\Jobs\Fanout::handle), app/Services/Importer.php:12 (App\Services\Importer::run)
+
 
 
 
@@ -1616,6 +1652,7 @@ Note: 2 changed file(s) are outside the analysed scope (not PHP under app/, a Bl
 
 
 
+
 ```
 Stderr, like the untracked-file note, so `--json` and `--markdown` stdout stay exactly the report. Frontend sources the configuration declines to scan are not counted: generated Wayfinder output under `frontend.generated_paths` and `.d.ts` declarations were silenced on purpose, and a note that fires loudest on regeneration churn is one people stop reading.
 
@@ -1716,6 +1753,7 @@ One new advisory lane, and a README that finally leads with what the package is 
   
   
   
+  
   ```
   The count comes off the `route:: → middleware::<group>` edges already in the graph, so it counts endpoints only: a controller-level attachment of the same group does not inflate it. Membership is read from `$middlewareGroups` on a Laravel 10 Kernel or the `->web(append: [...])` form in a Laravel 11+ `bootstrap/app.php`. A member written as an alias resolves through the same alias map, parameters are cut first (`tenant:strict` is one alias with an argument), and a group that names another group is expanded transitively, since Laravel runs the inner group's middleware on the outer group's routes too.
   
@@ -1748,6 +1786,7 @@ Two silent-failure shapes that richter used to miss: a call through an applicati
   
   ```text
     ! resources/js/Pages/Posts/Create.vue posts to POST /posts and sends 'subtitle', which this diff removes from App\Http\Requests\StorePostRequest::rules() (renamed to 'sub_title'?)
+  
   
   
   
