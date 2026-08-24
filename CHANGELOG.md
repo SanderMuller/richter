@@ -5,6 +5,35 @@ All notable changes to `sandermuller/richter` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.55.0 - 2026-08-24
+
+A chain built by appending jobs to a local array is now followed, so it no longer vetoes `richter:affected-tests`. Sourced from production dogfood.
+
+### Fixed
+
+**`$chain = []; $chain[] = new FirstJob(...); Bus::chain($chain)->dispatch();` is no longer an unfollowable dispatch.** Every job is named right where it is dispatched, so the graph already carried the edges — but the dispatch itself read as unfollowable, and a single unfollowable site makes *every* run in the project report `not determinable`. An unread shape here therefore costs the command everywhere, not only in the method that holds it. This is the plain accumulator, joining the single local (`$job = new SomeJob(...); dispatch($job);`) and the mapped collection (`Bus::batch($items->map(...)->all())`) that were already read.
+
+Two rules are worth knowing, because both differ from the shapes beside it:
+
+- **An append inside a branch is fine.** For a single local, a conditional assignment is fatal: the claim is what the variable *is*, and a branch not taken leaves it holding something else. For an accumulator the claim is what the array *contains*, and a branch either appends a named job or appends nothing.
+- **An appended inline closure is fine**, for the reason a closure inside a literal `Bus::chain([...])` was already exempt — the closure is the queued work and its body is in the source the tracers read. So a chain built only from closures resolves to no jobs and no site, which is correct rather than a gap.
+
+The bar is otherwise absolute, and has to be. `$chain[] = …` assigns to an array element rather than to the variable, so the write counting that guards the other shapes cannot see an append at all. Instead every mention of the name in the method must be one of three things: the `= []` that starts it, the left side of an append whose value is a `new` dispatch target or an inline closure, or the read that dispatches it. One mention that is none of those keeps the site, whatever it does — which is what makes `array_push($chain, $x)`, a keyed write like `$chain[0] = $x`, a start from a non-empty literal, a start inside a branch, a wholesale reassignment, a second read, and a scope handed out by `compact()` all fail closed without being special-cased.
+
+Read the full list of shapes that look unfollowable and are not counted in [affected-tests](https://sandermuller.github.io/richter/affected-tests).
+
+### Considered and declined
+
+**Scoping the unfollowable-dispatch reason to what the diff can reach.** The reason already is scoped, as far as it soundly can be: the hidden edge is `dispatcher → unknownJob::handle`, and it matters exactly when that job sits upstream of the change, which is the question `AffectedTests::changeReachesDispatchable()` asks. Narrowing it to "the job *this* site could dispatch" needs the target, and not naming a target is what made the dispatch unfollowable in the first place — for a chain of closures there is no class to name at all. In a large application with jobs throughout, the honest answer to the sound question is simply yes.
+
+So the lever is not a looser rule on the reporting side but a stricter reader on the tracing side: a shape that can be followed stops being a site at all. That is what this release does, and the reasoning is recorded next to the code rather than only here.
+
+### Upgrade note
+
+`richter:affected-tests` may become determinable on a project where it previously always exited 2, which is the point. The direction is safe: the accumulator's jobs were already in the graph, so this removes a *reason* rather than adding reach, and no selection narrows because of it. Nothing else moves — no payload key changes, no risk level changes.
+
+**Full Changelog**: https://github.com/SanderMuller/richter/compare/v0.54.0...v0.55.0
+
 ## v0.54.0 - 2026-08-24
 
 Richter's documents are now written beneath Laravel's console writer, so a host package that rewrites Artisan output cannot alter them. Sourced from production dogfood.
@@ -51,6 +80,7 @@ This is line economy, not a new claim. The same two names on one line, and nothi
 
 ```
 The --html option requires a path: --html=<path>.
+
 
 
 ```
@@ -161,6 +191,7 @@ The three prose formats now keep the discriminating surfaces inline and fold the
 
 
 
+
 ```
 **Nothing is dropped.** The section still counts every surface, and the collapsed group states its own count, so the report cannot read as shorter than the reach it found. A surface whose reason the walk could not record stays inline: absence of a reason is not evidence of a weak one.
 
@@ -189,6 +220,7 @@ A dropped column now names what still refers to it, so the report says who has n
   ```
   ! [tier 2 migration] App\Models\Post — column `posts`.`subtitle` dropped, still named by
     App\Models\Post's own $fillable/$casts, a `subtitle` key in app/Http/Resources/PostResource.php
+  
   
   
   
@@ -300,6 +332,7 @@ Hazards (1):
 
 
 
+
 ```
 The suffix says "via its class" rather than naming a declaring class, because a `migration` hazard is named for a model and a `contract` hazard can name a class deleted whole — neither has a declaring class to point at.
 
@@ -376,6 +409,7 @@ Tightening a rate limit reported a tier-3 HIGH saying the limit was gone. A guar
   
   ```
   the rate limit on the GET /search route in routes/api.php rose from `throttle:60,1` to `throttle:120,1`
+  
   
   
   
@@ -803,6 +837,7 @@ dispatch($job);
 
 
 
+
 ```
 That was recorded as a dispatch whose target could not be followed — and the taint is global, so one of them makes every `richter:affected-tests` run report `not determinable` and fall back to the full suite. The graph has carried the edge for this shape all along: the instantiation is in the same method, right above the dispatch. The site pointed at a place to restructure where nothing was hidden and nothing needed restructuring.
 
@@ -908,6 +943,7 @@ Build profile: nothing was built — the diff holds nothing the graph is built f
 
 
 
+
 ```
 On stderr, like the table it stands in for, and before the payload in `--json` mode so stdout stays one document. Building anyway was the alternative, and it would make a no-op run pay for an analysis nothing asked for.
 
@@ -925,6 +961,7 @@ An event named by a class constant resolves in **any** declaration form, includi
 public const string
     SUBTITLE_CHANGED = 'subtitle-changed',
     SUBTITLE_DELETED = 'subtitle-deleted';
+
 
 
 
@@ -978,6 +1015,7 @@ Build profile (forced rebuild):
   total                      3.85s
   no scoped rebuild: non-app-change
     config/services.php differs from the cached graph and sits outside app/
+
 
 
 
@@ -1086,6 +1124,7 @@ It now names every site:
 ```
 the graph contains job dispatches that could not be followed:
 app/Jobs/Fanout.php:88 (App\Jobs\Fanout::handle), app/Services/Importer.php:12 (App\Services\Importer::run)
+
 
 
 
@@ -1492,6 +1531,7 @@ Note: 2 changed file(s) are outside the analysed scope (not PHP under app/, a Bl
 
 
 
+
 ```
 Stderr, like the untracked-file note, so `--json` and `--markdown` stdout stay exactly the report. Frontend sources the configuration declines to scan are not counted: generated Wayfinder output under `frontend.generated_paths` and `.d.ts` declarations were silenced on purpose, and a note that fires loudest on regeneration churn is one people stop reading.
 
@@ -1589,6 +1629,7 @@ One new advisory lane, and a README that finally leads with what the package is 
   
   
   
+  
   ```
   The count comes off the `route:: → middleware::<group>` edges already in the graph, so it counts endpoints only: a controller-level attachment of the same group does not inflate it. Membership is read from `$middlewareGroups` on a Laravel 10 Kernel or the `->web(append: [...])` form in a Laravel 11+ `bootstrap/app.php`. A member written as an alias resolves through the same alias map, parameters are cut first (`tenant:strict` is one alias with an argument), and a group that names another group is expanded transitively, since Laravel runs the inner group's middleware on the outer group's routes too.
   
@@ -1621,6 +1662,7 @@ Two silent-failure shapes that richter used to miss: a call through an applicati
   
   ```text
     ! resources/js/Pages/Posts/Create.vue posts to POST /posts and sends 'subtitle', which this diff removes from App\Http\Requests\StorePostRequest::rules() (renamed to 'sub_title'?)
+  
   
   
   
