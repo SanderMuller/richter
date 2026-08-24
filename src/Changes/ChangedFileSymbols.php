@@ -91,11 +91,32 @@ final readonly class ChangedFileSymbols
      */
     public function needsCoarseSeed(): bool
     {
+        return $this->unpinnableMembers() !== [];
+    }
+
+    /**
+     * The members that trigger the coarse seed: changed, not merely added, and with no member node for
+     * the graph to pin them to.
+     *
+     * Expressed as the list rather than as a second copy of the predicate, and {@see needsCoarseSeed()}
+     * now asks it, so the two cannot drift. The reason `richter:affected-tests` prints for a
+     * low-confidence run names these, because a bare "a changed member could not be pinned" leaves a
+     * reader with nothing to look at — no member, no file, no way to judge whether the veto is right.
+     * The KIND is the actionable half: a property or a class-level modifier has no member node by
+     * design ({@see MemberChange}), so there is nothing in the code to change to clear it.
+     *
+     * @return list<MemberChange>
+     */
+    public function unpinnableMembers(): array
+    {
         if ($this->cosmeticOnly) {
-            return false;
+            return [];
         }
 
-        return array_any($this->members, fn (MemberChange $member): bool => ! $member->isAdditive() && ! $member->resolvable);
+        return array_values(array_filter(
+            $this->members,
+            static fn (MemberChange $member): bool => ! $member->isAdditive() && ! $member->resolvable,
+        ));
     }
 
     public function hasOnlyAdditiveOrCosmeticChanges(): bool

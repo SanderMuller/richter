@@ -161,7 +161,12 @@ final class AffectedTests
         }
 
         if ($result['lowConfidence']) {
-            $reasons[] = 'a changed member could not be pinned to a graph node (low confidence)';
+            // Named, for the reason the unfollowable-dispatch reason is named: a bare boolean withdraws
+            // a whole test selection and leaves the reader nothing to look at. The kind is the part that
+            // decides what to do about it — a property or a class-level modifier has no member node by
+            // design, so the veto is correct and there is nothing to restructure.
+            $reasons[] = 'a changed member could not be pinned to a graph node (low confidence): '
+                . self::renderUnpinnable($changed);
         }
 
         // A file the parser could not read (S1) contributes zero edges, so it could hide a caller of
@@ -321,6 +326,31 @@ final class AffectedTests
         }
 
         return array_keys($classes);
+    }
+
+    /**
+     * The members a low-confidence run could not pin, as `file (Class::member, kind)`.
+     *
+     * A class-level modifier change carries an EMPTY member name — there is no member, the declaration
+     * itself changed — so it reads as the class rather than as `Class::`.
+     *
+     * @param  list<ChangedFileSymbols>  $changed
+     */
+    private static function renderUnpinnable(array $changed): string
+    {
+        $named = [];
+
+        foreach ($changed as $file) {
+            foreach ($file->unpinnableMembers() as $member) {
+                $named[] = $member->name === ''
+                    ? sprintf('%s (%s, class declaration)', $file->file, $file->fqcn)
+                    : sprintf('%s (%s::%s, %s)', $file->file, $file->fqcn, $member->name, $member->kind);
+            }
+        }
+
+        // Never empty in practice — `lowConfidence` is set from these very members — but a reason that
+        // trails off after a colon would be worse than the bare sentence it replaced.
+        return $named === [] ? 'the member could not be named' : implode('; ', $named);
     }
 
     /**

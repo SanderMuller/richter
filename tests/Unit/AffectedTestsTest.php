@@ -34,6 +34,14 @@ final class AffectedTestsTest extends TestCase
         ], cosmeticOnly: false);
     }
 
+    /** A file whose only change is a member the graph has no node for — the low-confidence trigger. */
+    private function unpinnable(string $file, string $fqcn, string $name = 'perPage', string $kind = MemberChange::KIND_PROPERTY): ChangedFileSymbols
+    {
+        return new ChangedFileSymbols($file, $fqcn, [
+            new MemberChange($name, $kind, MemberChange::CHANGE_MODIFIED, resolvable: false),
+        ], cosmeticOnly: false);
+    }
+
     private function index(): TestReferenceIndex
     {
         $index = new TestReferenceIndex();
@@ -116,14 +124,16 @@ final class AffectedTestsTest extends TestCase
         // and wrong statement.
         $selection = AffectedTests::select(
             $this->detectResult(['route::GET::/errors/log'], lowConfidence: true),
-            [$this->changed('app/Services/X.php', 'App\Services\X')],
+            [$this->unpinnable('app/Services/X.php', 'App\Services\X')],
             $this->index(),
             unresolvedDispatchSites: [],
             changedTests: ['tests/Feature/PremiumTest.php'],
         );
 
         $this->assertFalse($selection['determinable']);
-        $this->assertSame(['a changed member could not be pinned to a graph node (low confidence)'], $selection['reasons']);
+        // The reason's exact wording belongs to the tests that own it; here only its presence matters.
+        $this->assertCount(1, $selection['reasons']);
+        $this->assertStringContainsString('could not be pinned to a graph node', $selection['reasons'][0]);
         $this->assertSame([
             'tests/Feature/ErrorLogTest.php',
             'tests/Feature/PremiumTest.php',
@@ -631,5 +641,83 @@ final class AffectedTestsTest extends TestCase
 
         $this->assertFalse($selection['determinable']);
         $this->assertSame(['changed file(s) could not be placed in the graph (UNRESOLVED)'], $selection['reasons']);
+    }
+
+    #[Test]
+    public function the_low_confidence_reason_names_the_member_it_could_not_pin(): void
+    {
+        // A bare boolean withdrew a whole test selection over a member it would not name, which left a
+        // reader with nothing to look at and no way to judge whether the veto was right. The KIND is the
+        // half that decides what to do: a property has no member node by design, so the veto is correct
+        // and there is nothing to restructure.
+        $selection = AffectedTests::select(
+            $this->detectResult([], lowConfidence: true),
+            [$this->unpinnable('app/Models/Post.php', 'App\Models\Post')],
+            new TestReferenceIndex(),
+            unresolvedDispatchSites: [],
+        );
+
+        $this->assertSame([
+            'a changed member could not be pinned to a graph node (low confidence): '
+                . 'app/Models/Post.php (App\Models\Post::perPage, property)',
+        ], $selection['reasons']);
+        $this->assertFalse($selection['determinable']);
+    }
+
+    #[Test]
+    public function the_low_confidence_reason_names_every_unpinnable_member_across_files(): void
+    {
+        $selection = AffectedTests::select(
+            $this->detectResult([], lowConfidence: true),
+            [
+                $this->unpinnable('app/Models/Post.php', 'App\Models\Post'),
+                $this->unpinnable('app/Models/Comment.php', 'App\Models\Comment', 'casts'),
+            ],
+            new TestReferenceIndex(),
+            unresolvedDispatchSites: [],
+        );
+
+        $this->assertSame([
+            'a changed member could not be pinned to a graph node (low confidence): '
+                . 'app/Models/Post.php (App\Models\Post::perPage, property); '
+                . 'app/Models/Comment.php (App\Models\Comment::casts, property)',
+        ], $selection['reasons']);
+    }
+
+    #[Test]
+    public function a_class_declaration_change_reads_as_the_class_not_as_an_empty_member(): void
+    {
+        // A class-level modifier change carries an empty member name — there is no member, the
+        // declaration itself changed — so it must not render as `App\Models\Post::`.
+        $selection = AffectedTests::select(
+            $this->detectResult([], lowConfidence: true),
+            [$this->unpinnable('app/Models/Post.php', 'App\Models\Post', '', MemberChange::KIND_CLASS)],
+            new TestReferenceIndex(),
+            unresolvedDispatchSites: [],
+        );
+
+        $this->assertSame([
+            'a changed member could not be pinned to a graph node (low confidence): '
+                . 'app/Models/Post.php (App\Models\Post, class declaration)',
+        ], $selection['reasons']);
+    }
+
+    #[Test]
+    public function a_pinnable_member_is_never_named_as_the_low_confidence_cause(): void
+    {
+        // The list is the trigger's own predicate, so a resolvable member must not appear in it even when
+        // the run is low-confidence for another file's sake.
+        $selection = AffectedTests::select(
+            $this->detectResult([], lowConfidence: true),
+            [
+                $this->changed('app/Services/X.php', 'App\Services\X'),
+                $this->unpinnable('app/Models/Post.php', 'App\Models\Post'),
+            ],
+            new TestReferenceIndex(),
+            unresolvedDispatchSites: [],
+        );
+
+        $this->assertStringNotContainsString('App\Services\X', $selection['reasons'][0]);
+        $this->assertStringContainsString('App\Models\Post::perPage', $selection['reasons'][0]);
     }
 }

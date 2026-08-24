@@ -1235,4 +1235,19 @@ final class ChangedSymbolsTest extends TestCase
         $this->assertSame([], $result->modelFieldSet);
         $this->assertSame([], $result->addedModelFields);
     }
+
+    #[Test]
+    public function a_cosmetic_only_file_needs_no_coarse_seed_even_holding_an_unpinnable_member(): void
+    {
+        // The guard that makes this true is inside `unpinnableMembers()`, which `needsCoarseSeed()` now
+        // asks — so this pins the ANALYZER's seeding, not only the reason text built from the same list.
+        // Every other cosmetic fixture here happens to hold no unresolvable non-additive member, so the
+        // filter empties on its own and the guard goes unexercised.
+        $file = new ChangedFileSymbols('app/Foo.php', 'App\Foo', [
+            new MemberChange('perPage', MemberChange::KIND_PROPERTY, MemberChange::CHANGE_MODIFIED, resolvable: false),
+        ], cosmeticOnly: true);
+
+        $this->assertFalse($file->needsCoarseSeed());
+        $this->assertSame([], $file->unpinnableMembers());
+    }
 }
