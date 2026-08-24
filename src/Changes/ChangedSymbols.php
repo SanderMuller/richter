@@ -477,10 +477,9 @@ final class ChangedSymbols
                 }
             }
 
-            // A comment sitting between members (e.g. documenting one entry of a `const` group) is not
-            // a structural class-level change — skip it, so a comment-only edit outside every member
-            // never coarse-seeds the whole class.
-            if (self::isCommentLine($line['text'])) {
+            // A comment or blank line between members carries no declaration signal, so it must never
+            // coarse-seed the whole class.
+            if (self::isNonStructuralLine($line['text'])) {
                 continue;
             }
 
@@ -490,10 +489,18 @@ final class ChangedSymbols
         return $texts;
     }
 
-    /** A full-line comment — `//`, `/*`, a block-comment continuation `*`, or a `#` line (never a `#[Attr]`). */
-    private static function isCommentLine(string $text): bool
+    /**
+     * A line that cannot carry a class-level change: a whitespace-only line, or a full-line comment —
+     * `//`, `/*`, a block-comment continuation `*`, or a `#` line (never a `#[Attr]`). Whitespace-only
+     * is judged by the same `\s` class {@see normalize()} strips, so the two never disagree.
+     *
+     * A blank line counts because git puts a separator above each added or removed member, outside
+     * every member span. Two of them made the added and removed sides differ and reported an untouched
+     * declaration as changed, while one compared equal — the member count decided the verdict.
+     */
+    private static function isNonStructuralLine(string $text): bool
     {
-        return preg_match('~^\s*(?://|/\*|\*|#(?!\[))~', $text) === 1;
+        return preg_match('~^\s*(?:$|//|/\*|\*|#(?!\[))~', $text) === 1;
     }
 
     /**

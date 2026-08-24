@@ -109,6 +109,84 @@ final class ChangedSymbolsTest extends TestCase
     }
 
     #[Test]
+    public function adding_two_methods_is_additive_not_a_class_level_change(): void
+    {
+        // Two members mean two blank separator lines, both outside every member span. They used to make
+        // the added and removed sides differ, so the untouched class declaration read as changed.
+        $base = "<?php\nclass Foo\n{\n    public function a(): int\n    {\n        return 1;\n    }\n}\n";
+        $head = "<?php\nclass Foo\n{\n    public function a(): int\n    {\n        return 1;\n    }\n\n    public function b(): int\n    {\n        return 2;\n    }\n\n    public function c(): int\n    {\n        return 3;\n    }\n}\n";
+        $hunk = $this->hunk([
+            [8, ''],
+            [9, '    public function b(): int'],
+            [10, '    {'],
+            [11, '        return 2;'],
+            [12, '    }'],
+            [13, ''],
+            [14, '    public function c(): int'],
+            [15, '    {'],
+            [16, '        return 3;'],
+            [17, '    }'],
+        ], []);
+
+        $result = ChangedSymbols::classifyFile('app/Foo.php', $head, $base, $hunk);
+
+        $this->assertTrue($result->hasOnlyAdditiveOrCosmeticChanges(), 'two new methods are additive');
+        $this->assertFalse($result->needsCoarseSeed());
+    }
+
+    #[Test]
+    public function separators_carrying_trailing_whitespace_are_still_not_a_class_level_change(): void
+    {
+        // An editor leaves spaces on an otherwise blank line. It carries no more declaration signal
+        // than an empty one, and normalize() strips it to nothing either way.
+        $base = "<?php\nclass Foo\n{\n    public function a(): int\n    {\n        return 1;\n    }\n}\n";
+        $head = "<?php\nclass Foo\n{\n    public function a(): int\n    {\n        return 1;\n    }\n  \n    public function b(): int\n    {\n        return 2;\n    }\n  \n    public function c(): int\n    {\n        return 3;\n    }\n}\n";
+        $hunk = $this->hunk([
+            [8, '  '],
+            [9, '    public function b(): int'],
+            [10, '    {'],
+            [11, '        return 2;'],
+            [12, '    }'],
+            [13, '  '],
+            [14, '    public function c(): int'],
+            [15, '    {'],
+            [16, '        return 3;'],
+            [17, '    }'],
+        ], []);
+
+        $result = ChangedSymbols::classifyFile('app/Foo.php', $head, $base, $hunk);
+
+        $this->assertFalse($result->needsCoarseSeed());
+    }
+
+    #[Test]
+    public function removing_two_methods_flags_both_and_is_not_a_class_level_change(): void
+    {
+        // The mirror of the addition case: each removed method's separator is a `-` line outside every
+        // base member span.
+        $base = "<?php\nclass Foo\n{\n    public function a(): int\n    {\n        return 1;\n    }\n\n    public function b(): int\n    {\n        return 2;\n    }\n\n    public function c(): int\n    {\n        return 3;\n    }\n}\n";
+        $head = "<?php\nclass Foo\n{\n    public function a(): int\n    {\n        return 1;\n    }\n}\n";
+        $hunk = $this->hunk([], [
+            [8, ''],
+            [9, '    public function b(): int'],
+            [10, '    {'],
+            [11, '        return 2;'],
+            [12, '    }'],
+            [13, ''],
+            [14, '    public function c(): int'],
+            [15, '    {'],
+            [16, '        return 3;'],
+            [17, '    }'],
+        ]);
+
+        $result = ChangedSymbols::classifyFile('app/Foo.php', $head, $base, $hunk);
+
+        $names = array_map(static fn (MemberChange $m): string => $m->name, $result->members);
+        $this->assertSame(['b', 'c'], $names, 'both removed methods are named, and the declaration is not');
+        $this->assertFalse($result->needsCoarseSeed());
+    }
+
+    #[Test]
     public function a_new_method_added_with_its_docblock_is_additive_not_a_class_level_change(): void
     {
         // A new method is normally added together with its `/** */` docblock. The docblock lines sit
@@ -313,6 +391,32 @@ final class ChangedSymbolsTest extends TestCase
         $this->assertFalse($result->cosmeticOnly);
         $this->assertTrue($result->needsCoarseSeed());
         $this->assertSame([], $result->resolvableMembers());
+    }
+
+    #[Test]
+    public function a_class_attribute_added_beside_two_methods_is_still_a_class_level_change(): void
+    {
+        // The other direction of the blank-separator fix: dropping the blanks must not hide a real
+        // declaration change that arrives in the same diff as new members.
+        $base = "<?php\nclass Foo\n{\n    public function a(): int\n    {\n        return 1;\n    }\n}\n";
+        $head = "<?php\n#[Sealed]\nclass Foo\n{\n    public function a(): int\n    {\n        return 1;\n    }\n\n    public function b(): int\n    {\n        return 2;\n    }\n\n    public function c(): int\n    {\n        return 3;\n    }\n}\n";
+        $hunk = $this->hunk([
+            [2, '#[Sealed]'],
+            [9, ''],
+            [10, '    public function b(): int'],
+            [11, '    {'],
+            [12, '        return 2;'],
+            [13, '    }'],
+            [14, ''],
+            [15, '    public function c(): int'],
+            [16, '    {'],
+            [17, '        return 3;'],
+            [18, '    }'],
+        ], []);
+
+        $result = ChangedSymbols::classifyFile('app/Foo.php', $head, $base, $hunk);
+
+        $this->assertTrue($result->needsCoarseSeed());
     }
 
     #[Test]
