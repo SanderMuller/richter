@@ -5,6 +5,39 @@ All notable changes to `sandermuller/richter` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.56.0 - 2026-08-24
+
+An accumulator is now read wherever it is built — including inside a `->then()` or `->finally()` closure — and it no longer has to start empty. Sourced from production dogfood.
+
+### Fixed
+
+0.55.0 began reading `$chain = []; $chain[] = new FirstJob(...); Bus::chain($chain)->dispatch();`. Two shapes it still refused turn out to occur together in one dispatch site, so each alone left that site standing and would have read as an ineffective fix.
+
+**An accumulator no longer has to start empty.** `$chain = [new FirstJob(...)]` followed by appends reads when every element of that first literal passes the same test an append passes. That is not a new rule but a composition of two that existed: the inline form `Bus::chain([new FirstJob(), fn () => null])` already resolves this way, and the two disagreeing about the same array would be the defect.
+
+A key on an element is fine — `$chain[] =` appends past the highest integer key, so it cannot collide with a seeded one. A spread never is, and unconditionally: `[...$others]` brings in contents from elsewhere, and `[...new SomeJob()]` is legal too, where the value *is* a `new` dispatch target while a Traversable job spreads what it yields rather than itself.
+
+**An accumulator no longer has to sit in the method body.** Building the follow-up work inside `->then()` or `->finally()` is how queued work is normally sequenced, so the accumulator and its dispatch naturally end up in a closure together. The proof is now stated per scope — every function-like in the method, closures and nested named functions alike.
+
+Four rules keep that sound, and they are worth knowing because each marks something that still keeps a site:
+
+- A name arriving through `use ($chain)`, `use (&$chain)`, or a parameter is not the scope's own local. A by-value capture is a second name for the array, so appends inside say nothing about what the outer name holds; a by-reference capture is a mutation this proof cannot bound.
+- Mentions are counted over the whole scope subtree, so a nested closure that captures by reference still rejects.
+- Appends are read only from the scope's own body, so an uncaptured nested `$chain[] =` — a different variable that happens to share a name — is never attributed to the enclosing array.
+- A dispatch resolves only against an accumulator its own immediate scope owns, never one from an enclosing scope. Without a capture a closure cannot see that array at all, so resolving against it would claim jobs the dispatch does not send and take a `not determinable` reason with it.
+
+The full list of shapes that look unfollowable and are not counted is in [affected-tests](https://sandermuller.github.io/richter/affected-tests).
+
+### Performance
+
+None. Measured on a 1,613-file corpus, alternating runs in one sitting: 606–609 ms with the scope work against 604–607 ms without it. The per-scope walks only happen for a method that could hold an accumulator at all, which one predicate-only pass decides.
+
+### Upgrade note
+
+`richter:affected-tests` may become determinable where it previously always exited 2. The direction is safe: these jobs were already in the graph, so this removes a *reason* rather than adding reach, and no selection narrows because of it. Nothing else moves — no payload key changes, no risk level changes.
+
+**Full Changelog**: https://github.com/SanderMuller/richter/compare/v0.55.0...v0.56.0
+
 ## v0.55.0 - 2026-08-24
 
 A chain built by appending jobs to a local array is now followed, so it no longer vetoes `richter:affected-tests`. Sourced from production dogfood.
@@ -80,6 +113,7 @@ This is line economy, not a new claim. The same two names on one line, and nothi
 
 ```
 The --html option requires a path: --html=<path>.
+
 
 
 
@@ -192,6 +226,7 @@ The three prose formats now keep the discriminating surfaces inline and fold the
 
 
 
+
 ```
 **Nothing is dropped.** The section still counts every surface, and the collapsed group states its own count, so the report cannot read as shorter than the reach it found. A surface whose reason the walk could not record stays inline: absence of a reason is not evidence of a weak one.
 
@@ -220,6 +255,7 @@ A dropped column now names what still refers to it, so the report says who has n
   ```
   ! [tier 2 migration] App\Models\Post — column `posts`.`subtitle` dropped, still named by
     App\Models\Post's own $fillable/$casts, a `subtitle` key in app/Http/Resources/PostResource.php
+  
   
   
   
@@ -333,6 +369,7 @@ Hazards (1):
 
 
 
+
 ```
 The suffix says "via its class" rather than naming a declaring class, because a `migration` hazard is named for a model and a `contract` hazard can name a class deleted whole — neither has a declaring class to point at.
 
@@ -409,6 +446,7 @@ Tightening a rate limit reported a tier-3 HIGH saying the limit was gone. A guar
   
   ```
   the rate limit on the GET /search route in routes/api.php rose from `throttle:60,1` to `throttle:120,1`
+  
   
   
   
@@ -838,6 +876,7 @@ dispatch($job);
 
 
 
+
 ```
 That was recorded as a dispatch whose target could not be followed — and the taint is global, so one of them makes every `richter:affected-tests` run report `not determinable` and fall back to the full suite. The graph has carried the edge for this shape all along: the instantiation is in the same method, right above the dispatch. The site pointed at a place to restructure where nothing was hidden and nothing needed restructuring.
 
@@ -944,6 +983,7 @@ Build profile: nothing was built — the diff holds nothing the graph is built f
 
 
 
+
 ```
 On stderr, like the table it stands in for, and before the payload in `--json` mode so stdout stays one document. Building anyway was the alternative, and it would make a no-op run pay for an analysis nothing asked for.
 
@@ -961,6 +1001,7 @@ An event named by a class constant resolves in **any** declaration form, includi
 public const string
     SUBTITLE_CHANGED = 'subtitle-changed',
     SUBTITLE_DELETED = 'subtitle-deleted';
+
 
 
 
@@ -1015,6 +1056,7 @@ Build profile (forced rebuild):
   total                      3.85s
   no scoped rebuild: non-app-change
     config/services.php differs from the cached graph and sits outside app/
+
 
 
 
@@ -1124,6 +1166,7 @@ It now names every site:
 ```
 the graph contains job dispatches that could not be followed:
 app/Jobs/Fanout.php:88 (App\Jobs\Fanout::handle), app/Services/Importer.php:12 (App\Services\Importer::run)
+
 
 
 
@@ -1532,6 +1575,7 @@ Note: 2 changed file(s) are outside the analysed scope (not PHP under app/, a Bl
 
 
 
+
 ```
 Stderr, like the untracked-file note, so `--json` and `--markdown` stdout stay exactly the report. Frontend sources the configuration declines to scan are not counted: generated Wayfinder output under `frontend.generated_paths` and `.d.ts` declarations were silenced on purpose, and a note that fires loudest on regeneration churn is one people stop reading.
 
@@ -1630,6 +1674,7 @@ One new advisory lane, and a README that finally leads with what the package is 
   
   
   
+  
   ```
   The count comes off the `route:: → middleware::<group>` edges already in the graph, so it counts endpoints only: a controller-level attachment of the same group does not inflate it. Membership is read from `$middlewareGroups` on a Laravel 10 Kernel or the `->web(append: [...])` form in a Laravel 11+ `bootstrap/app.php`. A member written as an alias resolves through the same alias map, parameters are cut first (`tenant:strict` is one alias with an argument), and a group that names another group is expanded transitively, since Laravel runs the inner group's middleware on the outer group's routes too.
   
@@ -1662,6 +1707,7 @@ Two silent-failure shapes that richter used to miss: a call through an applicati
   
   ```text
     ! resources/js/Pages/Posts/Create.vue posts to POST /posts and sends 'subtitle', which this diff removes from App\Http\Requests\StorePostRequest::rules() (renamed to 'sub_title'?)
+  
   
   
   
