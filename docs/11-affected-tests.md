@@ -109,12 +109,26 @@ Five shapes look unfollowable and are not counted, because none of them hides an
   your own that spells `map()` and `all()` with different semantics is believed. Typing the receiver
   needs the inference the relation lane uses, and it is not wired here.
 
-- An array the dispatching method filled itself. `$chain = []; $chain[] = new FirstJob(...); $chain[] =
+- An array the dispatching code filled itself. `$chain = []; $chain[] = new FirstJob(...); $chain[] =
   new SecondJob(...); Bus::chain($chain)->dispatch();` names every job right there, so the graph already
   carries the edges and there is nothing to restructure. Unlike the single local above, an append inside
   an `if` is fine: the claim is what the array *contains*, and a branch either appends a named job or
   appends nothing. Appending an inline closure is fine too, for the same reason a closure inside an
   inline `Bus::chain([...])` is — so a chain built only from closures resolves to no jobs and no site.
+
+  **The array does not have to start empty.** `$chain = [new FirstJob(...)];` followed by appends reads as
+  well, when every element of that first literal passes the same test an append passes. A key on an
+  element is fine — `$chain[] =` appends past the highest integer key, so it cannot collide with one — but
+  a spread is not, because `[...$others]` brings in contents from elsewhere.
+
+  **It also does not have to sit in the method body.** Building the follow-up work inside `->then()` or
+  `->finally()` is how queued work is normally sequenced, so the accumulator and its dispatch naturally
+  end up in a closure together, and a closure body is read as its own scope. What it may NOT do is reach
+  in from outside: a name arriving through `use ($chain)`, `use (&$chain)`, or a parameter keeps the site.
+  A by-value capture is a second name for the array, so appends inside say nothing about what the outer
+  name holds, and a by-reference capture is a mutation this proof cannot bound. For the same reason, a
+  dispatch is only ever resolved against an accumulator its own immediate scope owns — never one from an
+  enclosing scope, which the closure could not see without capturing it anyway.
 
   The bar is otherwise absolute, and it has to be, because `$chain[] = …` assigns to an array element
   rather than to the variable: the write counting that guards the shapes above cannot see an append at

@@ -49,8 +49,8 @@ use SanderMuller\Richter\Tracers\DispatchEdgeTracer;
  */
 final class LocallyConstructedJobs
 {
-    /** @var array{jobs: array<string, array{pos: int, jobs: list<string>}>, collections: array<string, array{pos: int, jobs: list<string>}>, arrays: array<string, array{pos: int, jobs: list<string>}>} */
-    private const array NOTHING = ['jobs' => [], 'collections' => [], 'arrays' => []];
+    /** @var array{jobs: array<string, array{pos: int, jobs: list<string>}>, collections: array<string, array{pos: int, jobs: list<string>}>, arrays: array{scopes: list<array{from: int, to: int}>, entries: array<string, array{pos: int, jobs: list<string>}>}} */
+    private const array NOTHING = ['jobs' => [], 'collections' => [], 'arrays' => ['scopes' => [], 'entries' => []]];
 
     /**
      * Variables this method provably fills with a dispatch target, by name, and the ones it fills
@@ -85,7 +85,7 @@ final class LocallyConstructedJobs
      * construction and the dispatch, which needs the callee's signature to see. Every other unknown
      * shape lands on "not provable", which keeps the site.
      *
-     * @return array{jobs: array<string, array{pos: int, jobs: list<string>}>, collections: array<string, array{pos: int, jobs: list<string>}>, arrays: array<string, array{pos: int, jobs: list<string>}>}
+     * @return array{jobs: array<string, array{pos: int, jobs: list<string>}>, collections: array<string, array{pos: int, jobs: list<string>}>, arrays: array{scopes: list<array{from: int, to: int}>, entries: array<string, array{pos: int, jobs: list<string>}>}}
      */
     public static function in(ClassMethod $method): array
     {
@@ -96,9 +96,11 @@ final class LocallyConstructedJobs
         // questions first keeps that walk off every method that could never qualify — the graph build
         // runs this per method, and a whole extra AST pass over each one is not free.
         $hasCandidate = self::hasCandidate($assignments);
-        $starts = AccumulatedArrayJobs::startsIn($method);
+        // An accumulator can live in ANY scope of the method, so the cheap top-level scan no longer
+        // answers "could this method have one" — a single predicate-only pass does.
+        $mayAccumulate = self::mayAccumulate($method);
 
-        if (! $hasCandidate && $starts === []) {
+        if (! $hasCandidate && ! $mayAccumulate) {
             return self::NOTHING;
         }
 
@@ -112,7 +114,7 @@ final class LocallyConstructedJobs
 
         ['writes' => $writes, 'occurrences' => $occurrences, 'exposesLocals' => $exposesLocals] = $counts;
 
-        $arrays = $starts === [] ? [] : AccumulatedArrayJobs::in($method, $starts, $occurrences, $exposesLocals);
+        $arrays = $mayAccumulate ? AccumulatedArrayJobs::in($method, $exposesLocals) : AccumulatedArrayJobs::NONE;
 
         if (! $hasCandidate) {
             return ['jobs' => [], 'collections' => [], 'arrays' => $arrays];
@@ -208,6 +210,20 @@ final class LocallyConstructedJobs
     private static function hasCandidate(array $assignments): bool
     {
         return array_any($assignments, fn (array $assignment) => self::constructedTarget($assignment['expr']) !== null || MappedCollectionJobs::in($assignment['expr']) !== null);
+    }
+
+    /**
+     * Whether any scope in this method assigns an array literal to a name — the cheap precondition for
+     * an accumulator, asked before the per-scope walks the proof itself needs.
+     */
+    private static function mayAccumulate(ClassMethod $method): bool
+    {
+        return new NodeFinder()->findFirst(
+            [$method],
+            static fn (Node $node): bool => $node instanceof Assign
+                && $node->var instanceof Variable
+                && $node->expr instanceof Array_,
+        ) instanceof Node;
     }
 
     /** The dispatch target a `new SomeTarget(...)` right-hand side names, or null when it names none. */

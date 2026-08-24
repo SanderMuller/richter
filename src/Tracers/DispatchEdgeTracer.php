@@ -66,9 +66,9 @@ final readonly class DispatchEdgeTracer
      * No local binding proved — the shape {@see LocallyConstructedJobs::in()} returns for a method
      * that binds nothing.
      *
-     * @var array{jobs: array<string, array{pos: int, jobs: list<string>}>, collections: array<string, array{pos: int, jobs: list<string>}>, arrays: array<string, array{pos: int, jobs: list<string>}>}
+     * @var array{jobs: array<string, array{pos: int, jobs: list<string>}>, collections: array<string, array{pos: int, jobs: list<string>}>, arrays: array{scopes: list<array{from: int, to: int}>, entries: array<string, array{pos: int, jobs: list<string>}>}}
      */
-    private const array NO_LOCALS = ['jobs' => [], 'collections' => [], 'arrays' => []];
+    private const array NO_LOCALS = ['jobs' => [], 'collections' => [], 'arrays' => AccumulatedArrayJobs::NONE];
 
     /** @var list<string> */
     private array $dispatchFunctions;
@@ -329,7 +329,7 @@ final readonly class DispatchEdgeTracer
      * @param  array{line: int, dispatcher: string}  $origin  the dispatch statement a site is recorded against
      * @param  list<array{line: int, dispatcher: string}>  $unresolvedSites
      * @param  array<string, true>  $stringConstants
-     * @param  array{jobs: array<string, array{pos: int, jobs: list<string>}>, collections: array<string, array{pos: int, jobs: list<string>}>, arrays: array<string, array{pos: int, jobs: list<string>}>}  $locals
+     * @param  array{jobs: array<string, array{pos: int, jobs: list<string>}>, collections: array<string, array{pos: int, jobs: list<string>}>, arrays: array{scopes: list<array{from: int, to: int}>, entries: array<string, array{pos: int, jobs: list<string>}>}}  $locals
      * @return list<string>
      */
     private function jobsFromCall(Node $call, array $origin, array &$unresolvedSites, array $stringConstants = [], array $locals = self::NO_LOCALS): array
@@ -490,7 +490,7 @@ final readonly class DispatchEdgeTracer
     /**
      * @param  array{line: int, dispatcher: string}  $origin
      * @param  list<array{line: int, dispatcher: string}>  $unresolvedSites
-     * @param  array{jobs: array<string, array{pos: int, jobs: list<string>}>, collections: array<string, array{pos: int, jobs: list<string>}>, arrays: array<string, array{pos: int, jobs: list<string>}>}  $locals
+     * @param  array{jobs: array<string, array{pos: int, jobs: list<string>}>, collections: array<string, array{pos: int, jobs: list<string>}>, arrays: array{scopes: list<array{from: int, to: int}>, entries: array<string, array{pos: int, jobs: list<string>}>}}  $locals
      * @return list<string>
      */
     private function jobsFromArg(?Arg $arg, array $origin, array &$unresolvedSites, array $locals = self::NO_LOCALS): array
@@ -532,7 +532,7 @@ final readonly class DispatchEdgeTracer
     /**
      * @param  array{line: int, dispatcher: string}  $origin
      * @param  list<array{line: int, dispatcher: string}>  $unresolvedSites
-     * @param  array{jobs: array<string, array{pos: int, jobs: list<string>}>, collections: array<string, array{pos: int, jobs: list<string>}>, arrays: array<string, array{pos: int, jobs: list<string>}>}  $locals
+     * @param  array{jobs: array<string, array{pos: int, jobs: list<string>}>, collections: array<string, array{pos: int, jobs: list<string>}>, arrays: array{scopes: list<array{from: int, to: int}>, entries: array<string, array{pos: int, jobs: list<string>}>}}  $locals
      * @return list<string>
      */
     private function jobsFromArray(?Expr $value, array $origin, array &$unresolvedSites, array $locals = self::NO_LOCALS): array

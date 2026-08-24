@@ -832,4 +832,217 @@ final class DispatchEdgeTracerTest extends TestCase
 
         $this->assertSame(1, $this->unresolved($body, $uses));
     }
+
+    /**
+     * A start does not have to be empty. Every element of the literal goes through the same test an
+     * append goes through, which composes two readings that already exist: the inline form
+     * `Bus::chain([new FirstJob(), fn () => null])` resolves this way too, and the two disagreeing would
+     * be the defect.
+     *
+     * @return Iterator<string, array{string, list<string>}>
+     */
+    public static function provableSeeds(): Iterator
+    {
+        yield 'a seed of named jobs' => ["\$c = [new ImportJob()];\n\$c[] = new ArchiveJob();", ['App\Jobs\ImportJob::handle', 'App\Jobs\ArchiveJob::handle']];
+        yield 'a seed mixing a job and a closure' => ["\$c = [new ImportJob(), fn () => null];\n\$c[] = new ArchiveJob();", ['App\Jobs\ImportJob::handle', 'App\Jobs\ArchiveJob::handle']];
+        yield 'a seed of only closures' => ["\$c = [function () {}];\n\$c[] = fn () => null;", []];
+        // A KEY does not disqualify: `$c[] =` appends at the maximum integer key plus one, so it cannot
+        // collide with a seeded key — and the inline literal form accepts a keyed element too.
+        yield 'a keyed seed element' => ["\$c = [7 => new ImportJob()];\n\$c[] = new ArchiveJob();", ['App\Jobs\ImportJob::handle', 'App\Jobs\ArchiveJob::handle']];
+    }
+
+    /** @param  list<string>  $expected */
+    #[Test]
+    #[DataProvider('provableSeeds')]
+    public function an_accumulator_seeded_with_provable_elements_resolves(string $body, array $expected): void
+    {
+        $uses = "use App\Jobs\ImportJob;\nuse App\Jobs\ArchiveJob;\nuse Illuminate\Support\Facades\Bus;";
+        $full = "{$body}\nBus::batch(\$c)->dispatch();";
+
+        $this->assertSame($expected, array_column($this->edges($full, $uses), 'target'));
+        $this->assertSame(0, $this->unresolved($full, $uses));
+    }
+
+    /** @return Iterator<string, array{string}> */
+    public static function unprovableSeeds(): Iterator
+    {
+        yield 'an element this pass cannot see' => ['$c = [$mystery];'];
+        yield 'a factory call element' => ['$c = [ImportJob::for(1)];'];
+        // A spread looks like an element and is not one: it brings contents in from elsewhere, so nothing
+        // here can prove what they are. The inline literal form rejects it for the same reason.
+        yield 'a spread of a variable' => ['$c = [new ImportJob(), ...$others];'];
+        // `[...new ImportJob()]` is legal, and the value IS a `new` of a dispatch target — but a
+        // Traversable job spreads what it YIELDS, so the array holds something else. Accepting it would
+        // resolve the dispatch to a target it never sends.
+        yield 'a spread of a new, which the value test alone would accept' => ['$c = [...new ImportJob()];'];
+    }
+
+    #[Test]
+    #[DataProvider('unprovableSeeds')]
+    public function an_accumulator_seeded_with_anything_else_stays_unfollowable(string $seed): void
+    {
+        $uses = "use App\Jobs\ImportJob;\nuse Illuminate\Support\Facades\Bus;";
+        $body = "{$seed}\n\$c[] = new ArchiveJob();\nBus::batch(\$c)->dispatch();";
+
+        $this->assertSame(1, $this->unresolved($body, $uses));
+    }
+
+    /**
+     * An accumulator built and dispatched inside a closure is the shape `->then()` / `->finally()` makes
+     * idiomatic, so it is where the accumulator most naturally ends up. The proof is stated per SCOPE:
+     * a closure body's locals are its own.
+     */
+    #[Test]
+    public function an_accumulator_local_to_a_closure_resolves(): void
+    {
+        $uses = "use App\Jobs\ImportJob;\nuse Illuminate\Support\Facades\Bus;";
+        $body = "Bus::batch([])->finally(function (): void {\n    \$c = [];\n    \$c[] = new ImportJob();\n    Bus::batch(\$c)->dispatch();\n});";
+
+        $this->assertSame(['App\Jobs\ImportJob::handle'], array_column($this->edges($body, $uses), 'target'));
+        $this->assertSame(0, $this->unresolved($body, $uses));
+    }
+
+    #[Test]
+    public function a_closure_scope_and_a_seeded_start_compose(): void
+    {
+        // Both readings at once — the shape that needed them together, since either one alone keeps the
+        // site and the fix would read as ineffective.
+        $uses = "use App\Jobs\ImportJob;\nuse App\Jobs\ArchiveJob;\nuse Illuminate\Support\Facades\Bus;";
+        $body = "Bus::batch([])->finally(function (): void {\n    \$c = [new ImportJob()];\n    if (\$this->flag) { \$c[] = new ArchiveJob(); }\n    Bus::batch(\$c)->dispatch();\n});";
+
+        $this->assertSame(
+            ['App\Jobs\ImportJob::handle', 'App\Jobs\ArchiveJob::handle'],
+            array_column($this->edges($body, $uses), 'target'),
+        );
+        $this->assertSame(0, $this->unresolved($body, $uses));
+    }
+
+    /**
+     * A name that reaches a scope from outside is not that scope's own local. A by-value `use` is a second
+     * name for the array, so appends inside do not describe what the outer name holds; a by-reference
+     * `use` is a mutation this proof cannot bound; a parameter is whatever the caller passed.
+     *
+     * @return Iterator<string, array{string}>
+     */
+    public static function namesFromOutsideAScope(): Iterator
+    {
+        yield 'captured by value' => ["\$c = [];\nBus::batch([])->finally(function () use (\$c): void {\n    \$c[] = new ImportJob();\n    Bus::batch(\$c)->dispatch();\n});"];
+        yield 'captured by reference' => ["\$c = [];\nBus::batch([])->finally(function () use (&\$c): void {\n    \$c[] = new ImportJob();\n    Bus::batch(\$c)->dispatch();\n});"];
+        yield 'a parameter of the same name' => ["Bus::batch([])->finally(function (array \$c): void {\n    \$c[] = new ImportJob();\n    Bus::batch(\$c)->dispatch();\n});"];
+    }
+
+    #[Test]
+    #[DataProvider('namesFromOutsideAScope')]
+    public function an_accumulator_whose_name_arrives_from_outside_stays_unfollowable(string $body): void
+    {
+        $this->assertSame(1, $this->unresolved($body, "use App\Jobs\ImportJob;\nuse Illuminate\Support\Facades\Bus;"));
+    }
+
+    #[Test]
+    public function a_dispatch_never_resolves_against_an_enclosing_scopes_accumulator(): void
+    {
+        // The unsound resolution this design exists to refuse. Without `use ($c)` the closure's `$c` is a
+        // DIFFERENT variable — `isset($c)` there is false — so resolving it against the method's
+        // accumulator would claim jobs this dispatch does not send and drop a `not determinable` reason the
+        // run should have had. That is under-selection: a test the change needs, missing from the run.
+        $uses = "use App\Jobs\ImportJob;\nuse Illuminate\Support\Facades\Bus;";
+        $body = "\$c = [];\n\$c[] = new ImportJob();\n\$callback = function (): void {\n    Bus::chain(\$c)->dispatch();\n};";
+
+        $this->assertSame(1, $this->unresolved($body, $uses));
+    }
+
+    #[Test]
+    public function a_shadowing_closure_resolves_while_the_method_accumulator_does_not(): void
+    {
+        // Not a gap — the rules working. Occurrences are counted over the whole scope subtree, so the
+        // closure's start, append and dispatch land as three mentions the METHOD's accounting cannot
+        // place, and the method's accumulator fails. Narrowing the method count to ignore shadowed nested
+        // mentions would make this look tidier and would be a silent loosening.
+        $uses = "use App\Jobs\ImportJob;\nuse App\Jobs\ArchiveJob;\nuse Illuminate\Support\Facades\Bus;";
+        $body = "\$c = [];\n\$c[] = new ImportJob();\nBus::batch(\$c)->dispatch();\n"
+            . "Bus::batch([])->finally(function (): void {\n    \$c = [];\n    \$c[] = new ArchiveJob();\n    Bus::batch(\$c)->dispatch();\n});";
+
+        $this->assertSame(1, $this->unresolved($body, $uses));
+        // The closure's own dispatch still resolves, which is what keeps the count at one rather than two.
+        $this->assertContains('App\Jobs\ArchiveJob::handle', array_column($this->edges($body, $uses), 'target'));
+    }
+
+    #[Test]
+    public function two_sibling_closures_each_resolve_their_own_accumulator(): void
+    {
+        $uses = "use App\Jobs\ImportJob;\nuse App\Jobs\ArchiveJob;\nuse Illuminate\Support\Facades\Bus;";
+        $body = "Bus::batch([])->finally(function (): void {\n    \$c = [];\n    \$c[] = new ImportJob();\n    Bus::batch(\$c)->dispatch();\n});\n"
+            . "Bus::batch([])->finally(function (): void {\n    \$c = [];\n    \$c[] = new ArchiveJob();\n    Bus::batch(\$c)->dispatch();\n});";
+
+        $this->assertSame(0, $this->unresolved($body, $uses));
+        $this->assertSame(
+            ['App\Jobs\ImportJob::handle', 'App\Jobs\ArchiveJob::handle'],
+            array_column($this->edges($body, $uses), 'target'),
+        );
+    }
+
+    #[Test]
+    public function a_nested_closure_that_appends_by_reference_keeps_the_site(): void
+    {
+        // Rule 2's reason: a nested scope capturing by reference can mutate the array, so its mentions
+        // have to keep rejecting. Counting the whole subtree makes that automatic rather than enumerated.
+        $uses = "use App\Jobs\ImportJob;\nuse App\Jobs\ArchiveJob;\nuse Illuminate\Support\Facades\Bus;";
+        $body = "Bus::batch([])->finally(function (): void {\n    \$c = [];\n    \$c[] = new ImportJob();\n    \$inner = function () use (&\$c) { \$c[] = new ArchiveJob(); };\n    Bus::batch(\$c)->dispatch();\n});";
+
+        $this->assertSame(1, $this->unresolved($body, $uses));
+    }
+
+    #[Test]
+    public function an_uncaptured_nested_append_is_not_an_append_to_the_enclosing_array(): void
+    {
+        // The false-edge case. Without `use (&$c)` the nested closure's `$c` is a DIFFERENT variable, so
+        // its append must not be attributed to the outer array — and the occurrence formula balances
+        // exactly right for this shape, so nothing else catches it: outer start, nested append, outer read
+        // is three mentions against one counted append. Reading appends narrowly (this scope only) while
+        // counting mentions widely (the whole subtree) is what makes it fail closed instead.
+        $uses = "use App\Jobs\ImportJob;\nuse App\Jobs\ArchiveJob;\nuse Illuminate\Support\Facades\Bus;";
+        $body = "\$c = [new ImportJob()];\n\$inner = function (): void { \$c[] = new ArchiveJob(); };\nBus::batch(\$c)->dispatch();";
+
+        $this->assertSame(1, $this->unresolved($body, $uses));
+
+        // The site count IS the assertion here. Asserting the absence of an `ArchiveJob` edge would test
+        // the wrong thing: the tracer's instantiation over-approximation draws one for any `new` of a
+        // job-like class in the method, whatever the accumulator concludes. What must not happen is the
+        // outer accumulator RESOLVING — claiming provable contents it does not have, and taking a
+        // `not determinable` reason with it.
+    }
+
+    #[Test]
+    public function a_dispatch_inside_a_nested_named_function_does_not_resolve_against_the_method(): void
+    {
+        // Same wrong resolution as the closure case, arriving through a gap in the scope ENUMERATION
+        // rather than in the lookup: a nested named `function` has its own locals, so if it is not
+        // registered as a scope the dispatch inside it is handed the enclosing method's and resolves
+        // against an accumulator it cannot see. Scopes are enumerated as `FunctionLike` for this reason.
+        $uses = "use App\Jobs\ImportJob;\nuse Illuminate\Support\Facades\Bus;";
+        $body = "\$c = [];\n\$c[] = new ImportJob();\nfunction helper(): void { Bus::chain(\$c)->dispatch(); }";
+
+        $this->assertSame(1, $this->unresolved($body, $uses));
+    }
+
+    #[Test]
+    public function a_seed_with_duplicate_keys_over_approximates_exactly_as_an_inline_literal_does(): void
+    {
+        // PHP keeps only the last value for a repeated key, so `ImportJob` is never dispatched here — and
+        // both forms record it anyway. That is pre-existing behaviour of the inline literal, asserted here
+        // so the seed is pinned to MATCH it: an extra edge is the safe direction (more tests selected,
+        // never fewer), and fixing one form alone would make the two disagree about the same array.
+        $uses = "use App\Jobs\ImportJob;\nuse App\Jobs\ArchiveJob;\nuse Illuminate\Support\Facades\Bus;";
+        $inline = 'Bus::chain([0 => new ImportJob(), 0 => new ArchiveJob()])->dispatch();';
+        $seeded = "\$c = [0 => new ImportJob(), 0 => new ArchiveJob()];\n\$c[] = new ImportJob();\nBus::batch(\$c)->dispatch();";
+
+        $this->assertSame(
+            ['App\Jobs\ImportJob::handle', 'App\Jobs\ArchiveJob::handle'],
+            array_column($this->edges($inline, $uses), 'target'),
+        );
+        $this->assertSame(
+            ['App\Jobs\ImportJob::handle', 'App\Jobs\ArchiveJob::handle'],
+            array_column($this->edges($seeded, $uses), 'target'),
+        );
+    }
 }
