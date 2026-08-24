@@ -28,6 +28,8 @@ A whitespace-only line is now skipped in the class-level scan, by the same white
 
 Nothing moves. A change that only adds or removes members now reports `determinable` where it reported low confidence, so a selection is returned where the full suite was demanded before. Exit codes, `--plain` stdout, the payload keys and the risk level are unchanged.
 
+Reach and impact numbers narrow on a diff that used to trip the bug, because a coarse class-level seed is what the fix removes. The change seeds its own members instead of the whole class, so `richter:detect-changes` reports fewer graph nodes for that file, fewer impacted nodes and fewer entry surfaces reached only by association. The risk level is unchanged, and a diff that was never coarse-seeded reports the same figures as before.
+
 **Full Changelog**: https://github.com/SanderMuller/richter/compare/v0.57.0...v0.57.1
 
 ## v0.57.0 - 2026-08-24
