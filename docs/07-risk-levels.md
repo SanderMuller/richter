@@ -40,6 +40,20 @@ A real change to a class the graph never charted is step 2, not step 0. Failing 
 placement failure, and reporting it as "nothing to assess" would be the falsely reassuring answer this
 package exists to avoid.
 
+### One addition is not additive
+
+An added member is additive because nothing called it at base. A model's **first** declaration of a
+property Eloquent itself reads breaks that premise, so richter treats it as a modification instead.
+`protected $table = 'legacy_articles';` redirects every query untouched code already makes; `$perPage`
+repaginates existing callers; `$timestamps = false` stops writes they depend on. The same holds for
+`$fillable`, `$casts`, `$guarded`, `$hidden`, `$appends`, `$with` and the rest of the properties the
+base `Model` declares.
+
+A property has no member node, so the change seeds the class coarsely and
+[`richter:affected-tests`](11-affected-tests.md) names it in the low-confidence reason as
+`(App\Models\Article::table, property)`. Two cases stay additive: adding a column to a `$fillable` or
+`$casts` that already exists, and any property on a class that is not a model.
+
 ## Hazards
 
 A hazard is a property of the diff saying the change may break something. Every predicate is exact: a
