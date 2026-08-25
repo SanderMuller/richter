@@ -294,7 +294,7 @@ final class ChangedSymbols
             $members[] = new MemberChange(
                 $member['name'],
                 $member['kind'],
-                self::changeTypeFor($existedBefore, $headSrc, $baseSrc, $member),
+                self::changeTypeFor($existedBefore, $headSrc, $baseSrc, $member, $file),
                 $member['resolvable'],
             );
         }
@@ -413,12 +413,16 @@ final class ChangedSymbols
      * A brand-new member is additive; so is an addition-only edit to a model's `$fillable`/`$casts`/
      * `casts()` — harmless to existing code, never a coarse modification.
      *
+     * The one exception is a model's first declaration of a property Eloquent reads, which changes
+     * what untouched callers get ({@see ModelBehaviourProperty}). A new file is exempt: it has no
+     * existing callers to change for, so `$baseSrc` gates the check.
+     *
      * @param  array{name: string, kind: string, resolvable: bool, start: int, end: int}  $member
      */
-    private static function changeTypeFor(bool $existedBefore, string $headSrc, ?string $baseSrc, array $member): string
+    private static function changeTypeFor(bool $existedBefore, string $headSrc, ?string $baseSrc, array $member, string $file): string
     {
         if (! $existedBefore) {
-            return MemberChange::CHANGE_ADDED;
+            return ModelBehaviourProperty::additionChangeType($member['name'], $member['kind'], $headSrc, $baseSrc, Fqcn::fromPath($file));
         }
 
         $additionOnlyConfigEdit = $baseSrc !== null

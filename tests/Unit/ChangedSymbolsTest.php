@@ -420,6 +420,147 @@ final class ChangedSymbolsTest extends TestCase
     }
 
     #[Test]
+    public function a_models_first_table_declaration_is_a_modification_not_an_addition(): void
+    {
+        // A new member has no callers at base, which is why an addition seeds nothing. A model's first
+        // `$table` breaks that premise: it redirects every query untouched code already makes. The
+        // property has no member node, so it seeds coarsely, exactly as changing one does.
+        $base = "<?php\n\nnamespace App\\Models;\n\nuse Illuminate\\Database\\Eloquent\\Model;\n\nclass Article extends Model\n{\n    public function author(): string\n    {\n        return 'a';\n    }\n}\n";
+        $head = "<?php\n\nnamespace App\\Models;\n\nuse Illuminate\\Database\\Eloquent\\Model;\n\nclass Article extends Model\n{\n    protected \$table = 'legacy_articles';\n\n    public function author(): string\n    {\n        return 'a';\n    }\n}\n";
+        $hunk = $this->hunk([[9, "    protected \$table = 'legacy_articles';"], [10, '']], []);
+
+        $result = ChangedSymbols::classifyFile('app/Models/Article.php', $head, $base, $hunk);
+
+        $this->assertFalse($result->hasOnlyAdditiveOrCosmeticChanges());
+        $this->assertTrue($result->needsCoarseSeed());
+        $this->assertSame('table', $result->unpinnableMembers()[0]->name);
+        $this->assertSame(MemberChange::KIND_PROPERTY, $result->unpinnableMembers()[0]->kind);
+    }
+
+    #[Test]
+    public function a_models_first_static_behaviour_property_is_a_modification_too(): void
+    {
+        // `$snakeAttributes` is the one static in the list, and MemberResolver reports a static
+        // declaration as an ordinary property member. Declaring it renames every relation key
+        // `toArray()` produces, for readers that never mention the model.
+        $base = "<?php\n\nnamespace App\\Models;\n\nuse Illuminate\\Database\\Eloquent\\Model;\n\nclass Article extends Model\n{\n    public function author(): string\n    {\n        return 'a';\n    }\n}\n";
+        $head = "<?php\n\nnamespace App\\Models;\n\nuse Illuminate\\Database\\Eloquent\\Model;\n\nclass Article extends Model\n{\n    public static \$snakeAttributes = false;\n\n    public function author(): string\n    {\n        return 'a';\n    }\n}\n";
+        $hunk = $this->hunk([[9, '    public static $snakeAttributes = false;'], [10, '']], []);
+
+        $result = ChangedSymbols::classifyFile('app/Models/Article.php', $head, $base, $hunk);
+
+        $this->assertTrue($result->needsCoarseSeed());
+        $this->assertSame('snakeAttributes', $result->unpinnableMembers()[0]->name);
+    }
+
+    #[Test]
+    public function an_anonymous_class_in_the_file_does_not_hide_the_model(): void
+    {
+        // A model that returns an anonymous cast class puts a second class node in the file. Reading
+        // that as "more than one class, so not a model" would miss the callers this exists to find.
+        $body = "    public function cast(): object\n    {\n        return new class {\n        };\n    }\n";
+        $base = "<?php\n\nnamespace App\\Models;\n\nuse Illuminate\\Database\\Eloquent\\Model;\n\nclass Article extends Model\n{\n" . $body . "}\n";
+        $head = "<?php\n\nnamespace App\\Models;\n\nuse Illuminate\\Database\\Eloquent\\Model;\n\nclass Article extends Model\n{\n    protected \$table = 'legacy_articles';\n\n" . $body . "}\n";
+        $hunk = $this->hunk([[9, "    protected \$table = 'legacy_articles';"], [10, '']], []);
+
+        $result = ChangedSymbols::classifyFile('app/Models/Article.php', $head, $base, $hunk);
+
+        $this->assertTrue($result->needsCoarseSeed());
+    }
+
+    #[Test]
+    public function a_lone_class_whose_name_does_not_match_the_path_still_answers(): void
+    {
+        // A PSR-4 mismatch leaves no class matching the file's FQCN. One named class in the file is
+        // still unambiguous, so it decides rather than the change falling through as additive.
+        $base = "<?php\n\nnamespace App\\Models;\n\nuse Illuminate\\Database\\Eloquent\\Model;\n\nclass LegacyArticle extends Model\n{\n}\n";
+        $head = "<?php\n\nnamespace App\\Models;\n\nuse Illuminate\\Database\\Eloquent\\Model;\n\nclass LegacyArticle extends Model\n{\n    protected \$table = 'legacy_articles';\n}\n";
+        $hunk = $this->hunk([[9, "    protected \$table = 'legacy_articles';"]], []);
+
+        $result = ChangedSymbols::classifyFile('app/Models/Article.php', $head, $base, $hunk);
+
+        $this->assertTrue($result->needsCoarseSeed());
+    }
+
+    #[Test]
+    public function a_models_ordinary_new_property_stays_additive(): void
+    {
+        $base = "<?php\n\nnamespace App\\Models;\n\nuse Illuminate\\Database\\Eloquent\\Model;\n\nclass Article extends Model\n{\n    public function author(): string\n    {\n        return 'a';\n    }\n}\n";
+        $head = "<?php\n\nnamespace App\\Models;\n\nuse Illuminate\\Database\\Eloquent\\Model;\n\nclass Article extends Model\n{\n    protected ?string \$cachedLabel = null;\n\n    public function author(): string\n    {\n        return 'a';\n    }\n}\n";
+        $hunk = $this->hunk([[9, '    protected ?string $cachedLabel = null;'], [10, '']], []);
+
+        $result = ChangedSymbols::classifyFile('app/Models/Article.php', $head, $base, $hunk);
+
+        $this->assertTrue($result->hasOnlyAdditiveOrCosmeticChanges(), 'a property Eloquent does not read has no existing readers');
+        $this->assertFalse($result->needsCoarseSeed());
+    }
+
+    #[Test]
+    public function a_first_table_declaration_on_a_class_that_is_no_model_stays_additive(): void
+    {
+        // The name alone must not decide. A plain class extending nothing reads no Eloquent default,
+        // so its `$table` is an ordinary new property.
+        $base = "<?php\n\nnamespace App\\Support;\n\nclass TableName\n{\n    public function value(): string\n    {\n        return 'a';\n    }\n}\n";
+        $head = "<?php\n\nnamespace App\\Support;\n\nclass TableName\n{\n    protected string \$table = 'articles';\n\n    public function value(): string\n    {\n        return 'a';\n    }\n}\n";
+        $hunk = $this->hunk([[7, "    protected string \$table = 'articles';"], [8, '']], []);
+
+        $result = ChangedSymbols::classifyFile('app/Support/TableName.php', $head, $base, $hunk);
+
+        $this->assertTrue($result->hasOnlyAdditiveOrCosmeticChanges());
+        $this->assertFalse($result->needsCoarseSeed());
+    }
+
+    #[Test]
+    public function a_first_table_declaration_on_an_unknown_base_class_seeds_coarsely(): void
+    {
+        // The base class neither loads nor names Eloquent, so whether it is a model cannot be settled.
+        // The uncertainty costs one coarse seed rather than a missed selection.
+        $base = "<?php\n\nnamespace App\\Models;\n\nuse App\\Support\\BaseModel;\n\nclass Article extends BaseModel\n{\n    public function author(): string\n    {\n        return 'a';\n    }\n}\n";
+        $head = "<?php\n\nnamespace App\\Models;\n\nuse App\\Support\\BaseModel;\n\nclass Article extends BaseModel\n{\n    protected \$perPage = 100;\n\n    public function author(): string\n    {\n        return 'a';\n    }\n}\n";
+        $hunk = $this->hunk([[9, '    protected $perPage = 100;'], [10, '']], []);
+
+        $result = ChangedSymbols::classifyFile('app/Models/Article.php', $head, $base, $hunk);
+
+        $this->assertTrue($result->needsCoarseSeed());
+    }
+
+    #[Test]
+    public function a_brand_new_model_declaring_table_needs_no_coarse_seed(): void
+    {
+        // A file that did not exist has no callers to change for, so every member of it is additive —
+        // the class itself is the change, and it seeds on its own class node.
+        $head = "<?php\n\nnamespace App\\Models;\n\nuse Illuminate\\Database\\Eloquent\\Model;\n\nclass Article extends Model\n{\n    protected \$table = 'legacy_articles';\n\n    public function author(): string\n    {\n        return 'a';\n    }\n}\n";
+        $hunk = $this->hunk([[9, "    protected \$table = 'legacy_articles';"]], []);
+
+        $result = ChangedSymbols::classifyFile('app/Models/Article.php', $head, null, $hunk, isNew: true);
+
+        $this->assertFalse($result->needsCoarseSeed());
+    }
+
+    #[Test]
+    public function a_models_first_fillable_declaration_seeds_coarsely_but_a_later_column_stays_additive(): void
+    {
+        // Two cases one line apart in the same file, and they are not the same case. Declaring
+        // `$fillable` where none stood narrows mass assignment for every existing `create()` call.
+        // Adding a column to a list that already exists is the addition-only edit EloquentConfig
+        // exempts, and it stays additive.
+        $noList = "<?php\n\nnamespace App\\Models;\n\nuse Illuminate\\Database\\Eloquent\\Model;\n\nclass Article extends Model\n{\n}\n";
+        $oneList = "<?php\n\nnamespace App\\Models;\n\nuse Illuminate\\Database\\Eloquent\\Model;\n\nclass Article extends Model\n{\n    protected array \$fillable = ['title'];\n}\n";
+        $twoList = "<?php\n\nnamespace App\\Models;\n\nuse Illuminate\\Database\\Eloquent\\Model;\n\nclass Article extends Model\n{\n    protected array \$fillable = ['title', 'slug'];\n}\n";
+
+        $first = ChangedSymbols::classifyFile('app/Models/Article.php', $oneList, $noList,
+            $this->hunk([[9, "    protected array \$fillable = ['title'];"]], []));
+
+        $this->assertTrue($first->needsCoarseSeed(), 'a first $fillable narrows what existing calls persist');
+
+        $column = ChangedSymbols::classifyFile('app/Models/Article.php', $twoList, $oneList,
+            $this->hunk([[9, "    protected array \$fillable = ['title', 'slug'];"]], [[9, "    protected array \$fillable = ['title'];"]]));
+
+        $this->assertTrue($column->hasOnlyAdditiveOrCosmeticChanges(), 'adding a column to an existing list stays additive');
+        $this->assertFalse($column->needsCoarseSeed());
+    }
+
+    #[Test]
     public function a_mixed_file_seeds_only_the_modified_method_not_the_added_property(): void
     {
         $head = "<?php\nclass Foo\n{\n    protected array \$fillable = ['a'];\n\n    public function bar(): int\n    {\n        return 2;\n    }\n}\n";
