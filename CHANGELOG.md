@@ -5,6 +5,32 @@ All notable changes to `sandermuller/richter` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.59.0 - 2026-08-27
+
+Richter now requires Laravel Brain 2.5.0, which classifies a subclassed authentication middleware for itself. The report says what that leaves richter to catch, instead of the story that was true before it.
+
+### Changed
+
+**`laramint/laravel-brain` now requires `^2.5.0`** (was `^2.4.0`). Take it with `composer update sandermuller/richter`. The floor is what makes the two behaviours below true for every install rather than for whichever Brain a lockfile happened to resolve.
+
+**Fewer false "requires no authentication" findings.** Brain classifies a route's exposure from its middleware, and it now walks a middleware class's `extends` chain to `Illuminate\Auth\Middleware\Authenticate`. An application middleware named for itself — `TenantAuthenticate`, `EnsureUserIsAuthenticated` — is recognised as authentication, where before only its name was read. Every route behind one stops reading `[public]`, and the `PUBLIC_WRITE` finding on a mutating route behind one stops being raised at all.
+
+**Scoped graph rebuilds survive a path written another way.** Brain resolves a caller's path form against the paths a build recorded, and refuses a scope naming a file that is not in the project rather than returning the previous graph as though it were current. Both were richter's to guard alone before.
+
+**Faster analysis**, all inside the Brain pass: the facade scan reads a fraction of `app/` where it used to read most of it, the "does this file declare `rules()`" question is answered once per file instead of once per graph edge, and a build runs with PHP's cycle collector off.
+
+### Fixed
+
+**The auth-middleware note said the wrong thing about why a finding was wrong.** When richter contradicts a `PUBLIC_WRITE` finding, it now explains the real remainder: Brain's chain walk stops at `Authenticate`, so a middleware descending from one of the three other framework auth middlewares — `AuthenticateWithBasicAuth`, `EnsureEmailIsVerified`, `ValidateSignature` — under a name of its own is still read as public, and so is a guard that reaches the route through a named middleware group. The text formatter, the markdown formatter and the HTML report carry one explanation between them rather than three.
+
+The severity in that area was also stated wrongly in the documentation: a `PUBLIC_WRITE` is `high` for `DELETE` and `medium` for `POST`, `PUT` and `PATCH`, never `high` for all four.
+
+### Internal
+
+The Brain behaviour richter compensates for is now pinned by a contract test that runs Brain's own security analysis over four middleware fixtures. It records what that walk reaches and what it does not, including the two alias forms that read differently once an application registers them. The day upstream widens its walk, the test fails and the compensating lane can shrink — instead of quietly becoming dead code.
+
+**Full Changelog**: https://github.com/SanderMuller/richter/compare/v0.58.0...v0.59.0
+
 ## v0.58.0 - 2026-08-25
 
 A model's first declaration of a property Eloquent reads is no longer treated as an addition with no callers. Sourced from production dogfood.
@@ -18,6 +44,7 @@ Such a first declaration now classifies as a modification. A property has no mem
 ```
 a changed member could not be pinned to a graph node (low confidence):
 app/Models/Article.php (App\Models\Article::table, property)
+
 
 ```
 The rule covers the 25 properties the base `Model` declares that an application sets to change behaviour — among them `$table`, `$connection`, `$primaryKey`, `$keyType`, `$incrementing`, `$timestamps`, `$perPage`, `$with`, `$appends`, `$hidden`, `$visible`, `$fillable`, `$guarded`, `$casts` and `$touches`. The runtime caches Eloquent writes are excluded.
@@ -41,6 +68,7 @@ The named low-confidence reason from 0.57.0 now names the right kind. Sourced fr
 ```
 a changed member could not be pinned to a graph node (low confidence):
 app/Models/Post.php (App\Models\Post, class declaration)
+
 
 
 ```
@@ -71,6 +99,7 @@ It now names each one:
 ```
 a changed member could not be pinned to a graph node (low confidence):
 app/Models/Post.php (App\Models\Post::perPage, property)
+
 
 
 
@@ -204,6 +233,7 @@ The --html option requires a path: --html=<path>.
 
 
 
+
 ```
 This is the rule `--fail-on` and `--fail-on-hazard` already apply, through the same mechanism: a flag the user actually typed fails closed rather than being silently ignored. `--open` without `--html` was already guarded for exactly this reason; `--html` itself was the gap.
 
@@ -317,6 +347,7 @@ The three prose formats now keep the discriminating surfaces inline and fold the
 
 
 
+
 ```
 **Nothing is dropped.** The section still counts every surface, and the collapsed group states its own count, so the report cannot read as shorter than the reach it found. A surface whose reason the walk could not record stays inline: absence of a reason is not evidence of a weak one.
 
@@ -345,6 +376,7 @@ A dropped column now names what still refers to it, so the report says who has n
   ```
   ! [tier 2 migration] App\Models\Post — column `posts`.`subtitle` dropped, still named by
     App\Models\Post's own $fillable/$casts, a `subtitle` key in app/Http/Resources/PostResource.php
+  
   
   
   
@@ -466,6 +498,7 @@ Hazards (1):
 
 
 
+
 ```
 The suffix says "via its class" rather than naming a declaring class, because a `migration` hazard is named for a model and a `contract` hazard can name a class deleted whole — neither has a declaring class to point at.
 
@@ -542,6 +575,7 @@ Tightening a rate limit reported a tier-3 HIGH saying the limit was gone. A guar
   
   ```
   the rate limit on the GET /search route in routes/api.php rose from `throttle:60,1` to `throttle:120,1`
+  
   
   
   
@@ -979,6 +1013,7 @@ dispatch($job);
 
 
 
+
 ```
 That was recorded as a dispatch whose target could not be followed — and the taint is global, so one of them makes every `richter:affected-tests` run report `not determinable` and fall back to the full suite. The graph has carried the edge for this shape all along: the instantiation is in the same method, right above the dispatch. The site pointed at a place to restructure where nothing was hidden and nothing needed restructuring.
 
@@ -1089,6 +1124,7 @@ Build profile: nothing was built — the diff holds nothing the graph is built f
 
 
 
+
 ```
 On stderr, like the table it stands in for, and before the payload in `--json` mode so stdout stays one document. Building anyway was the alternative, and it would make a no-op run pay for an analysis nothing asked for.
 
@@ -1106,6 +1142,7 @@ An event named by a class constant resolves in **any** declaration form, includi
 public const string
     SUBTITLE_CHANGED = 'subtitle-changed',
     SUBTITLE_DELETED = 'subtitle-deleted';
+
 
 
 
@@ -1164,6 +1201,7 @@ Build profile (forced rebuild):
   total                      3.85s
   no scoped rebuild: non-app-change
     config/services.php differs from the cached graph and sits outside app/
+
 
 
 
@@ -1277,6 +1315,7 @@ It now names every site:
 ```
 the graph contains job dispatches that could not be followed:
 app/Jobs/Fanout.php:88 (App\Jobs\Fanout::handle), app/Services/Importer.php:12 (App\Services\Importer::run)
+
 
 
 
@@ -1693,6 +1732,7 @@ Note: 2 changed file(s) are outside the analysed scope (not PHP under app/, a Bl
 
 
 
+
 ```
 Stderr, like the untracked-file note, so `--json` and `--markdown` stdout stay exactly the report. Frontend sources the configuration declines to scan are not counted: generated Wayfinder output under `frontend.generated_paths` and `.d.ts` declarations were silenced on purpose, and a note that fires loudest on regeneration churn is one people stop reading.
 
@@ -1795,6 +1835,7 @@ One new advisory lane, and a README that finally leads with what the package is 
   
   
   
+  
   ```
   The count comes off the `route:: → middleware::<group>` edges already in the graph, so it counts endpoints only: a controller-level attachment of the same group does not inflate it. Membership is read from `$middlewareGroups` on a Laravel 10 Kernel or the `->web(append: [...])` form in a Laravel 11+ `bootstrap/app.php`. A member written as an alias resolves through the same alias map, parameters are cut first (`tenant:strict` is one alias with an argument), and a group that names another group is expanded transitively, since Laravel runs the inner group's middleware on the outer group's routes too.
   
@@ -1827,6 +1868,7 @@ Two silent-failure shapes that richter used to miss: a call through an applicati
   
   ```text
     ! resources/js/Pages/Posts/Create.vue posts to POST /posts and sends 'subtitle', which this diff removes from App\Http\Requests\StorePostRequest::rules() (renamed to 'sub_title'?)
+  
   
   
   
