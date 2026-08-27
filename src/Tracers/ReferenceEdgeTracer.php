@@ -23,12 +23,20 @@ use SanderMuller\Richter\Support\LoadableClass;
 use SanderMuller\Richter\Support\RelationIndex;
 
 /**
- * Brain has no notion of API resources, transformers, or custom validation rules:
- * `XResource::make(...)`, nested resource composition, and `new SomeRule()` inside `rules()` produce
- * no edge, so a changed resource or rule reads as unplaceable — the exact blind spot behind a payload
- * field silently going missing. Emits edges from the referencing method to the
- * referenced class; the class-level target is deliberate, the member-declaration pass in
- * {@see CodeGraphBuilder} links its methods.
+ * Reference edges for the families where a change to the class is a change to what its caller does:
+ * API resources and transformers, custom validation rules, handlers and single-purpose actions.
+ *
+ * Brain reads one of those families, and only where its own trace goes. `XResource::make(...)`,
+ * `::collection(...)` and `new XResource(...)` become `resource` hops that descend into `toArray()`,
+ * including a resource composing a sibling — but only inside a body its route-anchored trace
+ * reaches, so a resource built by a class no entry point reaches leaves nothing behind. Transformers,
+ * a `new SomeRule()` inside `rules()`, a handler and an action it does not model at all.
+ *
+ * This runs over every file under `app/`, which covers both halves: the families Brain has no notion
+ * of, and the reached-from-nowhere part of the one it does. Without it a changed resource or rule
+ * reads as unplaceable — the exact blind spot behind a payload field silently going missing. Emits
+ * edges from the referencing method to the referenced class; the class-level target is deliberate,
+ * the member-declaration pass in {@see CodeGraphBuilder} links its methods.
  *
  * Consumed per file by the consolidated AST loop in {@see CodeGraphBuilder} — this class walks
  * nothing itself; all namespace targets (see NAMESPACE_TYPES) share that one pass. Dev/CI tooling only.

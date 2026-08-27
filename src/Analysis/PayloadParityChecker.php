@@ -9,8 +9,9 @@ use SanderMuller\Richter\Tracers\ReferenceEdgeTracer;
 /**
  * Advisory: a model field added to `$fillable`/`$casts`/`casts()` but never added to a resource that
  * otherwise mirrors the model's other fields — the exact shape behind a payload field silently going
- * missing (Brain has no notion of API resources; {@see ReferenceEdgeTracer}
- * maps a resource reference to a class-level edge and nothing more). Findings only — never `risk`,
+ * missing (Brain models a resource as one hop into its `toArray()` and reads no keys out of it;
+ * {@see ReferenceEdgeTracer} maps a resource reference to a class-level edge and nothing more, so
+ * the key sets this compares are parsed here). Findings only — never `risk`,
  * `--fail-on`, or `affected-tests`. Deliberately a no-guess check: an unparseable resource, a dynamic
  * `toArray()` key, or a candidate below the mirror threshold is silently skipped rather than guessed at.
  *
