@@ -182,8 +182,10 @@ final class HtmlFormatter
 
     /**
      * The other half of the same evidence lane: auth middleware whose ANCESTRY makes it authentication,
-     * which Brain's name-based match cannot see. A subclassed `Authenticate` is the common shape, and
-     * it turns every route behind it into a `high` "requires no authentication" finding.
+     * which Brain's own check does not reach. Brain walks an `extends` chain, but terminates it on
+     * `Illuminate\Auth\Middleware\Authenticate`, so a descendant of the three other auth middlewares
+     * that carries a name of its own draws a "requires no authentication" finding on every mutating
+     * route behind it.
      *
      * @param  list<string>  $authMiddleware
      */
@@ -197,7 +199,8 @@ final class HtmlFormatter
 
         return '<p class="note">richter: <code>' . $middleware . '</code> is applied to this route and '
             . 'extends a framework authentication middleware, so the finding above is likely wrong. '
-            . 'Brain matches middleware by name, not by ancestry.</p>';
+            . 'Brain walks an <code>extends</code> chain to <code>Authenticate</code> only, so a descendant '
+            . 'of another auth middleware still reads public.</p>';
     }
 
     /**

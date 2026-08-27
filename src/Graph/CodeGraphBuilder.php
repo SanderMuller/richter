@@ -111,10 +111,11 @@ final class CodeGraphBuilder
         try {
             return [new ProjectAnalyzer()->scopedTo($scopedFiles, $previousBrainGraph)->analyze($projectRoot, $progress), 'scoped'];
         } catch (ScopedRebuildNotApplicable) {
-            // The edit moved a call, so the previous graph's edges cannot be carried over. One full
-            // analysis — today's cost, never a wrong graph. A FRESH analyzer, not the rejected one:
-            // `scopedTo` state is consumed on the first `analyze()`, and constructing a new instance
-            // makes that independent of Brain's internals.
+            // Brain refused the scope: the changed files' owned call edges are not the set the
+            // previous graph holds — a call added, removed or moved, all one answer — or the scope
+            // names a path that is no file in this project. One full analysis — today's cost, never a wrong graph. A FRESH
+            // analyzer, not the rejected one: `scopedTo` state is consumed on the first `analyze()`,
+            // and constructing a new instance makes that independent of Brain's internals.
             return [new ProjectAnalyzer()->analyze($projectRoot, $progress), 'scoped-rejected'];
         }
     }

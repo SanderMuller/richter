@@ -17,14 +17,14 @@ Reached routes inherit [Laravel Brain](https://github.com/laramint/laravel-brain
 
 ```text
   - route::POST::/webhooks/payments  (routes/api.php:12)  [⚠ no test references this]  [public]
-      ⚠ PUBLIC_WRITE (high): POST route with no auth middleware
+      ⚠ PUBLIC_WRITE (medium): POST route with no auth middleware
 ```
 
 It exists for routes only (Brain classifies nothing else), and false positives are suppressed where Brain's own config says so (`laravel-brain.security.trusted_route_names` / `trusted_route_uris`). A Livewire, Filament, Nova or queue entry point never carries one of these tags at all; that absence means the surface was not classified, never "public" or "unauthenticated", and its real exposure comes from mount-time `authorize()` calls, middleware, or route placement the graph doesn't model.
 
 Brain classifies exposure from the route's static middleware surface, so it can flag a `PUBLIC_WRITE` on a route that is in fact gated by a policy-constant check (`Gate::authorize(PostPolicy::UPDATE, …)`) it cannot see. Richter cross-checks such a finding against its own `authorizes` edges: when the route's reach authorizes a policy, it adds a note pointing at that policy. The note is evidence for you to verify rather than a suppression, and Brain's finding stays shown.
 
-Brain also matches auth middleware by name (`auth`, `sanctum`, the literal `Illuminate\Auth\Middleware\Authenticate`). An app that subclasses Laravel's middleware matches none of those names, and `App\Http\Middleware\Authenticate extends …\Auth\Middleware\Authenticate` is the default skeleton shape, so every route behind it reads `[public]`. Richter walks the class ancestry that a name match cannot and notes the applied auth middleware beside the finding, again as evidence rather than a suppression. Middleware that authenticates without extending a framework class is still invisible to both; list it under `laravel-brain.security.auth_middleware` to teach Brain the name. A `MISSING_THROTTLE` is left to stand.
+Brain reads auth middleware two ways: by name — the aliases `auth`, `sanctum`, `jwt` and the like, plus the class's own basename against `Authenticate` and `ValidateSignature` — and, since Laravel Brain 2.5.0, by walking a class's `extends` chain. That chain terminates on `Illuminate\Auth\Middleware\Authenticate`. A middleware that descends from one of the three other framework auth middlewares — `AuthenticateWithBasicAuth`, `EnsureEmailIsVerified` or `ValidateSignature` — and carries a name of its own matches nothing, because the basename compared is the class's own, so every route behind it reads `[public]`. Richter walks the ancestry of all four and notes the applied auth middleware beside the finding, again as evidence rather than a suppression. A guard that reaches the route through a *named* middleware group (`web`, `api`) is invisible to both, because Brain resolves aliases only and neither side expands a group. Middleware that authenticates without extending a framework class is invisible to both as well; list it under `laravel-brain.security.auth_middleware` to teach Brain the name. A `MISSING_THROTTLE` is left to stand.
 
 ## Feature-flag (Pennant) annotations
 

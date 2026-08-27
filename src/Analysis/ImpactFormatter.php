@@ -401,7 +401,8 @@ final class ImpactFormatter
             if ($row->authMiddleware !== []) {
                 $lines[] = '      richter: ' . implode(', ', $row->authMiddleware)
                     . ' is applied to this route and extends a framework authentication middleware, '
-                    . 'so the finding above is likely wrong (Brain matches middleware by name, not by ancestry).';
+                    . 'so the finding above is likely wrong (Brain walks an extends chain to Authenticate only, '
+                    . 'so a descendant of another auth middleware still reads public).';
             }
 
             if ($row->authGates !== []) {

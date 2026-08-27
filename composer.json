@@ -23,7 +23,7 @@
         "illuminate/process": "^12.0||^13.0",
         "illuminate/routing": "^12.0||^13.0",
         "illuminate/support": "^12.0||^13.0",
-        "laramint/laravel-brain": "^2.4.0",
+        "laramint/laravel-brain": "^2.5.0",
         "nikic/php-parser": "^5.0",
         "spatie/laravel-package-tools": "^1.93",
         "symfony/finder": "^7.2||^8.0"
@@ -43,7 +43,7 @@
         "phpstan/phpstan-strict-rules": "^2.0.12",
         "phpunit/phpunit": "^12.5.33",
         "rector/rector": "^2.6.2",
-        "sandermuller/boost-skills": "^2.28",
+        "sandermuller/boost-skills": "^2.29",
         "sandermuller/package-boost-laravel": "^1.1",
         "spaze/phpstan-disallowed-calls": "^4.14",
         "symplify/phpstan-extensions": "^12.0.2",

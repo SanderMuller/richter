@@ -447,6 +447,53 @@ final class FormatterContractTest extends TestCase
         $this->assertCount(20, $json['entryPoints']);
     }
 
+    /**
+     * The note contradicts a security finding, so the reason it gives must not depend on which
+     * formatter rendered it. It also has to stay true to Brain: since Laravel Brain 2.5.0 the miss
+     * is not "matches by name" but "walks an `extends` chain that terminates on `Authenticate`",
+     * and three copies of one sentence drift apart silently.
+     */
+    #[Test]
+    public function every_formatter_gives_the_same_reason_the_auth_middleware_was_missed(): void
+    {
+        $outputs = [
+            'text' => ImpactFormatter::detectChanges($this->richFixture(), $this->richTestIndex(), explain: true),
+            'markdown' => MarkdownFormatter::detectChanges($this->richFixture(), $this->richTestIndex(), explain: true),
+            'html' => HtmlFormatter::detectChanges($this->richFixture(), [], 'origin/main', $this->richTestIndex()),
+        ];
+
+        $reasons = [];
+
+        foreach ($outputs as $format => $output) {
+            $this->assertStringContainsString('extends a framework authentication middleware', $output, "{$format}: the evidence");
+            // The sentence this replaced was WRONG, not merely older: Brain has walked an `extends`
+            // chain since 2.5.0. A formatter left on it contradicts the other two.
+            $this->assertStringNotContainsString('by name, not by ancestry', $output, "{$format}: the pre-2.5.0 reason");
+
+            $reasons[$format] = $this->normalisedReason($output, $format);
+        }
+
+        // Fragment assertions would pass on three explanations that contradict each other, so the
+        // whole sentence is compared — stripped of the markup each formatter wraps it in.
+        $this->assertSame(
+            ['Brain walks an extends chain to Authenticate only, so a descendant of another auth middleware still reads public'],
+            array_values(array_unique($reasons)),
+            'the formatters disagree on why Brain missed the middleware: ' . json_encode($reasons, JSON_THROW_ON_ERROR),
+        );
+    }
+
+    /**
+     * The reason sentence with each formatter's own wrapping removed: HTML tags, markdown backticks,
+     * and the brackets the two text formats parenthesise it with.
+     */
+    private function normalisedReason(string $output, string $format): string
+    {
+        $matched = preg_match('/(Brain walks an .{0,400}?reads public)/s', $output, $matches) === 1;
+        $this->assertTrue($matched, "{$format}: no reason sentence rendered at all");
+
+        return trim(str_replace(['`', '<code>', '</code>'], '', $matches[1]));
+    }
+
     #[Test]
     public function the_html_formatter_renders_every_populated_field(): void
     {

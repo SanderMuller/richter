@@ -24,9 +24,26 @@ use Throwable;
 final readonly class PublicWriteAuthCrossCheck
 {
     /**
-     * The framework middlewares whose descendants authenticate a request. Deliberately the same set
-     * Brain names literally, so this adds ancestry-awareness rather than a second, divergent opinion
-     * about what counts as authentication.
+     * The framework middlewares whose descendants authenticate a request. Laravel's whole set, which
+     * is deliberately WIDER than what Brain recognises rather than a divergent opinion about what
+     * counts as authentication — every one of them gates a request, and Brain reaching only some is
+     * the gap this lane reports on:
+     *
+     * - `Authenticate` — Brain matches it by name, by basename, and by walking an `extends` chain.
+     * - `ValidateSignature` — by name and basename only, so a renamed descendant is missed.
+     * - `EnsureEmailIsVerified` — only while the `verified` alias reaches Brain unresolved.
+     *   `resolveMiddlewares()` maps an alias through the registry first, and
+     *   `MiddlewareRegistry::resolveAlias()` returns it unchanged when the app never registered it —
+     *   the usual case, since the framework's own aliases live in Laravel, not in the app's Kernel
+     *   or `bootstrap/app.php`. An app that registers it hands Brain the FQCN, which matches nothing.
+     * - `AuthenticateWithBasicAuth` — nothing reaches it. `auth.basic` is not the `auth` pattern
+     *   (that one matches `auth`, `auth:…` and `auth\…`, not a dotted sibling), and the class is
+     *   named for neither pattern that carries a namespace.
+     *
+     * Ancestry is unaffected by every one of those distinctions, which is the point of reading it
+     * here. `BrainSecurityContractTest` pins each row — named in prose, not linked: a `{@see}` here
+     * would be turned into an import of a test class by the style pass, and `tests/` is
+     * export-ignored from the dist archive, so the shipped file would import what is not there.
      *
      * @var list<class-string>
      */
@@ -72,24 +89,23 @@ final readonly class PublicWriteAuthCrossCheck
     /**
      * Auth middleware applied to each `PUBLIC_WRITE` route that Brain's own check could not see.
      *
-     * Brain matches middleware by NAME — a case-insensitive prefix against `auth`, `sanctum`, `jwt`,
-     * … and the literal `Illuminate\Auth\Middleware\Authenticate`. An app that subclasses Laravel's
-     * middleware (`App\Http\Middleware\Authenticate extends …\Auth\Middleware\Authenticate`, which
-     * `php artisan make:middleware`-era skeletons ship by default) matches none of them: the name
-     * starts with the app's own namespace and the FQCN is the subclass, not the literal. Every route
-     * behind it is then classified `[public]`, and a mutating verb draws a `high` "requires no
-     * authentication" — on a route that is, in fact, authenticated.
+     * Brain reads a middleware two ways: by NAME — a case-insensitive prefix against `auth`,
+     * `sanctum`, `jwt`, … plus a BASENAME match against `Authenticate` and `ValidateSignature` — and,
+     * since 2.5.0, by walking the class's `extends` chain. That walk terminates on ONE base,
+     * `Illuminate\Auth\Middleware\Authenticate`, so the shapes this lane was written for — a
+     * subclass named `TenantAuthenticate` or `EnsureUserIsAuthenticated` — are now Brain's own
+     * answer, and no `PUBLIC_WRITE` reaches this lane to contradict.
      *
-     * This walks the class ancestry Brain's name match cannot, over the route's own
-     * `route-to-middleware` edges.
+     * What is left is the rest of {@see self::AUTH_MIDDLEWARE_BASES}. A middleware descending from
+     * `AuthenticateWithBasicAuth`, `EnsureEmailIsVerified` or `ValidateSignature` under a name of its
+     * own matches no pattern, no basename and no chain: every route behind it is classified
+     * `[public]`, and a mutating verb draws a "requires no authentication" issue — `high` for
+     * `DELETE`, `medium` for the rest — on a route that is, in fact, authenticated. This walks the ancestry of all four bases, over the route's own
+     * `route-to-middleware` edges, so it covers that remainder rather than the same set.
      *
-     * Brain 2.4.0 narrowed the gap without closing it, and the difference is worth stating because
-     * this lane otherwise looks like dead compensation for a fixed bug. Brain now also matches a
-     * middleware by class BASENAME, so the default-skeleton `App\Http\Middleware\Authenticate` is
-     * recognised — its own comment calls that "a name match, not a verified subclass check". A
-     * subclass named anything else (`TenantAuthenticate`, `EnsureUserIsAuthenticated`) still matches
-     * nothing there and still draws the false finding. Ancestry is what this reads, so it covers the
-     * remainder rather than the same set.
+     * Keep the walk pointed at all four even after upstream widens its own: a base Brain resolves
+     * makes this lane silent for that shape, never wrong about it, and the lane must not depend on
+     * which Brain version a consumer resolved.
      *
      * Those edges carry what the route files themselves declare — including a
      * `Route::middleware([...])->group(...)` wrapper, whose list Brain's route analyzer attaches to
