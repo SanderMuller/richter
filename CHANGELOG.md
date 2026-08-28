@@ -5,6 +5,63 @@ All notable changes to `sandermuller/richter` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.60.0 - 2026-08-28
+
+`affected-tests` could drop the tests for a Livewire or Filament route — an under-selection, which is
+the failure this package exists to prevent. Found by a structural audit of the codebase.
+
+### Fixed
+
+**`affected-tests` selected no tests for a route driven by a class.** A Livewire component or a
+Filament page is reached by neither its route name nor a literal URI, so the test index resolves it
+through the class that handles it — but only when it has the code graph, and `affected-tests` never
+handed it over. Every such route counted as unreferenced and contributed no tests. A run could report
+`determinable`, exit 0, and leave the tests for a whole admin panel unselected.
+
+`impact` and the MCP `impact` tool had the same gap, so they disagreed with `detect-changes` about the
+same route: one reported it referenced, the others did not. All three now answer alike.
+
+**A reference living only in a test-support file read as no reference at all.** A shared trait, a base
+test case or a helper importing the handler class IS a reference — it just cannot be handed to a test
+runner. Matched by name or URI, that case correctly blocks determination and falls back to the full
+suite. Resolved through the handler it silently vanished instead, leaving the selection determinable
+and short. The two paths now agree, and the fail-closed one wins.
+
+The distinction they exist for is preserved: a fixture importing a page class still never grades the
+surface `[test-referenced]`, because a fixture is not coverage and a false `LOW` is the one direction
+the risk ladder must not fail in.
+
+**The HTML report could contradict itself.** Under "What to focus on", an entry point could be counted
+as having no test referencing it and, on the very next line, as a *referenced* entry point with no
+behavioural assertion found. The second line now requires the entry point to be referenced, matching
+the per-row badges.
+
+### Changed
+
+**`RouteHandlerReferences::testsDriving()` returns every importing test file**, runnable or not, where
+it previously filtered to `*Test.php` before returning. The runnable subset now decides the boolean
+the report renders; the full list is what a caller selecting tests reads. Both callers in this package
+were updated. The method is public but undocumented, and nothing in the package's own surface exposes
+it — if you call it directly, filter with `TestReferenceIndex::runnableOnly()` to get the old result.
+
+**`unreferencedEntryPoints` drops and the selected test list grows** for a project with class-driven
+routes. That is the safe direction — `affected-tests` is contracted to fail toward running more — but
+a CI assertion pinning either number will move.
+
+### Internal
+
+The schedule resolution `affected-tests` carried by hand is gone; the shared console lane already did
+that work, and only the missing graph kept the copy alive. Deleting it is what the graph handover made
+safe, and an existing schedule test proves the two are equivalent — it fails if the handover is
+removed.
+
+The scoped AST traversal three tracers depend on — prune a named nested class, descend an anonymous
+one and flag what is inside it, walk parameters and attributes after the body — now has a test where
+those rules are stated, rather than only in the lane fixtures where a mistake resurfaces as a phantom
+edge. Each rule was verified by breaking it and watching the test fail.
+
+**Full Changelog**: https://github.com/SanderMuller/richter/compare/v0.59.0...v0.60.0
+
 ## v0.59.0 - 2026-08-27
 
 Richter now requires Laravel Brain 2.5.0, which classifies a subclassed authentication middleware for itself. The report says what that leaves richter to catch, instead of the story that was true before it.
@@ -46,6 +103,7 @@ a changed member could not be pinned to a graph node (low confidence):
 app/Models/Article.php (App\Models\Article::table, property)
 
 
+
 ```
 The rule covers the 25 properties the base `Model` declares that an application sets to change behaviour — among them `$table`, `$connection`, `$primaryKey`, `$keyType`, `$incrementing`, `$timestamps`, `$perPage`, `$with`, `$appends`, `$hidden`, `$visible`, `$fillable`, `$guarded`, `$casts` and `$touches`. The runtime caches Eloquent writes are excluded.
 
@@ -68,6 +126,7 @@ The named low-confidence reason from 0.57.0 now names the right kind. Sourced fr
 ```
 a changed member could not be pinned to a graph node (low confidence):
 app/Models/Post.php (App\Models\Post, class declaration)
+
 
 
 
@@ -99,6 +158,7 @@ It now names each one:
 ```
 a changed member could not be pinned to a graph node (low confidence):
 app/Models/Post.php (App\Models\Post::perPage, property)
+
 
 
 
@@ -234,6 +294,7 @@ The --html option requires a path: --html=<path>.
 
 
 
+
 ```
 This is the rule `--fail-on` and `--fail-on-hazard` already apply, through the same mechanism: a flag the user actually typed fails closed rather than being silently ignored. `--open` without `--html` was already guarded for exactly this reason; `--html` itself was the gap.
 
@@ -348,6 +409,7 @@ The three prose formats now keep the discriminating surfaces inline and fold the
 
 
 
+
 ```
 **Nothing is dropped.** The section still counts every surface, and the collapsed group states its own count, so the report cannot read as shorter than the reach it found. A surface whose reason the walk could not record stays inline: absence of a reason is not evidence of a weak one.
 
@@ -376,6 +438,7 @@ A dropped column now names what still refers to it, so the report says who has n
   ```
   ! [tier 2 migration] App\Models\Post — column `posts`.`subtitle` dropped, still named by
     App\Models\Post's own $fillable/$casts, a `subtitle` key in app/Http/Resources/PostResource.php
+  
   
   
   
@@ -499,6 +562,7 @@ Hazards (1):
 
 
 
+
 ```
 The suffix says "via its class" rather than naming a declaring class, because a `migration` hazard is named for a model and a `contract` hazard can name a class deleted whole — neither has a declaring class to point at.
 
@@ -575,6 +639,7 @@ Tightening a rate limit reported a tier-3 HIGH saying the limit was gone. A guar
   
   ```
   the rate limit on the GET /search route in routes/api.php rose from `throttle:60,1` to `throttle:120,1`
+  
   
   
   
@@ -1014,6 +1079,7 @@ dispatch($job);
 
 
 
+
 ```
 That was recorded as a dispatch whose target could not be followed — and the taint is global, so one of them makes every `richter:affected-tests` run report `not determinable` and fall back to the full suite. The graph has carried the edge for this shape all along: the instantiation is in the same method, right above the dispatch. The site pointed at a place to restructure where nothing was hidden and nothing needed restructuring.
 
@@ -1125,6 +1191,7 @@ Build profile: nothing was built — the diff holds nothing the graph is built f
 
 
 
+
 ```
 On stderr, like the table it stands in for, and before the payload in `--json` mode so stdout stays one document. Building anyway was the alternative, and it would make a no-op run pay for an analysis nothing asked for.
 
@@ -1142,6 +1209,7 @@ An event named by a class constant resolves in **any** declaration form, includi
 public const string
     SUBTITLE_CHANGED = 'subtitle-changed',
     SUBTITLE_DELETED = 'subtitle-deleted';
+
 
 
 
@@ -1201,6 +1269,7 @@ Build profile (forced rebuild):
   total                      3.85s
   no scoped rebuild: non-app-change
     config/services.php differs from the cached graph and sits outside app/
+
 
 
 
@@ -1315,6 +1384,7 @@ It now names every site:
 ```
 the graph contains job dispatches that could not be followed:
 app/Jobs/Fanout.php:88 (App\Jobs\Fanout::handle), app/Services/Importer.php:12 (App\Services\Importer::run)
+
 
 
 
@@ -1733,6 +1803,7 @@ Note: 2 changed file(s) are outside the analysed scope (not PHP under app/, a Bl
 
 
 
+
 ```
 Stderr, like the untracked-file note, so `--json` and `--markdown` stdout stay exactly the report. Frontend sources the configuration declines to scan are not counted: generated Wayfinder output under `frontend.generated_paths` and `.d.ts` declarations were silenced on purpose, and a note that fires loudest on regeneration churn is one people stop reading.
 
@@ -1836,6 +1907,7 @@ One new advisory lane, and a README that finally leads with what the package is 
   
   
   
+  
   ```
   The count comes off the `route:: → middleware::<group>` edges already in the graph, so it counts endpoints only: a controller-level attachment of the same group does not inflate it. Membership is read from `$middlewareGroups` on a Laravel 10 Kernel or the `->web(append: [...])` form in a Laravel 11+ `bootstrap/app.php`. A member written as an alias resolves through the same alias map, parameters are cut first (`tenant:strict` is one alias with an argument), and a group that names another group is expanded transitively, since Laravel runs the inner group's middleware on the outer group's routes too.
   
@@ -1868,6 +1940,7 @@ Two silent-failure shapes that richter used to miss: a call through an applicati
   
   ```text
     ! resources/js/Pages/Posts/Create.vue posts to POST /posts and sends 'subtitle', which this diff removes from App\Http\Requests\StorePostRequest::rules() (renamed to 'sub_title'?)
+  
   
   
   
