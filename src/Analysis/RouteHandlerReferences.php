@@ -16,9 +16,14 @@ use SanderMuller\Richter\Support\AppNamespace;
  * Two hops, not one: a controller route lands on its class directly, while a Filament resource route
  * arrives as `filament-route-to-resource` and needs `filament-resource-to-page` to reach the page.
  *
- * Runnable-only is what keeps this from lowering precision. `TestReferenceIndex::fromTests()` indexes
- * every PHP file under `tests/`, fixtures and base cases included, and letting one of those grade a
- * surface "referenced" would open a false LOW — the one direction the risk model must not fail in.
+ * Every importing file is returned, runnable or not, and the RUNNABLE subset decides the boolean.
+ * The two answers are needed by different callers and must not be conflated.
+ * `TestReferenceIndex::fromTests()` indexes every PHP file under `tests/`, fixtures and base cases
+ * included, so letting one of those grade a surface "referenced" would open a false LOW — the one
+ * direction the risk model must not fail in. But dropping it from the FILE LIST is the opposite
+ * failure: `AffectedTests` reads an empty list as "nothing references this" and stays determinable,
+ * where it should report that the references cannot be mapped to a runnable test and fall back to
+ * the full suite. Returning both lets each caller fail in its own safe direction.
  *
  * Lives beside the index rather than inside it: that class sits at its complexity ceiling.
  */
@@ -36,7 +41,8 @@ final readonly class RouteHandlerReferences
     public function __construct(private CodeGraph $graph) {}
 
     /**
-     * The runnable test files importing the class this node is handled by.
+     * Every test file importing the class this node is handled by — support files included. The
+     * caller decides what a non-runnable one means; see the class docblock.
      *
      * @param  array<string, list<string>>  $importsByClass  FQCN => every test file importing it
      * @return list<string>
@@ -46,7 +52,7 @@ final readonly class RouteHandlerReferences
         $tests = [];
 
         foreach ($this->handlerClasses($node, depth: 2) as $class) {
-            $tests = [...$tests, ...TestReferenceIndex::runnableOnly($importsByClass[$class] ?? [])];
+            $tests = [...$tests, ...($importsByClass[$class] ?? [])];
         }
 
         return array_values(array_unique($tests));

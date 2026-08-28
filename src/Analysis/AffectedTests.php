@@ -135,9 +135,11 @@ final class AffectedTests
     /**
      * @param  array{coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, registryEntryPoints?: list<string>, lowConfidence: bool, callers?: list<array{depth: int, node: string, via: string, file?: string, line?: int}>, dependencies?: list<array{depth: int, node: string, via: string, file?: string, line?: int}>, ...}  $result  an {@see ImpactAnalyzer::detectChanges()} result
      * @param  list<ChangedFileSymbols>  $changed
-     * @param  CodeGraph|null  $graph  when given, a `schedule::` entry point resolves through its
-     *   scheduled command (the schedule node id itself is an opaque hash) instead of blocking
-     *   determination outright
+     * @param  CodeGraph|null  $graph  handed to the test index, which needs it for two entry-point
+     *   shapes it cannot answer from `tests/` alone: a `schedule::` node, whose id is an opaque hash
+     *   and only resolves through the command it runs, and a route driven by a CLASS rather than by
+     *   its name or URI (a Livewire component, a Filament page). Without it both read unreferenced,
+     *   which under-selects — the one direction this command must never fail in.
      * @param  FrontendTestIndex|null  $frontendTests  when given, frontend specs referencing a
      *   reached route are suggested under `frontendTests` — advisory for the JS runner, never an
      *   input to determinability (a route no spec references is not a blocker)
@@ -188,6 +190,11 @@ final class AffectedTests
             $reasons[] = 'the graph contains job dispatches that could not be followed: ' . self::renderSites($blockingSites);
         }
 
+        // Both shapes the `$graph` param documents read unreferenced without it — under-selection.
+        if ($graph instanceof CodeGraph) {
+            $tests->useGraph($graph);
+        }
+
         $selected = $changedTests;
         $frontendSelected = [];
         $unreferenced = 0;
@@ -198,7 +205,7 @@ final class AffectedTests
         // direction this command must never fail in.
         foreach ([...$result['entryPoints'], ...$result['registryEntryPoints'] ?? []] as $entryPoint) {
             $frontendSelected = [...$frontendSelected, ...$frontendTests?->testsReferencing($entryPoint) ?? []];
-            $referencing = self::testsReferencingEntryPoint($entryPoint, $tests, $graph);
+            $referencing = $tests->testsReferencing($entryPoint);
 
             if ($referencing === null) {
                 $reasons[] = "entry point \"{$entryPoint}\" could not be checked against the test suite";
@@ -257,43 +264,6 @@ final class AffectedTests
             // work nobody has to do. `richter://graph/stats` carries the project-wide list.
             'unresolvedDispatchSites' => $blockingSites,
         ];
-    }
-
-    /**
-     * A `schedule::` node is an opaque hash, but the graph knows what it runs — resolve through the
-     * scheduled `command::` target(s) when possible. No graph or no command target keeps the
-     * original "cannot check" (null) so the fail-safe path still trips.
-     *
-     * @return list<string>|null
-     */
-    private static function testsReferencingEntryPoint(string $entryPoint, TestReferenceIndex $tests, ?CodeGraph $graph): ?array
-    {
-        if (! str_starts_with($entryPoint, 'schedule::') || ! $graph instanceof CodeGraph) {
-            return $tests->testsReferencing($entryPoint);
-        }
-
-        $commands = array_values(array_filter(
-            array_column($graph->dependenciesOf([$entryPoint], 1), 'node'),
-            static fn (string $node): bool => str_starts_with($node, 'command::'),
-        ));
-
-        if ($commands === []) {
-            return null;
-        }
-
-        $referencing = [];
-
-        foreach ($commands as $command) {
-            $commandTests = $tests->testsReferencing($command);
-
-            if ($commandTests === null) {
-                return null;
-            }
-
-            $referencing = [...$referencing, ...$commandTests];
-        }
-
-        return $referencing;
     }
 
     /**

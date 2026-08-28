@@ -43,9 +43,12 @@ final class ImpactTool extends Tool
             return Response::error('The symbol argument must be a non-empty string.');
         }
 
-        $result = new ImpactAnalyzer($this->graphs->graph())->impact($symbol);
+        $graph = $this->graphs->graph();
+        $result = new ImpactAnalyzer($graph)->impact($symbol);
         // Lazy: the tests/ scan only runs when the walk actually reached an entry surface.
         $tests = $result['entryPoints'] === [] ? null : TestReferenceIndex::fromTests(base_path('tests'), base_path());
+        // Reused, not re-fetched: without it a class-driven route reads unreferenced.
+        $tests?->useGraph($graph);
 
         return new ResponseFactory(Response::text(ImpactFormatter::impact($result, $tests)))
             ->withStructuredContent(JsonPresenter::impact($result, $tests));

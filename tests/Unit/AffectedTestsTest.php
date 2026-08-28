@@ -538,6 +538,127 @@ final class AffectedTestsTest extends TestCase
     }
 
     #[Test]
+    public function a_class_driven_route_is_selected_when_the_graph_is_given(): void
+    {
+        // A Filament page is driven by neither route name nor URI — `livewire(AdminPanel::class)`
+        // names the CLASS. Without the graph the index cannot follow the route to its handler, so the
+        // route reads unreferenced and its test is dropped: under-selection.
+        $graph = new CodeGraph([
+            ['source' => 'route::GET::/admin/panel', 'target' => 'App\Filament\Pages\AdminPanel', 'type' => 'filament-route-to-page'],
+        ], hasUnparseableFiles: false);
+        $index = new TestReferenceIndex();
+        $index->addSource("<?php\n\nuse App\\Filament\\Pages\\AdminPanel;\n", 'tests/Feature/AdminPanelTest.php');
+
+        $selection = AffectedTests::select(
+            $this->detectResult(['route::GET::/admin/panel']),
+            [],
+            $index,
+            unresolvedDispatchSites: [],
+            graph: $graph,
+        );
+
+        $this->assertTrue($selection['determinable']);
+        $this->assertSame(['tests/Feature/AdminPanelTest.php'], $selection['tests']);
+        $this->assertSame(0, $selection['unreferencedEntryPoints']);
+    }
+
+    #[Test]
+    public function a_class_driven_route_reads_unreferenced_without_a_graph(): void
+    {
+        // The same inputs with no graph: the handler fallback is gated on one, so nothing connects
+        // the route to the page class and the entry point counts as unreferenced. This pins WHY the
+        // graph has to be attached — remove `useGraph()` and the test above becomes this one.
+        $index = new TestReferenceIndex();
+        $index->addSource("<?php\n\nuse App\\Filament\\Pages\\AdminPanel;\n", 'tests/Feature/AdminPanelTest.php');
+
+        $selection = AffectedTests::select(
+            $this->detectResult(['route::GET::/admin/panel']),
+            [],
+            $index,
+            unresolvedDispatchSites: [],
+        );
+
+        $this->assertTrue($selection['determinable']);
+        $this->assertSame([], $selection['tests']);
+        $this->assertSame(1, $selection['unreferencedEntryPoints']);
+    }
+
+    #[Test]
+    public function a_class_driven_route_resolves_through_two_hops(): void
+    {
+        // A Filament RESOURCE route arrives as `filament-route-to-resource` and needs the second hop
+        // to reach the page. One hop would leave it unreferenced.
+        $graph = new CodeGraph([
+            ['source' => 'route::GET::/admin/orders', 'target' => 'App\Filament\Resources\OrderResource', 'type' => 'filament-route-to-resource'],
+            ['source' => 'App\Filament\Resources\OrderResource', 'target' => 'App\Filament\Resources\OrderResource\Pages\ListOrders', 'type' => 'filament-resource-to-page'],
+        ], hasUnparseableFiles: false);
+        $index = new TestReferenceIndex();
+        $index->addSource("<?php\n\nuse App\\Filament\\Resources\\OrderResource\\Pages\\ListOrders;\n", 'tests/Feature/ListOrdersTest.php');
+
+        $selection = AffectedTests::select(
+            $this->detectResult(['route::GET::/admin/orders']),
+            [],
+            $index,
+            unresolvedDispatchSites: [],
+            graph: $graph,
+        );
+
+        $this->assertSame(['tests/Feature/ListOrdersTest.php'], $selection['tests']);
+        $this->assertSame(0, $selection['unreferencedEntryPoints']);
+    }
+
+    #[Test]
+    public function a_class_driven_route_whose_handler_no_test_imports_stays_unreferenced(): void
+    {
+        // The fallback must not read as "always referenced". A graph edge with no importing test is
+        // still an unreferenced surface.
+        $graph = new CodeGraph([
+            ['source' => 'route::GET::/admin/panel', 'target' => 'App\Filament\Pages\AdminPanel', 'type' => 'filament-route-to-page'],
+        ], hasUnparseableFiles: false);
+
+        $selection = AffectedTests::select(
+            $this->detectResult(['route::GET::/admin/panel']),
+            [],
+            new TestReferenceIndex(),
+            unresolvedDispatchSites: [],
+            graph: $graph,
+        );
+
+        $this->assertSame([], $selection['tests']);
+        $this->assertSame(1, $selection['unreferencedEntryPoints']);
+    }
+
+    #[Test]
+    public function a_class_driven_route_referenced_only_by_a_support_file_blocks_determination(): void
+    {
+        // The fail-closed half. A shared trait or base case importing the handler IS a reference, but
+        // it cannot be handed to a test runner — so the selection must say it could not map it, not
+        // report the surface as unreferenced and stay determinable. This is the same answer the
+        // name/URI path has always given for a support-file-only reference; the handler path now
+        // agrees with it.
+        $graph = new CodeGraph([
+            ['source' => 'route::GET::/admin/panel', 'target' => 'App\Filament\Pages\AdminPanel', 'type' => 'filament-route-to-page'],
+        ], hasUnparseableFiles: false);
+        $index = new TestReferenceIndex();
+        $index->addSource("<?php\n\nuse App\\Filament\\Pages\\AdminPanel;\n", 'tests/Support/PanelFixture.php');
+
+        $selection = AffectedTests::select(
+            $this->detectResult(['route::GET::/admin/panel']),
+            [],
+            $index,
+            unresolvedDispatchSites: [],
+            graph: $graph,
+        );
+
+        $this->assertFalse($selection['determinable']);
+        $this->assertSame(
+            ['tests referencing "route::GET::/admin/panel" live only in non-test support files — cannot map them to runnable tests'],
+            $selection['reasons'],
+        );
+        $this->assertSame([], $selection['tests']);
+    }
+
+    #[Test]
     public function a_schedule_entry_resolves_through_its_scheduled_command_when_the_graph_is_given(): void
     {
         $graph = new CodeGraph([

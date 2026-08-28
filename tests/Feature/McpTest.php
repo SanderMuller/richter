@@ -407,6 +407,38 @@ final class McpTest extends TestCase
             ->assertSee('"parallel": false');
     }
 
+    #[Test]
+    public function the_impact_tool_reads_a_route_as_referenced_through_its_handler_class(): void
+    {
+        // The MCP half of the contract `CommandsTest::impact_reads_a_route_as_referenced_through_its_handler_class`
+        // covers for the console. The stub names neither the route nor its URI — only the controller —
+        // so the surface resolves solely through the graph. Naming either would destroy the point.
+        $this->useFixtureProject();
+        $testsDir = self::fixtureProjectPath() . '/tests';
+        // The cleanup below removes this tree. Fail loudly rather than delete a real fixture dir if
+        // one is ever added.
+        $this->assertDirectoryDoesNotExist($testsDir);
+        $test = $testsDir . '/Feature/SocialAuthTest.php';
+        @mkdir(dirname($test), 0777, true);
+        file_put_contents($test, "<?php\n\nuse App\\Http\\Controllers\\Auth\\SocialAuthController;\n");
+
+        try {
+            RichterServer::tool(ImpactTool::class, ['symbol' => 'App\\Http\\Controllers\\Auth\\SocialAuthController'])
+                ->assertOk()
+                ->assertStructuredContent(function (AssertableJson $json): bool {
+                    // The weak sub-tag, not plain `referenced`: the stub asserts nothing. What this
+                    // pins is that the route is referenced at all — without the graph it reads
+                    // `unreferenced`.
+                    $json->where('entryPointTestReferences', ['route::GET::/auth/login' => 'referenced-no-behavioural-assertion'])
+                        ->etc();
+
+                    return true;
+                });
+        } finally {
+            $this->deleteTree($testsDir);
+        }
+    }
+
     private function useFixtureProject(): void
     {
         $app = $this->app;

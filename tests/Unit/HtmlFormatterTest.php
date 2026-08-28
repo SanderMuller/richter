@@ -10,6 +10,7 @@ use SanderMuller\Richter\Analysis\RiskLevel;
 use SanderMuller\Richter\Analysis\TestReferenceIndex;
 use SanderMuller\Richter\Changes\ChangedFileSymbols;
 use SanderMuller\Richter\Changes\MemberChange;
+use SanderMuller\Richter\Graph\CodeGraph;
 use SanderMuller\Richter\Tests\TestCase;
 
 /**
@@ -85,6 +86,26 @@ final class HtmlFormatterTest extends TestCase
             'verification' => [],
             'findings' => ['app/Exports/X.php: eager-load string matches no relation'],
         ];
+    }
+
+    #[Test]
+    public function the_weak_assertion_summary_never_counts_an_unreferenced_entry_point(): void
+    {
+        // The two verdict fields are independent, so "unreferenced" and "assertion-weak" can both be
+        // true at once: a route whose only reference is a support file grades unreferenced (a fixture
+        // is not coverage) while every file referencing it is assertion-weak. Ungated, the summary
+        // would count that route as "referenced ... no behavioural assertion" one line under the
+        // count that says nothing references it.
+        $index = new TestReferenceIndex();
+        $index->addSource("<?php\nuse App\\Filament\\Pages\\AnnotatedPage;\nclass AnnotatedPageFactory {}\n", 'tests/Fixtures/AnnotatedPageFactory.php');
+        $index->useGraph(new CodeGraph([
+            ['source' => self::ENTRY, 'target' => 'App\Filament\Pages\AnnotatedPage', 'type' => 'filament-route-to-page'],
+        ], hasUnparseableFiles: false));
+
+        $html = HtmlFormatter::detectChanges($this->fixture(), [], 'origin/main', $index);
+
+        $this->assertStringContainsString('1 reached entry point(s) have no test referencing them', $html);
+        $this->assertStringNotContainsString('have no behavioural assertion found', $html);
     }
 
     /** @return list<ChangedFileSymbols> */

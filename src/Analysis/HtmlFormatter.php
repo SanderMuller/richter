@@ -262,7 +262,11 @@ final class HtmlFormatter
             $items[] = '<li class="warn">' . count($unreferenced) . ' reached entry point(s) have no test referencing them</li>';
         }
 
-        $weak = array_filter($rows, static fn (EntryPointRow $row): bool => $row->assertionWeak);
+        // Gated on `testReferenced === true`, like the three per-row renderers already are. The pair is
+        // two fields, so "unreferenced" and "assertion-weak" are both representable at once — a route
+        // whose only reference lives in a support file is exactly that — and this line claims the
+        // entry point IS referenced. Ungated it would contradict the count above it.
+        $weak = array_filter($rows, static fn (EntryPointRow $row): bool => $row->testReferenced === true && $row->assertionWeak);
 
         if ($weak !== []) {
             $items[] = '<li class="warn">' . count($weak) . ' referenced entry point(s) have no behavioural assertion found</li>';

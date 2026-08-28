@@ -1009,6 +1009,35 @@ final class CommandsTest extends TestCase
     }
 
     #[Test]
+    public function impact_reads_a_route_as_referenced_through_its_handler_class(): void
+    {
+        // The stub names neither the route (`auth.login`) nor its URI — only the controller — so name
+        // and URI matching both miss and the surface resolves solely by following
+        // `route-to-controller` through the graph. Naming either would destroy the test's point.
+        $this->useFixtureProject();
+        $testsDir = self::fixtureProjectPath() . '/tests';
+        // The cleanup below removes this tree. Fail loudly rather than delete a real fixture dir if
+        // one is ever added.
+        $this->assertDirectoryDoesNotExist($testsDir);
+        $test = $testsDir . '/Feature/SocialAuthTest.php';
+        @mkdir(dirname($test), 0777, true);
+        file_put_contents($test, "<?php\n\nuse App\\Http\\Controllers\\Auth\\SocialAuthController;\n");
+
+        try {
+            $this->withoutMockingConsoleOutput();
+            $exitCode = Artisan::call('richter:impact', ['symbol' => 'App\\Http\\Controllers\\Auth\\SocialAuthController']);
+            $output = Artisan::output();
+        } finally {
+            $this->deleteTree($testsDir);
+        }
+
+        $this->assertSame(0, $exitCode);
+        $this->assertStringContainsString('route::GET::/auth/login', $output);
+        $this->assertStringContainsString('test-referenced', $output);
+        $this->assertStringNotContainsString('/auth/login  [⚠ no test references this]', $output);
+    }
+
+    #[Test]
     public function impact_explain_renders_the_chain_to_the_entry_surface(): void
     {
         $this->useFixtureProject();

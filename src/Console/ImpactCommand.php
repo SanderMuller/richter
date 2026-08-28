@@ -55,9 +55,10 @@ final class ImpactCommand extends Command
             $this->info('Resolving code graph…');
         }
 
-        $result = new ImpactAnalyzer($this->graph($graphs))->impact($symbol);
+        $graph = $this->graph($graphs);
+        $result = new ImpactAnalyzer($graph)->impact($symbol);
         $explain = (bool) $this->option('explain');
-        $tests = $this->testIndexFor($result);
+        $tests = $this->testIndexFor($result, $graph);
 
         if ($markdown) {
             // Markdown carries meaning in its blank lines, its two-space nesting and its `→`/`⚠` glyphs, so
@@ -75,11 +76,22 @@ final class ImpactCommand extends Command
      * Lazy: the tests/ scan only runs when the walk actually reached an entry surface,
      * so the common no-entry-surface call pays nothing new.
      *
+     * The graph is passed in rather than fetched: it is the one the walk already ran on, and a second
+     * {@see graph()} call would revive a whole second graph. Without it a class-driven route reads
+     * unreferenced here while `detect-changes` reports the same route referenced.
+     *
      * @param  array{entryPoints: list<string>, ...}  $result
      */
-    private function testIndexFor(array $result): ?TestReferenceIndex
+    private function testIndexFor(array $result, CodeGraph $graph): ?TestReferenceIndex
     {
-        return $result['entryPoints'] === [] ? null : TestReferenceIndex::fromTests(base_path('tests'), base_path());
+        if ($result['entryPoints'] === []) {
+            return null;
+        }
+
+        $tests = TestReferenceIndex::fromTests(base_path('tests'), base_path());
+        $tests->useGraph($graph);
+
+        return $tests;
     }
 
     /**
@@ -89,9 +101,10 @@ final class ImpactCommand extends Command
     private function handleJson(GraphCache $graphs, string $symbol): int
     {
         try {
-            $result = new ImpactAnalyzer($this->graph($graphs))->impact($symbol);
+            $graph = $this->graph($graphs);
+            $result = new ImpactAnalyzer($graph)->impact($symbol);
 
-            $this->writeDocument(JsonPresenter::encode(JsonPresenter::impact($result, $this->testIndexFor($result))));
+            $this->writeDocument(JsonPresenter::encode(JsonPresenter::impact($result, $this->testIndexFor($result, $graph))));
 
             return self::SUCCESS;
         } catch (Throwable $throwable) {

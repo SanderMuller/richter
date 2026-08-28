@@ -79,6 +79,12 @@ final class TestReferenceIndexTest extends TestCase
         ], hasUnparseableFiles: false));
 
         $this->assertFalse($index->hasReference('route::GET::/admin/reports'));
+
+        // The boolean and the file list answer different questions, and both must stay honest. The
+        // fixture is not coverage, so the boolean is false — but it IS a reference, so the list keeps
+        // it: a caller selecting tests has to see that the references cannot be mapped to a runnable
+        // test, rather than read an empty list as "nothing references this" and stay determinable.
+        $this->assertSame(['tests/Fixtures/ReportsPageFactory.php'], $index->testsReferencing('route::GET::/admin/reports'));
     }
 
     #[Test]

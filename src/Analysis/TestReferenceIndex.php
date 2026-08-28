@@ -320,7 +320,10 @@ final class TestReferenceIndex
             : [];
 
         if ($viaHandler !== []) {
-            return ['referenced' => true, 'tests' => $viaHandler];
+            // The boolean is graded on the RUNNABLE subset — a fixture importing the handler must not
+            // read as coverage — while the list keeps every file, so a caller selecting tests can see
+            // that the only references live in support files rather than none at all.
+            return ['referenced' => self::runnableOnly($viaHandler) !== [], 'tests' => $viaHandler];
         }
 
         // With the router unavailable, name-based matching never ran — a miss here means "couldn't
