@@ -84,6 +84,8 @@ These are heuristic prompts rather than coverage verdicts. An entry point whose 
 
 A `schedule::` surface resolves through the command it runs, so a test driving that command references the scheduled surface too. A schedule reaching no command, a scheduled closure among them, stays "could not be checked" rather than claiming no test drives it.
 
+A route matched by neither its name nor a literal URI in the tests resolves through the class that handles it — a Livewire component, a Filament page, or a Filament resource over two hops. A test importing that class references the route. Only a runnable `*Test.php` file grades the surface referenced: a fixture or a base case importing the same class is a reference, but not coverage, so it never turns the tag green. The same resolution runs in `impact` and in the MCP `impact` tool, so all three report the same route the same way.
+
 ## Changed files no lane analyses
 
 Three kinds of changed file carry impact: PHP under `app/`, Blade views, and sources under a configured frontend root. A diff can consist entirely of files that are none of those: a stylesheet, a CI workflow, a lockfile, a `config/` guard, an infrastructure manifest. None of them reach a backend entry point through any lane here, so none affect the reach or the risk level, and a diff of nothing else reports `No changed PHP files under app/ against <base>.`
