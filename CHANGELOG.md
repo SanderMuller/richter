@@ -5,6 +5,50 @@ All notable changes to `sandermuller/richter` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.61.0 - 2026-08-30
+
+The report now leads with the surfaces the change is actually about, and a new advisory lane names a nullable column the code beside your change already resolves. Sourced from production dogfood.
+
+### Changed
+
+**Reached entry points are ordered by how specifically the diff explains them.** A change that touches one widely-referenced class reaches most of the application, and the report cannot print all of it. The rows a reader met first were whichever surfaces sorted first by name, which on a real feature commit meant admin panels and list screens while the routes the commit added sat below the cut. Measured on two production applications: the fifteen inline rows held none of the commit's own routes.
+
+Each surface is now attributed to the changed file with the smallest reach of its own, and rows are ordered on that. A changed controller reaching nine surfaces explains its own route better than a changed model reaching ninety. Replayed on one of those commits, the inline fifteen goes from 0 of 10 feature-owned rows to 10 of 10.
+
+Nothing is hidden or folded. The same surfaces are reported, the count beside the list is unchanged, and a surface no per-file walk explains, such as a changed class that is itself an entry point, carries no attribution and sorts last rather than being dropped. `richter:impact` analyses a single symbol, has no attribution to make, and renders exactly as before.
+
+### Added
+
+**`entryPointAttribution` in the `detect-changes` JSON and MCP payload.** Per reached entry point, `{via, ownReach}`: the changed file path that explains it most specifically, and how many entry points that file reaches on its own. The smaller `ownReach`, the more the surface is about this diff rather than about something the diff happens to touch. `via` is a path and never a class name, because a route file or a file declaring two classes has no single FQCN. Advisory: never an input to `risk`, the gate, or `affected-tests` selection. A consumer may narrow its own test run on it; Richter will not, because `affected-tests` is contracted to fail toward running more.
+
+**A sibling-read parity lane.** New code reads a nullable column raw where the code already beside it resolves that same value through a fallback. The value is simply absent at runtime: nothing throws, no test fails, the diff is internally consistent, and every existing lane is silent. Two production reviews found this shape by hand before Richter could name it.
+
+```
+app/Actions/CreateTask.php: App\Actions\CreateTask::handle reads Order->external_id (bare);
+App\Models\Order::resolvedExternalId reads it (fallback). Nullable per its docblock. Check
+whether this read needs the same handling.
+
+```
+The lane compares a changed method's reads against base-tree reads of the same property: the receiver's own declaring class, plus files in directories the diff touched. Evidence comes from the base tree because the claim is about the code that was already there, while nullability comes from head because the reported read is a head-side read.
+
+It is a finding and never a hazard. A hazard says something breaks; this proves only that two named sites treat one value differently, and the sibling may be the one that is wrong. It never reaches `risk`, `--fail-on` or `affected-tests`, and the wording names both observed reads and claims nothing more. A `=== null` in the changed code is reported as a null-test, not as "no fallback".
+
+Only a nullable scalar column is compared, and that was measured rather than chosen: read literally, a generated `@property ...|null` block marks relations, cast objects, primary keys and timestamps nullable too, which accounted for 17 of 25 findings and none of the defect class. `id`, `created_at`, `updated_at` and `deleted_at` are never reported. Across two applications the lane fires on 12 to 13 percent of commits.
+
+Disable it with `richter.sibling_read_parity.enabled`, or silence one pair with `'App\Models\Order::external_id'` (or a whole type) in `richter.sibling_read_parity.ignore`.
+
+### Notes
+
+**A fold was specified alongside the ordering and deliberately not built.** Five commits measured with member-precise seeds could not defend a threshold: seeding by member shrinks the hub files from 220 reached surfaces to 90 and from 265 to 143, the surviving margin in one corpus is 25 against 90 with a non-hub enum at 24, and three of the five commits contain no hub at all. The ordering delivers the benefit without a constant that evidence cannot support, so no threshold ships and nothing is configurable for it.
+
+**`richter:affected-tests` skips the attribution walks entirely.** It reads the entry-point set and never the order, so it does not pay one upward graph walk per changed file for a map it discards. The same bargain the parity lanes already strike there.
+
+### Upgrade note
+
+`detect-changes` gains one payload key in both the JSON document and the MCP output schema, including the empty-diff document. A consumer that asserts an exact key set for that command will see it; `entryPoints` and every other key are unchanged, and `impact` gains nothing. The rendered reports list the same surfaces with the same count in a different order, so a test pinning the first rendered row by name will move.
+
+**Full Changelog**: https://github.com/SanderMuller/richter/compare/v0.60.0...v0.61.0
+
 ## v0.60.0 - 2026-08-28
 
 `affected-tests` could drop the tests for a Livewire or Filament route — an under-selection, which is
@@ -104,6 +148,7 @@ app/Models/Article.php (App\Models\Article::table, property)
 
 
 
+
 ```
 The rule covers the 25 properties the base `Model` declares that an application sets to change behaviour — among them `$table`, `$connection`, `$primaryKey`, `$keyType`, `$incrementing`, `$timestamps`, `$perPage`, `$with`, `$appends`, `$hidden`, `$visible`, `$fillable`, `$guarded`, `$casts` and `$touches`. The runtime caches Eloquent writes are excluded.
 
@@ -126,6 +171,7 @@ The named low-confidence reason from 0.57.0 now names the right kind. Sourced fr
 ```
 a changed member could not be pinned to a graph node (low confidence):
 app/Models/Post.php (App\Models\Post, class declaration)
+
 
 
 
@@ -158,6 +204,7 @@ It now names each one:
 ```
 a changed member could not be pinned to a graph node (low confidence):
 app/Models/Post.php (App\Models\Post::perPage, property)
+
 
 
 
@@ -295,6 +342,7 @@ The --html option requires a path: --html=<path>.
 
 
 
+
 ```
 This is the rule `--fail-on` and `--fail-on-hazard` already apply, through the same mechanism: a flag the user actually typed fails closed rather than being silently ignored. `--open` without `--html` was already guarded for exactly this reason; `--html` itself was the gap.
 
@@ -410,6 +458,7 @@ The three prose formats now keep the discriminating surfaces inline and fold the
 
 
 
+
 ```
 **Nothing is dropped.** The section still counts every surface, and the collapsed group states its own count, so the report cannot read as shorter than the reach it found. A surface whose reason the walk could not record stays inline: absence of a reason is not evidence of a weak one.
 
@@ -438,6 +487,7 @@ A dropped column now names what still refers to it, so the report says who has n
   ```
   ! [tier 2 migration] App\Models\Post — column `posts`.`subtitle` dropped, still named by
     App\Models\Post's own $fillable/$casts, a `subtitle` key in app/Http/Resources/PostResource.php
+  
   
   
   
@@ -563,6 +613,7 @@ Hazards (1):
 
 
 
+
 ```
 The suffix says "via its class" rather than naming a declaring class, because a `migration` hazard is named for a model and a `contract` hazard can name a class deleted whole — neither has a declaring class to point at.
 
@@ -639,6 +690,7 @@ Tightening a rate limit reported a tier-3 HIGH saying the limit was gone. A guar
   
   ```
   the rate limit on the GET /search route in routes/api.php rose from `throttle:60,1` to `throttle:120,1`
+  
   
   
   
@@ -1080,6 +1132,7 @@ dispatch($job);
 
 
 
+
 ```
 That was recorded as a dispatch whose target could not be followed — and the taint is global, so one of them makes every `richter:affected-tests` run report `not determinable` and fall back to the full suite. The graph has carried the edge for this shape all along: the instantiation is in the same method, right above the dispatch. The site pointed at a place to restructure where nothing was hidden and nothing needed restructuring.
 
@@ -1192,6 +1245,7 @@ Build profile: nothing was built — the diff holds nothing the graph is built f
 
 
 
+
 ```
 On stderr, like the table it stands in for, and before the payload in `--json` mode so stdout stays one document. Building anyway was the alternative, and it would make a no-op run pay for an analysis nothing asked for.
 
@@ -1209,6 +1263,7 @@ An event named by a class constant resolves in **any** declaration form, includi
 public const string
     SUBTITLE_CHANGED = 'subtitle-changed',
     SUBTITLE_DELETED = 'subtitle-deleted';
+
 
 
 
@@ -1269,6 +1324,7 @@ Build profile (forced rebuild):
   total                      3.85s
   no scoped rebuild: non-app-change
     config/services.php differs from the cached graph and sits outside app/
+
 
 
 
@@ -1384,6 +1440,7 @@ It now names every site:
 ```
 the graph contains job dispatches that could not be followed:
 app/Jobs/Fanout.php:88 (App\Jobs\Fanout::handle), app/Services/Importer.php:12 (App\Services\Importer::run)
+
 
 
 
@@ -1804,6 +1861,7 @@ Note: 2 changed file(s) are outside the analysed scope (not PHP under app/, a Bl
 
 
 
+
 ```
 Stderr, like the untracked-file note, so `--json` and `--markdown` stdout stay exactly the report. Frontend sources the configuration declines to scan are not counted: generated Wayfinder output under `frontend.generated_paths` and `.d.ts` declarations were silenced on purpose, and a note that fires loudest on regeneration churn is one people stop reading.
 
@@ -1908,6 +1966,7 @@ One new advisory lane, and a README that finally leads with what the package is 
   
   
   
+  
   ```
   The count comes off the `route:: → middleware::<group>` edges already in the graph, so it counts endpoints only: a controller-level attachment of the same group does not inflate it. Membership is read from `$middlewareGroups` on a Laravel 10 Kernel or the `->web(append: [...])` form in a Laravel 11+ `bootstrap/app.php`. A member written as an alias resolves through the same alias map, parameters are cut first (`tenant:strict` is one alias with an argument), and a group that names another group is expanded transitively, since Laravel runs the inner group's middleware on the outer group's routes too.
   
@@ -1940,6 +1999,7 @@ Two silent-failure shapes that richter used to miss: a call through an applicati
   
   ```text
     ! resources/js/Pages/Posts/Create.vue posts to POST /posts and sends 'subtitle', which this diff removes from App\Http\Requests\StorePostRequest::rules() (renamed to 'sub_title'?)
+  
   
   
   
