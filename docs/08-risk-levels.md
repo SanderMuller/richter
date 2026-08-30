@@ -50,7 +50,7 @@ repaginates existing callers; `$timestamps = false` stops writes they depend on.
 base `Model` declares.
 
 A property has no member node, so the change seeds the class coarsely and
-[`richter:affected-tests`](11-affected-tests.md) names it in the low-confidence reason as
+[`richter:affected-tests`](12-affected-tests.md) names it in the low-confidence reason as
 `(App\Models\Article::table, property)`. Two cases stay additive: adding a column to a `$fillable` or
 `$casts` that already exists, and any property on a class that is not a model.
 
@@ -392,5 +392,5 @@ more edges.
 They existed to name the counts the level was scored on, and nothing is scored on counts any more.
 `lowConfidence` remains: it describes the seeding, not the scoring.
 
-If you keep a [benchmark corpus](17-benchmark.md), a control capping at `max_risk: low` needs
+If you keep a [benchmark corpus](18-benchmark.md), a control capping at `max_risk: low` needs
 re-grading to `medium`, because a benign change richter cannot place now reports `medium` by design.

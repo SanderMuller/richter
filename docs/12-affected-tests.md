@@ -10,7 +10,7 @@ php artisan richter:affected-tests --json                 # {base, determinable,
 php artisan test $(php artisan richter:affected-tests --plain)   # simple form: coarse but safe
 ```
 
-It selects the test files that reference any entry point the diff reaches, plus the tests that import any changed or reached class, plus any test file the diff itself touched. That last one needs no graph reasoning and gets none, since `tests/` is outside every tree the analysis reads. It diffs the same way [`detect-changes`](04-detect-changes.md#which-diff-is-analysed) does, so staged and unstaged edits are included. Selection is reference-based recall, not proof of coverage.
+It selects the test files that reference any entry point the diff reaches, plus the tests that import any changed or reached class, plus any test file the diff itself touched. That last one needs no graph reasoning and gets none, since `tests/` is outside every tree the analysis reads. It diffs the same way [`detect-changes`](05-detect-changes.md#which-diff-is-analysed) does, so staged and unstaged edits are included. Selection is reference-based recall, not proof of coverage.
 
 ## The exit-code contract
 
@@ -166,4 +166,4 @@ In `--plain` mode an undeterminable run prints nothing, so the command-substitut
 
 ## Frontend tests
 
-Frontend spec files referencing a touched route surface as an advisory `frontendTests` list for the JS runner, never in `--plain` (which feeds the PHP runner), and never a determinability input. See [Frontend changes](12-frontend.md).
+Frontend spec files referencing a touched route surface as an advisory `frontendTests` list for the JS runner, never in `--plain` (which feeds the PHP runner), and never a determinability input. See [Frontend changes](13-frontend.md).

@@ -32,7 +32,12 @@ export const sections: DocSection[] = [
                 blurb: 'Require the package, check the PHP and Laravel versions, and publish the config.',
             },
             {
-                file: '03-project-setup',
+                file: '03-getting-started',
+                text: 'Getting started',
+                blurb: 'One command on a branch, and the line in the report worth acting on.',
+            },
+            {
+                file: '04-project-setup',
                 text: 'Set up your project',
                 blurb: 'Teach Richter your app\'s shape with an agent skill, or with two prompts you can paste anywhere.',
             },
@@ -42,27 +47,27 @@ export const sections: DocSection[] = [
         text: 'Change impact',
         pages: [
             {
-                file: '04-detect-changes',
+                file: '05-detect-changes',
                 text: 'Detecting change impact',
                 blurb: 'Run the main command, read the report, and see how each entry point is reached.',
             },
             {
-                file: '05-report-annotations',
+                file: '06-report-annotations',
                 text: 'Report annotations',
                 blurb: 'Security exposure, Pennant gates, payload parity, and middleware group membership.',
             },
             {
-                file: '06-output-formats',
+                file: '07-output-formats',
                 text: 'Output formats',
                 blurb: 'Markdown for pull requests, HTML for a visual report, and the semver-governed JSON contract.',
             },
             {
-                file: '07-risk-levels',
+                file: '08-risk-levels',
                 text: 'Risk levels',
                 blurb: 'The hazard tiers, the reach matrix, and the ladder that turns them into a level.',
             },
             {
-                file: '08-ci-gating',
+                file: '09-ci-gating',
                 text: 'Gating in CI',
                 blurb: 'Turn the advisory report into a pull-request check with --fail-on, --fail-on-hazard and --fail-on-unresolved.',
             },
@@ -72,17 +77,17 @@ export const sections: DocSection[] = [
         text: 'Commands',
         pages: [
             {
-                file: '09-impact',
+                file: '10-impact',
                 text: 'Blast radius of a symbol',
                 blurb: 'List a symbol\'s callers, its dependencies, and the entry surfaces behind them.',
             },
             {
-                file: '10-trace',
+                file: '11-trace',
                 text: 'Shortest path between symbols',
                 blurb: 'Answer "how does this even reach that?" with the shortest call chain.',
             },
             {
-                file: '11-affected-tests',
+                file: '12-affected-tests',
                 text: 'Affected-test selection',
                 blurb: 'Turn the diff\'s reach into a test selection with a fail-safe exit-code contract.',
             },
@@ -92,22 +97,22 @@ export const sections: DocSection[] = [
         text: 'Digging deeper',
         pages: [
             {
-                file: '12-frontend',
+                file: '13-frontend',
                 text: 'Frontend changes',
                 blurb: 'Bridge Wayfinder and Ziggy references to backend routes, in both directions.',
             },
             {
-                file: '13-mcp-server',
+                file: '14-mcp-server',
                 text: 'MCP server',
                 blurb: 'Give a coding agent every analysis as a read-only tool, without shelling out.',
             },
             {
-                file: '14-graph-cache',
+                file: '15-graph-cache',
                 text: 'Graph cache',
                 blurb: 'How the fingerprinted cache works, when a scoped rebuild engages, and why it refuses.',
             },
             {
-                file: '15-coverage',
+                file: '16-coverage',
                 text: 'Coverage beyond Laravel Brain',
                 blurb: 'The edges a route-anchored analysis misses, and the known limits.',
             },
@@ -117,17 +122,17 @@ export const sections: DocSection[] = [
         text: 'Reference',
         pages: [
             {
-                file: '16-configuration',
+                file: '17-configuration',
                 text: 'Configuration reference',
                 blurb: 'Every key in config/richter.php, with defaults and what each one changes.',
             },
             {
-                file: '17-benchmark',
+                file: '18-benchmark',
                 text: 'Benchmarking',
                 blurb: 'Score accuracy against replayable history before and after a change to the model.',
             },
             {
-                file: '18-troubleshooting',
+                file: '19-troubleshooting',
                 text: 'Troubleshooting',
                 blurb: 'A symptom index: empty reports, UNRESOLVED files, saturated risk levels, exit 2.',
             },

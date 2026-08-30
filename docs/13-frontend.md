@@ -39,7 +39,7 @@ Changed `.ts`/`.tsx`/`.js`/`.jsx`/`.vue` files are then scanned for the backend 
 
 Generated output is excluded from the scan as regeneration churn: Wayfinder's trees (`actions/`,
 `routes/`, `wayfinder/` under each root) and Ziggy's route map (`ziggy.js`). `.d.ts` declaration
-files are never scanned. See `frontend.generated_paths` in [Configuration](16-configuration.md).
+files are never scanned. See `frontend.generated_paths` in [Configuration](17-configuration.md).
 
 Frontend spec files (`*.test.*`, `*.spec.*`, `*.cy.*` under the roots, or `frontend.test_paths`)
 referencing a touched route surface in `richter:affected-tests` as an advisory `frontendTests`

@@ -19,6 +19,7 @@ Key properties an agent should know before using it:
 
 - [Why Richter?](https://sandermuller.github.io/richter/why-richter): what a report tells you, what it refuses to guess at, how the analysis runs
 - [Installation](https://sandermuller.github.io/richter/installation): requirements (PHP 8.4+, Laravel 12/13), the `laravel/mcp` version constraint, the command list
+- [Getting started](https://sandermuller.github.io/richter/getting-started): one command on a branch, reading the report, and the advisory exit code
 - [Set up your project](https://sandermuller.github.io/richter/project-setup): the config keys that make the analysis accurate for a given app
 - [Detecting change impact](https://sandermuller.github.io/richter/detect-changes): the main command, which diff is analysed, reading the report, `--explain`
 - [Report annotations](https://sandermuller.github.io/richter/report-annotations): security exposure, Pennant gates, payload parity, middleware group membership — payload parity grades as tier-2 hazards and security exposure sets a hazard's reach class; the rest is advisory

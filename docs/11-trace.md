@@ -24,7 +24,7 @@ Path from "PostController" to "App\Services\PostPublisher" (call direction, 1 ho
 
 No path is a result, not an error (exit 0). The report then names the deepest caller reached from the TO side within the depth limit, which tells you how far upstream connectivity extends. It is not a pointer toward FROM. When the target has no callers at all, the report says so plainly.
 
-An unresolvable symbol *is* an error. An empty trace would read as "no path", a wrong answer rather than an empty one. The error carries the same nearest-graph-nodes lead [`richter:impact`](09-impact.md#when-a-symbol-matches-nothing) renders.
+An unresolvable symbol *is* an error. An empty trace would read as "no path", a wrong answer rather than an empty one. The error carries the same nearest-graph-nodes lead [`richter:impact`](10-impact.md#when-a-symbol-matches-nothing) renders.
 
 ## `--json`
 

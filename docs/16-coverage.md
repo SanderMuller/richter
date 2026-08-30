@@ -24,7 +24,7 @@ Brain traces some of these too (view composition, resource references, queue dis
 - relation methods to the models they return: `Post::comments` links to `Comment`, so a change to the model a relation arrives at reaches the code that walks or eager-loads it. Brain's model-to-model edge is class to class, which stops one hop short of the member that reads the relation;
 - relations walked in a body: `$this->post->author` links the relation methods it walks. The receiver has to say what it is somewhere in the source: `$this`, a typed property or parameter, `new Post`, a static that returns one model (`first`, `create`, `updateOrCreate` and the rest of that family, plus `find` with a literal id), a `@var` docblock on the statement, or a local bound to any of those. The chain ends at the first hop that does not resolve, and it also ends after a to-many hop, because `$post->comments` is a collection and what follows it belongs to the collection, not to `Comment`;
 - view-to-view includes;
-- frontend endpoint references: Wayfinder imports, Ziggy calls, endpoint literals in changed TS/JS/Vue files and Blade inline scripts (opt-in, see [Frontend changes](12-frontend.md)).
+- frontend endpoint references: Wayfinder imports, Ziggy calls, endpoint literals in changed TS/JS/Vue files and Blade inline scripts (opt-in, see [Frontend changes](13-frontend.md)).
 
 ## Known limits
 

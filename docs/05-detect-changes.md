@@ -28,8 +28,8 @@ An untracked **migration** is the exception: it is read from the working tree an
 
 - The entry points the change can reach, each tagged `[test-referenced]` or `[⚠ no test references this]`: routes, commands, jobs, listeners, middleware, and Livewire/Filament/Nova component classes. A Blade-mounted component, a Filament resource, page or widget, and a Nova resource are each a user-facing surface even without a `route::` node.
 - Findings in the changed source itself, such as an eager-load or relation string that names no relation on any model. A missing comma between two relation constants is the classic case: `Post::OWNER . User::PROFILE` concatenates to `ownerprofile`, a name Eloquent silently never resolves.
-- The [risk level](07-risk-levels.md) (`low` / `medium` / `high`), always with the reason for it.
-- The [hazards](07-risk-levels.md#hazards) the change carries, worst tier first.
+- The [risk level](08-risk-levels.md) (`low` / `medium` / `high`), always with the reason for it.
+- The [hazards](08-risk-levels.md#hazards) the change carries, worst tier first.
 - Honest degradation. A change that cannot be placed in the graph reads `UNRESOLVED` rather than "no impact", and an unfollowable dispatch makes a queue job read "unknown" rather than "none". A file that resolved to no graph node also echoes the FQCN its path derived to (`app/Services/Inspector.php → App\Services\Inspector`), which is what separates a coverage gap from a wrong root namespace.
 
 ```text
@@ -122,4 +122,4 @@ The demoted set is narrow: `model-relationship` and `model-to-policy`, the two e
 
 ## More annotation
 
-The report carries more advisory annotation (security exposure, Pennant gates, middleware group membership), none of which feeds the risk level or a `--fail-on` gate. Payload parity is the exception and no longer sits here: its three checks are tier-2 hazards, so they do move the level. See [Report annotations](05-report-annotations.md).
+The report carries more advisory annotation (security exposure, Pennant gates, middleware group membership), none of which feeds the risk level or a `--fail-on` gate. Payload parity is the exception and no longer sits here: its three checks are tier-2 hazards, so they do move the level. See [Report annotations](06-report-annotations.md).

@@ -2,13 +2,13 @@
 
 `richter:detect-changes` renders four lanes beside the reach it reports: security exposure per route, Pennant feature gates, payload-parity breaks, and middleware group membership.
 
-Two of them are annotation only. Pennant gates and middleware group membership feed nothing: not the [risk level](07-risk-levels.md), not a gate, and not the [affected-test selection](11-affected-tests.md).
+Two of them are annotation only. Pennant gates and middleware group membership feed nothing: not the [risk level](08-risk-levels.md), not a gate, and not the [affected-test selection](12-affected-tests.md).
 
-Membership is not the same thing as the group's guards. Which routes a group runs on is the annotation, and it feeds nothing. A guard the group itself lost is a [tier-3 hazard](07-risk-levels.md#hazards) read from `bootstrap/app.php` or a legacy Kernel, and that does decide the level.
+Membership is not the same thing as the group's guards. Which routes a group runs on is the annotation, and it feeds nothing. A guard the group itself lost is a [tier-3 hazard](08-risk-levels.md#hazards) read from `bootstrap/app.php` or a legacy Kernel, and that does decide the level.
 
 The other two do reach the level, each through one narrow door:
 
-- Payload-parity results are tier-2 [hazards](07-risk-levels.md#hazards). A payload key a consumer still reads is a thing that breaks, so it is graded like any other hazard. It prints under `Hazards`, not `Findings`.
+- Payload-parity results are tier-2 [hazards](08-risk-levels.md#hazards). A payload key a consumer still reads is a thing that breaks, so it is graded like any other hazard. It prints under `Hazards`, not `Findings`.
 - Security exposure decides a hazard's reach class. A `PUBLIC_WRITE` route with no guard richter can point at, reaching a hazardous member, makes that hazard `public-write`. The annotation itself is still inherited from Brain and still seeds nothing.
 
 ## Security annotations
@@ -28,11 +28,11 @@ Brain reads auth middleware two ways: by name — the aliases `auth`, `sanctum`,
 
 ## Feature-flag (Pennant) annotations
 
-Pennant feature gating is annotated the same way. A route guarded by `EnsureFeaturesAreActive` renders its flags inline (`[gated: ai-coach]`, a 🚩 badge in markdown, `entryPointGates` in JSON), and a changed member or Blade view that itself checks a flag (`Feature::active(...)`, `@feature`) notes it under Findings; a flag-gated change has a smaller live blast radius than the raw graph suggests, and the reviewer should know. Route detection reads statically visible middleware (a string alias like `'features:ai-coach'` or an FQCN-string form); the runtime-built `EnsureFeaturesAreActive::using(...)` expression is invisible to static route parsing. Only the `Feature` facade, `@feature`, and any `feature_gate_methods`-configured wrapper method are recognised; a project convention like `FeatureToggle::BETA_DASHBOARD->isActive()` needs an allowlist entry (see [Configuration](16-configuration.md)) before it is noted.
+Pennant feature gating is annotated the same way. A route guarded by `EnsureFeaturesAreActive` renders its flags inline (`[gated: ai-coach]`, a 🚩 badge in markdown, `entryPointGates` in JSON), and a changed member or Blade view that itself checks a flag (`Feature::active(...)`, `@feature`) notes it under Findings; a flag-gated change has a smaller live blast radius than the raw graph suggests, and the reviewer should know. Route detection reads statically visible middleware (a string alias like `'features:ai-coach'` or an FQCN-string form); the runtime-built `EnsureFeaturesAreActive::using(...)` expression is invisible to static route parsing. Only the `Feature` facade, `@feature`, and any `feature_gate_methods`-configured wrapper method are recognised; a project convention like `FeatureToggle::BETA_DASHBOARD->isActive()` needs an allowlist entry (see [Configuration](17-configuration.md)) before it is noted.
 
 ## Payload parity
 
-A model field added to `$fillable`/`$casts`/`casts()` but never added to a resource that otherwise mirrors the model's other fields is reported as a tier-2 hazard (`AppResource.php mirrors App\Models\X but does not expose <field> added to App\Models\X`), the exact shape behind a payload field silently going missing after an otherwise-correct edit. The lane makes no guesses: the default `mirror_threshold` requires an exact match against the candidate's pre-existing fields before it counts as a mirror, candidate resources are matched by graph wiring first and only by name when nothing is wired, and anything the checker can't statically enumerate (a dynamic `toArray()` key, a spread, an unparseable resource) is silently skipped rather than guessed at. On by default; disable it for one run with `--no-payload-parity` or globally via `payload_parity.enabled` (see [Configuration](16-configuration.md)).
+A model field added to `$fillable`/`$casts`/`casts()` but never added to a resource that otherwise mirrors the model's other fields is reported as a tier-2 hazard (`AppResource.php mirrors App\Models\X but does not expose <field> added to App\Models\X`), the exact shape behind a payload field silently going missing after an otherwise-correct edit. The lane makes no guesses: the default `mirror_threshold` requires an exact match against the candidate's pre-existing fields before it counts as a mirror, candidate resources are matched by graph wiring first and only by name when nothing is wired, and anything the checker can't statically enumerate (a dynamic `toArray()` key, a spread, an unparseable resource) is silently skipped rather than guessed at. On by default; disable it for one run with `--no-payload-parity` or globally via `payload_parity.enabled` (see [Configuration](17-configuration.md)).
 
 The same lane runs in the consumer direction: a `toArray()` key the diff removes from a resource is flagged when a frontend file that consumes one of the routes the resource reaches still reads it.
 
@@ -78,4 +78,4 @@ The count comes from the application's registered route table, because the graph
 
 The note is left out whenever the size cannot be vouched for: a group no route references, a middleware in no group, an unreadable Kernel, or an upgraded app that kept an empty `app/Http/Kernel.php` stub beside its bootstrap groups; that stub wins the lookup and yields no groups, which costs the note and never produces a wrong one.
 
-Letting a group's routes count toward reach would raise the risk level of every middleware edit in every app at once, which needs its own evidence rather than arriving as a side effect of an annotation. A guard removed from the group is a different question, answered separately and by comparison rather than by counting: see [route files and middleware groups](07-risk-levels.md#hazards).
+Letting a group's routes count toward reach would raise the risk level of every middleware edit in every app at once, which needs its own evidence rather than arriving as a side effect of an annotation. A guard removed from the group is a different question, answered separately and by comparison rather than by counting: see [route files and middleware groups](08-risk-levels.md#hazards).

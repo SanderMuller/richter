@@ -75,6 +75,7 @@ Read the full documentation at **[sandermuller.github.io/richter](https://sander
 **Getting started**
 - [Why Richter?](https://sandermuller.github.io/richter/why-richter) — what a report tells you, what it refuses to guess at, and how the analysis runs
 - [Installation](https://sandermuller.github.io/richter/installation) — requirements, the `laravel/mcp` constraint, publishing the config
+- [Getting started](https://sandermuller.github.io/richter/getting-started) — one command on a branch, and the line in the report worth acting on
 - [Set up your project](https://sandermuller.github.io/richter/project-setup) — the setup skill, or two prompts you can paste to any agent
 
 **Change impact**

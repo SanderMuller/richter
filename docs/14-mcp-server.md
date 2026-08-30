@@ -46,4 +46,4 @@ Point Claude Code, Cursor, or any MCP client at the Artisan entry point, for exa
 }
 ```
 
-The `/richter-setup` skill registers this for you if you ask it to; see [Set up your project](03-project-setup.md).
+The `/richter-setup` skill registers this for you if you ask it to; see [Set up your project](04-project-setup.md).
