@@ -94,9 +94,10 @@ final class AffectedTests
         $graph = $graphs->graph(fresh: $fresh);
         // Parity lanes off: they only produce findings, which the selection never reads —
         // and the consumer lane would otherwise pay a whole frontend-tree scan on a CI
-        // hot path for output this command discards.
+        // hot path for output this command discards. Entry-point attribution is off for the same
+        // reason: it walks once per changed file to decide row ORDER, and this command reads the set.
         $selection = self::select(
-            new ImpactAnalyzer($graph)->detectChanges($changed, payloadParityEnabled: false),
+            new ImpactAnalyzer($graph)->detectChanges($changed, payloadParityEnabled: false, attributionEnabled: false),
             $changed,
             TestReferenceIndex::fromTests(base_path('tests'), base_path()),
             $graph->unresolvedDispatchSites(),

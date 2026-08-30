@@ -108,6 +108,26 @@ Before a file falls through to UNRESOLVED, Richter tries one last lane: the node
 
 Those surfaces list as touched, but they are never walked and they are not among the surfaces the level grades. A file that declares a surface has not called into it: adding one line to a `$commands` array cannot break the ten commands registered beside it, and rating the edit by everything those ten reach would be breadth dressed up as consequence. The lane runs only when every other lane came up empty, so member-level precision elsewhere is unaffected: a one-method change to a controller still seeds that method, not the class its file also defines.
 
+## Which rows come first
+
+A change that touches one widely-referenced class reaches most of the application, and the report
+cannot print all of it: the prose formats show the first fifteen surfaces and count the rest. Those
+fifteen used to be whichever surfaces sorted first by name, which on a real feature commit meant
+admin panels and list screens while the routes the commit actually added sat below the cut.
+
+Rows are now ordered by how specifically the diff explains them. Each reached surface is attributed
+to the changed file with the SMALLEST reach of its own that reaches it: a changed controller that
+reaches nine surfaces explains its own route better than a changed model that reaches ninety. The
+machine payload carries the same fact as `entryPointAttribution`, so an agent can filter on it
+instead of guessing which rows belong to the task.
+
+Nothing is hidden or folded. The same surfaces are reported, in a different order, and the count
+beside the list is unchanged. A surface no per-file walk explains, such as a changed class that is
+itself an entry point or a frontend surface, carries no attribution and sorts last, never dropped.
+
+`richter:impact` analyses a single symbol, so it has no per-file attribution to make: its rows keep
+the plain-name order they have always had.
+
 ## Entry surfaces reached only by association
 
 An entry point in the main list is something that calls the changed code. A surface connected to it only through a model relation is not: it is associated with the change, and nothing there runs the changed code. Those are reported separately:

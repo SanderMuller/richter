@@ -162,7 +162,7 @@ final readonly class ImpactAnalyzer
      * draw "nothing changed" without a graph build. {@see JsonPresenter::emptyDetectChanges()} is
      * the separate JSON-shaped equivalent; the two differ in `risk` (enum here, string there).
      *
-     * @return array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, newFiles: list<string>, fqcns: array<string, string>, callers: list<array{depth: int, node: string, via: string}>, dependencies: list<array{depth: int, node: string, via: string}>, seeds: list<string>, reach: array<string, array<string, true>>, edges: list<array{source: string, target: string, via: string, depth: int}>, entryPoints: list<string>, associationEntryPoints: list<string>, associationEntryPointsVia: array<string, list<string>>, registryEntryPoints: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, SecurityShape>, entryPointGates: array<string, list<string>>, entryPointAuthGates: array<string, list<string>>, entryPointAuthMiddleware: array<string, list<string>>, impacted: int, relatedModels: list<string>, traitAndOverrideReach: list<string>, traitAndOverrideReachVia: array<string, list<string>>, risk: RiskLevel, riskCause: string, hazards: list<Hazard>, verification: array<string, bool|null>, lowConfidence: bool, findings: list<string>}
+     * @return array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, newFiles: list<string>, fqcns: array<string, string>, callers: list<array{depth: int, node: string, via: string}>, dependencies: list<array{depth: int, node: string, via: string}>, seeds: list<string>, reach: array<string, array<string, true>>, edges: list<array{source: string, target: string, via: string, depth: int}>, entryPoints: list<string>, associationEntryPoints: list<string>, associationEntryPointsVia: array<string, list<string>>, registryEntryPoints: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, SecurityShape>, entryPointGates: array<string, list<string>>, entryPointAuthGates: array<string, list<string>>, entryPointAuthMiddleware: array<string, list<string>>, entryPointAttribution: array<string, array{via: string, ownReach: int}>, impacted: int, relatedModels: list<string>, traitAndOverrideReach: list<string>, traitAndOverrideReachVia: array<string, list<string>>, risk: RiskLevel, riskCause: string, hazards: list<Hazard>, verification: array<string, bool|null>, lowConfidence: bool, findings: list<string>}
      */
     public static function emptyDetectChanges(): array
     {
@@ -170,7 +170,7 @@ final readonly class ImpactAnalyzer
             'changed' => [], 'coverage' => [], 'newFiles' => [], 'fqcns' => [], 'callers' => [], 'dependencies' => [],
             'seeds' => [], 'reach' => [], 'edges' => [], 'entryPoints' => [], 'associationEntryPoints' => [], 'associationEntryPointsVia' => [], 'entryPointPaths' => [],
             'entryPointLocations' => [], 'entryPointSecurity' => [], 'entryPointGates' => [],
-            'entryPointAuthGates' => [], 'entryPointAuthMiddleware' => [],
+            'entryPointAuthGates' => [], 'entryPointAuthMiddleware' => [], 'entryPointAttribution' => [],
             'impacted' => 0, 'relatedModels' => [], 'registryEntryPoints' => [], 'traitAndOverrideReach' => [], 'traitAndOverrideReachVia' => [], 'risk' => RiskLevel::Low,
             // Ladder step 0: nothing was analysed, which is not the same fact as "analysed and could
             // not be placed". An empty diff has always reported LOW and still does.
@@ -183,6 +183,8 @@ final readonly class ImpactAnalyzer
     /**
      * @param  list<ChangedFileSymbols>  $changed  the member-level change set per file (see ChangedSymbols)
      *
+     * @param  bool  $attributionEnabled  false skips the per-file attribution walks entirely — for a
+     *   caller that reads the entry-point set and never its order (`richter:affected-tests`)
      * @param  bool|null  $payloadParityEnabled  overrides `richter.payload_parity.enabled` (e.g. the
      *   command's `--no-payload-parity` flag); null defers to config
      * @param  TestReferenceIndex|null  $tests  the level's verification input. Absent behaves exactly
@@ -209,6 +211,7 @@ final readonly class ImpactAnalyzer
      *     entryPointGates: array<string, list<string>>,
      *     entryPointAuthGates: array<string, list<string>>,
      *     entryPointAuthMiddleware: array<string, list<string>>,
+     *     entryPointAttribution: array<string, array{via: string, ownReach: int}>,
      *     impacted: int,
      *     relatedModels: list<string>,
      *     registryEntryPoints: list<string>,
@@ -222,7 +225,7 @@ final readonly class ImpactAnalyzer
      *     findings: list<string>,
      * }
      */
-    public function detectChanges(array $changed, int $maxDepth = 6, ?bool $payloadParityEnabled = null, ?TestReferenceIndex $tests = null, ?bool $hazardsEnabled = null): array
+    public function detectChanges(array $changed, int $maxDepth = 6, ?bool $payloadParityEnabled = null, ?TestReferenceIndex $tests = null, ?bool $hazardsEnabled = null, bool $attributionEnabled = true): array
     {
         $preciseSeeds = [];
         $coarseSeeds = [];
@@ -377,6 +380,9 @@ final readonly class ImpactAnalyzer
         $findings = $newFileFindings;
         [$modelParityLane, $consumerParityLane, $requestParityLane] = ParityFindings::checkers($this->graph, $payloadParityEnabled);
         $groupLane = new MiddlewareGroupFindings($this->graph);
+        // A FINDING lane, so it sits here and not in ParityFindings, which returns hazards. It reads
+        // the two indexes ChangedSymbols built from the base and head trees and touches no file.
+        $siblingReadLane = SiblingReadParity::fromConfig();
         // The parity family's results are tier-2 hazards now, not findings. They join the lanes'
         // output before the reach class is attached, so every hazard is graded the same way.
         $parityHazards = [];
@@ -388,6 +394,10 @@ final readonly class ImpactAnalyzer
 
             $parityHazards = [...$parityHazards, ...ParityFindings::for($file, $modelParityLane, $consumerParityLane, $requestParityLane)];
             $findings = [...$findings, ...$groupLane->findingsFor($file->fqcn)];
+
+            foreach ($siblingReadLane?->findingsFor($file) ?? [] as $finding) {
+                $findings[] = "{$file->file}: {$finding}";
+            }
         }
 
         [$entryPointLocations, $entryPointSecurity, $entryPointGates] = $this->entryPointAnnotations($entryPoints);
@@ -405,6 +415,16 @@ final readonly class ImpactAnalyzer
         // Runs on what survived suppression, so a silenced column costs no lookup. Evidence only: it
         // names what still refers to a dropped column and moves neither tier nor reach.
         $hazards = new ColumnReferences($this->graph)->attach($hazards);
+
+        // After every lane that can ADD an entry point, so a surface joining the list late is offered
+        // to the attribution too — and simply carries none when no per-file walk reaches it.
+        //
+        // Off for a caller that only selects tests: this is one upward walk per changed file, and the
+        // selection reads the entry-point SET rather than the order, so on that hot path it would be
+        // paid for output nobody looks at. Same bargain `payloadParityEnabled: false` already strikes.
+        $entryPointAttribution = $attributionEnabled
+            ? new EntryPointAttribution($this->graph, $this->entryPointsAmong(...))->for($perFileSeeds, $entryPoints, $maxDepth)
+            : [];
 
         $graded = new VerificationSet($reachedEntryPoints, $changed, $perFileSeeds);
         $members = $graded->members(fn (array $seeds): int => $this->riskInputs($seeds, $maxDepth, $riskInputsMemo)[0]);
@@ -432,6 +452,7 @@ final readonly class ImpactAnalyzer
             'entryPointGates' => $entryPointGates,
             'entryPointAuthGates' => $entryPointAuthGates,
             'entryPointAuthMiddleware' => $entryPointAuthMiddleware,
+            'entryPointAttribution' => $entryPointAttribution,
             'impacted' => $impacted,
             'relatedModels' => $this->readableModelLabels($relatedModels),
             'traitAndOverrideReach' => $traitAndOverrideReach,

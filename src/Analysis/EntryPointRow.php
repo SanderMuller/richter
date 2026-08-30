@@ -44,10 +44,17 @@ final readonly class EntryPointRow
     ) {}
 
     /**
-     * One row per entry point, sorted by plain label — deliberately, so text and markdown agree.
-     * The formatters previously each sorted their own decorated label; for a label that is a
-     * prefix of another (`…/posts` vs `…/posts/{post}`), markdown's closing backtick used to
-     * invert that pair, so plain-label order is a small intended change there, not an oversight.
+     * One row per entry point, in the order every formatter renders and cuts at its cap.
+     *
+     * With an ATTRIBUTION map the order is how specifically the diff explains each surface
+     * ({@see EntryPointAttribution::sortKey()}) — the rows a reader meets first are then the ones the
+     * change is about, rather than the ones whose names sort early. Without one — every `richter:impact`
+     * call, which analyses a single symbol and has no per-file attribution to make — the order is the
+     * plain label, exactly as before.
+     *
+     * Plain label, not the decorated one: the formatters previously each sorted their own decorated
+     * label; for a label that is a prefix of another (`…/posts` vs `…/posts/{post}`), markdown's
+     * closing backtick used to invert that pair.
      *
      * @param  list<string>  $entryPoints
      * @param  array<string, list<array{node: string, via: string, file?: string, line?: int}>>  $paths  keyed by entry-point node; empty when not explaining
@@ -56,9 +63,10 @@ final readonly class EntryPointRow
      * @param  array<string, list<string>>  $gates  keyed by entry-point node
      * @param  array<string, list<string>>  $authGates  keyed by entry-point node; contradicting policy gates
      * @param  array<string, list<string>>  $authMiddleware  keyed by entry-point node; contradicting auth middleware
+     * @param  array<string, array{via: string, ownReach: int}>  $attribution  keyed by entry-point node; empty when the caller has none to give
      * @return list<self>
      */
-    public static function build(array $entryPoints, array $paths, array $locations, array $security, array $gates, array $authGates, array $authMiddleware, ?TestReferenceIndex $tests): array
+    public static function build(array $entryPoints, array $paths, array $locations, array $security, array $gates, array $authGates, array $authMiddleware, ?TestReferenceIndex $tests, array $attribution = []): array
     {
         $rows = array_map(static fn (string $node): self => new self(
             node: $node,
@@ -73,7 +81,8 @@ final readonly class EntryPointRow
             assertionWeak: $tests?->referencedWithoutBehaviouralAssertion($node) ?? false,
         ), $entryPoints);
 
-        usort($rows, static fn (self $a, self $b): int => $a->label <=> $b->label);
+        usort($rows, static fn (self $a, self $b): int => EntryPointAttribution::sortKey($a->node, $a->label, $attribution)
+            <=> EntryPointAttribution::sortKey($b->node, $b->label, $attribution));
 
         return $rows;
     }

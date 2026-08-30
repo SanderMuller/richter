@@ -17,11 +17,18 @@ To make the skills available:
 
 ## Or paste these prompts to any agent
 
-Two prompts, so CI stays opt-in.
+Two prompts, so CI stays opt-in. The first one points the agent at the same checklist the
+`/richter-setup` skill follows, which is on disk after `composer require`. One list, so the two routes
+cannot drift apart.
 
 ### Configure
 
-> Set up Richter for this Laravel project. Inspect the code and **propose** edits to `config/richter.php`; show me each change and get my OK, write nothing unasked. Cover: `default_base` (my repo's real default branch), `entry_point_roots` (any `app/` subsystem reached via runtime/vendor dispatch, such as form-builder Forms or registry-dispatched calculators, that `richter:detect-changes` reports `UNRESOLVED`; pick the narrowest dir, which makes the subsystem traceable without turning its classes into entry points), `dispatch_helpers` (custom job-dispatch wrapper functions), frontend roots if there's an Inertia/Wayfinder/Ziggy frontend, and `editor: null` if this is mainly for CI. Also flag any Laravel Brain config (`security.auth_middleware`/`throttle_middleware`, route/command/listener discovery) that would fix mis-classified routes at the source.
+> Set up Richter for this Laravel project. Read
+> `vendor/sandermuller/richter/resources/boost/skills/richter-setup/SKILL.md` and follow its
+> configuration checklist. It lists every key worth setting and how to decide each one. Inspect the
+> code, then **propose** the edits to `config/richter.php`: show me each change and get my OK, and
+> write nothing unasked. Also flag any Laravel Brain config the checklist names that would fix a
+> mis-classified route at the source.
 
 ### Add the CI advisory comment
 

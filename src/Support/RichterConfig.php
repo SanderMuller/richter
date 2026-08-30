@@ -242,6 +242,27 @@ final class RichterConfig
         return self::stringList('richter.payload_parity.ignore') ?? [];
     }
 
+    public static function siblingReadParityEnabled(): bool
+    {
+        $value = config('richter.sibling_read_parity.enabled');
+
+        if ($value === null) {
+            return true;
+        }
+
+        if (! is_bool($value)) {
+            throw new InvalidArgumentException('The richter.sibling_read_parity.enabled config value must be a boolean.');
+        }
+
+        return $value;
+    }
+
+    /** @return list<string> */
+    public static function siblingReadParityIgnore(): array
+    {
+        return self::stringList('richter.sibling_read_parity.ignore') ?? [];
+    }
+
     public static function hazardsEnabled(): bool
     {
         $value = config('richter.hazards.enabled');

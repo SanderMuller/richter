@@ -63,6 +63,12 @@ final class ChangedSymbols
 
         $mergeBase = trim($mergeBaseResult->output());
 
+        // Dropped before the work, not after: a run that throws part-way through must not leave the
+        // previous diff's evidence standing for the next one. A long-lived process (the MCP server)
+        // resolves many diffs, and reporting one diff's sibling reads against another's evidence
+        // would be a finding about code this run never looked at.
+        SiblingReadIndex::forget();
+
         // HEAD mode compares the working tree against the merge-base (a single ref diffs the working
         // tree against it); any other ref keeps the three-dot committed-tree form untouched.
         $diffRange = $head === 'HEAD' ? [$mergeBase] : ["{$base}...{$head}"];
@@ -167,6 +173,16 @@ final class ChangedSymbols
                 fn (string $file): ?string => self::headSource($head, $file, $prefix),
             )];
         }
+
+        // Built here because this is the only place both trees are reachable, and memoized rather
+        // than returned: the analyzer is reached through two commands and an MCP tool, and a new
+        // return key would carry it to some of them and not others.
+        SiblingReadIndex::remember(SiblingReadIndex::build(
+            $changed,
+            fn (string $directory): array => SiblingReadIndex::baseDirectoryListing($mergeBase, $directory, $prefix),
+            fn (string $file): ?string => self::baseSource($mergeBase, $file, $prefix),
+            fn (string $file): ?string => self::headSource($head, $file, $prefix),
+        ));
 
         return ['changed' => $changed, 'outOfScope' => $outOfScope];
     }
@@ -336,7 +352,7 @@ final class ChangedSymbols
         $inlineRequestFields = RequestFieldParser::inlineDiffFor($file, $isNew, $headSrc, $baseSrc);
         [$hazards, $addedHazardTokens, $hazardFindings] = HazardLanes::for($file, $isNew, $headSrc, $baseSrc);
 
-        return new ChangedFileSymbols($file, Fqcn::fromPath($file), $members, $members === [], findings: [...self::sourceFindings($members, $head['members'], $headSrc, $eagerLoadChecker, $featureGateChecker, $inertiaPageChecker), ...$hazardFindings], modelFieldSet: $modelFieldSet, addedModelFields: $addedModelFields, isNewFile: $isNew, removedResourceKeys: $removedResourceKeys, addedResourceKeys: $addedResourceKeys, removedRequestFields: $removedRequestFields, addedRequestFields: $addedRequestFields, inlineRequestFields: $inlineRequestFields, hazards: $hazards, addedHazardTokens: $addedHazardTokens);
+        return new ChangedFileSymbols($file, Fqcn::fromPath($file), $members, $members === [], findings: [...self::sourceFindings($members, $head['members'], $headSrc, $eagerLoadChecker, $featureGateChecker, $inertiaPageChecker), ...$hazardFindings], modelFieldSet: $modelFieldSet, addedModelFields: $addedModelFields, isNewFile: $isNew, removedResourceKeys: $removedResourceKeys, addedResourceKeys: $addedResourceKeys, removedRequestFields: $removedRequestFields, addedRequestFields: $addedRequestFields, inlineRequestFields: $inlineRequestFields, hazards: $hazards, addedHazardTokens: $addedHazardTokens, siblingReads: SiblingReads::forChangedMembers($file, $headSrc, $members));
     }
 
     /**

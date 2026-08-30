@@ -190,6 +190,51 @@ final class JsonPresenterTest extends TestCase
     }
 
     #[Test]
+    public function detect_changes_json_carries_the_entry_point_attribution(): void
+    {
+        $result = $this->detectChangesResult();
+        $result['entryPointAttribution'] = [
+            'route::GET::/posts' => ['via' => 'app/Http/Controllers/PostController.php', 'ownReach' => 3],
+        ];
+
+        $json = JsonPresenter::detectChanges($result, 'origin/main');
+
+        $this->assertSame(
+            ['route::GET::/posts' => ['via' => 'app/Http/Controllers/PostController.php', 'ownReach' => 3]],
+            $json['entryPointAttribution'],
+        );
+    }
+
+    #[Test]
+    public function the_empty_detect_changes_document_carries_the_attribution_key(): void
+    {
+        // The MCP schema validates this document too, so a key the schema declares has to be here.
+        $this->assertSame([], JsonPresenter::emptyDetectChanges('origin/main')['entryPointAttribution']);
+    }
+
+    #[Test]
+    public function the_impact_document_gains_no_attribution_key(): void
+    {
+        // `impact` analyses ONE symbol: there is no per-file attribution to make, and a key that is
+        // always empty would be a contract to keep for nothing.
+        $json = JsonPresenter::impact([
+            'target' => 'App\Models\Post',
+            'callers' => [],
+            'dependencies' => [],
+            'entryPoints' => [],
+            'associationEntryPoints' => [],
+            'entryPointPaths' => [],
+            'entryPointLocations' => [],
+            'entryPointSecurity' => [],
+            'entryPointGates' => [],
+            'entryPointAuthGates' => [],
+            'entryPointAttribution' => ['route::GET::/posts' => ['via' => 'app/Models/Post.php', 'ownReach' => 1]],
+        ]);
+
+        $this->assertArrayNotHasKey('entryPointAttribution', $json);
+    }
+
+    #[Test]
     public function detect_changes_json_ignores_the_new_internal_graph_keys(): void
     {
         // `seeds`/`reach`/`edges` join `callers`/`dependencies` as analyzer-internal keys feeding

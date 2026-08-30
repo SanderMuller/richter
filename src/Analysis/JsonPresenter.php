@@ -66,8 +66,8 @@ final class JsonPresenter
     }
 
     /**
-     * @param  array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, associationEntryPoints?: list<string>, associationEntryPointsVia?: array<string, list<string>>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, SecurityShape>, entryPointGates: array<string, list<string>>, impacted: int, relatedModels: list<string>, traitAndOverrideReach?: list<string>, traitAndOverrideReachVia?: array<string, list<string>>, risk: RiskLevel, riskCause?: string, hazards?: list<Hazard>, verification?: array<string, bool|null>, lowConfidence: bool, findings: list<string>, ...}  $result  the full {@see ImpactAnalyzer::detectChanges()} result; the caller/dependency walk internals it also carries are ignored here
-     * @return array{base: string, changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, associationEntryPoints: list<string>, associationEntryPointsVia: array<string, list<string>>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, SecurityShape>, entryPointGates: array<string, list<string>>, entryPointTestReferences: array<string, 'referenced'|'referenced-no-behavioural-assertion'|'unreferenced'>, impacted: int, relatedModels: list<string>, traitAndOverrideReach: list<string>, traitAndOverrideReachVia: array<string, list<string>>, risk: string, riskCause: string, hazards: list<array{lane: string, tier: int, cwe: string|null, member: string, reach: string, evidence: string}>, verification: array<string, bool|null>, lowConfidence: bool, findings: list<string>, unresolved: bool}
+     * @param  array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, associationEntryPoints?: list<string>, associationEntryPointsVia?: array<string, list<string>>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, SecurityShape>, entryPointGates: array<string, list<string>>, entryPointAttribution?: array<string, array{via: string, ownReach: int}>, impacted: int, relatedModels: list<string>, traitAndOverrideReach?: list<string>, traitAndOverrideReachVia?: array<string, list<string>>, risk: RiskLevel, riskCause?: string, hazards?: list<Hazard>, verification?: array<string, bool|null>, lowConfidence: bool, findings: list<string>, ...}  $result  the full {@see ImpactAnalyzer::detectChanges()} result; the caller/dependency walk internals it also carries are ignored here
+     * @return array{base: string, changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, associationEntryPoints: list<string>, associationEntryPointsVia: array<string, list<string>>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, SecurityShape>, entryPointGates: array<string, list<string>>, entryPointTestReferences: array<string, 'referenced'|'referenced-no-behavioural-assertion'|'unreferenced'>, entryPointAttribution: array<string, array{via: string, ownReach: int}>, impacted: int, relatedModels: list<string>, traitAndOverrideReach: list<string>, traitAndOverrideReachVia: array<string, list<string>>, risk: string, riskCause: string, hazards: list<array{lane: string, tier: int, cwe: string|null, member: string, reach: string, evidence: string}>, verification: array<string, bool|null>, lowConfidence: bool, findings: list<string>, unresolved: bool}
      */
     public static function detectChanges(array $result, string $base, ?TestReferenceIndex $tests = null): array
     {
@@ -92,6 +92,11 @@ final class JsonPresenter
             // an input to affected-tests selection or determinability. A node whose tri-state is null
             // (uncheckable) is omitted here rather than guessed — the level reads it as unverified.
             'entryPointTestReferences' => self::entryPointTestReferences($result['entryPoints'], $tests),
+            // Which changed file explains each surface, and how far that file reaches on its own. A
+            // consumer filters on it — "show me what my own edit explains" — without re-deriving the
+            // walk. An entry point no per-file walk explains carries no entry rather than a null one:
+            // there is no reach number for it, and inventing one would be evidence nothing produced.
+            'entryPointAttribution' => $result['entryPointAttribution'] ?? [],
             'impacted' => $result['impacted'],
             'associationEntryPoints' => $result['associationEntryPoints'] ?? [],
             'associationEntryPointsVia' => $result['associationEntryPointsVia'] ?? [],
@@ -163,7 +168,7 @@ final class JsonPresenter
      * The canonical zero-result for an empty diff — built without touching the graph, so the command's
      * no-build fast path stays intact. Same shape as {@see detectChanges()} minus the analyzer run.
      *
-     * @return array{base: string, changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, associationEntryPoints: list<string>, associationEntryPointsVia: array<string, list<string>>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, SecurityShape>, entryPointGates: array<string, list<string>>, entryPointTestReferences: array<string, 'referenced'|'referenced-no-behavioural-assertion'|'unreferenced'>, impacted: int, relatedModels: list<string>, traitAndOverrideReach: list<string>, traitAndOverrideReachVia: array<string, list<string>>, risk: string, riskCause: string, hazards: list<array{lane: string, tier: int, cwe: string|null, member: string, reach: string, evidence: string}>, verification: array<string, bool|null>, lowConfidence: bool, findings: list<string>, unresolved: bool}
+     * @return array{base: string, changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, associationEntryPoints: list<string>, associationEntryPointsVia: array<string, list<string>>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, SecurityShape>, entryPointGates: array<string, list<string>>, entryPointTestReferences: array<string, 'referenced'|'referenced-no-behavioural-assertion'|'unreferenced'>, entryPointAttribution: array<string, array{via: string, ownReach: int}>, impacted: int, relatedModels: list<string>, traitAndOverrideReach: list<string>, traitAndOverrideReachVia: array<string, list<string>>, risk: string, riskCause: string, hazards: list<array{lane: string, tier: int, cwe: string|null, member: string, reach: string, evidence: string}>, verification: array<string, bool|null>, lowConfidence: bool, findings: list<string>, unresolved: bool}
      */
     public static function emptyDetectChanges(string $base): array
     {
@@ -177,6 +182,7 @@ final class JsonPresenter
             'entryPointSecurity' => [],
             'entryPointGates' => [],
             'entryPointTestReferences' => [],
+            'entryPointAttribution' => [],
             'impacted' => 0,
             'associationEntryPoints' => [],
             'associationEntryPointsVia' => [],

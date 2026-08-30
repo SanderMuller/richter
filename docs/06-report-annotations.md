@@ -64,6 +64,49 @@ The `rules()` parse is as strict as the resource one: a method that builds its a
 held to the same bar: a method that passes rules it cannot read (a variable, a merge) is skipped
 entirely rather than reported as having removed every field. A dotted rule key (`items.*.name`) matches nothing: its segments appear separately in a payload, and matching the last one would fire on every unrelated `name` in the file.
 
+## Sibling-read parity
+
+A changed method that reads a nullable column raw, where the code that was already beside it resolves
+the same value through a fallback:
+
+```
+app/Actions/CreateTask.php: App\Actions\CreateTask::handle reads Order->external_id (bare);
+App\Models\Order::resolvedExternalId reads it (fallback). Nullable per its docblock. Check whether this read
+needs the same handling.
+```
+
+This is the defect nothing else here can see. The value is simply absent at runtime: nothing throws,
+no test fails, and the diff is internally consistent, so reach says nothing and no guard was removed.
+
+**A finding, never a hazard.** It never reaches `risk`, `--fail-on` or `affected-tests`. The finding
+names BOTH reads and claims nothing more. The sibling may be the one that is wrong, and a
+`=== null` in the changed code is reported as a null-test rather than as "no fallback", because those
+are different observations. One soft sibling is enough to report: the finding names one comparison,
+never a convention.
+
+What it compares:
+
+- **the changed side**: every read in a method the diff touched, in the head tree, where the
+  receiver has a declared application class type. An untyped receiver, a union, a chained call and a
+  vendor type record nothing. A write, an `unset()` and a by-reference argument are not reads.
+- **the evidence side**: the same property read with `??`, `?:`, `filled()`, `blank()`, `empty()`,
+  `isset()` or a nullsafe use, in the BASE tree: the receiver's own declaring class, plus files in
+  directories the diff touched. A fallback the same change introduces is not evidence about the code
+  that was already there.
+
+Only a nullable SCALAR column is compared, proved from the head version of the declaring class: a
+`?string` declaration or an `@property string|null` line. That restriction was measured: read
+literally, a generated docblock marks relations, cast objects, primary keys and timestamps nullable
+too, and those were two thirds of the findings and none of the defect class. `id`, `created_at`,
+`updated_at` and `deleted_at` are never reported.
+
+Silence is the common case, and it is not a claim of correctness. Where either side cannot be read in
+full, the lane says nothing rather than guessing.
+
+Disable it with `richter.sibling_read_parity.enabled`, or silence one pair with
+`'App\Models\Order::external_id'` (or a whole type, `'App\Models\Order'`) in
+`richter.sibling_read_parity.ignore`.
+
 ## Middleware group membership
 
 Route middleware is resolved by alias and never by group. `->middleware('auth')` reaches the graph as `middleware::auth` and Richter rewrites that onto the FQCN, so an aliased middleware is connected to the routes it guards. `->middleware('api')` reaches it as a bare `middleware::api` node, and the classes inside that group are connected to nothing.

@@ -74,8 +74,10 @@ Work through these; propose only what applies, each with a one-line why; then on
   only where they differ from the defaults.
 - **`editor`** — `null` when the primary use is a shared CI artifact (an editor link embeds an absolute
   local path only the generating machine can open).
-- **Others, when relevant** — `feature_gate_methods` (custom Pennant-wrapper methods) and
-  `payload_parity` (mirror threshold / ignore / disable).
+- **Others, when relevant** — `feature_gate_methods` (custom Pennant-wrapper methods), and the two
+  advisory findings lanes, `payload_parity` (mirror threshold / ignore / disable) and
+  `sibling_read_parity` (ignore / disable). Both are on by default and need no setup: their ignore
+  lists answer a false positive you have actually seen, so leave them empty here.
 
 ### Brain config — detect, then propose (don't only suppress)
 

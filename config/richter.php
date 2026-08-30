@@ -183,6 +183,23 @@ return [
     ],
 
     /*
+     * Sibling-read parity: a changed method that reads a nullable column raw where the code that was
+     * already beside it — a sibling in the same directory, or the model's own accessor — resolves the
+     * same value through a fallback. Findings only: never `risk`, `--fail-on` or `affected-tests`. The
+     * finding names both observed reads and claims nothing more; the sibling may be the wrong one.
+     *
+     * Only a nullable SCALAR column is compared. That was measured, not chosen: read literally, a
+     * generated `@property ...|null` block marks relations, cast objects, primary keys and timestamps
+     * nullable too, and those were two thirds of the findings and none of the defect class.
+     */
+    'sibling_read_parity' => [
+        'enabled' => true,
+        // Silence one pair ('App\Models\Post::excerpt') or every property of a type
+        // ('App\Models\Post'). Both forms are exact — no wildcards.
+        'ignore' => [],
+    ],
+
+    /*
      * Change hazards: the tiered properties of a diff that say it may break something — an
      * authorization guard removed, `$hidden` narrowed, a mass-assignment surface widened, a
      * validation constraint dropped, a queued payload changed, a public member removed, a column a

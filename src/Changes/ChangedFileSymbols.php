@@ -74,6 +74,8 @@ final readonly class ChangedFileSymbols
         public array $inlineRequestFields = [],
         public array $hazards = [],
         public array $addedHazardTokens = [],
+        /** @var array<string, array<string, list<string>>> `Fqcn->property` => style => site, for the members this diff changed */
+        public array $siblingReads = [],
     ) {}
 
     /** @return list<MemberChange> */
