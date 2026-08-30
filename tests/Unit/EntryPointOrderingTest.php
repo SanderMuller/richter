@@ -6,6 +6,7 @@ use PHPUnit\Framework\Attributes\Test;
 use SanderMuller\Richter\Analysis\AffectedTests;
 use SanderMuller\Richter\Analysis\EntryPointRow;
 use SanderMuller\Richter\Analysis\ImpactFormatter;
+use SanderMuller\Richter\Analysis\JsonPresenter;
 use SanderMuller\Richter\Analysis\MarkdownFormatter;
 use SanderMuller\Richter\Analysis\RiskLevel;
 use SanderMuller\Richter\Analysis\TestReferenceIndex;
@@ -145,5 +146,140 @@ final class EntryPointOrderingTest extends TestCase
         $this->assertSame($forward['determinable'], $reversed['determinable']);
         $this->assertSame($forward['reasons'], $reversed['reasons']);
         $this->assertSame($forward['unreferencedEntryPoints'], $reversed['unreferencedEntryPoints']);
+    }
+
+    /** An index that can answer for the app-class nodes, so the annotation map is not empty. */
+    private function indexReferencing(string $fqcn): TestReferenceIndex
+    {
+        $index = new TestReferenceIndex();
+        $index->addSource("<?php\nuse " . $fqcn . ";\nclass StandaloneTest { public function test_it() { \$this->assertTrue(true); } }", 'tests/Feature/StandaloneTest.php');
+
+        return $index;
+    }
+
+    /**
+     * The machine payload and the prose reports are ONE reading order, not two implementations of it.
+     *
+     * They were two, and they disagreed: the formatters sorted while `JsonPresenter` copied the walk
+     * order, so a consumer measured the two lists sharing no prefix at all on a 353-surface report.
+     * Reversing the input proves the JSON list is genuinely ordered rather than inheriting the order
+     * it was handed.
+     *
+     * What this canNOT prove is that both sides key on the rendered LABEL rather than the raw node
+     * id: `NodeLabel::display()` truncates a `command::` id at the first whitespace, and a space sorts
+     * below every printable character, so the two keys order any realistic pair identically. A
+     * mutation swapping the label for the node id survives this test, deliberately and knowingly —
+     * the protection against drift is the single shared call, not this assertion.
+     */
+    #[Test]
+    public function the_json_payload_and_the_prose_reports_agree_on_the_order(): void
+    {
+        $command = 'command::z:sync --force';
+        $entryPoints = [self::ADMIN, $command, self::FEATURE_ROUTE, self::SELF_LISTED];
+        $attribution = [...$this->attribution(), $command => ['via' => 'app/Console/Commands/Sync.php', 'ownReach' => 9]];
+
+        foreach ([$entryPoints, array_reverse($entryPoints)] as $order) {
+            $document = JsonPresenter::detectChanges([
+                'changed' => [],
+                'coverage' => [],
+                'entryPoints' => $order,
+                'entryPointPaths' => [],
+                'entryPointLocations' => [],
+                'entryPointSecurity' => [],
+                'entryPointGates' => [],
+                'entryPointAttribution' => $attribution,
+                'impacted' => 0,
+                'relatedModels' => [],
+                'risk' => RiskLevel::Low,
+                'lowConfidence' => false,
+                'findings' => [],
+            ], 'HEAD~1', $this->indexReferencing(self::SELF_LISTED));
+
+            $this->assertSame($this->rows($order, $attribution), $document['entryPoints']);
+
+            // The annotation map is keyed off the same list, so it cannot drift from it either. It
+            // holds only the nodes whose reference state is determinable, so the claim is that its
+            // keys appear in the list's order, not that it holds every entry.
+            $keys = array_keys($document['entryPointTestReferences']);
+            $this->assertSame($keys, array_values(array_intersect($document['entryPoints'], $keys)));
+        }
+    }
+
+    /**
+     * The ranked surface really does move to the front of the machine list. Without this the parity
+     * test above passes on two implementations that are equally wrong.
+     */
+    #[Test]
+    public function the_json_payload_leads_with_the_specifically_explained_surface(): void
+    {
+        $document = JsonPresenter::detectChanges([
+            'changed' => [],
+            'coverage' => [],
+            'entryPoints' => [self::ADMIN, self::FEATURE_ROUTE],
+            'entryPointPaths' => [],
+            'entryPointLocations' => [],
+            'entryPointSecurity' => [],
+            'entryPointGates' => [],
+            'entryPointAttribution' => $this->attribution(),
+            'impacted' => 0,
+            'relatedModels' => [],
+            'risk' => RiskLevel::Low,
+            'lowConfidence' => false,
+            'findings' => [],
+        ], 'HEAD~1');
+
+        $this->assertSame([self::FEATURE_ROUTE, self::ADMIN], $document['entryPoints']);
+    }
+
+    /**
+     * Two commands that RENDER as one label still get a total order, because the key ends on the node
+     * id. Without that last element they tie, and PHP's stable sort then hands back whatever order the
+     * walk supplied — so the reported order would depend on the graph traversal rather than on the
+     * ranking, and two callers holding the same set could print it two ways.
+     */
+    #[Test]
+    public function two_commands_sharing_a_rendered_label_still_get_a_total_order(): void
+    {
+        // NodeLabel::display() truncates at the first whitespace, so both of these render as
+        // `command::reports:sync`.
+        $withForce = 'command::reports:sync {--force}';
+        $withSince = 'command::reports:sync {--since=}';
+        $attribution = [
+            $withForce => ['via' => 'app/Console/Commands/Sync.php', 'ownReach' => 1],
+            $withSince => ['via' => 'app/Console/Commands/Sync.php', 'ownReach' => 1],
+        ];
+
+        $this->assertSame(
+            $this->rows([$withForce, $withSince], $attribution),
+            $this->rows([$withSince, $withForce], $attribution),
+        );
+    }
+
+    /**
+     * `richter:impact` has no attribution to rank on, so its rows are the plain label order — and its
+     * machine payload is that same order. It copied the walk order until the machine payload and the
+     * prose reports were made one order; the same defect, in the other command.
+     */
+    #[Test]
+    public function the_impact_payload_is_ordered_like_the_impact_report(): void
+    {
+        $entryPoints = [self::FEATURE_ROUTE, self::ADMIN];
+
+        $document = JsonPresenter::impact([
+            'target' => 'App\Models\Article::scopePublished',
+            'callers' => [],
+            'dependencies' => [],
+            'entryPoints' => $entryPoints,
+            'associationEntryPoints' => [],
+            'entryPointPaths' => [],
+            'entryPointLocations' => [],
+            'entryPointSecurity' => [],
+            'entryPointGates' => [],
+            'entryPointAuthGates' => [],
+        ]);
+
+        // No attribution: the plain label, which puts the class-named row above the `route::` one.
+        $this->assertSame([self::ADMIN, self::FEATURE_ROUTE], $document['entryPoints']);
+        $this->assertSame($this->rows($entryPoints, []), $document['entryPoints']);
     }
 }

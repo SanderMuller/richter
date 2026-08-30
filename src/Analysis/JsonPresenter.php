@@ -20,6 +20,8 @@ final class JsonPresenter
      */
     public static function impact(array $result, ?TestReferenceIndex $tests = null): array
     {
+        $entryPoints = EntryPointAttribution::order($result['entryPoints'], []);
+
         // Picked key by key, not passed through: the analyzer result also carries the miss diagnostics
         // (`suggestions`, `graphNodeCount`) the text report renders, and this document is a declared
         // contract — the MCP tool validates it against its own output schema, so an extra key here is
@@ -29,7 +31,11 @@ final class JsonPresenter
             'target' => $result['target'],
             'callers' => $result['callers'],
             'dependencies' => $result['dependencies'],
-            'entryPoints' => $result['entryPoints'],
+            // Ordered, for the same reason detectChanges() orders: the prose impact report renders
+            // through EntryPointRow::build(), so copying the walk order here would make one command's
+            // two outputs disagree. `impact` analyses a single symbol and has no attribution to rank
+            // on, so this is the plain label order those rows have always had.
+            'entryPoints' => $entryPoints,
             'associationEntryPoints' => $result['associationEntryPoints'],
             'associationEntryPointsVia' => $result['associationEntryPointsVia'] ?? [],
             'entryPointPaths' => $result['entryPointPaths'],
@@ -37,7 +43,7 @@ final class JsonPresenter
             'entryPointSecurity' => $result['entryPointSecurity'],
             'entryPointGates' => $result['entryPointGates'],
             'entryPointAuthGates' => $result['entryPointAuthGates'],
-            'entryPointTestReferences' => self::entryPointTestReferences($result['entryPoints'], $tests),
+            'entryPointTestReferences' => self::entryPointTestReferences($entryPoints, $tests),
         ];
     }
 
@@ -71,11 +77,18 @@ final class JsonPresenter
      */
     public static function detectChanges(array $result, string $base, ?TestReferenceIndex $tests = null): array
     {
+        $attribution = $result['entryPointAttribution'] ?? [];
+
+        // The prose formats' order, through their own call — never a second sort here. The two
+        // surfaces disagreed while this array carried the walk order, and {@see
+        // EntryPointAttribution::order()} records what that cost.
+        $entryPoints = EntryPointAttribution::order($result['entryPoints'], $attribution);
+
         return [
             'base' => $base,
             'changed' => $result['changed'],
             'coverage' => $result['coverage'],
-            'entryPoints' => $result['entryPoints'],
+            'entryPoints' => $entryPoints,
             // Chains are keyed by entry-point node; a self-listed entry class carries no chain, so
             // consumers can tell "reached from the change" apart from "is itself the entry surface".
             'entryPointPaths' => $result['entryPointPaths'],
@@ -91,12 +104,12 @@ final class JsonPresenter
             // that; `verification` is the exact set the level graded, which is narrower. Still never
             // an input to affected-tests selection or determinability. A node whose tri-state is null
             // (uncheckable) is omitted here rather than guessed — the level reads it as unverified.
-            'entryPointTestReferences' => self::entryPointTestReferences($result['entryPoints'], $tests),
+            'entryPointTestReferences' => self::entryPointTestReferences($entryPoints, $tests),
             // Which changed file explains each surface, and how far that file reaches on its own. A
             // consumer filters on it — "show me what my own edit explains" — without re-deriving the
             // walk. An entry point no per-file walk explains carries no entry rather than a null one:
             // there is no reach number for it, and inventing one would be evidence nothing produced.
-            'entryPointAttribution' => $result['entryPointAttribution'] ?? [],
+            'entryPointAttribution' => $attribution,
             'impacted' => $result['impacted'],
             'associationEntryPoints' => $result['associationEntryPoints'] ?? [],
             'associationEntryPointsVia' => $result['associationEntryPointsVia'] ?? [],

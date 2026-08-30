@@ -80,7 +80,8 @@ final class DetectChangesTool extends Tool
                 ->description('Changed file => resolved seed count. Empty map serializes as [].'),
             'coverage' => $schema->object()
                 ->description('Changed file => "analyzed" or "unresolved". Empty map serializes as [].'),
-            'entryPoints' => $schema->array()->items($schema->string()),
+            'entryPoints' => $schema->array()->items($schema->string())
+                ->description('Entry surfaces the change reaches, in READING ORDER: the surfaces this diff explains most specifically come first, ranked on entryPointAttribution.ownReach with unattributed surfaces last. The same order the text, markdown and HTML reports render, so a prefix of this array is the prefix a human sees. Nothing is folded or dropped — a long list is still the whole list.'),
             'associationEntryPoints' => $schema->array()->items($schema->string())
                 ->description('Entry surfaces connected to the change only by a model relation or a registry lookup. Associated with it, not callers of it — context, and excluded from the risk level.'),
             'associationEntryPointsVia' => $schema->object()

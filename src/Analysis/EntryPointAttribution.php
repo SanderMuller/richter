@@ -84,8 +84,37 @@ final readonly class EntryPointAttribution
     }
 
     /**
+     * The reported entry points in reading order — the ONE implementation of that order, called by
+     * the prose formats through {@see EntryPointRow::build()} and by the machine payload through
+     * {@see JsonPresenter::detectChanges()}.
+     *
+     * It is one method rather than two sorts on one key because the two surfaces disagreed once
+     * already: the formatters sorted, the JSON document copied the walk order, and a 353-surface
+     * report's two lists shared a zero-length prefix — an agent reading the machine list from the top
+     * met exactly the order 0.61.0 set out to replace. A shared key would not have prevented that;
+     * only a shared call does.
+     *
+     * @param  list<string>  $entryPoints
+     * @param  array<string, array{via: string, ownReach: int}>  $attribution
+     * @return list<string>
+     */
+    public static function order(array $entryPoints, array $attribution): array
+    {
+        usort($entryPoints, static fn (string $a, string $b): int => self::sortKey($a, NodeLabel::display($a), $attribution)
+            <=> self::sortKey($b, NodeLabel::display($b), $attribution));
+
+        return $entryPoints;
+    }
+
+    /**
      * The sort key one entry point gets: attributed rows first, ordered by how specifically the diff
-     * explains them, then by label so the order is total and two runs of one diff render identically.
+     * explains them, then by label, then by the node id so the order is TOTAL and two runs of one diff
+     * render identically.
+     *
+     * The node id is what makes it total, and it is not redundant with the label: `NodeLabel::display()`
+     * truncates a `command::` id at its first whitespace, so two commands differing only in their
+     * arguments render one label between them. Without the id they tie, and a stable sort then falls
+     * back to whatever order the walk handed in — an order this method's callers must not inherit.
      *
      * An UNATTRIBUTED entry point sorts last rather than first. It is not less important — a
      * self-listed entry class is often the change itself — but no walk explains it, so there is no
@@ -93,13 +122,13 @@ final readonly class EntryPointAttribution
      * data does not support.
      *
      * @param  array<string, array{via: string, ownReach: int}>  $attribution
-     * @return array{0: int, 1: int, 2: string}
+     * @return array{0: int, 1: int, 2: string, 3: string}
      */
     public static function sortKey(string $node, string $label, array $attribution): array
     {
         $entry = $attribution[$node] ?? null;
 
-        return [$entry === null ? 1 : 0, $entry['ownReach'] ?? 0, $label];
+        return [$entry === null ? 1 : 0, $entry['ownReach'] ?? 0, $label, $node];
     }
 
     /**

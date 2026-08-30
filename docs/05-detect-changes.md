@@ -121,12 +121,21 @@ reaches nine surfaces explains its own route better than a changed model that re
 machine payload carries the same fact as `entryPointAttribution`, so an agent can filter on it
 instead of guessing which rows belong to the task.
 
+The `entryPoints` array in `--json` and in the MCP tool is in that same reading order, so a prefix of
+it is the prefix a human sees. It carried the raw walk order until 0.62.0, which on a report with
+hundreds of surfaces meant the machine list and the printed list could share no prefix at all.
+
+Ordering ranks how specifically the diff explains a surface. It does not rank how much the surface has
+to do with the task. A changed Livewire class or a changed enum that reaches a single surface ranks
+alongside a command the same commit added, so the first rows are not a checklist of what the feature
+owns: deciding that still means dropping the hubs you recognise.
+
 Nothing is hidden or folded. The same surfaces are reported, in a different order, and the count
 beside the list is unchanged. A surface no per-file walk explains, such as a changed class that is
 itself an entry point or a frontend surface, carries no attribution and sorts last, never dropped.
 
 `richter:impact` analyses a single symbol, so it has no per-file attribution to make: its rows keep
-the plain-name order they have always had.
+the plain-name order they have always had, in its `--json` payload as well as in its report.
 
 ## Entry surfaces reached only by association
 
