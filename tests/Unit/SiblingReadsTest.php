@@ -49,11 +49,12 @@ final class SiblingReadsTest extends TestCase
     #[Test]
     public function emptiness_helpers_and_a_nullsafe_use_are_emptiness(): void
     {
+        // `isset()` is deliberately absent: it detects null rather than tolerating absence, so it
+        // belongs with the strict comparisons. See the null-test parity check.
         foreach (['filled', 'blank', 'empty'] as $helper) {
             $this->assertArrayHasKey('emptiness', $this->stylesFor("        if ({$helper}(\$order->external_id)) { return; }"));
         }
 
-        $this->assertArrayHasKey('emptiness', $this->stylesFor('        $order->external_id?->format("Y");'));
     }
 
     #[Test]
@@ -85,10 +86,11 @@ final class SiblingReadsTest extends TestCase
             'if (%s) { return; }',
             '$x = %s ? 1 : 2;',
             'if (empty(%s)) { return; }',
-            'if (isset(%s)) { return; }',
             'if (filled(%s)) { return; }',
             'if (blank(%s)) { return; }',
             '$x = %s ?? 1;',
+            'if (%s == null) { return; }',
+            'if (%s != null) { return; }',
             '$x = %s ?: 1;',
             '%s ??= 1;',
             'if (false) { } elseif (%s) { return; }',
@@ -125,15 +127,27 @@ final class SiblingReadsTest extends TestCase
     #[Test]
     public function a_null_test_stays_hard_on_both_paths(): void
     {
-        // The mirror of the soft-form parity test. A `=== null` distinguishes null from false rather
-        // than folding them together, so it must never suppress a finding — and it did, through a
-        // local, because the local path graded every guard as emptiness.
-        foreach (['if (%s === null) { return; }', 'if (%s !== null) { return; }', 'if (is_null(%s)) { return; }'] as $form) {
+        // The mirror of the soft-form parity test. These DETECT an absent value rather than
+        // tolerating one: `=== null` matches null alone, and `isset()` is true for both `''` and
+        // `false`, so an empty string walks past either of them. That is the mismatch the lane was
+        // built to report — its founding example was a `=== null` beside a sibling's `filled()` —
+        // so none of them may suppress a finding, on either path. `=== null` did once, through a
+        // local, because the local path graded every guard as tolerance.
+        foreach ([
+            'if (%s === null) { return; }',
+            'if (%s !== null) { return; }',
+            'if (is_null(%s)) { return; }',
+            'if (isset(%s)) { return; }',
+            '%s?->format("Y");',
+            '$v = %s?->length;',
+        ] as $form) {
             $viaLocal = '        $id = $order->external_id;' . "\n" . '        ' . sprintf($form, '$id');
             $direct = '        ' . sprintf($form, '$order->external_id');
 
-            $this->assertFalse($this->isSoft($direct), "direct: {$form}");
-            $this->assertFalse($this->isSoft($viaLocal), "via local: {$form}");
+            // The STYLE, not merely "not soft": asserting non-softness alone passes when the form is
+            // not recognised at all and the read stays bare.
+            $this->assertContains('null-test', array_keys($this->stylesFor($direct)), "direct: {$form}");
+            $this->assertContains('null-test', array_keys($this->stylesFor($viaLocal)), "via local: {$form}");
         }
     }
 

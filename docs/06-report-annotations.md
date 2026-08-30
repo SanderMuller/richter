@@ -89,10 +89,13 @@ What it compares:
 - **the changed side**: every read in a method the diff touched, in the head tree, where the
   receiver has a declared application class type. An untyped receiver, a union, a chained call and a
   vendor type record nothing. A write, an `unset()` and a by-reference argument are not reads.
-- **the evidence side**: the same property read in a way that supplies or tolerates an absent value,
-  in the BASE tree. That is `??`, `?:`, `filled()`, `blank()`, `empty()`, `isset()`, a nullsafe use, or
-  a plain truthiness test (`if (! $order->flag)`), which answers the same for `null` and for `false`.
-  The sources are: the receiver's own declaring class, plus files in
+- **the evidence side**: the same property read in a way that supplies or TOLERATES an absent value,
+  in the BASE tree. One rule decides which reads count: does the code treat an absent value the same
+  as an empty one, or detect `null` specifically while an empty string walks past? `??`, `?:`, `??=`,
+  `filled()`, `blank()`, `empty()`, `== null`, and any truthiness test (`! $x`, an `if`, a loop
+  condition, `&&`, a `(bool)` cast) tolerate, and count. `=== null`, `is_null()`, `isset()` and a
+  nullsafe `?->` detect, and do not — an empty string passes all four, which is the mismatch this lane
+  reports. The sources are: the receiver's own declaring class, plus files in
   directories the diff touched. A fallback the same change introduces is not evidence about the code
   that was already there.
 

@@ -9,10 +9,12 @@ use PhpParser\Node\Expr\AssignOp\Coalesce as CoalesceAssign;
 use PhpParser\Node\Expr\BinaryOp\BooleanAnd;
 use PhpParser\Node\Expr\BinaryOp\BooleanOr;
 use PhpParser\Node\Expr\BinaryOp\Coalesce;
+use PhpParser\Node\Expr\BinaryOp\Equal;
 use PhpParser\Node\Expr\BinaryOp\Identical;
 use PhpParser\Node\Expr\BinaryOp\LogicalAnd;
 use PhpParser\Node\Expr\BinaryOp\LogicalOr;
 use PhpParser\Node\Expr\BinaryOp\LogicalXor;
+use PhpParser\Node\Expr\BinaryOp\NotEqual;
 use PhpParser\Node\Expr\BinaryOp\NotIdentical;
 use PhpParser\Node\Expr\BooleanNot;
 use PhpParser\Node\Expr\Cast\Bool_;
@@ -35,7 +37,36 @@ use PhpParser\Node\Stmt\Switch_;
 use PhpParser\Node\Stmt\While_;
 
 /**
- * Which sub-expressions a node treats as possibly absent.
+ * Which sub-expressions a node treats as possibly absent, and what that says about the read.
+ *
+ * TWO QUESTIONS decide every entry, in this order:
+ *
+ *   1. Does the construct SUPPLY a value where the property is absent? Then it is soft, and nothing
+ *      else matters. `?? $other` hands the caller something usable; whether it also covers an empty
+ *      string is beside the point, because the read no longer depends on the property being there.
+ *      This is the lane's founding shape — a bare read beside a sibling's `external_id ?? account_id`
+ *      — so a rule that made `??` hard would delete the lane's original purpose.
+ *   2. Otherwise: does it TOLERATE an absent value, treating it the same as an empty one, or
+ *      DISCRIMINATE it, detecting `null` while an empty string walks past?
+ *
+ *   supplies      soft.
+ *   tolerates     soft. The read handles absence, so there is nothing to report.
+ *   discriminates `null-test`. It detects null but not the empty case, which IS the mismatch this
+ *                 lane was built to report — the founding example was a `=== null` beside a sibling's
+ *                 `filled()`, with an empty string slipping through.
+ *
+ * Asked as one question rather than two, `??` reads as discriminating (`'' ?? 'x'` stays empty) and
+ * lands on the wrong side. It was raised that way in review; the order above is the answer.
+ *
+ * Applied to every construct rather than to the ones that happened to come up:
+ *
+ *   `??` `?:` `??=`           supply a value            soft
+ *   `empty()` `filled()` `blank()`  treat empty as absent     soft
+ *   `!` `if` `while` `&&` `(bool)`  treat empty as absent     soft
+ *   `== null` `!= null`       match '' and 0 too        soft
+ *   `=== null` `!== null` `is_null()`  match null alone  null-test
+ *   `isset()`                 true for '' and false     null-test
+ *   `?->`                     short-circuits on null only  null-test
  *
  * ADDING A SOFT FORM: add it here, and add its spelling to the parity list in
  * `SiblingReadsTest::a_direct_test_and_a_test_through_a_local_agree()`. Four soft forms have been
@@ -111,8 +142,11 @@ final class AbsenceTests
     public static function all(): array
     {
         $tests = [
-            NullsafeMethodCall::class => [static fn (Node $n): array => $n instanceof NullsafeMethodCall ? [$n->var] : [], static fn (Node $n): string => SiblingReads::STYLE_EMPTINESS],
-            NullsafePropertyFetch::class => [static fn (Node $n): array => $n instanceof NullsafePropertyFetch ? [$n->var] : [], static fn (Node $n): string => SiblingReads::STYLE_EMPTINESS],
+            // `?->` short-circuits on null and on nothing else: an empty string continues into the
+            // call and fails there. It detects absence rather than tolerating it, so it sits with
+            // `isset()` and the strict comparisons.
+            NullsafeMethodCall::class => [static fn (Node $n): array => $n instanceof NullsafeMethodCall ? [$n->var] : [], static fn (Node $n): string => SiblingReads::STYLE_NULL_TEST],
+            NullsafePropertyFetch::class => [static fn (Node $n): array => $n instanceof NullsafePropertyFetch ? [$n->var] : [], static fn (Node $n): string => SiblingReads::STYLE_NULL_TEST],
             Coalesce::class => [static fn (Node $n): array => $n instanceof Coalesce ? [$n->left] : [], static fn (Node $n): string => SiblingReads::STYLE_FALLBACK],
             // `$x ??= 'd'` is the same defaulting written as an assignment: it READS the value (a
             // read-modify-write always does) and supplies one when it is absent. Missed once, because
@@ -120,12 +154,19 @@ final class AbsenceTests
             CoalesceAssign::class => [static fn (Node $n): array => $n instanceof CoalesceAssign ? [$n->var] : [], static fn (Node $n): string => SiblingReads::STYLE_FALLBACK],
             Identical::class => [static fn (Node $n): array => $n instanceof Identical ? self::nullComparedSides($n->left, $n->right) : [], static fn (Node $n): string => SiblingReads::STYLE_NULL_TEST],
             NotIdentical::class => [static fn (Node $n): array => $n instanceof NotIdentical ? self::nullComparedSides($n->left, $n->right) : [], static fn (Node $n): string => SiblingReads::STYLE_NULL_TEST],
+            // `== null` matches '', 0 and false as well, so it tolerates absence the way `! $x` does.
+            // `=== null` above matches null alone, which is why the two land on opposite sides.
+            Equal::class => [static fn (Node $n): array => $n instanceof Equal ? self::nullComparedSides($n->left, $n->right) : [], static fn (Node $n): string => SiblingReads::STYLE_EMPTINESS],
+            NotEqual::class => [static fn (Node $n): array => $n instanceof NotEqual ? self::nullComparedSides($n->left, $n->right) : [], static fn (Node $n): string => SiblingReads::STYLE_EMPTINESS],
             FuncCall::class => [
                 static fn (Node $n): array => $n instanceof FuncCall ? self::emptinessArguments($n) : [],
                 static fn (Node $n): string => ($n instanceof FuncCall ? self::helperStyle($n) : null) ?? SiblingReads::STYLE_EMPTINESS,
             ],
             Empty_::class => [static fn (Node $n): array => $n instanceof Empty_ ? [$n->expr] : [], static fn (Node $n): string => SiblingReads::STYLE_EMPTINESS],
-            Isset_::class => [static fn (Node $n): array => $n instanceof Isset_ ? array_values($n->vars) : [], static fn (Node $n): string => SiblingReads::STYLE_EMPTINESS],
+            // `isset()` is a null DETECTOR, not a tolerance: `isset('')` and `isset(false)` are both
+            // true, so an empty string walks straight past it. That is the mismatch this lane exists
+            // to report, which puts it beside `=== null` rather than beside `empty()`.
+            Isset_::class => [static fn (Node $n): array => $n instanceof Isset_ ? array_values($n->vars) : [], static fn (Node $n): string => SiblingReads::STYLE_NULL_TEST],
         ];
 
         foreach (self::truthiness() as $class => $subject) {
@@ -157,7 +198,7 @@ final class AbsenceTests
      *
      * @return list<Node>
      */
-    private static function nullComparedSides(Node $left, Node $right): array
+    public static function nullComparedSides(Node $left, Node $right): array
     {
         foreach ([[$left, $right], [$right, $left]] as [$side, $other]) {
             if ($other instanceof ConstFetch && strtolower($other->name->toString()) === 'null') {

@@ -8,9 +8,10 @@ use PhpParser\Node\Arg;
 use PhpParser\Node\Expr\Assign;
 use PhpParser\Node\Expr\AssignOp\Coalesce as CoalesceAssign;
 use PhpParser\Node\Expr\BinaryOp\Coalesce;
+use PhpParser\Node\Expr\BinaryOp\Equal;
 use PhpParser\Node\Expr\BinaryOp\Identical;
+use PhpParser\Node\Expr\BinaryOp\NotEqual;
 use PhpParser\Node\Expr\BinaryOp\NotIdentical;
-use PhpParser\Node\Expr\ConstFetch;
 use PhpParser\Node\Expr\Empty_;
 use PhpParser\Node\Expr\FuncCall;
 use PhpParser\Node\Expr\Isset_;
@@ -166,17 +167,13 @@ final class ReadStyles
             $mark($node->expr, SiblingReads::STYLE_EMPTINESS);
         }
 
-        foreach ($finder->findInstanceOf($method, Isset_::class) as $node) {
-            foreach ($node->vars as $var) {
-                $mark($var, SiblingReads::STYLE_EMPTINESS);
-            }
-        }
-
         self::markNullsafeReceivers($method, $styles);
     }
 
     /**
-     * `$order->external_id?->format(...)` reads the property and tolerates its absence in one step.
+     * `?->` short-circuits on null and on nothing else — an empty string continues into the call and
+     * fails there — so it DETECTS absence rather than tolerating it, and lands with `isset()` and the
+     * strict comparisons.
      *
      * @param  array<int, string>  $styles
      */
@@ -187,7 +184,7 @@ final class ReadStyles
 
         foreach ([NullsafeMethodCall::class, NullsafePropertyFetch::class] as $class) {
             foreach ($finder->findInstanceOf($method, $class) as $node) {
-                $mark($node->var instanceof PropertyFetch ? $node->var : null, SiblingReads::STYLE_EMPTINESS);
+                $mark($node->var instanceof PropertyFetch ? $node->var : null, SiblingReads::STYLE_NULL_TEST);
             }
         }
     }
@@ -226,12 +223,26 @@ final class ReadStyles
         $finder = new NodeFinder();
         $mark = self::marker($styles);
 
-        foreach ([Identical::class, NotIdentical::class] as $comparison) {
+        // `isset()` joins the strict comparisons: it detects null and lets an empty string past.
+        foreach ($finder->findInstanceOf($method, Isset_::class) as $node) {
+            foreach ($node->vars as $var) {
+                $mark($var, SiblingReads::STYLE_NULL_TEST);
+            }
+        }
+
+        // Both comparisons against `null`, and they land on opposite sides: `===` matches null alone
+        // while `==` folds in '' and 0, so one detects an absent value and the other tolerates it.
+        $comparisons = [
+            Identical::class => SiblingReads::STYLE_NULL_TEST,
+            NotIdentical::class => SiblingReads::STYLE_NULL_TEST,
+            Equal::class => SiblingReads::STYLE_EMPTINESS,
+            NotEqual::class => SiblingReads::STYLE_EMPTINESS,
+        ];
+
+        foreach ($comparisons as $comparison => $style) {
             foreach ($finder->findInstanceOf($method, $comparison) as $node) {
-                foreach ([[$node->left, $node->right], [$node->right, $node->left]] as [$side, $other]) {
-                    if ($other instanceof ConstFetch && strtolower($other->name->toString()) === 'null') {
-                        $mark($side, SiblingReads::STYLE_NULL_TEST);
-                    }
+                foreach (AbsenceTests::nullComparedSides($node->left, $node->right) as $side) {
+                    $mark($side, $style);
                 }
             }
         }
