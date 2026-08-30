@@ -145,6 +145,15 @@ final class AbsenceTests
             // `?->` short-circuits on null and on nothing else: an empty string continues into the
             // call and fails there. It detects absence rather than tolerating it, so it sits with
             // `isset()` and the strict comparisons.
+            //
+            // CORRECT BUT ALL BUT UNREACHABLE, and deliberately kept. These two mark the RECEIVER of
+            // the nullsafe — `$order?->external_id` speaks about `$order` — and a receiver is being
+            // dereferenced as an object, while {@see SiblingReadIndex::nullableScalars()} reports only
+            // nullable SCALARS. The two populations barely meet: it takes a property whose docblock
+            // says `string|null` while it actually holds an object. Measured on a corpus with 232
+            // nullsafe sites, reclassifying these changed not one verdict. Do not delete them as dead
+            // code — they become reachable the day findings widen past scalars, and they are right by
+            // the rule either way.
             NullsafeMethodCall::class => [static fn (Node $n): array => $n instanceof NullsafeMethodCall ? [$n->var] : [], static fn (Node $n): string => SiblingReads::STYLE_NULL_TEST],
             NullsafePropertyFetch::class => [static fn (Node $n): array => $n instanceof NullsafePropertyFetch ? [$n->var] : [], static fn (Node $n): string => SiblingReads::STYLE_NULL_TEST],
             Coalesce::class => [static fn (Node $n): array => $n instanceof Coalesce ? [$n->left] : [], static fn (Node $n): string => SiblingReads::STYLE_FALLBACK],
