@@ -169,14 +169,12 @@ final class SiblingReadIndex
                 continue;
             }
 
-            foreach (self::documentedTypes($source) as $property => $type) {
+            foreach (self::documentedTypes($source) as $property => [$type, $source_]) {
                 if (in_array($property, self::NEVER_ABSENT, strict: true) || ! self::isNullableScalar($type)) {
                     continue;
                 }
 
-                $nullable[$fqcn . '->' . $property] = str_starts_with($type, '?') || ! str_contains($type, '|')
-                    ? 'declared type'
-                    : 'docblock';
+                $nullable[$fqcn . '->' . $property] = $source_;
             }
         }
 
@@ -184,9 +182,14 @@ final class SiblingReadIndex
     }
 
     /**
-     * `property => type` from `@property`/`@property-read` lines and typed property declarations.
+     * `property => [type, which source said so]` from `@property`/`@property-read` lines and typed
+     * property declarations.
      *
-     * @return array<string, string>
+     * The source travels WITH the type rather than being inferred from its shape. `@property ?string`
+     * is valid PHPDoc, so reading the `?` back as "a declared type" would put a claim in the finding
+     * that no declaration supports.
+     *
+     * @return array<string, array{0: string, 1: string}>
      */
     private static function documentedTypes(string $source): array
     {
@@ -194,29 +197,52 @@ final class SiblingReadIndex
 
         if (preg_match_all('/@property(?:-read)?\s+([^\s$]+)\s+\$(\w+)/', $source, $matches, PREG_SET_ORDER) > 0) {
             foreach ($matches as $match) {
-                $types[$match[2]] = $match[1];
+                $types[$match[2]] = [$match[1], 'docblock'];
             }
         }
 
         // A real declaration outranks a generated docblock line for the same name.
         if (preg_match_all('/(?:public|protected|private)\s+(?:readonly\s+)?(\?[\\\\\w]+)\s+\$(\w+)/', $source, $matches, PREG_SET_ORDER) > 0) {
             foreach ($matches as $match) {
-                $types[$match[2]] = $match[1];
+                $types[$match[2]] = [$match[1], 'declared type'];
             }
         }
 
         return $types;
     }
 
+    /**
+     * PHP writes nullability two ways and both count: the `?` shorthand of a declared type, and a
+     * `null` member of a union, which is the form a generated `@property` block uses.
+     *
+     * Testing only for the union member is what a first version did, and it made the whole
+     * declared-type source unreachable: `?string` has no `null` part, so every promoted constructor
+     * property in an application read as non-nullable and the lane could report nothing outside the
+     * models that carry docblocks. Found by a consumer asking whether the two sources were even
+     * comparable — they were not, for this reason rather than for any rule about models.
+     */
     private static function isNullableScalar(string $type): bool
     {
-        $parts = array_filter(
-            array_map(static fn (string $part): string => strtolower(ltrim(trim($part), '?\\')), explode('|', $type)),
-            static fn (string $part): bool => $part !== 'null',
-        );
+        $type = trim($type);
+        $members = explode('|', $type);
+        $nullable = str_starts_with($type, '?');
 
-        if ($parts === [] || count($parts) === count(explode('|', $type))) {
-            return false;   // nothing said `null` at all
+        $parts = [];
+
+        foreach ($members as $member) {
+            $member = strtolower(ltrim(trim($member), '?\\'));
+
+            if ($member === 'null') {
+                $nullable = true;
+
+                continue;
+            }
+
+            $parts[] = $member;
+        }
+
+        if (! $nullable || $parts === []) {
+            return false;
         }
 
         return array_all($parts, static fn (string $part): bool => in_array($part, self::SCALARS, strict: true));

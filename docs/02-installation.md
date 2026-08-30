@@ -6,6 +6,16 @@ composer require --dev sandermuller/richter
 
 Requires PHP 8.4+ and Laravel 12 or 13.
 
+## An already-pinned `laramint/laravel-brain`
+
+Richter depends on Laravel Brain and raises its floor from time to time. A project whose lock already
+pins an older Brain cannot resolve a plain `composer require`, because Composer will not upgrade a
+package the requested one does not force. Take Brain along in the same command:
+
+```bash
+composer require --dev sandermuller/richter -W
+```
+
 ## The `laravel/mcp` constraint
 
 `laravel/mcp` is optional. It lights up the [MCP server](14-mcp-server.md), but when present it must fall in the supported `^0.8||^0.9` range; Richter declares a conflict with anything outside it.

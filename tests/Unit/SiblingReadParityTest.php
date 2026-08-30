@@ -116,6 +116,60 @@ final class SiblingReadParityTest extends TestCase
     }
 
     #[Test]
+    public function a_nullable_promoted_property_on_a_non_model_is_reported(): void
+    {
+        $dto = <<<'PHP'
+            <?php
+            namespace App\DataObjects;
+            class OrderPayload {
+                public function __construct(public readonly ?string $external_id = null) {}
+                public function resolved(): string { return $this->external_id ?? 'none'; }
+            }
+            PHP;
+
+        $source = <<<'PHP'
+            <?php
+            namespace App\Actions;
+            use App\DataObjects\OrderPayload;
+            class CreateTask {
+                public function handle(OrderPayload $p): void { $this->post($p->external_id); }
+            }
+            PHP;
+
+        $changed = $this->changedFile($source);
+        $index = $this->index(
+            ['app/DataObjects/OrderPayload.php' => $dto],
+            ['app/DataObjects/OrderPayload.php' => $dto],
+            [],
+            $changed,
+        );
+
+        // The lane is not restricted to Eloquent models: a `?string` promoted property carries its
+        // own nullability, and outside `app/Models` that declared type is the ONLY source there is.
+        // Reading nullability from the union alone made this whole group unreachable.
+        $findings = $this->findings($index, $changed);
+
+        $this->assertCount(1, $findings);
+        $this->assertStringContainsString('Nullable per its declared type', $findings[0]);
+    }
+
+    #[Test]
+    public function a_docblock_shorthand_is_reported_as_a_docblock_not_as_a_declared_type(): void
+    {
+        // `@property ?string` is valid PHPDoc. Reading the `?` back as a declared type would put a
+        // claim in the finding that no declaration supports.
+        $model = str_replace('@property string|null $external_id', '@property ?string $external_id', self::MODEL);
+        $changed = $this->changedFile();
+
+        $findings = $this->findings(
+            $this->index(['app/Models/Order.php' => $model], ['app/Models/Order.php' => $model], [], $changed),
+            $changed,
+        );
+
+        $this->assertStringContainsString('Nullable per its docblock', $findings[0]);
+    }
+
+    #[Test]
     public function a_relation_or_cast_property_is_never_reported(): void
     {
         $source = str_replace('$order->external_id', '$order->customer', self::CHANGED);

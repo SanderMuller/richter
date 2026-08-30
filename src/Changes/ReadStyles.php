@@ -9,21 +9,17 @@ use PhpParser\Node\Expr\Assign;
 use PhpParser\Node\Expr\BinaryOp\Coalesce;
 use PhpParser\Node\Expr\BinaryOp\Identical;
 use PhpParser\Node\Expr\BinaryOp\NotIdentical;
-use PhpParser\Node\Expr\BooleanNot;
 use PhpParser\Node\Expr\ConstFetch;
 use PhpParser\Node\Expr\Empty_;
 use PhpParser\Node\Expr\FuncCall;
 use PhpParser\Node\Expr\Isset_;
-use PhpParser\Node\Expr\MethodCall;
 use PhpParser\Node\Expr\NullsafeMethodCall;
 use PhpParser\Node\Expr\NullsafePropertyFetch;
 use PhpParser\Node\Expr\PropertyFetch;
 use PhpParser\Node\Expr\Ternary;
 use PhpParser\Node\Expr\Variable;
 use PhpParser\Node\Identifier;
-use PhpParser\Node\Name;
 use PhpParser\Node\Stmt\ClassMethod;
-use PhpParser\Node\Stmt\If_;
 use PhpParser\Node\Stmt\Unset_;
 use PhpParser\NodeFinder;
 
@@ -57,6 +53,7 @@ final class ReadStyles
         $styles = [];
 
         self::markEmptinessChecks($method, $styles);
+        self::markTruthinessTests($method, $styles);
         self::markNullComparisons($method, $styles);
         self::markFallbacks($method, $styles);
         self::markGuardedLocals($method, $styles);
@@ -65,10 +62,40 @@ final class ReadStyles
     }
 
     /**
-     * A marker that records one style against the OUTERMOST fetches of an expression.
+     * The style that wins when one local is tested more than one way, in the order the direct path
+     * applies its own marks: a supplied default outranks a null test, which outranks bare tolerance.
+     * `$id ?? 'x'` after an `if ($id === null)` is a defaulted read, not a null test.
+     */
+    private static function strongest(?string $current, string $candidate): string
+    {
+        $rank = [
+            SiblingReads::STYLE_EMPTINESS => 0,
+            SiblingReads::STYLE_NULL_TEST => 1,
+            SiblingReads::STYLE_FALLBACK => 2,
+        ];
+
+        if ($current === null) {
+            return $candidate;
+        }
+
+        return ($rank[$candidate] ?? 0) > ($rank[$current] ?? 0) ? $candidate : $current;
+    }
+
+    /**
+     * A marker that records one style against the expression a guard is applied TO.
      *
-     * Outermost only: in `$order->customer->name ?? $x` the coalesce guards the name, and says
-     * nothing about `customer`, which is a receiver on the way there.
+     * The expression must BE the property fetch. A guard says something about the value it tests, not
+     * about every value nested inside it: `if (accepts($order->external_id))` tests what `accepts()`
+     * returned, and that function is free to reject `null`, distinguish it from `false`, or hand it
+     * on. Marking the nested fetch there would suppress a finding on the changed side and, worse,
+     * manufacture soft evidence on the other side — a claim the source does not make.
+     *
+     * It is also what keeps the two classifier paths symmetrical: {@see guardedLocals()} marks a local
+     * only where the tested expression IS the variable, so `if (accepts($local))` guards nothing.
+     * Reported by a review of the first version of this fix, which walked the whole expression.
+     *
+     * A chained receiver falls out of the same rule: in `$order->customer->name ?? $x` the coalesce's
+     * left side is the `name` fetch, so `customer` is untouched.
      *
      * @param  array<int, string>  $styles
      * @return Closure(?Node, string): void
@@ -76,25 +103,8 @@ final class ReadStyles
     private static function marker(array &$styles): Closure
     {
         return static function (?Node $node, string $style) use (&$styles): void {
-            if (! $node instanceof Node) {
-                return;
-            }
-
-            $finder = new NodeFinder();
-            $nested = [];
-
-            foreach ([PropertyFetch::class, MethodCall::class, NullsafePropertyFetch::class, NullsafeMethodCall::class] as $class) {
-                foreach ($finder->findInstanceOf($node, $class) as $outer) {
-                    if ($outer->var instanceof PropertyFetch) {
-                        $nested[spl_object_id($outer->var)] = true;
-                    }
-                }
-            }
-
-            foreach ($finder->findInstanceOf($node, PropertyFetch::class) as $fetch) {
-                if ($fetch->name instanceof Identifier && ! isset($nested[spl_object_id($fetch)])) {
-                    $styles[spl_object_id($fetch)] = $style;
-                }
+            if ($node instanceof PropertyFetch && $node->name instanceof Identifier) {
+                $styles[spl_object_id($node)] = $style;
             }
         };
     }
@@ -140,13 +150,13 @@ final class ReadStyles
         $mark = self::marker($styles);
 
         foreach ($finder->findInstanceOf($method, FuncCall::class) as $call) {
-            $style = self::helperStyle($call);
+            $style = AbsenceTests::helperStyle($call);
 
             if ($style === null) {
                 continue;
             }
 
-            foreach (self::arguments($call) as $argument) {
+            foreach (AbsenceTests::arguments($call) as $argument) {
                 $mark($argument, $style);
             }
         }
@@ -181,32 +191,30 @@ final class ReadStyles
         }
     }
 
-    /** The style a helper call implies — `is_null()` tests for null, it does not tolerate it. */
-    private static function helperStyle(FuncCall $call): ?string
+    /**
+     * A read the method only tests for truth tolerates an absent value, exactly as `empty()` does:
+     * `if (! $question->timer_enabled)` answers the same for `null` and for `false`, which on a
+     * tri-state boolean column is the most common way code says "absent is fine".
+     *
+     * These are the contexts {@see guardedLocals()} already treats as a guard when the value reaches
+     * the test through a variable. Applying them to the fetch itself is what makes the two paths
+     * agree: before this, `! $order->flag` read as bare while `$f = $order->flag; if (! $f)` read as
+     * guarded, and the lane reported the first while staying silent on the second.
+     *
+     * Marked BEFORE the null comparisons, so `if ($order->flag === null)` still ends as a null-test:
+     * that one distinguishes null from false rather than folding them together.
+     *
+     * @param  array<int, string>  $styles
+     */
+    private static function markTruthinessTests(ClassMethod $method, array &$styles): void
     {
-        if (! $call->name instanceof Name) {
-            return null;
-        }
+        $mark = self::marker($styles);
 
-        return match (strtolower($call->name->toString())) {
-            'filled', 'blank', 'empty' => SiblingReads::STYLE_EMPTINESS,
-            'is_null' => SiblingReads::STYLE_NULL_TEST,
-            default => null,
-        };
-    }
-
-    /** @return list<Node> */
-    private static function arguments(FuncCall $call): array
-    {
-        $arguments = [];
-
-        foreach ($call->args as $argument) {
-            if ($argument instanceof Arg) {
-                $arguments[] = $argument->value;
+        foreach (AbsenceTests::truthiness() as $class => $subject) {
+            foreach (new NodeFinder()->findInstanceOf($method, $class) as $node) {
+                $mark($subject($node), SiblingReads::STYLE_EMPTINESS);
             }
         }
-
-        return $arguments;
     }
 
     /** @param  array<int, string>  $styles */
@@ -254,7 +262,7 @@ final class ReadStyles
                 && isset($guarded[$assign->var->name])
                 && $assign->expr instanceof PropertyFetch
                 && $assign->expr->name instanceof Identifier) {
-                $styles[spl_object_id($assign->expr)] = SiblingReads::STYLE_EMPTINESS;
+                $styles[spl_object_id($assign->expr)] = $guarded[$assign->var->name];
             }
         }
     }
@@ -264,47 +272,25 @@ final class ReadStyles
      *
      * Flow-insensitive on purpose: it only ever removes a claim, which is the direction to fail in.
      *
-     * @return array<string, true>
+     * @return array<string, string> local name => the style its strongest guard implies
      */
     private static function guardedLocals(ClassMethod $method): array
     {
         $finder = new NodeFinder();
         $guarded = [];
 
-        // Node type => the sub-expressions whose absence that node is testing. One table rather than
-        // one loop each: the shapes differ, the question does not.
-        $tested = [
-            NullsafeMethodCall::class => static fn (NullsafeMethodCall $node): array => [$node->var],
-            NullsafePropertyFetch::class => static fn (NullsafePropertyFetch $node): array => [$node->var],
-            Coalesce::class => static fn (Coalesce $node): array => [$node->left],
-            Ternary::class => static fn (Ternary $node): array => [$node->cond],
-            BooleanNot::class => static fn (BooleanNot $node): array => [$node->expr],
-            If_::class => static fn (If_ $node): array => [$node->cond],
-            Identical::class => static fn (Identical $node): array => [$node->left, $node->right],
-            NotIdentical::class => static fn (NotIdentical $node): array => [$node->left, $node->right],
-            FuncCall::class => self::emptinessArguments(...),
-        ];
-
-        foreach ($tested as $class => $subject) {
+        // Node type => the sub-expressions whose absence it tests, and the style that implies. One
+        // table rather than one loop each: the shapes differ, the question does not.
+        foreach (AbsenceTests::all() as $class => [$subject, $style]) {
             foreach ($finder->findInstanceOf($method, $class) as $node) {
                 foreach ($subject($node) as $expression) {
                     if ($expression instanceof Variable && is_string($expression->name)) {
-                        $guarded[$expression->name] = true;
+                        $guarded[$expression->name] = self::strongest($guarded[$expression->name] ?? null, $style($node));
                     }
                 }
             }
         }
 
         return $guarded;
-    }
-
-    /**
-     * The arguments of an emptiness helper, or nothing for any other call.
-     *
-     * @return list<Node>
-     */
-    private static function emptinessArguments(FuncCall $call): array
-    {
-        return self::helperStyle($call) === null ? [] : self::arguments($call);
     }
 }

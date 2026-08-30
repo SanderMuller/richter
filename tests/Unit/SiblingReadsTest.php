@@ -57,6 +57,96 @@ final class SiblingReadsTest extends TestCase
     }
 
     #[Test]
+    public function a_truthiness_test_tolerates_absence_the_same_way_an_emptiness_helper_does(): void
+    {
+        // `! $order->flag` answers the same for null and for false, which on a tri-state boolean
+        // column is how code says "absent is fine". Reported from production: the lane called this
+        // bare and raised a finding on it.
+        $this->assertArrayHasKey('emptiness', $this->stylesFor('        if (! $order->external_id) { return; }'));
+        $this->assertArrayHasKey('emptiness', $this->stylesFor('        if ($order->external_id) { return; }'));
+        $this->assertArrayHasKey('emptiness', $this->stylesFor('        $x = $order->external_id ? 1 : 2;'));
+    }
+
+    private function isSoft(string $body): bool
+    {
+        return array_intersect(array_keys($this->stylesFor($body)), SiblingReads::SOFT_STYLES) !== [];
+    }
+
+    #[Test]
+    public function a_direct_test_and_a_test_through_a_local_agree(): void
+    {
+        // The same tolerance must not depend on whether the value passes through a variable first.
+        // It did: the direct form read as bare while the local form read as guarded.
+        // EVERY soft form, both ways round. One table feeds the fetch path and the local path, and a
+        // form present in one but missing from the other is the defect this asserts against. Three
+        // such gaps have shipped: boolean negation, a plain `if`, and `empty()`/`isset()` on a local.
+        foreach ([
+            'if (! %s) { return; }',
+            'if (%s) { return; }',
+            '$x = %s ? 1 : 2;',
+            'if (empty(%s)) { return; }',
+            'if (isset(%s)) { return; }',
+            'if (filled(%s)) { return; }',
+            'if (blank(%s)) { return; }',
+            '$x = %s ?? 1;',
+            '$x = %s ?: 1;',
+        ] as $form) {
+            $viaLocal = '        $id = $order->external_id;' . "\n" . '        ' . sprintf($form, '$id');
+            $direct = '        ' . sprintf($form, '$order->external_id');
+
+            // Both must be soft, not merely equal: asserting equality alone passes when a form is
+            // wrongly hard on BOTH paths, which is the failure this test exists to catch.
+            //
+            // SOFT, not the same label. A guard reaching a read through a local cannot report which
+            // soft form it was, so `$id ?? 1` and `$id ?: 1` record emptiness where the direct forms
+            // record fallback. That difference never reaches a reader: a soft read produces no
+            // finding, so no label is printed for it.
+            $this->assertTrue($this->isSoft($direct), "direct: {$form}");
+            $this->assertTrue($this->isSoft($viaLocal), "via local: {$form}");
+        }
+    }
+
+    #[Test]
+    public function a_null_test_stays_hard_on_both_paths(): void
+    {
+        // The mirror of the soft-form parity test. A `=== null` distinguishes null from false rather
+        // than folding them together, so it must never suppress a finding — and it did, through a
+        // local, because the local path graded every guard as emptiness.
+        foreach (['if (%s === null) { return; }', 'if (%s !== null) { return; }', 'if (is_null(%s)) { return; }'] as $form) {
+            $viaLocal = '        $id = $order->external_id;' . "\n" . '        ' . sprintf($form, '$id');
+            $direct = '        ' . sprintf($form, '$order->external_id');
+
+            $this->assertFalse($this->isSoft($direct), "direct: {$form}");
+            $this->assertFalse($this->isSoft($viaLocal), "via local: {$form}");
+        }
+    }
+
+    #[Test]
+    public function a_comparison_to_something_other_than_null_guards_nothing(): void
+    {
+        // `$id === $other` says nothing about absence. Treating it as a guard would silence a read
+        // the source never guarded.
+        $this->assertFalse($this->isSoft('        $id = $order->external_id;' . "\n" . '        if ($id === $other) { return; }'));
+        $this->assertSame(['bare'], array_keys($this->stylesFor('        $id = $order->external_id;' . "\n" . '        if ($id === $other) { return; }')));
+    }
+
+    #[Test]
+    public function a_guard_on_something_the_property_was_passed_to_is_not_a_guard_on_the_property(): void
+    {
+        // `accepts()` is free to reject null, to tell it from false, or to hand it on. The truthiness
+        // test speaks about what it returned, not about the value it was given. Marking the nested
+        // read would suppress a finding here and, on the evidence side, manufacture soft evidence.
+        foreach ([
+            '        if (accepts($order->external_id)) { return; }',
+            '        if (! accepts($order->external_id)) { return; }',
+            '        $x = accepts($order->external_id) ? 1 : 2;',
+            '        $x = $this->wrap($order->external_id) ?? 1;',
+        ] as $body) {
+            $this->assertSame(['bare'], array_keys($this->stylesFor($body)), $body);
+        }
+    }
+
+    #[Test]
     public function a_null_comparison_is_a_null_test_and_never_soft(): void
     {
         $styles = $this->stylesFor('        if ($order->external_id === null) { return; }');

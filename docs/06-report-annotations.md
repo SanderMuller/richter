@@ -89,13 +89,17 @@ What it compares:
 - **the changed side**: every read in a method the diff touched, in the head tree, where the
   receiver has a declared application class type. An untyped receiver, a union, a chained call and a
   vendor type record nothing. A write, an `unset()` and a by-reference argument are not reads.
-- **the evidence side**: the same property read with `??`, `?:`, `filled()`, `blank()`, `empty()`,
-  `isset()` or a nullsafe use, in the BASE tree: the receiver's own declaring class, plus files in
+- **the evidence side**: the same property read in a way that supplies or tolerates an absent value,
+  in the BASE tree. That is `??`, `?:`, `filled()`, `blank()`, `empty()`, `isset()`, a nullsafe use, or
+  a plain truthiness test (`if (! $order->flag)`), which answers the same for `null` and for `false`.
+  The sources are: the receiver's own declaring class, plus files in
   directories the diff touched. A fallback the same change introduces is not evidence about the code
   that was already there.
 
-Only a nullable SCALAR column is compared, proved from the head version of the declaring class: a
-`?string` declaration or an `@property string|null` line. That restriction was measured: read
+Only a nullable SCALAR property is compared, proved from the head version of the declaring class: a
+`?string` declaration, or an `@property string|null` line. It is not restricted to Eloquent models. In
+practice the two sources split by where the property lives: a model's columns are described by a
+generated docblock, while a data object's promoted properties carry real declared types. That restriction was measured: read
 literally, a generated docblock marks relations, cast objects, primary keys and timestamps nullable
 too, and those were two thirds of the findings and none of the defect class. `id`, `created_at`,
 `updated_at` and `deleted_at` are never reported.
