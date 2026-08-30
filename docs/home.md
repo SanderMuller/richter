@@ -10,14 +10,14 @@ hero:
     alt: Richter
   actions:
     - theme: brand
-      text: Get started
-      link: /installation
-    - theme: alt
       text: Why Richter?
       link: /why-richter
     - theme: alt
-      text: GitHub
-      link: https://github.com/SanderMuller/richter
+      text: Installation
+      link: /installation
+    - theme: alt
+      text: Getting started
+      link: /getting-started
 
 features:
   - title: Member-level impact
