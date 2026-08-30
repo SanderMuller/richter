@@ -5,22 +5,44 @@ namespace SanderMuller\Richter\Changes;
 use Closure;
 use PhpParser\Node;
 use PhpParser\Node\Arg;
+use PhpParser\Node\Expr\AssignOp\Coalesce as CoalesceAssign;
+use PhpParser\Node\Expr\BinaryOp\BooleanAnd;
+use PhpParser\Node\Expr\BinaryOp\BooleanOr;
 use PhpParser\Node\Expr\BinaryOp\Coalesce;
 use PhpParser\Node\Expr\BinaryOp\Identical;
+use PhpParser\Node\Expr\BinaryOp\LogicalAnd;
+use PhpParser\Node\Expr\BinaryOp\LogicalOr;
+use PhpParser\Node\Expr\BinaryOp\LogicalXor;
 use PhpParser\Node\Expr\BinaryOp\NotIdentical;
 use PhpParser\Node\Expr\BooleanNot;
+use PhpParser\Node\Expr\Cast\Bool_;
 use PhpParser\Node\Expr\ConstFetch;
 use PhpParser\Node\Expr\Empty_;
 use PhpParser\Node\Expr\FuncCall;
 use PhpParser\Node\Expr\Isset_;
+use PhpParser\Node\Expr\Match_;
 use PhpParser\Node\Expr\NullsafeMethodCall;
 use PhpParser\Node\Expr\NullsafePropertyFetch;
 use PhpParser\Node\Expr\Ternary;
+use PhpParser\Node\MatchArm;
 use PhpParser\Node\Name;
+use PhpParser\Node\Stmt\Case_;
+use PhpParser\Node\Stmt\Do_;
+use PhpParser\Node\Stmt\ElseIf_;
+use PhpParser\Node\Stmt\For_;
 use PhpParser\Node\Stmt\If_;
+use PhpParser\Node\Stmt\Switch_;
+use PhpParser\Node\Stmt\While_;
 
 /**
  * Which sub-expressions a node treats as possibly absent.
+ *
+ * ADDING A SOFT FORM: add it here, and add its spelling to the parity list in
+ * `SiblingReadsTest::a_direct_test_and_a_test_through_a_local_agree()`. Four soft forms have been
+ * missed one spelling at a time — boolean negation, a plain `if`, `empty()`/`isset()` on a local, and
+ * `??=` — each of them recognised in one spelling and invisible in another. The pattern is always the
+ * same: PHP writes one idea several ways, and a classifier that enumerates node types by hand will
+ * eventually enumerate only some of them.
  *
  * One table, read by both halves of {@see ReadStyles}: the half that judges a property fetch, and the
  * half that judges a local the fetch was assigned to. They were separate lists once, and they
@@ -35,14 +57,42 @@ final class AbsenceTests
      * Tests that fold `null` and `false` together, which is what makes them soft: `! $x`, `if ($x)`,
      * and a ternary condition all answer the same for both.
      *
-     * @return array<class-string<Node>, Closure(Node): Node>
+     * Every construct PHP evaluates for truth, because `null` and `false` answer alike in all of
+     * them. Enumerated rather than sampled: an incomplete list here is the defect that has recurred
+     * four times, and each entry only ever REMOVES a finding, so a wrong inclusion costs recall while
+     * a missing one costs correctness.
+     *
+     * Deliberately NOT here, each considered and rejected: `assert()` demands presence rather than
+     * tolerating absence, and is compiled out entirely in production, so it guards nothing at
+     * runtime; `match ($x)` and `switch ($x)` over any other subject compare values; a callback
+     * passed to `array_filter()` takes its tolerance from the calling API, not from the expression;
+     * and coalescing the RESULT of a call guards that result, not the property handed to it.
+     *
+     * @return array<class-string<Node>, Closure(Node): list<Node>>
      */
     public static function truthiness(): array
     {
         return [
-            BooleanNot::class => static fn (Node $node): Node => $node instanceof BooleanNot ? $node->expr : $node,
-            Ternary::class => static fn (Node $node): Node => $node instanceof Ternary ? $node->cond : $node,
-            If_::class => static fn (Node $node): Node => $node instanceof If_ ? $node->cond : $node,
+            BooleanNot::class => static fn (Node $n): array => $n instanceof BooleanNot ? [$n->expr] : [],
+            Ternary::class => static fn (Node $n): array => $n instanceof Ternary ? [$n->cond] : [],
+            If_::class => static fn (Node $n): array => $n instanceof If_ ? [$n->cond] : [],
+            ElseIf_::class => static fn (Node $n): array => $n instanceof ElseIf_ ? [$n->cond] : [],
+            While_::class => static fn (Node $n): array => $n instanceof While_ ? [$n->cond] : [],
+            Do_::class => static fn (Node $n): array => $n instanceof Do_ ? [$n->cond] : [],
+            // Only the LAST condition controls the loop. `for ($i = 0; $a, $b;)` evaluates both and
+            // continues on `$b` alone, so the earlier expressions are plain reads.
+            For_::class => static fn (Node $n): array => $n instanceof For_ && $n->cond !== [] ? [$n->cond[array_key_last($n->cond)]] : [],
+            BooleanAnd::class => static fn (Node $n): array => $n instanceof BooleanAnd ? [$n->left, $n->right] : [],
+            BooleanOr::class => static fn (Node $n): array => $n instanceof BooleanOr ? [$n->left, $n->right] : [],
+            LogicalAnd::class => static fn (Node $n): array => $n instanceof LogicalAnd ? [$n->left, $n->right] : [],
+            LogicalOr::class => static fn (Node $n): array => $n instanceof LogicalOr ? [$n->left, $n->right] : [],
+            LogicalXor::class => static fn (Node $n): array => $n instanceof LogicalXor ? [$n->left, $n->right] : [],
+            Bool_::class => static fn (Node $n): array => $n instanceof Bool_ ? [$n->expr] : [],
+            // Only the `true`-subject forms: `match (true)` and `switch (true)` use their arm and case
+            // expressions as predicates, while `match ($x)` compares values and says nothing about
+            // absence.
+            Match_::class => static fn (Node $n): array => $n instanceof Match_ ? self::predicatesOfTrueSubject($n->cond, array_merge(...array_map(static fn (MatchArm $arm): array => $arm->conds ?? [], $n->arms))) : [],
+            Switch_::class => static fn (Node $n): array => $n instanceof Switch_ ? self::predicatesOfTrueSubject($n->cond, array_values(array_filter(array_map(static fn (Case_ $case): ?Node => $case->cond, $n->cases)))) : [],
         ];
     }
 
@@ -64,6 +114,10 @@ final class AbsenceTests
             NullsafeMethodCall::class => [static fn (Node $n): array => $n instanceof NullsafeMethodCall ? [$n->var] : [], static fn (Node $n): string => SiblingReads::STYLE_EMPTINESS],
             NullsafePropertyFetch::class => [static fn (Node $n): array => $n instanceof NullsafePropertyFetch ? [$n->var] : [], static fn (Node $n): string => SiblingReads::STYLE_EMPTINESS],
             Coalesce::class => [static fn (Node $n): array => $n instanceof Coalesce ? [$n->left] : [], static fn (Node $n): string => SiblingReads::STYLE_FALLBACK],
+            // `$x ??= 'd'` is the same defaulting written as an assignment: it READS the value (a
+            // read-modify-write always does) and supplies one when it is absent. Missed once, because
+            // the coalesce operator and the coalesce-assign operator are different node types.
+            CoalesceAssign::class => [static fn (Node $n): array => $n instanceof CoalesceAssign ? [$n->var] : [], static fn (Node $n): string => SiblingReads::STYLE_FALLBACK],
             Identical::class => [static fn (Node $n): array => $n instanceof Identical ? self::nullComparedSides($n->left, $n->right) : [], static fn (Node $n): string => SiblingReads::STYLE_NULL_TEST],
             NotIdentical::class => [static fn (Node $n): array => $n instanceof NotIdentical ? self::nullComparedSides($n->left, $n->right) : [], static fn (Node $n): string => SiblingReads::STYLE_NULL_TEST],
             FuncCall::class => [
@@ -75,10 +129,24 @@ final class AbsenceTests
         ];
 
         foreach (self::truthiness() as $class => $subject) {
-            $tests[$class] = [static fn (Node $node): array => [$subject($node)], static fn (Node $n): string => SiblingReads::STYLE_EMPTINESS];
+            $tests[$class] = [$subject, static fn (Node $n): string => SiblingReads::STYLE_EMPTINESS];
         }
 
         return $tests;
+    }
+
+    /**
+     * The arm or case expressions of a `match`/`switch`, but only when its subject is the literal
+     * `true` — that is the form where each expression is evaluated as a predicate.
+     *
+     * @param  list<Node>  $predicates
+     * @return list<Node>
+     */
+    private static function predicatesOfTrueSubject(?Node $subject, array $predicates): array
+    {
+        return $subject instanceof ConstFetch && strtolower($subject->name->toString()) === 'true'
+            ? $predicates
+            : [];
     }
 
     /**

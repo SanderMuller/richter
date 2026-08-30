@@ -90,6 +90,22 @@ final class SiblingReadsTest extends TestCase
             'if (blank(%s)) { return; }',
             '$x = %s ?? 1;',
             '$x = %s ?: 1;',
+            '%s ??= 1;',
+            'if (false) { } elseif (%s) { return; }',
+            'while (%s) { break; }',
+            'do { break; } while (%s);',
+            'for (; %s;) { break; }',
+            'if ($other && %s) { return; }',
+            'if (%s && $other) { return; }',
+            'if ($other || %s) { return; }',
+            'if (%s || $other) { return; }',
+            'if ($other and %s) { return; }',
+            'if ($other or %s) { return; }',
+            'if ($other xor %s) { return; }',
+            'for ($i = 0; $i < 2, %s;) { break; }',
+            '$b = (bool) %s;',
+            '$r = match (true) { %s => 1, default => 2 };',
+            'switch (true) { case %s: break; }',
         ] as $form) {
             $viaLocal = '        $id = $order->external_id;' . "\n" . '        ' . sprintf($form, '$id');
             $direct = '        ' . sprintf($form, '$order->external_id');
@@ -119,6 +135,15 @@ final class SiblingReadsTest extends TestCase
             $this->assertFalse($this->isSoft($direct), "direct: {$form}");
             $this->assertFalse($this->isSoft($viaLocal), "via local: {$form}");
         }
+    }
+
+    #[Test]
+    public function only_the_last_condition_of_a_for_loop_is_a_truth_test(): void
+    {
+        // `for ($i = 0; $a, $b;)` evaluates both and continues on `$b` alone. An earlier expression
+        // is a plain read, and treating it as a guard would silence one the loop never tested.
+        $this->assertTrue($this->isSoft('        for ($i = 0; $i < 2, $order->external_id;) { break; }'));
+        $this->assertFalse($this->isSoft('        for ($i = 0; $order->external_id, $i < 2;) { break; }'));
     }
 
     #[Test]

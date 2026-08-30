@@ -6,6 +6,7 @@ use Closure;
 use PhpParser\Node;
 use PhpParser\Node\Arg;
 use PhpParser\Node\Expr\Assign;
+use PhpParser\Node\Expr\AssignOp\Coalesce as CoalesceAssign;
 use PhpParser\Node\Expr\BinaryOp\Coalesce;
 use PhpParser\Node\Expr\BinaryOp\Identical;
 use PhpParser\Node\Expr\BinaryOp\NotIdentical;
@@ -212,7 +213,9 @@ final class ReadStyles
 
         foreach (AbsenceTests::truthiness() as $class => $subject) {
             foreach (new NodeFinder()->findInstanceOf($method, $class) as $node) {
-                $mark($subject($node), SiblingReads::STYLE_EMPTINESS);
+                foreach ($subject($node) as $tested) {
+                    $mark($tested, SiblingReads::STYLE_EMPTINESS);
+                }
             }
         }
     }
@@ -242,6 +245,10 @@ final class ReadStyles
 
         foreach ($finder->findInstanceOf($method, Coalesce::class) as $node) {
             $mark($node->left, SiblingReads::STYLE_FALLBACK);
+        }
+
+        foreach ($finder->findInstanceOf($method, CoalesceAssign::class) as $node) {
+            $mark($node->var, SiblingReads::STYLE_FALLBACK);
         }
 
         foreach ($finder->findInstanceOf($method, Ternary::class) as $node) {
