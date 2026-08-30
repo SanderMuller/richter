@@ -36,6 +36,7 @@ Impact: 2 entry point(s) · 7 impacted node(s)
 What makes it worth installing:
 
 - **Member-level change impact.** A one-method change seeds that method in the code graph, not the whole class. The graph covers routes, controllers, jobs, listeners, policies, resources, Blade views, and the Eloquent relations your code walks, plus [edges a route-anchored analysis misses](https://sandermuller.github.io/richter/coverage).
+- **The rows that matter, first.** Reached entry points are ordered by how specifically the diff explains each one, so a change that touches a widely-referenced class leads with its own routes instead of with whatever sorts first alphabetically. The `--json` payload carries the same attribution.
 - **Test-coverage prompts.** Every reached entry point is tagged `[test-referenced]` or `[⚠ no test references this]`, a heuristic prompt rather than a coverage verdict.
 - **Blast radius and traces on demand.** `richter:impact` lists a symbol's callers, its dependencies, and the entry surfaces behind them. `richter:trace` answers "how does this even reach that?" with the shortest call chain.
 - **Affected-test selection.** `richter:affected-tests` turns the diff's reach into a test selection, with an exit-code contract that fails toward running the full suite whenever the selection cannot be trusted.
