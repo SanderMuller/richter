@@ -8,6 +8,11 @@ includes:
 parameters:
     tmpDir: .cache/phpstan
 
+    # See the file's docblock: Larastan's own bootstrap leaves LARAVEL_VERSION undefined on CI, and
+    # its stub-file extension then aborts the run.
+    bootstrapFiles:
+        - phpstan-bootstrap.php
+
     paths:
         - src
         - tests
