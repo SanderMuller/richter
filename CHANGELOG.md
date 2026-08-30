@@ -5,6 +5,42 @@ All notable changes to `sandermuller/richter` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.62.0 - 2026-08-30
+
+The machine payload now lists entry surfaces in the order the reports print them. Sourced from production dogfood and an external review.
+
+### Changed
+
+**`entryPoints` is in reading order.** The prose formats have ranked entry surfaces by how specifically the diff explains them since 0.61.0. The `--json` document and the MCP tool kept the raw graph-walk order, and nothing said which was which. On a report with hundreds of surfaces the two lists could share no prefix at all: an agent reading the machine list from the top met the label order 0.61.0 set out to replace, while the attribution that would have reordered it sat unused in the same document.
+
+A prefix of `entryPoints` is now the prefix a human sees. `entryPointTestReferences` is keyed off the same ordered list. `richter:impact` is ordered too — it analyses a single symbol and has no attribution to rank on, so its rows keep the plain label order they have always had, but its payload copied the walk order, so one command printed its two outputs two ways.
+
+There is one implementation of that order, called by both surfaces. A shared sort KEY would not have prevented this divergence; only a shared call does.
+
+### Fixed
+
+**The ordering was not total.** `command::` surfaces render without their arguments, so two commands differing only there produce one label between them. They tied, and a stable sort then returned whatever order the walk supplied — the reported order depending on graph traversal rather than on the ranking. The key now ends on the node id.
+
+### Added
+
+**The array order is documented where an agent looks.** The MCP `entryPoints` field had no description at all. It has one now, and the detect-changes and output-format pages say the array carries the reading order rather than the walk order.
+
+**What ranking does not do is documented as well.** `ownReach` ranks how specifically the diff explains a surface, not how much the surface has to do with the task. A changed Livewire class or enum that reaches a single surface ranks alongside a command the same commit added, so the first rows are not a checklist of what a feature owns. Nothing is folded, and that remains deliberate.
+
+### Internal
+
+The sibling-read taxonomy's own history argued for an entry the table forbids: it listed `isset()` among the soft forms found one spelling at a time, which 0.61.3 reclassified as a null test. A later edit reading the history rather than the table is how the entry would return. Both comments also wrote `isset('')`, which is not valid PHP.
+
+A PHPStan bootstrap file now guarantees `LARAVEL_VERSION` before Larastan's stub-file extension reads it. Larastan defines it from an application it boots; on this repository's CI runner the constant was undefined by the time the extension ran, aborting the analysis before a single file was read. Why that boot leaves nothing behind there is not established — the same versions and command pass locally from a wiped `vendor/` — so this removes the dependency on it rather than repairing it.
+
+### Upgrade note
+
+No payload key, exit code or configuration changes, and no surface is added, folded or dropped: the same entry points are reported, in a different array order.
+
+**`entryPoints` array order changes for machine consumers.** A test pinning a JSON row by index, or code taking the first N entries expecting walk order, sees different values. That order was never a documented contract, and taking a prefix is now the supported thing to do rather than a mistake. `entryPointTestReferences` key order follows it; JSON object key order carries no meaning, and no other key moves.
+
+**Full Changelog**: https://github.com/SanderMuller/richter/compare/v0.61.3...v0.62.0
+
 ## v0.61.3 - 2026-08-30
 
 The sibling-read lane now decides every guard by one rule instead of by a list of spellings, which closed a gap and removed two entries that never belonged. Sourced from production dogfood and an external review.
@@ -75,6 +111,7 @@ $f = $order->flag; if (! $f) { }     // read as guarded, and silent
 
 
 
+
 ```
 `! $x`, `if ($x)` and a ternary condition are now soft wherever they appear, on the fetch itself or on a local it was assigned to.
 
@@ -124,6 +161,7 @@ Nothing is hidden or folded. The same surfaces are reported, the count beside th
 app/Actions/CreateTask.php: App\Actions\CreateTask::handle reads Order->external_id (bare);
 App\Models\Order::resolvedExternalId reads it (fallback). Nullable per its docblock. Check
 whether this read needs the same handling.
+
 
 
 
@@ -252,6 +290,7 @@ app/Models/Article.php (App\Models\Article::table, property)
 
 
 
+
 ```
 The rule covers the 25 properties the base `Model` declares that an application sets to change behaviour — among them `$table`, `$connection`, `$primaryKey`, `$keyType`, `$incrementing`, `$timestamps`, `$perPage`, `$with`, `$appends`, `$hidden`, `$visible`, `$fillable`, `$guarded`, `$casts` and `$touches`. The runtime caches Eloquent writes are excluded.
 
@@ -274,6 +313,7 @@ The named low-confidence reason from 0.57.0 now names the right kind. Sourced fr
 ```
 a changed member could not be pinned to a graph node (low confidence):
 app/Models/Post.php (App\Models\Post, class declaration)
+
 
 
 
@@ -310,6 +350,7 @@ It now names each one:
 ```
 a changed member could not be pinned to a graph node (low confidence):
 app/Models/Post.php (App\Models\Post::perPage, property)
+
 
 
 
@@ -455,6 +496,7 @@ The --html option requires a path: --html=<path>.
 
 
 
+
 ```
 This is the rule `--fail-on` and `--fail-on-hazard` already apply, through the same mechanism: a flag the user actually typed fails closed rather than being silently ignored. `--open` without `--html` was already guarded for exactly this reason; `--html` itself was the gap.
 
@@ -574,6 +616,7 @@ The three prose formats now keep the discriminating surfaces inline and fold the
 
 
 
+
 ```
 **Nothing is dropped.** The section still counts every surface, and the collapsed group states its own count, so the report cannot read as shorter than the reach it found. A surface whose reason the walk could not record stays inline: absence of a reason is not evidence of a weak one.
 
@@ -602,6 +645,7 @@ A dropped column now names what still refers to it, so the report says who has n
   ```
   ! [tier 2 migration] App\Models\Post — column `posts`.`subtitle` dropped, still named by
     App\Models\Post's own $fillable/$casts, a `subtitle` key in app/Http/Resources/PostResource.php
+  
   
   
   
@@ -735,6 +779,7 @@ Hazards (1):
 
 
 
+
 ```
 The suffix says "via its class" rather than naming a declaring class, because a `migration` hazard is named for a model and a `contract` hazard can name a class deleted whole — neither has a declaring class to point at.
 
@@ -811,6 +856,7 @@ Tightening a rate limit reported a tier-3 HIGH saying the limit was gone. A guar
   
   ```
   the rate limit on the GET /search route in routes/api.php rose from `throttle:60,1` to `throttle:120,1`
+  
   
   
   
@@ -1260,6 +1306,7 @@ dispatch($job);
 
 
 
+
 ```
 That was recorded as a dispatch whose target could not be followed — and the taint is global, so one of them makes every `richter:affected-tests` run report `not determinable` and fall back to the full suite. The graph has carried the edge for this shape all along: the instantiation is in the same method, right above the dispatch. The site pointed at a place to restructure where nothing was hidden and nothing needed restructuring.
 
@@ -1376,6 +1423,7 @@ Build profile: nothing was built — the diff holds nothing the graph is built f
 
 
 
+
 ```
 On stderr, like the table it stands in for, and before the payload in `--json` mode so stdout stays one document. Building anyway was the alternative, and it would make a no-op run pay for an analysis nothing asked for.
 
@@ -1393,6 +1441,7 @@ An event named by a class constant resolves in **any** declaration form, includi
 public const string
     SUBTITLE_CHANGED = 'subtitle-changed',
     SUBTITLE_DELETED = 'subtitle-deleted';
+
 
 
 
@@ -1457,6 +1506,7 @@ Build profile (forced rebuild):
   total                      3.85s
   no scoped rebuild: non-app-change
     config/services.php differs from the cached graph and sits outside app/
+
 
 
 
@@ -1576,6 +1626,7 @@ It now names every site:
 ```
 the graph contains job dispatches that could not be followed:
 app/Jobs/Fanout.php:88 (App\Jobs\Fanout::handle), app/Services/Importer.php:12 (App\Services\Importer::run)
+
 
 
 
@@ -2004,6 +2055,7 @@ Note: 2 changed file(s) are outside the analysed scope (not PHP under app/, a Bl
 
 
 
+
 ```
 Stderr, like the untracked-file note, so `--json` and `--markdown` stdout stay exactly the report. Frontend sources the configuration declines to scan are not counted: generated Wayfinder output under `frontend.generated_paths` and `.d.ts` declarations were silenced on purpose, and a note that fires loudest on regeneration churn is one people stop reading.
 
@@ -2112,6 +2164,7 @@ One new advisory lane, and a README that finally leads with what the package is 
   
   
   
+  
   ```
   The count comes off the `route:: → middleware::<group>` edges already in the graph, so it counts endpoints only: a controller-level attachment of the same group does not inflate it. Membership is read from `$middlewareGroups` on a Laravel 10 Kernel or the `->web(append: [...])` form in a Laravel 11+ `bootstrap/app.php`. A member written as an alias resolves through the same alias map, parameters are cut first (`tenant:strict` is one alias with an argument), and a group that names another group is expanded transitively, since Laravel runs the inner group's middleware on the outer group's routes too.
   
@@ -2144,6 +2197,7 @@ Two silent-failure shapes that richter used to miss: a call through an applicati
   
   ```text
     ! resources/js/Pages/Posts/Create.vue posts to POST /posts and sends 'subtitle', which this diff removes from App\Http\Requests\StorePostRequest::rules() (renamed to 'sub_title'?)
+  
   
   
   
