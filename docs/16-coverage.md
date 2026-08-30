@@ -73,7 +73,7 @@ and a name-based one would be the weakest evidence rather than the strongest. A
 squashed schema dump under `database/schema/` is not PHP and holds no `up()`, so a project that
 squashes has no migration file to read for the squashed range. The model owning a table is looked for
 under `app/Models` only, so an application that keeps its models elsewhere gets the table name as the
-hazard's member and `no-known-path` as its reach — the hazard still reports, with less reach than the
+hazard's member and `no-known-path` as its reach. The hazard still reports, with less reach than the
 graph could give it.
 
 An application that schedules through a legacy `app/Console/Kernel.php` gets no `schedule::` nodes at

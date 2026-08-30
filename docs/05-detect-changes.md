@@ -20,7 +20,7 @@ Against the default `HEAD`, the diff is the working tree compared to the merge-b
 
 The one gap `git diff` cannot close is a brand-new file that was never `git add`-ed: it shows in no diff form. A stderr-only note flags any such untracked file under a watched root, naming the paths rather than the roots. The note never reaches stdout, so `--json` and `--markdown` output stays exactly the report. Under `--head` there is no such note, because a file never added cannot be part of a committed tree.
 
-An untracked **migration** is the exception: it is read from the working tree and analysed, so it raises its hazards like any other migration and is not named in that note. Every other watched root holds files that are normally edited, which a diff sees; a migration is normally a brand-new file, so the gap fell on this lane's whole subject at exactly the moment the migration is newest. It is analysed as what it is — a new file, so everything its `up()` does, against no base. Under `--head` it is skipped with everything else untracked.
+An untracked **migration** is the exception: it is read from the working tree and analysed, so it raises its hazards like any other migration and is not named in that note. Every other watched root holds files that are normally edited, which a diff sees; a migration is normally a brand-new file, so the gap fell on this lane's whole subject at exactly the moment the migration is newest. It is analysed as what it is. A new file, so everything its `up()` does, against no base. Under `--head` it is skipped with everything else untracked.
 
 `--head` is also how you replay history without losing your own configuration. Checking an old commit out reverts every tracked file, `config/richter.php` among them, so a replayed diff silently runs on package defaults instead of your own `hazards.ignore` and `payload_parity` settings: the same diff, a different report. Pointing `--head` at the commit leaves the working tree alone, and the config with it.
 
@@ -78,13 +78,13 @@ Entry points reached: 1
 
 ## Test-reference tags
 
-Every reached entry point is tagged `[test-referenced]` or `[⚠ no test references this]`. A referenced entry point whose referencing tests contain no behavioural assertion the scan recognises is tagged `[test-referenced — no behavioural assertion found]`.
+Every reached entry point is tagged `[test-referenced]` or `[⚠ no test references this]`. A referenced entry point whose referencing tests contain no behavioural assertion the scan recognises is tagged `[test-referenced. No behavioural assertion found]`.
 
 These are heuristic prompts rather than coverage verdicts. An entry point whose behaviour you changed with nothing referencing it is a place to add a test; the tag flags a missing reference, not proof the code is untested. The `tests/` scan behind the tags only runs when an entry surface was actually reached.
 
 A `schedule::` surface resolves through the command it runs, so a test driving that command references the scheduled surface too. A schedule reaching no command, a scheduled closure among them, stays "could not be checked" rather than claiming no test drives it.
 
-A route matched by neither its name nor a literal URI in the tests resolves through the class that handles it — a Livewire component, a Filament page, or a Filament resource over two hops. A test importing that class references the route. Only a runnable `*Test.php` file grades the surface referenced: a fixture or a base case importing the same class is a reference, but not coverage, so it never turns the tag green. The same resolution runs in `impact` and in the MCP `impact` tool, so all three report the same route the same way.
+A route matched by neither its name nor a literal URI in the tests resolves through the class that handles it. A Livewire component, a Filament page, or a Filament resource over two hops. A test importing that class references the route. Only a runnable `*Test.php` file grades the surface referenced: a fixture or a base case importing the same class is a reference, but not coverage, so it never turns the tag green. The same resolution runs in `impact` and in the MCP `impact` tool, so all three report the same route the same way.
 
 ## Changed files no lane analyses
 

@@ -33,6 +33,6 @@ php artisan richter:detect-changes --markdown   # paste-ready for the pull reque
 
 ## Next
 
-- [Set up your project](04-project-setup.md): the config that makes the analysis accurate for your app. Do this once, early — the defaults do not know your subsystems.
+- [Set up your project](04-project-setup.md): the config that makes the analysis accurate for your app. Do this once, early. The defaults do not know your subsystems.
 - [Detecting change impact](05-detect-changes.md): which diff is analysed, and reading the report in full.
 - [Risk levels](08-risk-levels.md): how a hazard and its reach become a level.

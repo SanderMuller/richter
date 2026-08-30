@@ -19,7 +19,7 @@ It fails safe, and the exit code is the contract:
 | Exit | Meaning |
 |---|---|
 | `0` | Selection determined (possibly empty). |
-| `2` | **Not determinable: run the full suite.** The tests the run did name are still printed, under a heading that calls them a floor rather than the selection, and `--plain` stdout stays empty so a shell fallback still runs everything. Any UNRESOLVED file, low-confidence seed, an unparseable app file, an unfollowable dispatch *that a possible dispatch target in the change's reach could hide*, an uncheckable entry point, or an untracked relevant file `git diff` cannot see trips this. The reasons are printed (text) or carried in `reasons` (JSON). An unfollowable dispatch names each site as `file:line (Dispatcher::method)` so it can be restructured rather than only lived with, though [some shapes cannot be](#unfollowable-dispatches); a low-confidence seed names each member it could not pin as `file (Class::member, kind)`, and the kind is the part that says what to do — a `property` or a `class declaration` has no member node by design, so the verdict is right and there is nothing to restructure. |
+| `2` | **Not determinable: run the full suite.** The tests the run did name are still printed, under a heading that calls them a floor rather than the selection, and `--plain` stdout stays empty so a shell fallback still runs everything. Any UNRESOLVED file, low-confidence seed, an unparseable app file, an unfollowable dispatch *that a possible dispatch target in the change's reach could hide*, an uncheckable entry point, or an untracked relevant file `git diff` cannot see trips this. The reasons are printed (text) or carried in `reasons` (JSON). An unfollowable dispatch names each site as `file:line (Dispatcher::method)` so it can be restructured rather than only lived with, though [some shapes cannot be](#unfollowable-dispatches); a low-confidence seed names each member it could not pin as `file (Class::member, kind)`, and the kind is the part that says what to do, a `property` or a `class declaration` has no member node by design, so the verdict is right and there is nothing to restructure. |
 | `1` | Usage or unexpected error. |
 
 The simple form only ever errs toward running more: both an undetermined selection and a determined-but-empty one leave `$(…)` empty, and an argument-less runner executes the full suite.
@@ -114,11 +114,11 @@ Five shapes look unfollowable and are not counted, because none of them hides an
   carries the edges and there is nothing to restructure. Unlike the single local above, an append inside
   an `if` is fine: the claim is what the array *contains*, and a branch either appends a named job or
   appends nothing. Appending an inline closure is fine too, for the same reason a closure inside an
-  inline `Bus::chain([...])` is — so a chain built only from closures resolves to no jobs and no site.
+  inline `Bus::chain([...])` is, so a chain built only from closures resolves to no jobs and no site.
 
   **The array does not have to start empty.** `$chain = [new FirstJob(...)];` followed by appends reads as
   well, when every element of that first literal passes the same test an append passes. A key on an
-  element is fine — `$chain[] =` appends past the highest integer key, so it cannot collide with one — but
+  element is fine (`$chain[] =` appends past the highest integer key, so it cannot collide with one) but
   a spread is not, because `[...$others]` brings in contents from elsewhere.
 
   **It also does not have to sit in the method body.** Building the follow-up work inside `->then()` or
@@ -127,13 +127,13 @@ Five shapes look unfollowable and are not counted, because none of them hides an
   in from outside: a name arriving through `use ($chain)`, `use (&$chain)`, or a parameter keeps the site.
   A by-value capture is a second name for the array, so appends inside say nothing about what the outer
   name holds, and a by-reference capture is a mutation this proof cannot bound. For the same reason, a
-  dispatch is only ever resolved against an accumulator its own immediate scope owns — never one from an
+  dispatch is only ever resolved against an accumulator its own immediate scope owns, never one from an
   enclosing scope, which the closure could not see without capturing it anyway.
 
   The bar is otherwise absolute, and it has to be, because `$chain[] = …` assigns to an array element
   rather than to the variable: the write counting that guards the shapes above cannot see an append at
   all, so leaning on it would accept a method that also mutates the array some other way. Instead every
-  single mention of the name in the method must be one of three things — the `= []` that starts it, the
+  single mention of the name in the method must be one of three things. The `= []` that starts it, the
   left side of an append whose value is a `new` dispatch target or an inline closure, or the read that
   dispatches it. One mention that is none of those keeps the site, whatever it does. That is what makes
   `array_push($chain, $x)`, a keyed write like `$chain[0] = $x`, starting from a non-empty literal,

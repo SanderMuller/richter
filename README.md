@@ -73,33 +73,33 @@ Each of these takes `--json` for machine-readable output. `richter:detect-change
 Read the full documentation at **[sandermuller.github.io/richter](https://sandermuller.github.io/richter/)**.
 
 **Getting started**
-- [Why Richter?](https://sandermuller.github.io/richter/why-richter) — what a report tells you, what it refuses to guess at, and how the analysis runs
-- [Installation](https://sandermuller.github.io/richter/installation) — requirements, the `laravel/mcp` constraint, publishing the config
-- [Getting started](https://sandermuller.github.io/richter/getting-started) — one command on a branch, and the line in the report worth acting on
-- [Set up your project](https://sandermuller.github.io/richter/project-setup) — the setup skill, or two prompts you can paste to any agent
+- [Why Richter?](https://sandermuller.github.io/richter/why-richter): what a report tells you, what it refuses to guess at, and how the analysis runs
+- [Installation](https://sandermuller.github.io/richter/installation): requirements, the `laravel/mcp` constraint, publishing the config
+- [Getting started](https://sandermuller.github.io/richter/getting-started): one command on a branch, and the line in the report worth acting on
+- [Set up your project](https://sandermuller.github.io/richter/project-setup): the setup skill, or two prompts you can paste to any agent
 
 **Change impact**
-- [Detecting change impact](https://sandermuller.github.io/richter/detect-changes) — the main command, which diff is analysed, reading the report, `--explain`
-- [Report annotations](https://sandermuller.github.io/richter/report-annotations) — security exposure, Pennant gates, payload parity, middleware group membership
-- [Output formats](https://sandermuller.github.io/richter/output-formats) — `--markdown`, `--html`, and the `--json` contract
-- [Risk levels](https://sandermuller.github.io/richter/risk-levels) — the hazard tiers, the reach matrix, and the ladder that decides the level
-- [Gating in CI](https://sandermuller.github.io/richter/ci-gating) — `--fail-on`, `--fail-on-unresolved`, and a pull-request workflow
+- [Detecting change impact](https://sandermuller.github.io/richter/detect-changes): the main command, which diff is analysed, reading the report, `--explain`
+- [Report annotations](https://sandermuller.github.io/richter/report-annotations): security exposure, Pennant gates, payload parity, middleware group membership
+- [Output formats](https://sandermuller.github.io/richter/output-formats): `--markdown`, `--html`, and the `--json` contract
+- [Risk levels](https://sandermuller.github.io/richter/risk-levels): the hazard tiers, the reach matrix, and the ladder that decides the level
+- [Gating in CI](https://sandermuller.github.io/richter/ci-gating): `--fail-on`, `--fail-on-unresolved`, and a pull-request workflow
 
 **Commands**
-- [Blast radius of a symbol](https://sandermuller.github.io/richter/impact) — `richter:impact`
-- [Shortest path between symbols](https://sandermuller.github.io/richter/trace) — `richter:trace`
-- [Affected-test selection](https://sandermuller.github.io/richter/affected-tests) — `richter:affected-tests`
+- [Blast radius of a symbol](https://sandermuller.github.io/richter/impact): `richter:impact`
+- [Shortest path between symbols](https://sandermuller.github.io/richter/trace): `richter:trace`
+- [Affected-test selection](https://sandermuller.github.io/richter/affected-tests): `richter:affected-tests`
 
 **Digging deeper**
-- [Frontend changes](https://sandermuller.github.io/richter/frontend) — the Wayfinder/Ziggy bridge in full
-- [MCP server](https://sandermuller.github.io/richter/mcp-server) — the read-only tools and resources an agent can call
-- [Graph cache](https://sandermuller.github.io/richter/graph-cache) — the fingerprinted cache, profiling, scoped rebuilds
-- [Coverage beyond Laravel Brain](https://sandermuller.github.io/richter/coverage) — the edges a route-anchored analysis misses, and the known limits
+- [Frontend changes](https://sandermuller.github.io/richter/frontend): the Wayfinder/Ziggy bridge in full
+- [MCP server](https://sandermuller.github.io/richter/mcp-server): the read-only tools and resources an agent can call
+- [Graph cache](https://sandermuller.github.io/richter/graph-cache): the fingerprinted cache, profiling, scoped rebuilds
+- [Coverage beyond Laravel Brain](https://sandermuller.github.io/richter/coverage): the edges a route-anchored analysis misses, and the known limits
 
 **Reference**
-- [Configuration reference](https://sandermuller.github.io/richter/configuration) — every key in `config/richter.php`
-- [Benchmarking](https://sandermuller.github.io/richter/benchmark) — scoring accuracy against replayable history
-- [Troubleshooting](https://sandermuller.github.io/richter/troubleshooting) — a symptom index: empty reports, UNRESOLVED files, a level that reads medium everywhere, exit 2
+- [Configuration reference](https://sandermuller.github.io/richter/configuration): every key in `config/richter.php`
+- [Benchmarking](https://sandermuller.github.io/richter/benchmark): scoring accuracy against replayable history
+- [Troubleshooting](https://sandermuller.github.io/richter/troubleshooting): a symptom index: empty reports, UNRESOLVED files, a level that reads medium everywhere, exit 2
 
 ## Testing
 

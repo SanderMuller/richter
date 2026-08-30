@@ -69,18 +69,18 @@ a false "authorization removed" is worse than the breadth number it replaced.
 | 2 | a rate limit raised | `auth` | CWE-770 |
 | 3 | `$hidden` narrowed | `model` | CWE-200 |
 | 2 | mass-assignment surface widened (`$fillable`/`$guarded`) | `model` | CWE-915 |
-| 2 | a `$casts` value changed on a surviving key | `model` | — |
+| 2 | a `$casts` value changed on a surviving key | `model` |, |
 | 2 | a validation constraint dropped | `boundary` | CWE-20 |
-| 2 | a queued job's payload (its constructor signature) changed | `boundary` | — |
-| 2 | a public or protected member removed | `contract` | — |
-| 2 | a class deleted whole | `contract` | — |
-| 2 | a resource key removed while a consumer reads it | `parity` | — |
-| 2 | a model field never mirrored to its resource | `parity` | — |
-| 2 | a form-request field removed | `parity` | — |
-| 2 | a column dropped by a migration | `migration` | — |
-| 2 | a table dropped by a migration | `migration` | — |
-| 2 | a column renamed by a migration | `migration` | — |
-| 1 | a surviving member's signature changed | `contract` | — |
+| 2 | a queued job's payload (its constructor signature) changed | `boundary` |, |
+| 2 | a public or protected member removed | `contract` |, |
+| 2 | a class deleted whole | `contract` |, |
+| 2 | a resource key removed while a consumer reads it | `parity` |, |
+| 2 | a model field never mirrored to its resource | `parity` |, |
+| 2 | a form-request field removed | `parity` |, |
+| 2 | a column dropped by a migration | `migration` |, |
+| 2 | a table dropped by a migration | `migration` |, |
+| 2 | a column renamed by a migration | `migration` |, |
+| 1 | a surviving member's signature changed | `contract` |, |
 
 The tiers are fixed and not configurable. A tier is a fact about the change, and a project that could
 re-tier one would be grading its own risk before reading it. `cwe` is null wherever no clean mapping
@@ -131,13 +131,13 @@ database is not something richter can see.
 The hazard is named for the model that owns the table, so the entry points reaching that model answer
 for it. The table comes from the model the way Eloquent derives it: an explicit `$table` wins, and
 otherwise the snake-cased plural of the class name. A `$table` on a project base model is inherited, so the nearest declaration in the parent chain
-answers. A property declared with no value sets nothing — Eloquent reads `$this->table ?? convention` — so a
+answers. A property declared with no value sets nothing (Eloquent reads `$this->table ?? convention`) so a
 base declaring `protected $table;` as a placeholder leaves its subclasses on the convention, and a
 subclass declaring it that way falls to its own convention rather than inheriting the parent's table. An abstract base model claims no table of its own. Two models claiming one table resolve to
 neither, and a class this can prove is not an Eloquent model owns no table at all, so a
 helper parked under `app/Models` cannot claim one. A base class the scan cannot see is accepted rather
 than refused, since a base model outside `app/Models` is an ordinary layout.
-A table no model claims keeps its own name and grades `no-known-path`, which is honest — richter
+A table no model claims keeps its own name and grades `no-known-path`, which is honest, richter
 cannot see what reaches it.
 
 A dropped or renamed column is then checked against what still names it, and the hazard says where.
@@ -145,7 +145,7 @@ Two surfaces are read: the owning model's own `$fillable`/`$casts`, and the `toA
 resources that belong to that model and mirror it. The mirror gate matters: one controller may touch
 several models and return several resources, so a resource carrying a key of that name is not evidence
 on its own. A resource match means the resource still carries a key of that
-name, not that it reads the column, and the evidence says so. This is evidence only — it never moves
+name, not that it reads the column, and the evidence says so. This is evidence only. It never moves
 the tier or the reach, and a surface richter cannot read is skipped rather than guessed at, because
 the hazard has already fired and a missed reference only under-informs.
 
@@ -271,7 +271,7 @@ cannot pin.
 
 Two questions get answered separately, and the report prints both. The entry-point and impacted
 counts are the diff's walk. The reach class is the hazard's own, and where the member is in no chain
-the reach lane resolves it from the callers of the member's declaring class — a second query, which
+the reach lane resolves it from the callers of the member's declaring class. A second query, which
 answers whether or not the walk found anything.
 
 So the two can disagree, and the shape looks like this:
@@ -290,19 +290,19 @@ Impact: 0 entry point(s) · 0 impacted node(s)
 Nothing here is inconsistent. An addition-only `$fillable` edit is additive, so it seeds no walk and
 the counts stay at zero; the hazard rides alongside it, and its reach comes from the model's own
 callers. `no-guard-found` therefore says something specific: a surface reaching this model **was**
-found, and no guard was visible on at least one of them. It is not the "nothing was found" answer —
+found, and no guard was visible on at least one of them. It is not the "nothing was found" answer:
 that one is `no-known-path`, and richter grades the two apart. A model no surface reaches at all,
 graded on the same diff, reports `no-known-path` with the same zero counts.
 
 The `(via its class)` suffix marks exactly this case, and it belongs to the prose. The
-`reach` field in `--json` and in MCP structured content never carries it — that value stays one of
+`reach` field in `--json` and in MCP structured content never carries it. That value stays one of
 the four states, so a consumer matching on them keeps working. Over MCP the text block is the same
 prose the terminal prints, so the suffix does appear there.
 
 The condition the suffix reports is that **this member** sits in no chain the walk recorded. Zero
 counts, as above, is the sharpest case rather than the only one: a diff that also changes a
 resolvable controller reports entry points and impacted nodes for that controller, while a hazard on
-an unrelated service member still earns the suffix. In every case it says the same thing — the entry
+an unrelated service member still earns the suffix. In every case it says the same thing. The entry
 points the report lists are not this hazard's evidence.
 
 The class it names is the declaring class for a member (`Order::$fillable` resolves through `Order`)
@@ -313,7 +313,7 @@ to point at, so the suffix says "via its class" rather than claiming one.
 The same reading applies to a hazard graded beside a list of entry points that all look guarded. The
 hazard's reach is its declaring class's whole caller set, which is usually wider than the surfaces
 the diff itself lists, so one unguarded caller outside that list is enough to earn
-`no-guard-found` — `gated` requires every reaching entry point to show a guard.
+`no-guard-found`, `gated` requires every reaching entry point to show a guard.
 
 ## Verification, when there is no hazard
 
