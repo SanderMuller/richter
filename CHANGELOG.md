@@ -27,7 +27,9 @@ The two subject-gated forms are deliberately narrow: only `match (true)` and `sw
 
 ### Upgrade note
 
-No payload key, exit code, configuration or contract changes. The sibling-read lane reports fewer findings: every read this release newly recognises as guarded is a finding 0.61.1 raised and this one does not. Nothing that was silent becomes noisy.
+No payload key, exit code, configuration or contract changes.
+
+The finding count can move in BOTH directions, and this note originally claimed otherwise. A read newly recognised as guarded removes a finding when it is on the CHANGED side, and creates one when it is on the EVIDENCE side, because the lane fires as soon as a single sibling reads the property softly. A consumer measured 8 findings before and 11 after on the same 120 commits: one removal, four additions, all of them true statements of the same kind as the rest. Net movement is not predictable from the release alone.
 
 **Full Changelog**: https://github.com/SanderMuller/richter/compare/v0.61.1...v0.61.2
 

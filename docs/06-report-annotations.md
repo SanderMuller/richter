@@ -104,6 +104,12 @@ literally, a generated docblock marks relations, cast objects, primary keys and 
 too, and those were two thirds of the findings and none of the defect class. `id`, `created_at`,
 `updated_at` and `deleted_at` are never reported.
 
+The finding names which source proved nullability, and the two are not equal evidence. A `?string`
+declaration is an author saying the value can be absent. A generated `@property string|null` describes
+the column loosely and can be WIDER than the column itself: a `NOT NULL` column documented `|null` is
+common, and a finding resting on one is about a value the database will not let be absent. Read the
+source it names before acting on it.
+
 Silence is the common case, and it is not a claim of correctness. Where either side cannot be read in
 full, the lane says nothing rather than guessing.
 
