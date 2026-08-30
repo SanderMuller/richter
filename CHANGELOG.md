@@ -5,6 +5,45 @@ All notable changes to `sandermuller/richter` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.61.1 - 2026-08-30
+
+The sibling-read lane judged the same code differently depending on how the guard was spelled, and three of those differences changed what it reported. Sourced from production dogfood and an external review.
+
+### Fixed
+
+**A truthiness test read as a bare read.** `! $question->timer_enabled` answers the same for `null` as for `false`, which on a tri-state boolean column is how code says an absent value is fine. The lane called that unguarded and raised a finding on it. Worse, the same test applied to a local the property was assigned to already counted as a guard, so the lane reported the direct form and stayed silent on the identical thing written the other way round:
+
+```php
+if (! $order->flag) { }              // read as unguarded, and reported
+$f = $order->flag; if (! $f) { }     // read as guarded, and silent
+
+```
+`! $x`, `if ($x)` and a ternary condition are now soft wherever they appear, on the fetch itself or on a local it was assigned to.
+
+**A `=== null` on a local read as soft, and suppressed a real finding.** Every guard on a local was recorded as tolerance of absence, so a read assigned to a local and then compared to null silenced a finding that the same comparison written directly would report. A null comparison distinguishes `null` from `false` rather than folding them together, and that is what makes it a hard read; it now stays hard on both paths. A comparison whose other side is not the null literal guards nothing at all.
+
+**Nullability from a declared type never worked, so the lane only ever looked at models.** The nullable test accepted only a `null` member of a union, so `?string` — the form every promoted constructor property uses — read as non-nullable. In practice that confined the lane to properties described by a generated `@property ...|null` docblock, which in a Laravel application means Eloquent models and nothing else. One consumer measured 80 models carrying such docblocks against 310 nullable declared-type properties across `app/`; every one of the 310 was unreachable. Data objects, actions and transformers are now in scope, which is where declared types actually live.
+
+**A guard is recorded only against the expression it is applied to.** `if (accepts($order->external_id))` tests what `accepts()` returned, and that function is free to reject `null`, tell it from `false`, or hand it on. Marking the nested read there suppressed findings on the changed side and manufactured soft evidence on the other side, which is a claim the source does not make.
+
+**Nullability provenance is read, not inferred.** `@property ?string` is valid PHPDoc, and the finding reported it as "Nullable per its declared type" although no declaration existed. The source now travels with the type.
+
+### Changed
+
+**The documentation said "column" where the code says property.** The lane is not restricted to Eloquent models, and the report annotations page now says so, along with the split that follows from it: a model's columns are described by a generated docblock, while a data object's promoted properties carry real declared types.
+
+**The installation page documents the `-W` upgrade path.** A project whose lock pins an older `laramint/laravel-brain` than richter's floor cannot resolve a plain `composer require`, because Composer will not upgrade a package the requested one does not force.
+
+### Internal
+
+`Changes\AbsenceTests` now holds the one taxonomy both halves of the classifier read, with the style each test implies, resolved per node — `filled()` and `is_null()` are both function calls and say opposite things about absence. The parity test enumerates every soft form in both spellings and asserts both are soft, with a mirror asserting the null tests stay hard on both. Three asymmetries shipped before that test existed; it is what stops a fourth.
+
+### Upgrade note
+
+No payload key, exit code or configuration changes. The sibling-read lane reports fewer false findings on tri-state booleans and on values guarded through a local, and reports a class of finding it previously could not: a nullable property proved by a declared type rather than by a docblock, on any application class rather than only on models. A project that pinned expectations to 0.61.0's output of this lane will see both movements.
+
+**Full Changelog**: https://github.com/SanderMuller/richter/compare/v0.61.0...v0.61.1
+
 ## v0.61.0 - 2026-08-30
 
 The report now leads with the surfaces the change is actually about, and a new advisory lane names a nullable column the code beside your change already resolves. Sourced from production dogfood.
@@ -27,6 +66,7 @@ Nothing is hidden or folded. The same surfaces are reported, the count beside th
 app/Actions/CreateTask.php: App\Actions\CreateTask::handle reads Order->external_id (bare);
 App\Models\Order::resolvedExternalId reads it (fallback). Nullable per its docblock. Check
 whether this read needs the same handling.
+
 
 ```
 The lane compares a changed method's reads against base-tree reads of the same property: the receiver's own declaring class, plus files in directories the diff touched. Evidence comes from the base tree because the claim is about the code that was already there, while nullability comes from head because the reported read is a head-side read.
@@ -149,6 +189,7 @@ app/Models/Article.php (App\Models\Article::table, property)
 
 
 
+
 ```
 The rule covers the 25 properties the base `Model` declares that an application sets to change behaviour — among them `$table`, `$connection`, `$primaryKey`, `$keyType`, `$incrementing`, `$timestamps`, `$perPage`, `$with`, `$appends`, `$hidden`, `$visible`, `$fillable`, `$guarded`, `$casts` and `$touches`. The runtime caches Eloquent writes are excluded.
 
@@ -171,6 +212,7 @@ The named low-confidence reason from 0.57.0 now names the right kind. Sourced fr
 ```
 a changed member could not be pinned to a graph node (low confidence):
 app/Models/Post.php (App\Models\Post, class declaration)
+
 
 
 
@@ -204,6 +246,7 @@ It now names each one:
 ```
 a changed member could not be pinned to a graph node (low confidence):
 app/Models/Post.php (App\Models\Post::perPage, property)
+
 
 
 
@@ -343,6 +386,7 @@ The --html option requires a path: --html=<path>.
 
 
 
+
 ```
 This is the rule `--fail-on` and `--fail-on-hazard` already apply, through the same mechanism: a flag the user actually typed fails closed rather than being silently ignored. `--open` without `--html` was already guarded for exactly this reason; `--html` itself was the gap.
 
@@ -459,6 +503,7 @@ The three prose formats now keep the discriminating surfaces inline and fold the
 
 
 
+
 ```
 **Nothing is dropped.** The section still counts every surface, and the collapsed group states its own count, so the report cannot read as shorter than the reach it found. A surface whose reason the walk could not record stays inline: absence of a reason is not evidence of a weak one.
 
@@ -487,6 +532,7 @@ A dropped column now names what still refers to it, so the report says who has n
   ```
   ! [tier 2 migration] App\Models\Post — column `posts`.`subtitle` dropped, still named by
     App\Models\Post's own $fillable/$casts, a `subtitle` key in app/Http/Resources/PostResource.php
+  
   
   
   
@@ -614,6 +660,7 @@ Hazards (1):
 
 
 
+
 ```
 The suffix says "via its class" rather than naming a declaring class, because a `migration` hazard is named for a model and a `contract` hazard can name a class deleted whole — neither has a declaring class to point at.
 
@@ -690,6 +737,7 @@ Tightening a rate limit reported a tier-3 HIGH saying the limit was gone. A guar
   
   ```
   the rate limit on the GET /search route in routes/api.php rose from `throttle:60,1` to `throttle:120,1`
+  
   
   
   
@@ -1133,6 +1181,7 @@ dispatch($job);
 
 
 
+
 ```
 That was recorded as a dispatch whose target could not be followed — and the taint is global, so one of them makes every `richter:affected-tests` run report `not determinable` and fall back to the full suite. The graph has carried the edge for this shape all along: the instantiation is in the same method, right above the dispatch. The site pointed at a place to restructure where nothing was hidden and nothing needed restructuring.
 
@@ -1246,6 +1295,7 @@ Build profile: nothing was built — the diff holds nothing the graph is built f
 
 
 
+
 ```
 On stderr, like the table it stands in for, and before the payload in `--json` mode so stdout stays one document. Building anyway was the alternative, and it would make a no-op run pay for an analysis nothing asked for.
 
@@ -1263,6 +1313,7 @@ An event named by a class constant resolves in **any** declaration form, includi
 public const string
     SUBTITLE_CHANGED = 'subtitle-changed',
     SUBTITLE_DELETED = 'subtitle-deleted';
+
 
 
 
@@ -1324,6 +1375,7 @@ Build profile (forced rebuild):
   total                      3.85s
   no scoped rebuild: non-app-change
     config/services.php differs from the cached graph and sits outside app/
+
 
 
 
@@ -1440,6 +1492,7 @@ It now names every site:
 ```
 the graph contains job dispatches that could not be followed:
 app/Jobs/Fanout.php:88 (App\Jobs\Fanout::handle), app/Services/Importer.php:12 (App\Services\Importer::run)
+
 
 
 
@@ -1862,6 +1915,7 @@ Note: 2 changed file(s) are outside the analysed scope (not PHP under app/, a Bl
 
 
 
+
 ```
 Stderr, like the untracked-file note, so `--json` and `--markdown` stdout stay exactly the report. Frontend sources the configuration declines to scan are not counted: generated Wayfinder output under `frontend.generated_paths` and `.d.ts` declarations were silenced on purpose, and a note that fires loudest on regeneration churn is one people stop reading.
 
@@ -1967,6 +2021,7 @@ One new advisory lane, and a README that finally leads with what the package is 
   
   
   
+  
   ```
   The count comes off the `route:: → middleware::<group>` edges already in the graph, so it counts endpoints only: a controller-level attachment of the same group does not inflate it. Membership is read from `$middlewareGroups` on a Laravel 10 Kernel or the `->web(append: [...])` form in a Laravel 11+ `bootstrap/app.php`. A member written as an alias resolves through the same alias map, parameters are cut first (`tenant:strict` is one alias with an argument), and a group that names another group is expanded transitively, since Laravel runs the inner group's middleware on the outer group's routes too.
   
@@ -1999,6 +2054,7 @@ Two silent-failure shapes that richter used to miss: a call through an applicati
   
   ```text
     ! resources/js/Pages/Posts/Create.vue posts to POST /posts and sends 'subtitle', which this diff removes from App\Http\Requests\StorePostRequest::rules() (renamed to 'sub_title'?)
+  
   
   
   
