@@ -69,11 +69,17 @@ use PhpParser\Node\Stmt\While_;
  *   `?->`                     short-circuits on null only  null-test
  *
  * ADDING A SOFT FORM: add it here, and add its spelling to the parity list in
- * `SiblingReadsTest::a_direct_test_and_a_test_through_a_local_agree()`. Four soft forms have been
- * missed one spelling at a time — boolean negation, a plain `if`, `empty()`/`isset()` on a local, and
- * `??=` — each of them recognised in one spelling and invisible in another. The pattern is always the
- * same: PHP writes one idea several ways, and a classifier that enumerates node types by hand will
- * eventually enumerate only some of them.
+ * `SiblingReadsTest::a_direct_test_and_a_test_through_a_local_agree()`. Four soft forms were missed
+ * one spelling at a time — boolean negation, a plain `if`, `empty()` on a local, and `??=` — each of
+ * them recognised in one spelling and invisible in another. The pattern is always the same: PHP writes
+ * one idea several ways, and a classifier that enumerates node types by hand will eventually enumerate
+ * only some of them.
+ *
+ * `isset()` arrived in that same batch and does NOT belong on that list: applying the rule to the
+ * whole vocabulary later reclassified it as a null test. Assign `$x = ''` and `isset($x)` is still
+ * true, so an empty string walks past an `isset()` guard exactly as it walks past a `=== null` one.
+ * The table above is the authority. Do not read this history as a reason to put `isset()` back among
+ * the soft forms.
  *
  * One table, read by both halves of {@see ReadStyles}: the half that judges a property fetch, and the
  * half that judges a local the fetch was assigned to. They were separate lists once, and they
@@ -172,9 +178,9 @@ final class AbsenceTests
                 static fn (Node $n): string => ($n instanceof FuncCall ? self::helperStyle($n) : null) ?? SiblingReads::STYLE_EMPTINESS,
             ],
             Empty_::class => [static fn (Node $n): array => $n instanceof Empty_ ? [$n->expr] : [], static fn (Node $n): string => SiblingReads::STYLE_EMPTINESS],
-            // `isset()` is a null DETECTOR, not a tolerance: `isset('')` and `isset(false)` are both
-            // true, so an empty string walks straight past it. That is the mismatch this lane exists
-            // to report, which puts it beside `=== null` rather than beside `empty()`.
+            // `isset()` is a null DETECTOR, not a tolerance: assign `$x = ''` or `$x = false` and
+            // `isset($x)` is still true, so an empty string walks straight past it. That is the
+            // mismatch this lane exists to report, which puts it beside `=== null`, not `empty()`.
             Isset_::class => [static fn (Node $n): array => $n instanceof Isset_ ? array_values($n->vars) : [], static fn (Node $n): string => SiblingReads::STYLE_NULL_TEST],
         ];
 
