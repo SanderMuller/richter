@@ -158,12 +158,10 @@ final readonly class EntryPointAttribution
             sort($sorted);
             $key = implode("\0", $sorted);
 
-            if (! isset($memo[$key])) {
-                $memo[$key] = array_fill_keys(
-                    ($this->entryPointsAmong)($this->graph->callersOf($seeds, $maxDepth, ImpactAnalyzer::ASSOCIATION_EDGE_TYPES)),
-                    true,
-                );
-            }
+            $memo[$key] ??= array_fill_keys(
+                ($this->entryPointsAmong)($this->graph->callersOf($seeds, $maxDepth, ImpactAnalyzer::ASSOCIATION_EDGE_TYPES)),
+                true,
+            );
 
             $reachedByFile[$file] = $memo[$key];
         }
