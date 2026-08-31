@@ -5,6 +5,57 @@ All notable changes to `sandermuller/richter` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.63.0 - 2026-08-31
+
+Richter can now say which entry surfaces the work in front of you owns, and give an agent one document to act on. Sourced from production dogfood.
+
+### Added
+
+**A keep set: the surfaces this task owns.** `detect-changes` reports what a diff reaches. On a change that touches a widely referenced class that is most of the application, and 0.61.0's ranking only decides which of those rows you meet first — not which of them belong to the work in front of you. Answering that second question has meant dropping hub fan-out by hand.
+
+Richter now learns hubs from configuration:
+
+```php
+'task_slice' => [
+    'hub_paths' => ['app/Providers/AppServiceProvider.php'],
+    'hub_path_prefixes' => ['app/Admin/'],
+],
+
+```
+**Both lists empty means off**, and that is the default. A project that has not described its hubs keeps every surface. No measurement produced a rule for hub-ness — two applications gave no defensible threshold, and a real hub list names a service provider, a shared client and one model, a set the measurement explicitly could not derive — so a shipped default would be a guess presented as a finding.
+
+The machine payload carries the split as `entryPointKeepSet`; `entryPoints` still carries every surface, and the count beside the list is still the full total. The prose reports fold hub-reached rows under their shared cause, in the register the association fold already uses: it names the cause rather than saying "more".
+
+Two kinds of surface are always kept. One whose **own file is in the diff** — you edited that class, you did not merely touch the hub behind it. And one **nothing explains**: the routes a changed frontend file references are never attributed, so a rule that dropped the unexplained would drop exactly what a frontend change owns.
+
+**`richter:task-slice` composes the rest.** One command, one graph walk: the kept surfaces, which of them no test PROVES, the hazards, the findings, what the risk level graded and did not verify, and the test list.
+
+```bash
+php artisan richter:task-slice --base=HEAD~1 --head=HEAD
+
+```
+"No test proves it" is deliberately wider than "no test references it": a surface reached only by a test with no behavioural assertion the scan recognises is reported too. When the keep set is empty and the diff is not, `runImpact` names the classes to analyse instead — a loader or a data object is not an entry surface, and answering "nothing" there would be worse than answering with the fan-out.
+
+The command is available over MCP as `task-slice`.
+
+**The MCP `detect-changes` tool takes a `head` ref.** The CLI has had `--head` for as long as the option has existed; the tool accepted only `base`, so an agent analysing a task parent against a committed state could not use it at all.
+
+### Fixed
+
+**A PHPStan bootstrap fix shipped in 0.62.0 was itself intermittent.** It defined `LARAVEL_VERSION` from `Application::VERSION` behind a `class_exists()` gate; reading that constant needs the class to autoload inside PHPStan's own process, and where that did not happen the define was skipped and the analysis aborted on the undefined constant again. Composer's installed-versions map is now the fallback, which needs no autoload. Affects contributors running the suite, not consumers.
+
+### Upgrade note
+
+No exit code changes, and **nothing is folded, dropped or re-graded unless a project configures `task_slice` hub paths.** With the default empty configuration every report is byte-identical to 0.62.0 apart from one added payload key.
+
+**`entryPointKeepSet` is a new key on the `detect-changes` document**, present whether or not hubs are configured. A consumer asserting an exact key set sees it; every existing key keeps its meaning and position.
+
+**Once hubs ARE configured**, the prose reports move: hub-reached rows leave the inline list and appear as a folded line naming their cause. The count beside the list does not move, and `entryPoints` still carries every surface.
+
+**The `affected-tests` selection is never narrowed by a hub list.** `richter:task-slice` can report a selection as *less* determinable — the list is computed for the whole diff, so it is not complete for a folded keep set — and that is the only direction a hub list can move a test decision. Nothing here reaches `risk`, `--fail-on` or the gate.
+
+**Full Changelog**: https://github.com/SanderMuller/richter/compare/v0.62.0...v0.63.0
+
 ## v0.62.0 - 2026-08-30
 
 The machine payload now lists entry surfaces in the order the reports print them. Sourced from production dogfood and an external review.
@@ -112,6 +163,7 @@ $f = $order->flag; if (! $f) { }     // read as guarded, and silent
 
 
 
+
 ```
 `! $x`, `if ($x)` and a ternary condition are now soft wherever they appear, on the fetch itself or on a local it was assigned to.
 
@@ -161,6 +213,7 @@ Nothing is hidden or folded. The same surfaces are reported, the count beside th
 app/Actions/CreateTask.php: App\Actions\CreateTask::handle reads Order->external_id (bare);
 App\Models\Order::resolvedExternalId reads it (fallback). Nullable per its docblock. Check
 whether this read needs the same handling.
+
 
 
 
@@ -291,6 +344,7 @@ app/Models/Article.php (App\Models\Article::table, property)
 
 
 
+
 ```
 The rule covers the 25 properties the base `Model` declares that an application sets to change behaviour — among them `$table`, `$connection`, `$primaryKey`, `$keyType`, `$incrementing`, `$timestamps`, `$perPage`, `$with`, `$appends`, `$hidden`, `$visible`, `$fillable`, `$guarded`, `$casts` and `$touches`. The runtime caches Eloquent writes are excluded.
 
@@ -313,6 +367,7 @@ The named low-confidence reason from 0.57.0 now names the right kind. Sourced fr
 ```
 a changed member could not be pinned to a graph node (low confidence):
 app/Models/Post.php (App\Models\Post, class declaration)
+
 
 
 
@@ -350,6 +405,7 @@ It now names each one:
 ```
 a changed member could not be pinned to a graph node (low confidence):
 app/Models/Post.php (App\Models\Post::perPage, property)
+
 
 
 
@@ -497,6 +553,7 @@ The --html option requires a path: --html=<path>.
 
 
 
+
 ```
 This is the rule `--fail-on` and `--fail-on-hazard` already apply, through the same mechanism: a flag the user actually typed fails closed rather than being silently ignored. `--open` without `--html` was already guarded for exactly this reason; `--html` itself was the gap.
 
@@ -617,6 +674,7 @@ The three prose formats now keep the discriminating surfaces inline and fold the
 
 
 
+
 ```
 **Nothing is dropped.** The section still counts every surface, and the collapsed group states its own count, so the report cannot read as shorter than the reach it found. A surface whose reason the walk could not record stays inline: absence of a reason is not evidence of a weak one.
 
@@ -645,6 +703,7 @@ A dropped column now names what still refers to it, so the report says who has n
   ```
   ! [tier 2 migration] App\Models\Post — column `posts`.`subtitle` dropped, still named by
     App\Models\Post's own $fillable/$casts, a `subtitle` key in app/Http/Resources/PostResource.php
+  
   
   
   
@@ -780,6 +839,7 @@ Hazards (1):
 
 
 
+
 ```
 The suffix says "via its class" rather than naming a declaring class, because a `migration` hazard is named for a model and a `contract` hazard can name a class deleted whole — neither has a declaring class to point at.
 
@@ -856,6 +916,7 @@ Tightening a rate limit reported a tier-3 HIGH saying the limit was gone. A guar
   
   ```
   the rate limit on the GET /search route in routes/api.php rose from `throttle:60,1` to `throttle:120,1`
+  
   
   
   
@@ -1307,6 +1368,7 @@ dispatch($job);
 
 
 
+
 ```
 That was recorded as a dispatch whose target could not be followed — and the taint is global, so one of them makes every `richter:affected-tests` run report `not determinable` and fall back to the full suite. The graph has carried the edge for this shape all along: the instantiation is in the same method, right above the dispatch. The site pointed at a place to restructure where nothing was hidden and nothing needed restructuring.
 
@@ -1424,6 +1486,7 @@ Build profile: nothing was built — the diff holds nothing the graph is built f
 
 
 
+
 ```
 On stderr, like the table it stands in for, and before the payload in `--json` mode so stdout stays one document. Building anyway was the alternative, and it would make a no-op run pay for an analysis nothing asked for.
 
@@ -1441,6 +1504,7 @@ An event named by a class constant resolves in **any** declaration form, includi
 public const string
     SUBTITLE_CHANGED = 'subtitle-changed',
     SUBTITLE_DELETED = 'subtitle-deleted';
+
 
 
 
@@ -1506,6 +1570,7 @@ Build profile (forced rebuild):
   total                      3.85s
   no scoped rebuild: non-app-change
     config/services.php differs from the cached graph and sits outside app/
+
 
 
 
@@ -1626,6 +1691,7 @@ It now names every site:
 ```
 the graph contains job dispatches that could not be followed:
 app/Jobs/Fanout.php:88 (App\Jobs\Fanout::handle), app/Services/Importer.php:12 (App\Services\Importer::run)
+
 
 
 
@@ -2056,6 +2122,7 @@ Note: 2 changed file(s) are outside the analysed scope (not PHP under app/, a Bl
 
 
 
+
 ```
 Stderr, like the untracked-file note, so `--json` and `--markdown` stdout stay exactly the report. Frontend sources the configuration declines to scan are not counted: generated Wayfinder output under `frontend.generated_paths` and `.d.ts` declarations were silenced on purpose, and a note that fires loudest on regeneration churn is one people stop reading.
 
@@ -2165,6 +2232,7 @@ One new advisory lane, and a README that finally leads with what the package is 
   
   
   
+  
   ```
   The count comes off the `route:: → middleware::<group>` edges already in the graph, so it counts endpoints only: a controller-level attachment of the same group does not inflate it. Membership is read from `$middlewareGroups` on a Laravel 10 Kernel or the `->web(append: [...])` form in a Laravel 11+ `bootstrap/app.php`. A member written as an alias resolves through the same alias map, parameters are cut first (`tenant:strict` is one alias with an argument), and a group that names another group is expanded transitively, since Laravel runs the inner group's middleware on the outer group's routes too.
   
@@ -2197,6 +2265,7 @@ Two silent-failure shapes that richter used to miss: a call through an applicati
   
   ```text
     ! resources/js/Pages/Posts/Create.vue posts to POST /posts and sends 'subtitle', which this diff removes from App\Http\Requests\StorePostRequest::rules() (renamed to 'sub_title'?)
+  
   
   
   
