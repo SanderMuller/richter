@@ -130,8 +130,8 @@ final readonly class TaskSlice
      * The classes worth an `impact` call when the keep set is empty.
      *
      * A loader, a data object or a builder is not an entry surface, so a real change to one produces
-     * no kept row at all. Answering "nothing" there would be worse than answering with the fan-out, so
-     * the document names the classes to analyse directly instead.
+     * no kept row at all. Answering "nothing" there leaves the reader with no next step, so the
+     * document names the classes to analyse directly instead.
      *
      * Hub-attributed files are dropped from that list first, and every FQCN comes from
      * {@see Fqcn::fromPath()} rather than a literal `App\` prefix — this package resolves the root

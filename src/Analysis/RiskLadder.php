@@ -66,9 +66,8 @@ final class RiskLadder
      *
      * Both read MEDIUM — the safe direction does not change, because a surface nothing looked at is
      * not a verified one. What changes is the sentence. "3 of 3 reached surfaces have no test
-     * referencing them" is a claim ABOUT TESTS, and stating it when no index was consulted is the
-     * same falsely-reassuring shape this package refuses everywhere else: it reads as evidence when it
-     * is an absence of evidence. It also hides a defect — a caller that forgets to pass the index
+     * referencing them" is a claim ABOUT TESTS, and stating it when no index was consulted reads as
+     * evidence about tests when none was read. It also hides a defect — a caller that forgets to pass the index
      * produces a report indistinguishable from a project with no tests.
      *
      * @param  array<string, bool|null>  $verification
@@ -141,7 +140,7 @@ final class RiskLadder
      * `no-guard-found` scoring exactly as `gated` is deliberate, not an oversight. It is an admission,
      * and an admission must move the level in neither direction: raising it would report HIGH across
      * every codebase whose surfaces Brain cannot classify, punishing a coverage gap as though it were
-     * a security one, and lowering it would read absence of evidence as evidence. The two differ in
+     * a security one, and lowering it would treat a missing classification as proof of a guard. The two differ in
      * what the report SAYS.
      *
      * `no-known-path` is the one admission that does move a cell, and only at tier 1: a signature

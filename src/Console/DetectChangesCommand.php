@@ -354,8 +354,8 @@ final class DetectChangesCommand extends Command
     }
 
     /**
-     * A failed write is reported as a failure, never announced as a success — a report CI links but
-     * cannot open is the artifact-shaped version of a falsely reassuring "no impact".
+     * A failed write is reported as a failure, never announced as a success: a report CI links but
+     * cannot open would leave a green build pointing at nothing.
      *
      * @param  DetectChangesResult  $result
      * @param  list<ChangedFileSymbols>  $changed
@@ -519,7 +519,7 @@ final class DetectChangesCommand extends Command
         $errorOutput = $this->getOutput()->getErrorStyle();
 
         // The header states only what the invocation asked for. Whether a merge base was actually
-        // available and used is a fact about the run, not the flags, and the path label below is
+        // available and used belongs to the run, not the flags, and the path label below is
         // where that is reported — a header claiming reuse would be wrong the moment the cache is
         // disabled or holds no entry.
         $errorOutput->writeln($cold

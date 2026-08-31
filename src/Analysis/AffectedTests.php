@@ -339,8 +339,8 @@ final class AffectedTests
             }
         }
 
-        // Never empty in practice — `lowConfidence` is set from these very members — but a reason that
-        // trails off after a colon would be worse than the bare sentence it replaced.
+        // Never empty in practice — `lowConfidence` is set from these very members — but the fallback
+        // keeps the sentence whole rather than trailing off after a colon.
         return $named === [] ? 'the member could not be named' : implode('; ', $named);
     }
 

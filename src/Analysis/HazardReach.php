@@ -207,8 +207,8 @@ final readonly class HazardReach
      * fallthrough meaning "not proven public-write", which is a different claim from the one the name
      * makes.
      *
-     * A route with no security entry is not gated. Absence of classification is absence of evidence —
-     * the same reason a missing entry never reads as "public" either.
+     * A route with no security entry is not gated. A missing classification proves nothing, which is
+     * also why a missing entry never reads as "public".
      */
     private function isGated(string $entryPoint): bool
     {

@@ -23,9 +23,9 @@ final readonly class Hazard
 
     /**
      * @param  string  $lane  `auth`, `model`, `contract`, `boundary`, `parity` or `migration`
-     * @param  int  $tier  1, 2 or 3 — a fact about the hazard, never configurable
-     * @param  string|null  $cwe  null wherever no clean mapping exists; a stretched CWE teaches a
-     *   reader the mapping is decorative
+     * @param  int  $tier  1, 2 or 3 — fixed per hazard, never configurable
+     * @param  string|null  $cwe  null wherever no clean mapping exists, rather than an approximate
+     *   one
      * @param  string  $member  the fully qualified member the hazard sits on, or the class where the
      *   hazard is class-level (a model's `$fillable`, a deleted policy)
      * @param  string  $evidence  one line naming what moved, base side to head side

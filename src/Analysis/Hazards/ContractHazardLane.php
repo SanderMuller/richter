@@ -19,7 +19,8 @@ use SanderMuller\Richter\Analysis\Hazard;
  * vacuously satisfied for exactly the removals that break someone. Noise is `hazards.ignore`'s job.
  *
  * Rename detection is deliberately absent: pairing a removal with an addition is a guess, so a rename
- * surfaces as a removal — the honest floor. That is also why removals here carry no moved-not-removed
+ * surfaces as a removal, the strongest claim this lane can prove. That is also why removals here
+ * carry no moved-not-removed
  * token: unlike a guard, a member that reappears under another name has not moved, it has changed.
  */
 final class ContractHazardLane implements HazardLane

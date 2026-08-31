@@ -139,7 +139,7 @@ final readonly class DispatchEdgeTracer
      * same fix {@see ConstantReferenceTracer} already applies to a constant owner.
      *
      * `static::` resolves to the declaring class too: late static binding can name a subclass at
-     * runtime, and the declaring class is the honest floor — the graph's `override` edges carry a
+     * runtime, and the declaring class is the nearest one this tracer can prove — the graph's `override` edges carry a
      * subclass here exactly as they do for any other inherited call.
      *
      * `parent::` is deliberately left alone: the parent FQCN is not known here, and naming the
