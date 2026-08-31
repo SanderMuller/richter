@@ -8,6 +8,7 @@ use Illuminate\Testing\Fluent\AssertableJson;
 use Laravel\Mcp\Facades\Mcp;
 use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
+use Laravel\Mcp\ResponseFactory;
 use Laravel\Mcp\Server\McpServiceProvider;
 use Override;
 use PHPUnit\Framework\Attributes\Group;
@@ -265,9 +266,25 @@ final class McpTest extends TestCase
     #[Test]
     public function the_detect_changes_tool_defaults_head_to_the_working_tree(): void
     {
-        // Absent argument must behave exactly as before this option existed.
-        RichterServer::tool(DetectChangesTool::class)
-            ->assertOk();
+        // Git is faked because the claim is about the DEFAULT, not about this checkout. An earlier
+        // version of this test ran real git and passed on a branch, where the configured
+        // `origin/main` resolves — then failed on the tag-ref checkout of its own release, where it
+        // does not. A test that reads the repository it happens to run in is testing the runner.
+        Process::fake([
+            '*merge-base*' => Process::result("abc123\n"),
+            '*show-prefix*' => Process::result(),
+            '*^{commit}*' => Process::result("abc123\n"),
+            '*status*' => Process::result(''),
+            '*diff*' => Process::result(''),
+        ]);
+
+        // Absent argument must behave exactly as an explicit HEAD.
+        $default = resolve(DetectChangesTool::class)->handle(new Request(['base' => 'some-base']));
+        $explicit = resolve(DetectChangesTool::class)->handle(new Request(['base' => 'some-base', 'head' => 'HEAD']));
+
+        $this->assertInstanceOf(ResponseFactory::class, $default);
+        $this->assertInstanceOf(ResponseFactory::class, $explicit);
+        $this->assertSame($explicit->getStructuredContent(), $default->getStructuredContent());
     }
 
     #[Test]
