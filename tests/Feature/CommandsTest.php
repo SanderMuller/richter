@@ -353,6 +353,57 @@ final class CommandsTest extends TestCase
     }
 
     #[Test]
+    public function task_slice_emits_one_document_with_an_empty_diff(): void
+    {
+        Process::fake([
+            '*merge-base*' => Process::result("abc123\n"),
+            '*show-prefix*' => Process::result(),
+            '*^{commit}*' => Process::result("abc123\n"),
+            '*status*' => Process::result(''),
+            '*diff*' => Process::result(''),
+        ]);
+
+        $this->withoutMockingConsoleOutput();
+        $exitCode = Artisan::call('richter:task-slice', ['--base' => 'some-base']);
+        $output = Artisan::output();
+
+        $this->assertSame(0, $exitCode);
+        $decoded = json_decode(substr($output, (int) strpos($output, '{')), associative: true);
+        $this->assertIsArray($decoded);
+        // Every declared field, in order — the same contract the other machine documents keep.
+        $this->assertSame([
+            'base', 'kept', 'unreferencedKept', 'hazards', 'findings', 'verificationFalse',
+            'runImpact', 'runImpactOn', 'affectedTestsDeterminable', 'affectedTests',
+            'affectedFrontendTests', 'affectedTestsReasons', 'droppedHubCount', 'entryPointCount',
+            'changedFiles', 'risk', 'riskCause', 'unresolved', 'lowConfidence',
+        ], array_keys($decoded));
+        $this->assertSame([], $decoded['kept']);
+        $this->assertFalse($decoded['runImpact']);
+    }
+
+    #[Test]
+    public function task_slice_stays_one_document_when_the_ref_will_not_resolve(): void
+    {
+        Process::fake([
+            '*merge-base*' => Process::result("abc123\n"),
+            '*show-prefix*' => Process::result(),
+            '*^{commit}*' => Process::result(errorOutput: 'unknown revision', exitCode: 128),
+            '*status*' => Process::result(''),
+            '*diff*' => Process::result(''),
+        ]);
+
+        $this->withoutMockingConsoleOutput();
+        Artisan::call('richter:task-slice', ['--base' => 'some-base', '--head' => 'nope']);
+        $output = Artisan::output();
+
+        $decoded = json_decode(substr($output, (int) strpos($output, '{')), associative: true);
+        $this->assertIsArray($decoded);
+        // The selection fails safe rather than erroring, so the slice reports it as undeterminable.
+        $this->assertFalse($decoded['affectedTestsDeterminable']);
+        $this->assertNotSame([], $decoded['affectedTestsReasons']);
+    }
+
+    #[Test]
     public function detect_changes_json_stays_one_document_when_head_will_not_resolve(): void
     {
         // --json owns stdout. An unresolvable ref must travel through the command's JSON error path,

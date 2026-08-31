@@ -9,6 +9,7 @@ use SanderMuller\Richter\Mcp\Resources\GraphStatsResource;
 use SanderMuller\Richter\Mcp\Tools\AffectedTestsTool;
 use SanderMuller\Richter\Mcp\Tools\DetectChangesTool;
 use SanderMuller\Richter\Mcp\Tools\ImpactTool;
+use SanderMuller\Richter\Mcp\Tools\TaskSliceTool;
 use SanderMuller\Richter\Mcp\Tools\TraceTool;
 
 final class RichterServer extends Server
@@ -28,6 +29,7 @@ final class RichterServer extends Server
         TraceTool::class,
         DetectChangesTool::class,
         AffectedTestsTool::class,
+        TaskSliceTool::class,
     ];
 
     /** @var array<int, class-string<Server\Resource>|Server\Resource> */

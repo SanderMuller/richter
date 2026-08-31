@@ -7,6 +7,7 @@ use SanderMuller\Richter\Changes\MemberChange;
 use SanderMuller\Richter\Graph\CodeGraph;
 use SanderMuller\Richter\Graph\NodeMetadata;
 use SanderMuller\Richter\Support\AssociationSurfaces;
+use SanderMuller\Richter\Support\HubFold;
 
 /**
  * Renders {@see ImpactAnalyzer} results as one self-contained HTML file — all CSS and JS inline —
@@ -22,7 +23,7 @@ use SanderMuller\Richter\Support\AssociationSurfaces;
  * @phpstan-import-type SecurityShape from NodeMetadata
  * @phpstan-import-type Layout from RadialLayout
  * @phpstan-type GateVerdict array{failOn: string|null, failOnHazard: int|null, failOnUnresolved: bool, tripped: bool, reasons: list<string>}
- * @phpstan-type DetectChangesResult array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, associationEntryPoints?: list<string>, associationEntryPointsVia?: array<string, list<string>>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, SecurityShape>, entryPointGates: array<string, list<string>>, entryPointAuthGates?: array<string, list<string>>, entryPointAuthMiddleware?: array<string, list<string>>, entryPointAttribution?: array<string, array{via: string, ownReach: int}>, seeds: list<string>, reach: array<string, array<string, true>>, edges: list<array{source: string, target: string, via: string, depth: int}>, impacted: int, relatedModels: list<string>, traitAndOverrideReach?: list<string>, traitAndOverrideReachVia?: array<string, list<string>>, risk: RiskLevel, riskCause?: string, hazards?: list<Hazard>, lowConfidence: bool, findings: list<string>, ...}
+ * @phpstan-type DetectChangesResult array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, associationEntryPoints?: list<string>, associationEntryPointsVia?: array<string, list<string>>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, SecurityShape>, entryPointGates: array<string, list<string>>, entryPointAuthGates?: array<string, list<string>>, entryPointAuthMiddleware?: array<string, list<string>>, entryPointAttribution?: array<string, array{via: string, ownReach: int}>, entryPointKeepSet?: array{kept: list<string>, droppedHub: int}, seeds: list<string>, reach: array<string, array<string, true>>, edges: list<array{source: string, target: string, via: string, depth: int}>, impacted: int, relatedModels: list<string>, traitAndOverrideReach?: list<string>, traitAndOverrideReachVia?: array<string, list<string>>, risk: RiskLevel, riskCause?: string, hazards?: list<Hazard>, verification?: array<string, bool|null>, lowConfidence: bool, findings: list<string>, ...}
  */
 final class HtmlFormatter
 {
@@ -36,8 +37,10 @@ final class HtmlFormatter
      */
     public static function detectChanges(array $result, array $changed, string $base, ?TestReferenceIndex $tests = null, bool $gateActive = false, ?array $gate = null, ?EditorLink $editor = null): string
     {
+        $keep = $result['entryPointKeepSet'] ?? null;
+        $kept = $keep['kept'] ?? $result['entryPoints'];
         $rows = EntryPointRow::build(
-            $result['entryPoints'],
+            $kept,
             $result['entryPointPaths'],
             $result['entryPointLocations'],
             $result['entryPointSecurity'],
@@ -104,7 +107,7 @@ final class HtmlFormatter
             . self::lowConfidenceNote($result)
             . self::hazardSection($result['hazards'] ?? [])
             . '<div class="cards">'
-            . self::card('Entry points reached', self::entryPointList($rows, $editor))
+            . self::card('Entry points reached', self::entryPointList($rows, $editor) . self::hubFold($result, $rows))
             . self::card('What to focus on', self::focusList($result, $rows))
             . '</div>';
     }
@@ -138,6 +141,31 @@ final class HtmlFormatter
         $depths = array_map(static fn (array $edge): int => $edge['depth'], $result['edges']);
 
         return $depths === [] ? 0 : max($depths);
+    }
+
+    /**
+     * The keep set's tail, in this format's markup. Same sentences the other two formats print — see
+     * {@see HubFold} — so a reader moving between them meets one claim, not three.
+     *
+     * @param  DetectChangesResult  $result
+     * @param  list<EntryPointRow>  $rows
+     */
+    private static function hubFold(array $result, array $rows): string
+    {
+        $kept = $result['entryPointKeepSet']['kept'] ?? $result['entryPoints'];
+        $counts = HubFold::counts($result['entryPoints'], $kept, $result['entryPointAttribution'] ?? []);
+
+        if ($counts === []) {
+            return '';
+        }
+
+        $html = '';
+
+        foreach (HubFold::sentences($counts, count($rows) > self::OVERVIEW_ENTRY_POINT_CAP) as $sentence) {
+            $html .= '<p class="muted">' . Html::e($sentence) . '.</p>';
+        }
+
+        return $html;
     }
 
     /** @param  list<EntryPointRow>  $rows */

@@ -200,6 +200,27 @@ return [
     ],
 
     /*
+     * Which files this project calls HUBS, for the keep set `detect-changes` annotates and
+     * `richter:task-slice` reports: a shared model, a service provider, a client every feature talks
+     * to. An entry surface reached only through one of these is fan-out rather than a surface the work
+     * in front of you owns, and the reports fold it under that cause.
+     *
+     * BOTH EMPTY MEANS OFF. Every surface is kept and nothing is folded. Richter ships no default and
+     * infers none: two measured applications produced no rule for hub-ness, so a shipped list would be
+     * a guess presented as a finding. Describe your own hubs or get the full list.
+     *
+     * A surface whose OWN file is in the diff is kept even when that file sits under a prefix here —
+     * you edited that class, you did not merely touch the hub behind it.
+     *
+     * Never an input to `risk`, `--fail-on`, the gate or `affected-tests` selection. This list is
+     * project policy, not evidence about the code.
+     */
+    'task_slice' => [
+        'hub_paths' => [],
+        'hub_path_prefixes' => [],
+    ],
+
+    /*
      * Change hazards: the tiered properties of a diff that say it may break something — an
      * authorization guard removed, `$hidden` narrowed, a mass-assignment surface widened, a
      * validation constraint dropped, a queued payload changed, a public member removed, a column a

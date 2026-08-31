@@ -137,6 +137,37 @@ itself an entry point or a frontend surface, carries no attribution and sorts la
 `richter:impact` analyses a single symbol, so it has no per-file attribution to make: its rows keep
 the plain-name order they have always had, in its `--json` payload as well as in its report.
 
+## Which rows are this task's
+
+Ordering answers "what should I read first". A second question — "which of these does the work in
+front of me own?" — needs something the analysis cannot derive. Two measured applications produced no
+rule for it, so richter asks:
+
+```php
+'task_slice' => [
+    'hub_paths' => ['app/Providers/AppServiceProvider.php'],
+    'hub_path_prefixes' => ['app/Admin/'],
+],
+```
+
+A surface reached only through one of those files is fan-out rather than a surface this change owns,
+and the reports fold it under that cause: `1 surface reached only through app/Models/Article.php,
+which this project lists as a hub — context, not surfaces this change forgot`. The machine payload
+carries the same split as `entryPointKeepSet`.
+
+Three rules keep this honest:
+
+- **Both lists empty means off.** Every surface is kept and nothing folds. Richter ships no default
+  hub list and infers none — a guessed fold presented as a finding is worse than a long list.
+- **A surface whose own file is in the diff is kept**, even when that file sits under a hub prefix.
+  You edited that class; you did not merely touch the hub behind it.
+- **A surface with no attribution is kept.** Nothing explains it, and hiding what the walk could not
+  classify is the wrong direction to fail — the routes a changed frontend file references are never
+  attributed, so a rule that dropped the unexplained would drop what a frontend change owns.
+
+The count beside the list stays the full total, and `entryPoints` still carries every surface. Nothing
+is removed; a fold changes which rows are inline.
+
 ## Entry surfaces reached only by association
 
 An entry point in the main list is something that calls the changed code. A surface connected to it only through a model relation is not: it is associated with the change, and nothing there runs the changed code. Those are reported separately:

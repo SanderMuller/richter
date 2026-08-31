@@ -5,6 +5,7 @@ namespace SanderMuller\Richter\Analysis;
 use Illuminate\Support\Str;
 use SanderMuller\Richter\Graph\NodeMetadata;
 use SanderMuller\Richter\Support\AssociationSurfaces;
+use SanderMuller\Richter\Support\HubFold;
 use SanderMuller\Richter\Support\InheritanceSurfaces;
 
 /**
@@ -82,7 +83,7 @@ final class ImpactFormatter
     }
 
     /**
-     * @param  array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, newFiles?: list<string>, fqcns?: array<string, string>, entryPoints: list<string>, associationEntryPoints?: list<string>, associationEntryPointsVia?: array<string, list<string>>, entryPointPaths?: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations?: array<string, array{file: string, line?: int}>, entryPointSecurity?: array<string, SecurityShape>, entryPointGates?: array<string, list<string>>, entryPointAuthGates?: array<string, list<string>>, entryPointAuthMiddleware?: array<string, list<string>>, entryPointAttribution?: array<string, array{via: string, ownReach: int}>, impacted: int, relatedModels: list<string>, traitAndOverrideReach?: list<string>, traitAndOverrideReachVia?: array<string, list<string>>, risk: RiskLevel, riskCause?: string, hazards?: list<Hazard>, lowConfidence: bool, findings?: list<string>, ...}  $result
+     * @param  array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, newFiles?: list<string>, fqcns?: array<string, string>, entryPoints: list<string>, associationEntryPoints?: list<string>, associationEntryPointsVia?: array<string, list<string>>, entryPointPaths?: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations?: array<string, array{file: string, line?: int}>, entryPointSecurity?: array<string, SecurityShape>, entryPointGates?: array<string, list<string>>, entryPointAuthGates?: array<string, list<string>>, entryPointAuthMiddleware?: array<string, list<string>>, entryPointAttribution?: array<string, array{via: string, ownReach: int}>, entryPointKeepSet?: array{kept: list<string>, droppedHub: int}, impacted: int, relatedModels: list<string>, traitAndOverrideReach?: list<string>, traitAndOverrideReachVia?: array<string, list<string>>, risk: RiskLevel, riskCause?: string, hazards?: list<Hazard>, lowConfidence: bool, findings?: list<string>, ...}  $result
      * @param  bool  $gateActive  when a `--fail-on*` gate is active the command prints its own verdict, so the advisory suffix is dropped to avoid contradicting it
      * @param  bool  $explain  render the call chain from each reached entry point down to the changed symbol
      */
@@ -105,9 +106,14 @@ final class ImpactFormatter
 
         $unresolvedSuffix = $unresolved ? ' (some changed files could not be fully placed — see UNRESOLVED above)' : '';
         $lines[] = '';
+        // The COUNT stays the full total. A fold changes which rows are inline, never how many
+        // surfaces the change reaches — a section that silently shortened its own count would be the
+        // falsely-reassuring report this package refuses to write.
         $lines[] = 'Entry points reached: ' . count($result['entryPoints']) . $unresolvedSuffix;
+        $keep = $result['entryPointKeepSet'] ?? null;
+        $kept = $keep['kept'] ?? $result['entryPoints'];
         $lines = [...$lines, ...self::entryPointList(
-            $result['entryPoints'],
+            $kept,
             $explain ? ($result['entryPointPaths'] ?? []) : [],
             $result['entryPointLocations'] ?? [],
             $result['entryPointSecurity'] ?? [],
@@ -117,6 +123,13 @@ final class ImpactFormatter
             $tests,
             $result['entryPointAttribution'] ?? [],
         )];
+
+        foreach (HubFold::sentences(
+            HubFold::counts($result['entryPoints'], $kept, $result['entryPointAttribution'] ?? []),
+            count($kept) > self::LIST_CAP,
+        ) as $sentence) {
+            $lines[] = '  ' . $sentence;
+        }
 
         // Beside the call-reached list, never inside it. These surfaces are connected to the change
         // by a model relation, which associates rather than invokes: nothing here runs the changed

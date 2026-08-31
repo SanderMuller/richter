@@ -91,6 +91,11 @@ export const sections: DocSection[] = [
                 text: 'Affected-test selection',
                 blurb: 'Turn the diff\'s reach into a test selection with a fail-safe exit-code contract.',
             },
+            {
+                file: '20-task-slice',
+                text: 'Task slice',
+                blurb: 'One document for work in progress: the surfaces this task owns, and what to run.',
+            },
         ],
     },
     {

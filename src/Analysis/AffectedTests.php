@@ -21,6 +21,8 @@ use SanderMuller\Richter\Support\RichterConfig;
  * only in non-runnable support files), the verdict is "not determinable — run the full suite",
  * never a silently smaller set. Over-selection is the acceptable error; under-selection is the one
  * this tool exists to prevent.
+ *
+ * @phpstan-import-type DetectChangesResult from HtmlFormatter
  */
 final class AffectedTests
 {
@@ -38,9 +40,14 @@ final class AffectedTests
      * `untrackedFiles` rides along for the CLI's stderr note and is stripped from every
      * stdout/structured document by the callers. Unexpected `Throwable`s escape.
      *
+     * @param  DetectChangesResult|null  $analysisUsed  set to the analysis this selection was computed
+     *   from, so a caller composing both halves of one report cannot describe two different runs; stays
+     *   null when the diff never got that far (an unresolvable ref, an untracked file, nothing changed)
+     * @param-out DetectChangesResult|null $analysisUsed
+     *
      * @return array{base: string, determinable: bool, reasons: list<string>, tests: list<string>, frontendTests: list<string>, unreferencedEntryPoints: int, unresolvedDispatchSites: list<array{file: string, line: int, dispatcher: string}>, untrackedFiles: list<string>}
      */
-    public static function selectForCurrentDiff(GraphCache $graphs, ?string $requestedBase, bool $fresh = false, ?string $requestedHead = null): array
+    public static function selectForCurrentDiff(GraphCache $graphs, ?string $requestedBase, bool $fresh = false, ?string $requestedHead = null, bool $fullAnalysis = false, ?array &$analysisUsed = null): array
     {
         $untracked = [];
 
@@ -96,8 +103,21 @@ final class AffectedTests
         // and the consumer lane would otherwise pay a whole frontend-tree scan on a CI
         // hot path for output this command discards. Entry-point attribution is off for the same
         // reason: it walks once per changed file to decide row ORDER, and this command reads the set.
+        // `$fullAnalysis` is for a caller that needs the DOCUMENT as well as the selection —
+        // `richter:task-slice` composes both — and would otherwise walk the graph a second time to get
+        // it. It only turns the two off-by-default lanes back on; the selection reads the entry-point
+        // SET, which neither lane moves, so it is identical either way and `TaskSliceTest` pins that.
+        // `$analysisUsed` hands the caller exactly the analysis this selection was computed from, so
+        // the two halves of one report can never describe different runs.
+        $analysisUsed = new ImpactAnalyzer($graph)->detectChanges(
+            $changed,
+            payloadParityEnabled: $fullAnalysis ? null : false,
+            tests: $fullAnalysis ? TestReferenceIndex::fromTests(base_path('tests'), base_path()) : null,
+            attributionEnabled: $fullAnalysis,
+        );
+
         $selection = self::select(
-            new ImpactAnalyzer($graph)->detectChanges($changed, payloadParityEnabled: false, attributionEnabled: false),
+            $analysisUsed,
             $changed,
             TestReferenceIndex::fromTests(base_path('tests'), base_path()),
             $graph->unresolvedDispatchSites(),

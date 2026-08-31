@@ -25,6 +25,7 @@ Measure the magnitude of impact of code changes in a Laravel codebase. For a qui
 ## Digging deeper
 
 - [Frontend changes](13-frontend.md): the Wayfinder/Ziggy bridge in full
+- [Task slice](20-task-slice.md): one document for work in progress — the surfaces this task owns, and what to run
 - [MCP server](14-mcp-server.md): the read-only tools and resources an agent can call
 - [Graph cache](15-graph-cache.md): the fingerprinted cache, profiling, scoped rebuilds
 - [Coverage beyond Laravel Brain](16-coverage.md): the edges a route-anchored analysis misses, and the known limits

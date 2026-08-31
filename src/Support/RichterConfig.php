@@ -263,6 +263,23 @@ final class RichterConfig
         return self::stringList('richter.sibling_read_parity.ignore') ?? [];
     }
 
+    /**
+     * Exact project-relative paths this project calls hubs. Empty — with the prefixes also empty —
+     * turns the keep set off entirely; see `config/richter.php` for why there is no default.
+     *
+     * @return list<string>
+     */
+    public static function taskSliceHubPaths(): array
+    {
+        return self::stringList('richter.task_slice.hub_paths') ?? [];
+    }
+
+    /** @return list<string> */
+    public static function taskSliceHubPathPrefixes(): array
+    {
+        return self::stringList('richter.task_slice.hub_path_prefixes') ?? [];
+    }
+
     public static function hazardsEnabled(): bool
     {
         $value = config('richter.hazards.enabled');

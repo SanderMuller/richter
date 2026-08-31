@@ -9,8 +9,10 @@ use SanderMuller\Richter\Graph\CodeGraph;
 use SanderMuller\Richter\Graph\NodeMetadata;
 use SanderMuller\Richter\Support\AppNamespace;
 use SanderMuller\Richter\Support\AssociationReasons;
+use SanderMuller\Richter\Support\EntryPointKeepSet;
 use SanderMuller\Richter\Support\Fqcn;
 use SanderMuller\Richter\Support\ReachReasons;
+use SanderMuller\Richter\Support\RichterConfig;
 
 /**
  * Over a {@see CodeGraph}: impact(symbol) blast radius + detectChanges(files) reached entry points/risk.
@@ -162,7 +164,7 @@ final readonly class ImpactAnalyzer
      * draw "nothing changed" without a graph build. {@see JsonPresenter::emptyDetectChanges()} is
      * the separate JSON-shaped equivalent; the two differ in `risk` (enum here, string there).
      *
-     * @return array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, newFiles: list<string>, fqcns: array<string, string>, callers: list<array{depth: int, node: string, via: string}>, dependencies: list<array{depth: int, node: string, via: string}>, seeds: list<string>, reach: array<string, array<string, true>>, edges: list<array{source: string, target: string, via: string, depth: int}>, entryPoints: list<string>, associationEntryPoints: list<string>, associationEntryPointsVia: array<string, list<string>>, registryEntryPoints: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, SecurityShape>, entryPointGates: array<string, list<string>>, entryPointAuthGates: array<string, list<string>>, entryPointAuthMiddleware: array<string, list<string>>, entryPointAttribution: array<string, array{via: string, ownReach: int}>, impacted: int, relatedModels: list<string>, traitAndOverrideReach: list<string>, traitAndOverrideReachVia: array<string, list<string>>, risk: RiskLevel, riskCause: string, hazards: list<Hazard>, verification: array<string, bool|null>, lowConfidence: bool, findings: list<string>}
+     * @return array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, newFiles: list<string>, fqcns: array<string, string>, callers: list<array{depth: int, node: string, via: string}>, dependencies: list<array{depth: int, node: string, via: string}>, seeds: list<string>, reach: array<string, array<string, true>>, edges: list<array{source: string, target: string, via: string, depth: int}>, entryPoints: list<string>, associationEntryPoints: list<string>, associationEntryPointsVia: array<string, list<string>>, registryEntryPoints: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, SecurityShape>, entryPointGates: array<string, list<string>>, entryPointAuthGates: array<string, list<string>>, entryPointAuthMiddleware: array<string, list<string>>, entryPointAttribution: array<string, array{via: string, ownReach: int}>, entryPointKeepSet: array{kept: list<string>, droppedHub: int}, impacted: int, relatedModels: list<string>, traitAndOverrideReach: list<string>, traitAndOverrideReachVia: array<string, list<string>>, risk: RiskLevel, riskCause: string, hazards: list<Hazard>, verification: array<string, bool|null>, lowConfidence: bool, findings: list<string>}
      */
     public static function emptyDetectChanges(): array
     {
@@ -170,6 +172,7 @@ final readonly class ImpactAnalyzer
             'changed' => [], 'coverage' => [], 'newFiles' => [], 'fqcns' => [], 'callers' => [], 'dependencies' => [],
             'seeds' => [], 'reach' => [], 'edges' => [], 'entryPoints' => [], 'associationEntryPoints' => [], 'associationEntryPointsVia' => [], 'entryPointPaths' => [],
             'entryPointLocations' => [], 'entryPointSecurity' => [], 'entryPointGates' => [],
+            'entryPointKeepSet' => ['kept' => [], 'droppedHub' => 0],
             'entryPointAuthGates' => [], 'entryPointAuthMiddleware' => [], 'entryPointAttribution' => [],
             'impacted' => 0, 'relatedModels' => [], 'registryEntryPoints' => [], 'traitAndOverrideReach' => [], 'traitAndOverrideReachVia' => [], 'risk' => RiskLevel::Low,
             // Ladder step 0: nothing was analysed, which is not the same fact as "analysed and could
@@ -212,6 +215,7 @@ final readonly class ImpactAnalyzer
      *     entryPointAuthGates: array<string, list<string>>,
      *     entryPointAuthMiddleware: array<string, list<string>>,
      *     entryPointAttribution: array<string, array{via: string, ownReach: int}>,
+     *     entryPointKeepSet: array{kept: list<string>, droppedHub: int},
      *     impacted: int,
      *     relatedModels: list<string>,
      *     registryEntryPoints: list<string>,
@@ -426,6 +430,17 @@ final readonly class ImpactAnalyzer
             ? new EntryPointAttribution($this->graph, $this->entryPointsAmong(...))->for($perFileSeeds, $entryPoints, $maxDepth)
             : [];
 
+        // Computed HERE, once, and carried — never re-derived by a formatter or by the presenter. The
+        // ordering shipped as two implementations of one rule and they diverged; ownership gets one.
+        $keepSet = EntryPointKeepSet::for(
+            $entryPoints,
+            $entryPointAttribution,
+            $entryPointLocations,
+            $summary,
+            RichterConfig::taskSliceHubPaths(),
+            RichterConfig::taskSliceHubPathPrefixes(),
+        );
+
         $graded = new VerificationSet($reachedEntryPoints, $changed, $perFileSeeds);
         $members = $graded->members(fn (array $seeds): int => $this->riskInputs($seeds, $maxDepth, $riskInputsMemo)[0]);
         [$risk, $riskCause, $verification] = RiskLadder::decide($hazards, $graded->analysesExistingCode(), $members, $tests);
@@ -453,6 +468,7 @@ final readonly class ImpactAnalyzer
             'entryPointAuthGates' => $entryPointAuthGates,
             'entryPointAuthMiddleware' => $entryPointAuthMiddleware,
             'entryPointAttribution' => $entryPointAttribution,
+            'entryPointKeepSet' => ['kept' => $keepSet->kept, 'droppedHub' => $keepSet->droppedHub],
             'impacted' => $impacted,
             'relatedModels' => $this->readableModelLabels($relatedModels),
             'traitAndOverrideReach' => $traitAndOverrideReach,
