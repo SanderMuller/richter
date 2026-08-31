@@ -36,9 +36,8 @@ These two look alike and mean opposite things.
 Only the second is a warning. Collapsing them would report `medium` for a whitespace commit and trip
 `--fail-on=medium` on it.
 
-A real change to a class the graph never charted is step 2, not step 0. Failing to place a change is a
-placement failure, and reporting it as "nothing to assess" would be the falsely reassuring answer this
-package exists to avoid.
+A real change to a class the graph never charted is step 2, not step 0. Richter found the change and
+could not place it, and the report says so. Read step 2 as "unchecked", not as "clear".
 
 ### One addition is not additive
 
@@ -57,8 +56,9 @@ A property has no member node, so the change seeds the class coarsely and
 ## Hazards
 
 A hazard is a property of the diff saying the change may break something. Every predicate is exact: a
-lane that cannot read both sides of a comparison in full reports nothing rather than guessing, because
-a false "authorization removed" is worse than the breadth number it replaced.
+lane that cannot read both sides of a comparison in full reports nothing rather than guessing. So a
+hazard on your report is one richter read in full, and an empty hazard list is not proof there is
+none.
 
 | Tier | Hazard | Lane | CWE |
 |---|---|---|---|
@@ -82,14 +82,14 @@ a false "authorization removed" is worse than the breadth number it replaced.
 | 2 | a column renamed by a migration | `migration` |, |
 | 1 | a surviving member's signature changed | `contract` |, |
 
-The tiers are fixed and not configurable. A tier is a fact about the change, and a project that could
-re-tier one would be grading its own risk before reading it. `cwe` is null wherever no clean mapping
-exists. A stretched CWE teaches the reader that the mapping is decorative.
+The tiers are fixed: no config re-tiers a hazard. You can silence one with `hazards.ignore` or skip
+the lanes with `--no-hazards`, but a hazard that prints always carries the tier in the table above.
+`cwe` is null wherever no clean mapping exists, rather than filled with an approximate one.
 
 A removed guard middleware carries the CWE for the guard it names, not one CWE for all of them: `auth`
 and `password.confirm` are CWE-306, `signed` is CWE-345, `throttle` is CWE-770, and every
-authorization guard is CWE-862. Reporting a lost rate limit as missing authentication would be the
-stretched mapping the paragraph above warns about.
+authorization guard is CWE-862. A lost rate limit therefore reads as CWE-770, never as missing
+authentication.
 
 Route files are read route by route. `routes/*.php` declares no class, so the lanes above cannot reach
 it. Its own reader compares each route's effective guard set on both sides: the middleware written on
@@ -137,8 +137,8 @@ subclass declaring it that way falls to its own convention rather than inheritin
 neither, and a class this can prove is not an Eloquent model owns no table at all, so a
 helper parked under `app/Models` cannot claim one. A base class the scan cannot see is accepted rather
 than refused, since a base model outside `app/Models` is an ordinary layout.
-A table no model claims keeps its own name and grades `no-known-path`, which is honest, richter
-cannot see what reaches it.
+A table no model claims keeps its own name and grades `no-known-path`: richter cannot see what
+reaches it.
 
 A dropped or renamed column is then checked against what still names it, and the hazard says where.
 Two surfaces are read: the owning model's own `$fillable`/`$casts`, and the `toArray()` keys of the
@@ -189,10 +189,9 @@ parameters name an ability and then a model.
 **A rate limit gets its own reading**, because its two directions are not the same thing. Dropping
 `throttle:` altogether is a removed guard at tier 3. Raising the limit is a weakened constraint at tier
 2, reported with both values (`the rate limit on the GET /search route rose from throttle:60,1 to
-throttle:120,1`). Tightening it reports nothing at all. So does a limit the reader cannot compare: a
+throttle:120,1`). Tightening it reports nothing at all. So does a limit richter cannot compare: a
 named limiter such as `throttle:api` keeps its rate in a `RateLimiter::for()` closure that nothing here
-follows, and guessing in either direction would be worse than silence. Where a surface carries several
-throttles, the strictest one is the limit, so a raised limit beside a tighter one reports nothing, and
+follows, so neither direction is reported. Where a surface carries several throttles, the strictest one is the limit, so a raised limit beside a tighter one reports nothing, and
 one unreadable rate makes the whole set unreadable. Two limits counting over different windows are not
 compared at all: `throttle:100,60` allows a burst of a hundred in one minute where `throttle:2,1`
 allows two, so the averages rank them the wrong way round.
@@ -251,17 +250,17 @@ would hide the surface that matters.
 `no-guard-found` scores as `gated` does. An admission must move the level in neither direction.
 Raising it would report HIGH across every application whose surfaces Brain cannot classify, such as a
 Livewire or Filament codebase, which punishes a coverage gap as though it were a security one.
-Lowering it would read absence of evidence as evidence. What the two states change is what the report
-says, and that is the reason to tell them apart: a `command::` node, an unclassified Filament page and
-a genuinely authenticated route are three different situations, and only one of them has a guard.
+Lowering it would treat a missing classification as proof the route is safe. The two states change
+what the report says rather than the level, and they are worth telling apart: a `command::` node, an
+unclassified Filament page and an authenticated route are three different situations, and only one of
+them has a guard.
 
-A route with no security entry at all is not gated by this test. Absence of classification is absence
-of evidence, the same reason a missing entry never reads as "public" either.
+A route with no security entry at all is not gated by this test, and it never reads as `public`
+either. Richter says nothing about a route it could not classify.
 
-`no-known-path` does not mean `internal-only`. Proving a member internal means proving a negative on a
-graph that under-approximates by design. A member with no known path is unmeasured, not unreachable,
-which is why tier 3 is HIGH everywhere. Capping it would silence tier 3 on the applications where
-reach is hardest to resolve.
+`no-known-path` does not mean `internal-only`. The graph under-approximates by design, so a member
+with no known path is unmeasured rather than unreachable. That is why tier 3 is HIGH everywhere.
+Capping it would silence tier 3 on the applications where reach is hardest to resolve.
 
 A removed member has no node in the head graph, so no path can reach it. Its reach comes from its
 declaring class instead, the same stand-in the coarse-seed lane already makes for a change the graph
@@ -349,8 +348,8 @@ still prints on the row.
 
 ## What drifts, and in which direction
 
-A tier is a fact about the diff. It never moves when richter learns to follow more edges, which is the
-reason to score on it.
+A tier never moves when richter learns to follow more edges. Upgrade the package and the tier on a
+given diff stays where it was, which is why the level scores on it.
 
 Reach class and verification state both move, and they move upward. A release that draws new edges can lift a
 hazard from `no-known-path` to `public-write`, or reach a newly-visible surface that no test

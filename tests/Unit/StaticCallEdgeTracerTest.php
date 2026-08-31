@@ -9,7 +9,7 @@ use SanderMuller\Richter\Tracers\StaticCallEdgeTracer;
 /**
  * Brain traces `new Foo` but not `Foo::bar()`, so a class reached only through static calls has no
  * node at all — and `detect-changes` then states that nothing references it. These cover the edge
- * this draws and, just as load-bearing, the receivers it must stay silent about: an unfiltered
+ * this draws and, just as importantly, the receivers it must stay silent about: an unfiltered
  * version would light up every facade and `Carbon::now()` in the codebase.
  */
 final class StaticCallEdgeTracerTest extends TestCase

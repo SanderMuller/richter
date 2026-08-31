@@ -400,7 +400,7 @@ final class AccumulatedArrayJobs
     /**
      * Every `Assign` in this scope's OWN body, not descending into a nested scope.
      *
-     * The distinction is load-bearing. A nested closure that does not capture the name is writing to a
+     * The distinction decides correctness. A nested closure that does not capture the name is writing to a
      * DIFFERENT variable, so counting its append as one of ours would attribute a job to an array that
      * never holds it — a false edge, and the occurrence formula can balance exactly right for it. A nested
      * closure that DOES capture by reference is a real mutation, and it is refused elsewhere: its mentions

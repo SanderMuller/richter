@@ -26,8 +26,8 @@ final class ScopedRebuild
      * Absolute paths to re-trace, or null when a scoped rebuild is not sound.
      *
      * `$provenanceFiles` is the set of file paths the previous Brain graph attributes nodes to, and
-     * every scoped path must be one of them. One reason for that is left, and it is load-bearing —
-     * it is the difference between a correct scoped build and a silently stale one.
+     * every scoped path must be one of them. One reason for that is left, and it decides
+     * correctness: it is the difference between a correct scoped build and a silently stale one.
      *
      * Brain's soundness check compares what the scope owns in the previous graph against what it
      * owns in the fresh one. A scope owning nothing owns nothing in both, and two empty sets compare

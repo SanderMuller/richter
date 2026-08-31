@@ -17,7 +17,7 @@ use SanderMuller\Richter\Tests\TestCase;
  * The two scope rules {@see AppFiles::nodesOwnedByWithNesting()} enforces, asserted on the helper
  * itself rather than only through the three tracers that depend on them.
  *
- * They are the load-bearing part of those tracers' correctness — getting either wrong reappears as a
+ * They decide those tracers' correctness — getting either wrong reappears as a
  * phantom edge or a confidently wrong receiver, not as a failure here — so a change to them should
  * break this test first, where the rule is stated, instead of a lane fixture somewhere downstream.
  */

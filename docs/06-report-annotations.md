@@ -124,7 +124,7 @@ Disable it with `richter.sibling_read_parity.enabled`, or silence one pair with
 
 Route middleware is resolved by alias and never by group. `->middleware('auth')` reaches the graph as `middleware::auth` and Richter rewrites that onto the FQCN, so an aliased middleware is connected to the routes it guards. `->middleware('api')` reaches it as a bare `middleware::api` node, and the classes inside that group are connected to nothing.
 
-The group is not expanded into edges: mapping a global group onto every route would make each of its members report every route in the app as an entry point. But the middleware still self-lists as an entry point (it lives under `\Http\Middleware\`), so without help the report reads "one entry point: the middleware itself" for a change that runs on every route in the group. The answer is wrongly sized rather than missing, and this note supplies the size:
+The group is not expanded into edges: mapping a global group onto every route would make each of its members report every route in the app as an entry point. But the middleware still self-lists as an entry point (it lives under `\Http\Middleware\`), so without help the report reads "one entry point: the middleware itself" for a change that runs on every route in the group. The entry point is right and the size is not, so this note supplies the size:
 
 ```text
   ! App\Http\Middleware\EnsureTenant runs in middleware group 'api', which guards 142 routes; group membership is not drawn as edges, so those routes are not in the reach above

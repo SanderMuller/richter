@@ -58,11 +58,15 @@ Impact: 2 entry point(s) · 7 impacted node(s)
 
 ## When a report of nothing is correct
 
-A report of nothing is a claim about your diff, not only about the code. Richter resolves changes to class members, so an edit that changes a file without changing a member (a comment after the closing brace, a `use` reordering) genuinely seeds nothing and correctly reports nothing. That is the first thing to rule out when a change you expected to light up comes back empty, and it is the most common reason a probe of Richter's own behaviour misleads its author.
+Got an empty report on a change you expected to light up? That is often the intended answer, for a reason worth knowing. Check what your diff actually changed.
 
-A member added to an existing class seeds nothing: nothing called it before, so it can break nothing. A brand-new file is different. The class itself is new, so it seeds on its class node and reports its reach and its own entry surface (a new command, job or listener), marked `[new file]` in the report.
+Richter follows class members, not files. If your edit never touched a member (a comment after the closing brace, a reordered `use` block), there is nothing for it to start from, and an empty report is the right answer. Rule that out first.
 
-A new class that reaches nothing still reads `low`, because it cannot break behaviour that already runs. One that does reach existing surfaces is graded like any other change. And an addition is not automatically harmless: adding an entry to `$fillable` widens what a mass assignment may write, which is a tier-2 hazard whatever else the diff does.
+A new method on an existing class comes out empty for a different reason. Nothing calls it yet, so it can break nothing, and it seeds nothing.
+
+A brand-new file is a different case again. The class itself is new, so richter starts at the class node, reports what it reaches, and reports any entry surface it introduces: a new command, job or listener. Those lines are marked `[new file]`. A new class that reaches nothing yet reads `low`. One that reaches surfaces already running is graded like any other change.
+
+That said, an addition is not automatically safe. Add a key to `$fillable` and you widen what a mass assignment can write, which is a tier-2 hazard whatever else the diff does.
 
 ## `--explain`
 
@@ -106,7 +110,7 @@ Up to five names are listed, with a count of the rest. Stderr, like the untracke
 
 Before a file falls through to UNRESOLVED, Richter tries one last lane: the nodes the graph says that file defines. Not every entry surface has a class name to look up. A scheduled task is identified by what it runs and how often, not by a class name, so a change to a legacy `app/Console/Kernel.php` would otherwise be unplaceable despite defining surfaces the graph already knows. The lane reaches only files a lane above already picked up, so it applies within `app/`. A change to `routes/api.php` is read for its guard middleware (see above) and seeds nothing, so it never reaches this lane.
 
-Those surfaces list as touched, but they are never walked and they are not among the surfaces the level grades. A file that declares a surface has not called into it: adding one line to a `$commands` array cannot break the ten commands registered beside it, and rating the edit by everything those ten reach would be breadth dressed up as consequence. The lane runs only when every other lane came up empty, so member-level precision elsewhere is unaffected: a one-method change to a controller still seeds that method, not the class its file also defines.
+Those surfaces list as touched, but they are never walked and they are not among the surfaces the level grades. A file that declares a surface has not called into it: adding one line to a `$commands` array cannot break the ten commands registered beside it, so the report does not charge the edit with everything those ten reach. The lane runs only when every other lane came up empty, so member-level precision elsewhere is unaffected: a one-method change to a controller still seeds that method, not the class its file also defines.
 
 ## Which rows come first
 

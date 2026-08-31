@@ -14,8 +14,8 @@ use SanderMuller\Richter\Tracers\FacadeEdgeTracer;
 
 /**
  * A call through an application facade lands on the facade's own member node, which the facade does
- * not declare. These cover the hop that carries it to the class the accessor names — and, just as
- * load-bearing, the accessor shapes that must draw nothing rather than guess.
+ * not declare. These cover the hop that carries it to the class the accessor names, and, just as
+ * importantly, the accessor shapes that must draw nothing rather than guess.
  *
  * Runs against the `Acme` fixture rather than a synthetic namespace: the tracer decides facade-ness
  * with `is_subclass_of()` and checks the concrete with `method_exists()`, so the classes it names

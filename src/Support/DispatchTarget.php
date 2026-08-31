@@ -51,8 +51,8 @@ final class DispatchTarget
     }
 
     /**
-     * The class-existence guard runs FIRST and its failure short-circuits everything else — the
-     * ordering is load-bearing. `is_subclass_of()`/`class_uses_recursive()` return `false`/`[]` for a
+     * The class-existence guard runs FIRST and its failure short-circuits everything else. The
+     * ordering matters: `is_subclass_of()`/`class_uses_recursive()` return `false`/`[]` for a
      * non-existent class without throwing, so checking them before (or instead of) confirming the
      * class is loadable would let a missing/unclassifiable class wrongly conclude "not a target" —
      * exactly the under-fire this predicate exists to prevent. Any autoload failure anywhere in this

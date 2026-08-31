@@ -551,7 +551,7 @@ final readonly class ImpactAnalyzer
      * would re-seed the whole class on a one-method change and undo the member-level precision the
      * lanes above exist for.
      *
-     * The split is the load-bearing part. An entry-prefixed node is a surface the file *declares* —
+     * The split is what makes this correct. An entry-prefixed node is a surface the file *declares* —
      * a `$commands` entry, a `schedule()` call, a route definition — never something the change
      * calls into, so it is annotated like a frontend-referenced route: appended to the entry-point
      * list after the risk inputs freeze, and kept out of the walk entirely. Seeding those would rate

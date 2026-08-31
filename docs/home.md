@@ -23,9 +23,9 @@ features:
   - title: Member-level impact
     details: A one-method change seeds that method, not the whole class. Routes, controllers, jobs, listeners, policies, resources, Blade views, and Eloquent relations are all in the graph.
     link: /why-richter
-  - title: Honest degradation
-    details: A change the graph cannot place reads UNRESOLVED rather than "no impact". A coverage gap costs reach, and it still reports nothing as unaffected.
-    link: /detect-changes#when-a-report-of-nothing-is-correct
+  - title: Catches breakage before review
+    details: An auth middleware you dropped by accident, a validation rule that went missing, a migration dropping a column something still reads, a relation name misspelled in an eager load. Richter names them on your branch, not in production.
+    link: /risk-levels#hazards
   - title: Test-coverage prompts
     details: Every reached entry point is tagged as test-referenced or not. An entry point whose behaviour you changed with nothing referencing it is a place to add a test.
     link: /detect-changes#test-reference-tags

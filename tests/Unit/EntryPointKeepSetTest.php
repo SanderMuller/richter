@@ -107,7 +107,7 @@ final class EntryPointKeepSetTest extends TestCase
     #[Test]
     public function a_route_a_changed_frontend_file_references_is_kept(): void
     {
-        // The case that makes the unattributed rule load-bearing rather than tidy: a frontend surface
+        // The case that makes the unattributed rule necessary rather than tidy: a frontend surface
         // carries no attribution AND its route file is not in the diff, so any rule dropping the
         // unexplained would drop exactly what a frontend change owns.
         $route = 'route::POST::/api/articles';

@@ -224,13 +224,12 @@ return [
      * Change hazards: the tiered properties of a diff that say it may break something — an
      * authorization guard removed, `$hidden` narrowed, a mass-assignment surface widened, a
      * validation constraint dropped, a queued payload changed, a public member removed, a column a
-     * migration drops. Every
-     * predicate is exact: a lane that cannot read both sides of a comparison in full reports
-     * nothing rather than guessing, because a false "authorization removed" is worse than no
-     * hazard at all.
+     * migration drops. Every predicate is exact: a lane that cannot read both sides of a
+     * comparison in full reports nothing rather than guessing. So a reported hazard is one richter
+     * read in full, and an empty hazard list is not proof there is none.
      *
-     * The tiers themselves are not configurable. A tier is a fact about the change, and a project
-     * that could re-tier one would be grading its own risk before reading it.
+     * The tiers themselves are not configurable. Suppress a hazard with `ignore` below, or skip
+     * the lanes with `--no-hazards`; a hazard that reports always carries its own tier.
      */
     'hazards' => [
         'enabled' => true,

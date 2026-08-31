@@ -1510,7 +1510,7 @@ final class ImpactAnalyzerTest extends TestCase
     #[Test]
     public function reach_that_also_arrives_by_a_real_call_is_counted_not_listed_as_context(): void
     {
-        // The "only" in "reached only through an excluded type" is load-bearing: a class that also
+        // The "only" in "reached only through an excluded type" carries the rule: a class that also
         // arrives by a behavioural edge is already in the impacted number, and repeating it as
         // uncounted context would contradict that number.
         $analyzer = new ImpactAnalyzer(new CodeGraph([
