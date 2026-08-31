@@ -20,6 +20,7 @@ use SanderMuller\Richter\Mcp\RichterServer;
 use SanderMuller\Richter\Mcp\Tools\AffectedTestsTool;
 use SanderMuller\Richter\Mcp\Tools\DetectChangesTool;
 use SanderMuller\Richter\Mcp\Tools\ImpactTool;
+use SanderMuller\Richter\Mcp\Tools\TaskSliceTool;
 use SanderMuller\Richter\Mcp\Tools\TraceTool;
 use SanderMuller\Richter\Tests\TestCase;
 
@@ -55,6 +56,7 @@ final class McpTest extends TestCase
         $this->assertSame('impact', resolve(ImpactTool::class)->name());
         $this->assertSame('trace', resolve(TraceTool::class)->name());
         $this->assertSame('detect-changes', resolve(DetectChangesTool::class)->name());
+        $this->assertSame('task-slice', resolve(TaskSliceTool::class)->name());
         $this->assertSame('affected-tests', resolve(AffectedTestsTool::class)->name());
     }
 
@@ -243,6 +245,32 @@ final class McpTest extends TestCase
     }
 
     #[Test]
+    public function the_detect_changes_tool_accepts_a_head_ref(): void
+    {
+        // The CLI has always had `--head`; the tool did not, so an agent analysing a task parent
+        // against a committed state could not use it at all. A broken head must fail the same way a
+        // broken base does — as a tool error, not as a silently different range.
+        $schema = resolve(DetectChangesTool::class)->toArray()['inputSchema'] ?? [];
+        $this->assertIsArray($schema);
+        $properties = $schema['properties'] ?? [];
+        $this->assertIsArray($properties);
+        $this->assertArrayHasKey('head', $properties);
+
+        $response = resolve(DetectChangesTool::class)->handle(new Request(['head' => 'this-ref-does-not-exist-zzz']));
+
+        $this->assertInstanceOf(Response::class, $response);
+        $this->assertTrue($response->isError());
+    }
+
+    #[Test]
+    public function the_detect_changes_tool_defaults_head_to_the_working_tree(): void
+    {
+        // Absent argument must behave exactly as before this option existed.
+        RichterServer::tool(DetectChangesTool::class)
+            ->assertOk();
+    }
+
+    #[Test]
     public function the_impact_tool_reports_the_blast_radius_of_a_symbol(): void
     {
         // Builds the real graph of the testbench skeleton. Both formatter branches (matched and
@@ -357,6 +385,7 @@ final class McpTest extends TestCase
             'entryPointGates',
             'entryPointTestReferences',
             'entryPointAttribution',
+            'entryPointKeepSet',
             'impacted',
             'relatedModels',
             'traitAndOverrideReach',

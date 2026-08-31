@@ -12,6 +12,12 @@ Four read-only tools:
 | `trace` | Shortest call-direction path between two symbols. |
 | `detect-changes` | Advisory impact of the current branch diff. |
 | `affected-tests` | The test selection the diff warrants. |
+| `task-slice` | The surfaces this task owns, with the hazards, findings and tests that go with them. |
+
+`detect-changes` takes `base` and `head`. `head` defaults to `HEAD`, which includes the uncommitted
+working tree; naming a commit analyses that committed state instead. An agent working mid-feature
+against a task parent needs it — the CLI has had `--head` since the option existed, and without the
+argument the tool could only ever read a range ending at the working tree.
 
 For `affected-tests`, `determinable: false` means run the full suite. Every non-determinable cause returns that shape with its reasons, never a tool error.
 

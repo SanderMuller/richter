@@ -35,6 +35,8 @@ final class DetectChangesTool extends Tool
         return [
             'base' => $schema->string()
                 ->description('Git ref to diff the current branch against. Defaults to the richter.default_base config value.'),
+            'head' => $schema->string()
+                ->description('Git ref to diff UP TO. Defaults to HEAD, which also includes the uncommitted working tree; naming a commit analyses that committed state instead. An agent working mid-feature against a task parent needs this — without it the only readable range ends at the working tree.'),
         ];
     }
 
@@ -42,7 +44,7 @@ final class DetectChangesTool extends Tool
     {
         try {
             $base = RichterConfig::baseRef($request->get('base'));
-            $changed = ChangedSymbols::resolve($base);
+            $changed = ChangedSymbols::resolve($base, RichterConfig::headRef($request->get('head')));
         } catch (InvalidArgumentException|RuntimeException $exception) {
             return Response::error($exception->getMessage());
         }
@@ -98,6 +100,8 @@ final class DetectChangesTool extends Tool
                 ->description('Entry-point node => "referenced" | "referenced-no-behavioural-assertion" | "unreferenced". A node whose reference state could not be determined is omitted here; the risk level reads that state as unverified. Where a change carries no hazard the level is decided on this, so it is not advisory-only — see `verification` for the exact set graded. Never an input to affected-tests selection. Empty map serializes as [].'),
             'entryPointAttribution' => $schema->object()
                 ->description('Entry-point node => {via, ownReach}: the changed FILE PATH that explains this surface most specifically, and how many entry points that file reaches on its own. Reading order: the smaller ownReach is, the more the surface is about this diff rather than about something the diff happens to touch. The report orders rows on it. A surface no per-file walk explains — a self-listed entry class, a frontend surface — is absent here rather than carrying a null: there is no reach number for it. `via` is a path and never a class name, because a route file or a file declaring two classes has no single FQCN. Advisory: never an input to risk, the gate, or affected-tests selection, and a consumer that narrows its own test run on it does so at its own risk. Empty map serializes as [].'),
+            'entryPointKeepSet' => $schema->object()
+                ->description('{kept, droppedHub}: which entry surfaces this diff OWNS, and how many were reached only through a file the project lists as a hub in richter.task_slice. `kept` is a subset of entryPoints in the same reading order; the surfaces missing from it are the dropped ones. With no hub configured the feature is off — `kept` equals entryPoints and droppedHub is 0 — because no measurement produced a rule for hub-ness and a shipped default would be a guess. A surface with no attribution is always kept: the routes a changed frontend file references are never attributed, so dropping the unexplained would drop what a frontend change owns. Advisory: never an input to risk, the gate, or affected-tests selection.'),
             'impacted' => $schema->integer()->description('Distinct impacted graph nodes.'),
             'relatedModels' => $schema->array()->items($schema->string()),
             'traitAndOverrideReach' => $schema->array()->items($schema->string())->description('What the change is related to through the hierarchy rather than through a call: a class using the trait that declares the changed member, and the other end of an override relationship. Deliberately not counted toward impacted or risk (a hub trait would saturate the level on breadth), and reported because excluding them from the count is not a reason to exclude them from the report. Every entry is here, ungrouped; the prose reports group the override lane.'),
