@@ -12,7 +12,7 @@ use SanderMuller\Richter\Tests\TestCase;
 final class RuntimeGuardRenderingTest extends TestCase
 {
     /** @return array{target: string, callers: list<array{depth: int, node: string, via: string}>, dependencies: list<array{depth: int, node: string, via: string}>, entryPoints: list<string>, associationEntryPoints: list<string>, entryPointPaths: array<string, list<array{node: string, via: string}>>, entryPointLocations: array<string, array{file: string}>, entryPointSecurity: array<string, array{exposure: string, riskLevel: string, issues: list<array{type: string, severity: string, message: string}>}>, entryPointGates: array<string, list<string>>, entryPointAuthGates: array<string, list<string>>, entryPointAuthMiddleware: array<string, list<string>>, entryPointRuntimeGuards: array<string, list<array{middleware: string, group: string|null}>>} */
-    private static function impactResult(): array
+    private function impactResult(): array
     {
         $route = 'route::POST::/pay';
 
@@ -42,7 +42,7 @@ final class RuntimeGuardRenderingTest extends TestCase
     #[Test]
     public function the_text_report_renders_the_runtime_note_beside_brains_finding(): void
     {
-        $report = ImpactFormatter::impact(self::impactResult());
+        $report = ImpactFormatter::impact($this->impactResult());
 
         // Evidence beside the finding, never a suppression: both lines render.
         $this->assertStringContainsString('PUBLIC_WRITE', $report);
@@ -54,7 +54,7 @@ final class RuntimeGuardRenderingTest extends TestCase
     #[Test]
     public function the_markdown_report_renders_the_runtime_note_beside_brains_finding(): void
     {
-        $report = MarkdownFormatter::impact(self::impactResult());
+        $report = MarkdownFormatter::impact($this->impactResult());
 
         $this->assertStringContainsString('PUBLIC_WRITE', $report);
         $this->assertStringContainsString("(via middleware group 'web')", $report);
@@ -65,7 +65,7 @@ final class RuntimeGuardRenderingTest extends TestCase
     public function the_html_report_renders_the_runtime_note_beside_brains_finding(): void
     {
         $result = [
-            ...self::impactResult(),
+            ...$this->impactResult(),
             'changed' => ['app/Services/PaymentRecorder.php' => 1],
             'coverage' => ['app/Services/PaymentRecorder.php' => 'analyzed'],
             'newFiles' => [],

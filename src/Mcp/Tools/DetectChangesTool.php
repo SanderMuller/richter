@@ -18,12 +18,13 @@ use SanderMuller\Richter\Analysis\JsonPresenter;
 use SanderMuller\Richter\Analysis\TestReferenceIndex;
 use SanderMuller\Richter\Changes\ChangedSymbols;
 use SanderMuller\Richter\Graph\GraphCache;
+use SanderMuller\Richter\Mcp\Tools\Concerns\ResolvesBoundingArguments;
 use SanderMuller\Richter\Support\RichterConfig;
 
 #[IsReadOnly]
 final class DetectChangesTool extends Tool
 {
-    use Concerns\ResolvesBoundingArguments;
+    use ResolvesBoundingArguments;
 
     protected string $name = 'detect-changes';
 

@@ -15,7 +15,7 @@ final class BoundedPresenterTest extends TestCase
      *
      * @return array{target: string, callers: list<array{depth: int, node: string, via: string}>, dependencies: list<array{depth: int, node: string, via: string}>, entryPoints: list<string>, associationEntryPoints: list<string>, associationEntryPointsVia: array<string, list<string>>, entryPointPaths: array<string, list<array{node: string, via: string}>>, entryPointLocations: array<string, array{file: string}>, entryPointSecurity: array{}, entryPointGates: array{}, entryPointAuthGates: array{}, entryPointTestReferences: array<string, string>, entryPointRuntimeGuards: array<string, list<array{middleware: string, group: string|null}>>, bogusIgnored: string}
      */
-    private static function hubImpactDocument(): array
+    private function hubImpactDocument(): array
     {
         $callers = [];
         $dependencies = [];
@@ -52,7 +52,7 @@ final class BoundedPresenterTest extends TestCase
     #[Test]
     public function a_hub_impact_document_is_capped_with_totals_and_restricted_maps(): void
     {
-        $document = BoundedPresenter::impact(self::hubImpactDocument());
+        $document = BoundedPresenter::impact($this->hubImpactDocument());
 
         $this->assertTrue($document['bounded']);
         $this->assertSame(20, $document['callersTotal']);
@@ -90,7 +90,7 @@ final class BoundedPresenterTest extends TestCase
     #[Test]
     public function a_leaf_impact_document_is_unbounded_with_matching_totals(): void
     {
-        $leaf = self::hubImpactDocument();
+        $leaf = $this->hubImpactDocument();
         $leaf['callers'] = array_slice($leaf['callers'], 0, 2);
         $leaf['dependencies'] = [];
         $leaf['entryPoints'] = array_slice($leaf['entryPoints'], 0, 3);
@@ -164,7 +164,7 @@ final class BoundedPresenterTest extends TestCase
     #[Test]
     public function full_lifts_every_cap_while_keeping_the_bounding_fields(): void
     {
-        $original = self::hubImpactDocument();
+        $original = $this->hubImpactDocument();
         $document = BoundedPresenter::impact($original, full: true);
 
         $this->assertFalse($document['bounded']);
@@ -178,15 +178,15 @@ final class BoundedPresenterTest extends TestCase
     #[Test]
     public function full_wins_over_entries(): void
     {
-        $withEntries = BoundedPresenter::impact(self::hubImpactDocument(), full: true, entries: ['route::GET::/things/17']);
+        $withEntries = BoundedPresenter::impact($this->hubImpactDocument(), full: true, entries: ['route::GET::/things/17']);
 
-        $this->assertSame(BoundedPresenter::impact(self::hubImpactDocument(), full: true), $withEntries);
+        $this->assertSame(BoundedPresenter::impact($this->hubImpactDocument(), full: true), $withEntries);
     }
 
     #[Test]
     public function entries_keeps_named_nodes_visible_past_the_cap_without_duplicates_or_fabrication(): void
     {
-        $document = BoundedPresenter::impact(self::hubImpactDocument(), entries: [
+        $document = BoundedPresenter::impact($this->hubImpactDocument(), entries: [
             'route::GET::/things/17',   // past the cap: appended
             'route::GET::/things/17',   // repeated in the request: once
             'route::GET::/things/1',    // already in the capped prefix: no duplicate
@@ -194,7 +194,7 @@ final class BoundedPresenterTest extends TestCase
         ]);
 
         $this->assertTrue($document['bounded']);
-        $entryPoints = self::stringList($document['entryPoints']);
+        $entryPoints = $this->stringList($document['entryPoints']);
         $this->assertCount(16, $entryPoints);
         $this->assertSame('route::GET::/things/17', $entryPoints[15]);
         $this->assertSame(array_unique($entryPoints), $entryPoints);
@@ -211,7 +211,7 @@ final class BoundedPresenterTest extends TestCase
     #[Test]
     public function entries_naming_every_omitted_node_restores_the_complete_list_and_clears_bounded(): void
     {
-        $original = self::hubImpactDocument();
+        $original = $this->hubImpactDocument();
         $pastCap = array_slice($original['entryPoints'], BoundedPresenter::LIST_CAP);
 
         $document = BoundedPresenter::impact($original, entries: $pastCap);
@@ -220,7 +220,7 @@ final class BoundedPresenterTest extends TestCase
         // request that only fans out entry points must clear when every omitted node was named.
         $entryPointsOnly = BoundedPresenter::impact([...$original, 'callers' => [], 'dependencies' => [], 'associationEntryPoints' => [], 'associationEntryPointsVia' => []], entries: $pastCap);
 
-        $this->assertCount(17, self::stringList($document['entryPoints']));
+        $this->assertCount(17, $this->stringList($document['entryPoints']));
         $this->assertFalse($entryPointsOnly['bounded']);
         $this->assertTrue($document['bounded']);
     }
@@ -243,10 +243,10 @@ final class BoundedPresenterTest extends TestCase
             'entryPointKeepSet' => ['kept' => $kept, 'droppedHub' => 5],
         ]);
 
-        $shownEntryPoints = self::stringList($document['entryPoints']);
+        $shownEntryPoints = $this->stringList($document['entryPoints']);
         $keepSet = $document['entryPointKeepSet'];
         $this->assertIsArray($keepSet);
-        $shownKept = self::stringList($keepSet['kept']);
+        $shownKept = $this->stringList($keepSet['kept']);
 
         $this->assertCount(15, $shownEntryPoints);
         $this->assertCount(15, $shownKept);
@@ -261,7 +261,7 @@ final class BoundedPresenterTest extends TestCase
      *
      * @return list<string>
      */
-    private static function stringList(mixed $value): array
+    private function stringList(mixed $value): array
     {
         $strings = [];
 

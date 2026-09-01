@@ -193,7 +193,7 @@ final class RuntimeRouterGuards
 
             foreach ($router->gatherRouteMiddleware($route) as $middleware) {
                 if (is_string($middleware)) {
-                    $effective[self::classOf($middleware)] = true;
+                    $effective[$this->classOf($middleware)] = true;
                 }
             }
 
@@ -244,7 +244,7 @@ final class RuntimeRouterGuards
         }
 
         $resolved = $aliases[ltrim($name, '\\')] ?? $name;
-        $class = is_string($resolved) ? self::classOf($resolved) : null;
+        $class = is_string($resolved) ? $this->classOf($resolved) : null;
 
         if ($class === null || ! isset($effective[$class])) {
             return;
@@ -300,14 +300,14 @@ final class RuntimeRouterGuards
     }
 
     /** The class part of a resolved middleware string, parameters cut. */
-    private static function classOf(string $middleware): string
+    private function classOf(string $middleware): string
     {
         return ltrim(explode(':', $middleware, 2)[0], '\\');
     }
 
     private function router(): Router
     {
-        $router = app('router');
+        $router = resolve(Router::class);
 
         if (! $router instanceof Router) {
             // Callers catch Throwable and read this as silence — the lane's failure mode.

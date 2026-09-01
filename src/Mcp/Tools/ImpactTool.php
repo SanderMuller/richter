@@ -15,11 +15,12 @@ use SanderMuller\Richter\Analysis\ImpactFormatter;
 use SanderMuller\Richter\Analysis\JsonPresenter;
 use SanderMuller\Richter\Analysis\TestReferenceIndex;
 use SanderMuller\Richter\Graph\GraphCache;
+use SanderMuller\Richter\Mcp\Tools\Concerns\ResolvesBoundingArguments;
 
 #[IsReadOnly]
 final class ImpactTool extends Tool
 {
-    use Concerns\ResolvesBoundingArguments;
+    use ResolvesBoundingArguments;
 
     protected string $name = 'impact';
 

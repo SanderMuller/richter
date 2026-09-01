@@ -8,6 +8,8 @@ use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Router;
 use LaraMint\LaravelBrain\Analysis\SecurityAnalyzer;
 use PHPUnit\Framework\Attributes\Test;
+use ReflectionClassConstant;
+use ReflectionMethod;
 use SanderMuller\Richter\Analysis\AuthMiddlewareVocabulary;
 use SanderMuller\Richter\Analysis\RuntimeRouterGuards;
 use SanderMuller\Richter\Support\RichterConfig;
@@ -24,7 +26,7 @@ final class RuntimeRouterGuardsTest extends TestCase
     }
 
     /** @return array{exposure: string, riskLevel: string, issues: list<array{type: string, severity: string, message: string}>} */
-    private static function publicSurface(bool $publicWrite = false): array
+    private function publicSurface(bool $publicWrite = false): array
     {
         return [
             'exposure' => 'public',
@@ -45,7 +47,7 @@ final class RuntimeRouterGuardsTest extends TestCase
         $router->middlewareGroup('secure', [Authenticate::class]);
         $router->post('/pay', static fn (): string => 'ok')->middleware('secure');
 
-        $guards = $this->guards()->guardsByEntryPoint(['route::POST::/pay' => self::publicSurface(publicWrite: true)]);
+        $guards = $this->guards()->guardsByEntryPoint(['route::POST::/pay' => $this->publicSurface(publicWrite: true)]);
 
         $this->assertSame([
             'route::POST::/pay' => [['middleware' => Authenticate::class, 'group' => 'secure']],
@@ -60,7 +62,7 @@ final class RuntimeRouterGuardsTest extends TestCase
         $router->middlewareGroup('outer', ['inner']);
         $router->post('/nested', static fn (): string => 'ok')->middleware('outer');
 
-        $guards = $this->guards()->guardsByEntryPoint(['route::POST::/nested' => self::publicSurface()]);
+        $guards = $this->guards()->guardsByEntryPoint(['route::POST::/nested' => $this->publicSurface()]);
 
         $this->assertSame([['middleware' => Authenticate::class, 'group' => 'outer']], $guards['route::POST::/nested'] ?? null);
     }
@@ -75,7 +77,7 @@ final class RuntimeRouterGuardsTest extends TestCase
         $router->middlewareGroup('api', ['sanctum']);
         $router->post('/api/things', static fn (): string => 'ok')->middleware('api');
 
-        $guards = $this->guards()->guardsByEntryPoint(['route::POST::/api/things' => self::publicSurface(publicWrite: true)]);
+        $guards = $this->guards()->guardsByEntryPoint(['route::POST::/api/things' => $this->publicSurface(publicWrite: true)]);
 
         $this->assertSame([['middleware' => PlainTokenMiddleware::class, 'group' => 'api']], $guards['route::POST::/api/things'] ?? null);
     }
@@ -89,7 +91,7 @@ final class RuntimeRouterGuardsTest extends TestCase
         $router->middlewareGroup('merchant', ['merchant.hmac']);
         $router->post('/merchant/pay', static fn (): string => 'ok')->middleware('merchant');
 
-        $guards = $this->guards()->guardsByEntryPoint(['route::POST::/merchant/pay' => self::publicSurface()]);
+        $guards = $this->guards()->guardsByEntryPoint(['route::POST::/merchant/pay' => $this->publicSurface()]);
 
         $this->assertSame([['middleware' => PlainTokenMiddleware::class, 'group' => 'merchant']], $guards['route::POST::/merchant/pay'] ?? null);
     }
@@ -101,7 +103,7 @@ final class RuntimeRouterGuardsTest extends TestCase
         $router = $this->router();
         $router->post('/direct', static fn (): string => 'ok')->middleware(PlainTokenMiddleware::class);
 
-        $guards = $this->guards()->guardsByEntryPoint(['route::POST::/direct' => self::publicSurface()]);
+        $guards = $this->guards()->guardsByEntryPoint(['route::POST::/direct' => $this->publicSurface()]);
 
         $this->assertSame([['middleware' => PlainTokenMiddleware::class, 'group' => null]], $guards['route::POST::/direct'] ?? null);
     }
@@ -114,7 +116,7 @@ final class RuntimeRouterGuardsTest extends TestCase
         $router->aliasMiddleware('merchant.hmac', PlainTokenMiddleware::class);
         $router->post('/controller', [GuardedTestController::class, 'store']);
 
-        $guards = $this->guards()->guardsByEntryPoint(['route::POST::/controller' => self::publicSurface(publicWrite: true)]);
+        $guards = $this->guards()->guardsByEntryPoint(['route::POST::/controller' => $this->publicSurface(publicWrite: true)]);
 
         $this->assertSame([['middleware' => PlainTokenMiddleware::class, 'group' => null]], $guards['route::POST::/controller'] ?? null);
     }
@@ -126,7 +128,7 @@ final class RuntimeRouterGuardsTest extends TestCase
         $router->middlewareGroup('secure', [Authenticate::class]);
         $router->post('/excluded', static fn (): string => 'ok')->middleware('secure')->withoutMiddleware(Authenticate::class);
 
-        $guards = $this->guards()->guardsByEntryPoint(['route::POST::/excluded' => self::publicSurface(publicWrite: true)]);
+        $guards = $this->guards()->guardsByEntryPoint(['route::POST::/excluded' => $this->publicSurface(publicWrite: true)]);
 
         $this->assertSame([], $guards);
     }
@@ -142,7 +144,7 @@ final class RuntimeRouterGuardsTest extends TestCase
         $router->middlewareGroup('merchant', ['merchant.hmac']);
         $router->post('/excluded-alias', static fn (): string => 'ok')->middleware('merchant')->withoutMiddleware(PlainTokenMiddleware::class);
 
-        $guards = $this->guards()->guardsByEntryPoint(['route::POST::/excluded-alias' => self::publicSurface()]);
+        $guards = $this->guards()->guardsByEntryPoint(['route::POST::/excluded-alias' => $this->publicSurface()]);
 
         $this->assertSame([], $guards);
     }
@@ -159,7 +161,7 @@ final class RuntimeRouterGuardsTest extends TestCase
             $router->post('/account', static fn (): string => 'ok');
         });
 
-        $guards = $this->guards()->guardsByEntryPoint(['route::POST::/account' => self::publicSurface(publicWrite: true)]);
+        $guards = $this->guards()->guardsByEntryPoint(['route::POST::/account' => $this->publicSurface(publicWrite: true)]);
 
         $this->assertSame([], $guards);
     }
@@ -179,7 +181,7 @@ final class RuntimeRouterGuardsTest extends TestCase
 
         // Both registrations are gated, but by different guards: the intersection is empty, and
         // claiming either guard for the shared node would attach the wrong route's evidence.
-        $guards = $this->guards()->guardsByEntryPoint(['route::POST::/shared' => self::publicSurface(publicWrite: true)]);
+        $guards = $this->guards()->guardsByEntryPoint(['route::POST::/shared' => $this->publicSurface(publicWrite: true)]);
 
         $this->assertSame([], $guards);
     }
@@ -196,7 +198,7 @@ final class RuntimeRouterGuardsTest extends TestCase
             $router->post('/same', static fn (): string => 'ok')->middleware('secure');
         });
 
-        $guards = $this->guards()->guardsByEntryPoint(['route::POST::/same' => self::publicSurface()]);
+        $guards = $this->guards()->guardsByEntryPoint(['route::POST::/same' => $this->publicSurface()]);
 
         $this->assertSame([['middleware' => Authenticate::class, 'group' => 'secure']], $guards['route::POST::/same'] ?? null);
     }
@@ -209,20 +211,20 @@ final class RuntimeRouterGuardsTest extends TestCase
         $router->post('/guarded', static fn (): string => 'ok')->middleware('secure');
         $router->aliasMiddleware('ghost', 'Nonexistent\\Middleware\\Class');
         $router->post('/ghost', static fn (): string => 'ok')->middleware('ghost');
-        $surfaces = ['route::POST::/guarded' => self::publicSurface(publicWrite: true)];
+        $surfaces = ['route::POST::/guarded' => $this->publicSurface(publicWrite: true)];
 
         // Null root and foreign root: fail closed before any router read.
         $this->assertSame([], new RuntimeRouterGuards(null)->guardsByEntryPoint($surfaces));
         $this->assertSame([], new RuntimeRouterGuards('/definitely/not/this/project')->guardsByEntryPoint($surfaces));
 
         $eligible = $this->guards()->guardsByEntryPoint([
-            'route::POST::/guarded' => self::publicSurface(publicWrite: true),
+            'route::POST::/guarded' => $this->publicSurface(publicWrite: true),
             // An alias resolving to a class that does not exist is not evidence.
-            'route::POST::/ghost' => self::publicSurface(publicWrite: true),
+            'route::POST::/ghost' => $this->publicSurface(publicWrite: true),
             // A node matching no registered route is never guessed at.
-            'route::POST::/nowhere' => self::publicSurface(publicWrite: true),
+            'route::POST::/nowhere' => $this->publicSurface(publicWrite: true),
             // A non-route surface is excluded by the route:: guard.
-            'App\\Livewire\\Dashboard' => self::publicSurface(publicWrite: true),
+            'App\\Livewire\\Dashboard' => $this->publicSurface(publicWrite: true),
             // An authed route with no PUBLIC_WRITE issue is not a candidate.
             'route::POST::/guarded-elsewhere' => ['exposure' => 'authed', 'riskLevel' => 'low', 'issues' => []],
         ]);
@@ -237,7 +239,7 @@ final class RuntimeRouterGuardsTest extends TestCase
         $router->middlewareGroup('secure', [Authenticate::class]);
         $router->post('/twice', static fn (): string => 'ok')->middleware([Authenticate::class, 'secure']);
 
-        $guards = $this->guards()->guardsByEntryPoint(['route::POST::/twice' => self::publicSurface(publicWrite: true)]);
+        $guards = $this->guards()->guardsByEntryPoint(['route::POST::/twice' => $this->publicSurface(publicWrite: true)]);
 
         // One entry, and the direct token came first, so provenance is null — display only.
         $this->assertSame([['middleware' => Authenticate::class, 'group' => null]], $guards['route::POST::/twice'] ?? null);
@@ -256,7 +258,7 @@ final class RuntimeRouterGuardsTest extends TestCase
             $router->post('/mixed', static fn (): string => 'ok')->middleware('api-secure');
         });
 
-        $guards = $this->guards()->guardsByEntryPoint(['route::POST::/mixed' => self::publicSurface(publicWrite: true)]);
+        $guards = $this->guards()->guardsByEntryPoint(['route::POST::/mixed' => $this->publicSurface(publicWrite: true)]);
 
         // Same guard, different groups: the guard is common evidence, the provenance is not.
         $this->assertSame([['middleware' => Authenticate::class, 'group' => null]], $guards['route::POST::/mixed'] ?? null);
@@ -272,7 +274,7 @@ final class RuntimeRouterGuardsTest extends TestCase
 
         // Laravel's own expansion would recurse forever on this config; the lane must answer with
         // an empty map, never a stack overflow.
-        $this->assertSame([], $this->guards()->guardsByEntryPoint(['route::POST::/cyclic' => self::publicSurface(publicWrite: true)]));
+        $this->assertSame([], $this->guards()->guardsByEntryPoint(['route::POST::/cyclic' => $this->publicSurface(publicWrite: true)]));
     }
 
     #[Test]
@@ -284,7 +286,7 @@ final class RuntimeRouterGuardsTest extends TestCase
         $router->middlewareGroup('secure', [Authenticate::class]);
         $router->post('/healthy', static fn (): string => 'ok')->middleware('secure');
 
-        $guards = $this->guards()->guardsByEntryPoint(['route::POST::/healthy' => self::publicSurface(publicWrite: true)]);
+        $guards = $this->guards()->guardsByEntryPoint(['route::POST::/healthy' => $this->publicSurface(publicWrite: true)]);
 
         $this->assertSame([['middleware' => Authenticate::class, 'group' => 'secure']], $guards['route::POST::/healthy'] ?? null);
     }
@@ -297,7 +299,7 @@ final class RuntimeRouterGuardsTest extends TestCase
         $router->middlewareGroup('outer-secure', ['inner-secure']);
         $router->post('/nested-excluded', static fn (): string => 'ok')->middleware('outer-secure')->withoutMiddleware(Authenticate::class);
 
-        $this->assertSame([], $this->guards()->guardsByEntryPoint(['route::POST::/nested-excluded' => self::publicSurface(publicWrite: true)]));
+        $this->assertSame([], $this->guards()->guardsByEntryPoint(['route::POST::/nested-excluded' => $this->publicSurface(publicWrite: true)]));
     }
 
     #[Test]
@@ -308,9 +310,9 @@ final class RuntimeRouterGuardsTest extends TestCase
         $router->match(['GET', 'POST'], '/multi', static fn (): string => 'ok')->middleware('secure');
 
         $guards = $this->guards()->guardsByEntryPoint([
-            'route::GET::/multi' => self::publicSurface(),
-            'route::POST::/multi' => self::publicSurface(publicWrite: true),
-            'route::HEAD::/multi' => self::publicSurface(),
+            'route::GET::/multi' => $this->publicSurface(),
+            'route::POST::/multi' => $this->publicSurface(publicWrite: true),
+            'route::HEAD::/multi' => $this->publicSurface(),
         ]);
 
         $this->assertSame(['route::GET::/multi', 'route::POST::/multi'], array_keys($guards));
@@ -363,7 +365,7 @@ final class RuntimeRouterGuardsTest extends TestCase
         $router = $this->router();
         $router->post('/fake-sanctum', static fn (): string => 'ok')->middleware('sanctum');
 
-        $this->assertSame([], $this->guards()->guardsByEntryPoint(['route::POST::/fake-sanctum' => self::publicSurface(publicWrite: true)]));
+        $this->assertSame([], $this->guards()->guardsByEntryPoint(['route::POST::/fake-sanctum' => $this->publicSurface(publicWrite: true)]));
     }
 
     #[Test]
@@ -373,7 +375,7 @@ final class RuntimeRouterGuardsTest extends TestCase
         $router = $this->router();
         $router->post('/ghost-config', static fn (): string => 'ok')->middleware('Nonexistent\\Middleware\\HmacGate');
 
-        $this->assertSame([], $this->guards()->guardsByEntryPoint(['route::POST::/ghost-config' => self::publicSurface(publicWrite: true)]));
+        $this->assertSame([], $this->guards()->guardsByEntryPoint(['route::POST::/ghost-config' => $this->publicSurface(publicWrite: true)]));
     }
 
     #[Test]
@@ -385,14 +387,14 @@ final class RuntimeRouterGuardsTest extends TestCase
         config()->set('laravel-brain.security.auth_middleware', []);
 
         $brain = new SecurityAnalyzer();
-        $patternsProperty = new \ReflectionClassConstant($brain::class, 'AUTH_PATTERNS');
+        $patternsProperty = new ReflectionClassConstant($brain::class, 'AUTH_PATTERNS');
         $brainPatterns = $patternsProperty->getValue();
         $this->assertIsArray($brainPatterns);
 
-        $mirrorPatterns = new \ReflectionClassConstant(AuthMiddlewareVocabulary::class, 'BRAIN_AUTH_PATTERNS')->getValue();
+        $mirrorPatterns = new ReflectionClassConstant(AuthMiddlewareVocabulary::class, 'BRAIN_AUTH_PATTERNS')->getValue();
         $this->assertSame($brainPatterns, $mirrorPatterns);
 
-        $matcher = new \ReflectionMethod($brain, 'middlewareMatches');
+        $matcher = new ReflectionMethod($brain, 'middlewareMatches');
 
         foreach ([
             'auth', 'auth:sanctum', 'AUTH', 'sanctum', 'jwt:api', 'passport', 'verified', 'signed:relative',
