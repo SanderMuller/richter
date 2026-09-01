@@ -37,6 +37,7 @@ workbench/ export-ignore
 # (Kept in the repo for history; excluded from the Composer dist archive.)
 plans/ export-ignore
 specs/ export-ignore
+quality/ export-ignore
 
 # Documentation site source: published to GitHub Pages, never installed with the package.
 docs/ export-ignore
