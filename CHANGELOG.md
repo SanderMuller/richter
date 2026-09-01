@@ -5,6 +5,75 @@ All notable changes to `sandermuller/richter` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.65.0 - 2026-09-01
+
+`impact` and `trace` both need an exact node id, and until now nothing cheap produced one. `locate`
+is the orientation step that does.
+
+### Added
+
+**`locate` — where a symbol or a file is, with no walk.** Every existing tool that reports a
+location computes something expensive first: `impact` pays a full blast-radius walk, `trace` needs a
+second symbol, and the entry-points resource covers entry surfaces only. So a caller who did not
+already know the exact FQCN had to guess it, or run `impact` to discover it and discard the rest.
+
+`locate` takes a symbol (an FQCN or substring) or a project-relative file, and returns the matching
+node ids with their kind and defining `file:line`. It walks no edges, so it costs nothing beyond the
+graph load a session has already paid for. It ships as an MCP tool and as `richter:locate`, with
+prose, `--json` and `--markdown` output.
+
+```bash
+php artisan richter:locate --symbol="App\Models\Post"
+php artisan richter:locate --file=app/Models/Post.php
+
+```
+Four things about how it answers are worth knowing before you use it:
+
+**A miss is data, not an error.** `richter:locate` exits 0 when nothing matches. That is deliberately
+the opposite of `richter:trace`, which errors on an unresolvable symbol because an empty trace would
+read as "no path" — the one misleading answer it must never give. "Nothing named X, nearest are Y and
+Z" has no such second reading; it answers the question that was asked. Every miss carries a lead: the
+nearest node ids, a known file sharing the queried name, or the denominator that separates a wrong
+name from an empty graph (`graphNodeCount` for a symbol, `graphFileCount` for a file). The lead
+reaches the `--json` document and the MCP structured content too, so a script never sees a bare empty
+list where a reader gets an explanation.
+
+**`kind` is omitted when it cannot be proven.** It labels what an id addresses — a vocabulary prefix
+(`route`, `model`, `command`, …), `class`, or `member` — but Laravel Brain owns the node vocabulary,
+and some id shapes are genuinely ambiguous. `A::m` is a global-namespace class member and a prefix
+richter does not know, at the same time. An absent `kind` means "richter cannot prove it", never
+"this has no kind".
+
+**Two surfaces, two defaults for `limit`.** The MCP tool caps at 15 by default, because a tool
+response lands in an agent's context window. The command applies no default cap, because a CLI
+`--json` document is a complete machine contract — a script has a disk. `total` and `bounded` are on
+both, so a capped list can never read as complete.
+
+**A file path is matched exactly before anything is normalised.** The graph records an absolute path
+whenever the build root was empty or the file sat outside it, so normalising an input first would
+rewrite such a path into a relative form the graph does not hold, turning a hit into a miss. The
+accepted grammar is deliberately narrow — a project-relative path, a `./` prefix, or an absolute path
+the graph holds — and repeated separators, `..` segments and backslash separators are not resolved.
+Resolving path forms inconsistently is how a file that *is* in the graph comes to look absent.
+
+`locate` matches node **ids**, not source text, at identifier boundaries. `Post` matches
+`App\Models\Post`, never `PostContainer`. It finds a symbol; it cannot find a behaviour.
+
+### Fixed
+
+**`task-slice` is named in the MCP server instructions.** It had been missing since the tool shipped,
+so an agent reading only the server instructions could not discover it. The tool-name assertions are
+literal strings, which is why the omission passed the suite.
+
+### Internal
+
+Matches are sorted by node id before the cap is applied, so the visible page does not depend on the
+order the graph was built in. `CodeGraph::definedFiles()` and the widened
+`MarkdownFormatter::pathCell()` are both marked `@internal` — shared inside the package, not a
+consumer promise.
+
+**Full Changelog**: https://github.com/SanderMuller/richter/compare/v0.64.0...v0.65.0
+
 ## v0.64.0 - 2026-09-01
 
 The MCP tools now return bounded responses an agent can actually carry, exposure annotations gained
@@ -87,6 +156,7 @@ Richter now learns hubs from configuration:
 
 
 
+
 ```
 **Both lists empty means off**, and that is the default. A project that has not described its hubs keeps every surface. No measurement produced a rule for hub-ness — two applications gave no defensible threshold, and a real hub list names a service provider, a shared client and one model, a set the measurement explicitly could not derive — so a shipped default would be a guess presented as a finding.
 
@@ -98,6 +168,7 @@ Two kinds of surface are always kept. One whose **own file is in the diff** — 
 
 ```bash
 php artisan richter:task-slice --base=HEAD~1 --head=HEAD
+
 
 
 
@@ -234,6 +305,7 @@ $f = $order->flag; if (! $f) { }     // read as guarded, and silent
 
 
 
+
 ```
 `! $x`, `if ($x)` and a ternary condition are now soft wherever they appear, on the fetch itself or on a local it was assigned to.
 
@@ -283,6 +355,7 @@ Nothing is hidden or folded. The same surfaces are reported, the count beside th
 app/Actions/CreateTask.php: App\Actions\CreateTask::handle reads Order->external_id (bare);
 App\Models\Order::resolvedExternalId reads it (fallback). Nullable per its docblock. Check
 whether this read needs the same handling.
+
 
 
 
@@ -419,6 +492,7 @@ app/Models/Article.php (App\Models\Article::table, property)
 
 
 
+
 ```
 The rule covers the 25 properties the base `Model` declares that an application sets to change behaviour — among them `$table`, `$connection`, `$primaryKey`, `$keyType`, `$incrementing`, `$timestamps`, `$perPage`, `$with`, `$appends`, `$hidden`, `$visible`, `$fillable`, `$guarded`, `$casts` and `$touches`. The runtime caches Eloquent writes are excluded.
 
@@ -441,6 +515,7 @@ The named low-confidence reason from 0.57.0 now names the right kind. Sourced fr
 ```
 a changed member could not be pinned to a graph node (low confidence):
 app/Models/Post.php (App\Models\Post, class declaration)
+
 
 
 
@@ -481,6 +556,7 @@ It now names each one:
 ```
 a changed member could not be pinned to a graph node (low confidence):
 app/Models/Post.php (App\Models\Post::perPage, property)
+
 
 
 
@@ -634,6 +710,7 @@ The --html option requires a path: --html=<path>.
 
 
 
+
 ```
 This is the rule `--fail-on` and `--fail-on-hazard` already apply, through the same mechanism: a flag the user actually typed fails closed rather than being silently ignored. `--open` without `--html` was already guarded for exactly this reason; `--html` itself was the gap.
 
@@ -757,6 +834,7 @@ The three prose formats now keep the discriminating surfaces inline and fold the
 
 
 
+
 ```
 **Nothing is dropped.** The section still counts every surface, and the collapsed group states its own count, so the report cannot read as shorter than the reach it found. A surface whose reason the walk could not record stays inline: absence of a reason is not evidence of a weak one.
 
@@ -785,6 +863,7 @@ A dropped column now names what still refers to it, so the report says who has n
   ```
   ! [tier 2 migration] App\Models\Post — column `posts`.`subtitle` dropped, still named by
     App\Models\Post's own $fillable/$casts, a `subtitle` key in app/Http/Resources/PostResource.php
+  
   
   
   
@@ -926,6 +1005,7 @@ Hazards (1):
 
 
 
+
 ```
 The suffix says "via its class" rather than naming a declaring class, because a `migration` hazard is named for a model and a `contract` hazard can name a class deleted whole — neither has a declaring class to point at.
 
@@ -1002,6 +1082,7 @@ Tightening a rate limit reported a tier-3 HIGH saying the limit was gone. A guar
   
   ```
   the rate limit on the GET /search route in routes/api.php rose from `throttle:60,1` to `throttle:120,1`
+  
   
   
   
@@ -1459,6 +1540,7 @@ dispatch($job);
 
 
 
+
 ```
 That was recorded as a dispatch whose target could not be followed — and the taint is global, so one of them makes every `richter:affected-tests` run report `not determinable` and fall back to the full suite. The graph has carried the edge for this shape all along: the instantiation is in the same method, right above the dispatch. The site pointed at a place to restructure where nothing was hidden and nothing needed restructuring.
 
@@ -1579,6 +1661,7 @@ Build profile: nothing was built — the diff holds nothing the graph is built f
 
 
 
+
 ```
 On stderr, like the table it stands in for, and before the payload in `--json` mode so stdout stays one document. Building anyway was the alternative, and it would make a no-op run pay for an analysis nothing asked for.
 
@@ -1596,6 +1679,7 @@ An event named by a class constant resolves in **any** declaration form, includi
 public const string
     SUBTITLE_CHANGED = 'subtitle-changed',
     SUBTITLE_DELETED = 'subtitle-deleted';
+
 
 
 
@@ -1664,6 +1748,7 @@ Build profile (forced rebuild):
   total                      3.85s
   no scoped rebuild: non-app-change
     config/services.php differs from the cached graph and sits outside app/
+
 
 
 
@@ -1787,6 +1872,7 @@ It now names every site:
 ```
 the graph contains job dispatches that could not be followed:
 app/Jobs/Fanout.php:88 (App\Jobs\Fanout::handle), app/Services/Importer.php:12 (App\Services\Importer::run)
+
 
 
 
@@ -2223,6 +2309,7 @@ Note: 2 changed file(s) are outside the analysed scope (not PHP under app/, a Bl
 
 
 
+
 ```
 Stderr, like the untracked-file note, so `--json` and `--markdown` stdout stay exactly the report. Frontend sources the configuration declines to scan are not counted: generated Wayfinder output under `frontend.generated_paths` and `.d.ts` declarations were silenced on purpose, and a note that fires loudest on regeneration churn is one people stop reading.
 
@@ -2335,6 +2422,7 @@ One new advisory lane, and a README that finally leads with what the package is 
   
   
   
+  
   ```
   The count comes off the `route:: → middleware::<group>` edges already in the graph, so it counts endpoints only: a controller-level attachment of the same group does not inflate it. Membership is read from `$middlewareGroups` on a Laravel 10 Kernel or the `->web(append: [...])` form in a Laravel 11+ `bootstrap/app.php`. A member written as an alias resolves through the same alias map, parameters are cut first (`tenant:strict` is one alias with an argument), and a group that names another group is expanded transitively, since Laravel runs the inner group's middleware on the outer group's routes too.
   
@@ -2367,6 +2455,7 @@ Two silent-failure shapes that richter used to miss: a call through an applicati
   
   ```text
     ! resources/js/Pages/Posts/Create.vue posts to POST /posts and sends 'subtitle', which this diff removes from App\Http\Requests\StorePostRequest::rules() (renamed to 'sub_title'?)
+  
   
   
   
