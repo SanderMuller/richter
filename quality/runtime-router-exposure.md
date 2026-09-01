@@ -113,3 +113,12 @@ The one design decision to settle at spec time is whether the correlation
 feeds `gated` immediately or ships evidence-only for one release and earns
 the reach input after a dogfooding pass — the benchmark-control re-grade
 argues for deciding this deliberately, not by default.
+
+## Addendum (2026-09-01, Brain 2.6)
+
+laravel-brain 2.6 — released while this record's spec shipped — closed the named-group and
+renamed-descendant shapes statically: the ancestry walk now covers all four framework auth bases
+and named middleware groups are expanded. The runtime lane's premise narrows but holds: it proves
+guards against the BOOTED router, which also sees runtime-registered groups and aliases,
+controller `HasMiddleware`, and `withoutMiddleware()` exclusions that no static parse carries, and
+it corroborates the shapes Brain now covers. The story pass and constraints above are unchanged.

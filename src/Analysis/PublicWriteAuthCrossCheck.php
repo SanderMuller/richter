@@ -57,32 +57,20 @@ final readonly class PublicWriteAuthCrossCheck
     /**
      * Auth middleware applied to each `PUBLIC_WRITE` route that Brain's own check could not see.
      *
-     * Brain reads a middleware two ways: by NAME — a case-insensitive prefix against `auth`,
-     * `sanctum`, `jwt`, … plus a BASENAME match against `Authenticate` and `ValidateSignature` — and,
-     * since 2.5.0, by walking the class's `extends` chain. That walk terminates on ONE base,
-     * `Illuminate\Auth\Middleware\Authenticate`, so the shapes this lane was written for — a
-     * subclass named `TenantAuthenticate` or `EnsureUserIsAuthenticated` — are now Brain's own
-     * answer, and no `PUBLIC_WRITE` reaches this lane to contradict.
+     * Brain 2.6 — this package's floor — walks the `extends` chain to all four framework auth
+     * bases and expands named middleware groups when classifying exposure, so the shapes this lane
+     * was originally written for are usually Brain's own answer now. The walk stays pointed at all
+     * four bases regardless: a base Brain resolves makes this lane silent for that shape, never
+     * wrong about it, and the lane must not depend on which Brain version a consumer resolved —
+     * upstream narrowing again arrives as a `BrainSecurityContractTest` red, and this lane then
+     * covers more again.
      *
-     * What is left is the rest of {@see AuthMiddlewareVocabulary::AUTH_MIDDLEWARE_BASES}. A middleware descending from
-     * `AuthenticateWithBasicAuth`, `EnsureEmailIsVerified` or `ValidateSignature` under a name of its
-     * own matches no pattern, no basename and no chain: every route behind it is classified
-     * `[public]`, and a mutating verb draws a "requires no authentication" issue — `high` for
-     * `DELETE`, `medium` for the rest — on a route that is, in fact, authenticated. This walks the ancestry of all four bases, over the route's own
-     * `route-to-middleware` edges, so it covers that remainder rather than the same set.
-     *
-     * Keep the walk pointed at all four even after upstream widens its own: a base Brain resolves
-     * makes this lane silent for that shape, never wrong about it, and the lane must not depend on
-     * which Brain version a consumer resolved.
-     *
-     * Those edges carry what the route files themselves declare — including a
-     * `Route::middleware([...])->group(...)` wrapper, whose list Brain's route analyzer attaches to
-     * every route inside it. They do NOT carry the members of a *named* middleware group: Brain
-     * parses the Kernel's `$middlewareGroups` into its registry and never expands it (its
-     * `resolveMiddlewares()` resolves aliases only, and `MiddlewareRegistry::resolveGroup()` has no
-     * callers), and richter declines to expand groups too — mapping a global group onto every class
-     * in its stack would flood each of them with every route ({@see CodeGraphBuilder::resolveMiddlewareAliases()}).
-     * So a route gated only by an `api`/`web` group member is out of this lane's reach by design.
+     * The graph edges this lane reads carry what the route files themselves declare — including a
+     * `Route::middleware([...])->group(...)` wrapper — but NOT the members of a *named* middleware
+     * group: richter declines to expand groups into edges, because mapping a global group onto
+     * every class in its stack would flood each of them with every route
+     * ({@see CodeGraphBuilder::resolveMiddlewareAliases()}). A group-only guard is therefore the
+     * runtime-router lane's subject, not this one's.
      *
      * Annotation only, exactly like {@see gatesByEntryPoint()}: it
      * contradicts the finding beside it and never suppresses it, because "extends an auth middleware"

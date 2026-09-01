@@ -339,7 +339,7 @@ final class RuntimeRouterGuardsTest extends TestCase
             'Illuminate\\Auth\\Middleware\\Authenticate:web' => true,
             // Basename of an FQCN pattern: the app's own same-named class.
             'App\\Http\\Middleware\\Authenticate' => true,
-            'auth.basic' => false,
+            'auth.basic' => true,
             'guest' => false,
             'throttle:60,1' => false,
             'App\\Http\\Middleware\\EnsureTenant' => false,

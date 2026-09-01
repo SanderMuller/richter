@@ -14,8 +14,10 @@ use SanderMuller\Richter\Tests\TestCase;
 
 /**
  * A contract test over the dependency, not over richter: it pins the Brain behaviour
- * {@see PublicWriteAuthCrossCheck} exists to compensate for, so an
- * upstream change to it fails here rather than silently making that lane dead code or a wrong note.
+ * {@see PublicWriteAuthCrossCheck} and the runtime-router lane reason about, so an
+ * upstream change to it fails here rather than silently making a lane dead code or a wrong note.
+ * Brain 2.6 (this package's floor) widened the ancestry walk to all four auth bases and expands
+ * named middleware groups; the cross-check lanes are corroboration on those shapes now.
  *
  * The lane's own tests hand it a `PUBLIC_WRITE` finding, because that is the input it takes. Which
  * routes actually carry one is Brain's answer, and only this file asks Brain.
@@ -95,22 +97,23 @@ final class BrainSecurityContractTest extends TestCase
     #[Test]
     public function brain_classifies_an_authenticate_descendant_itself(): void
     {
-        // Laravel Brain 2.5.0 walks the `extends` chain for this one base, so richter's cross-check
-        // has nothing to contradict here — this is the half of the lane that went quiet.
+        // Brain walks the `extends` chain for this base since 2.5.0, so richter's cross-check
+        // has nothing to contradict here.
         $this->assertSame('authed', $this->exposureOf([self::AUTHENTICATE_DESCENDANT]));
         $this->assertFalse($this->drawsPublicWrite([self::AUTHENTICATE_DESCENDANT]));
     }
 
     /**
-     * The lane's whole remaining reason: the walk stops at `Authenticate`, so these still read
-     * `public` and still draw the finding richter answers with its own ancestry walk.
+     * Brain 2.6 widened the ancestry walk to all four framework auth bases, so these read `authed`
+     * on their own — richter's ancestry lane corroborates rather than out-reaches here. A red on
+     * this test means upstream narrowed again and the lane covers more again.
      */
     #[Test]
     #[DataProvider('descendantsOfTheOtherAuthBases')]
-    public function brain_still_reads_a_descendant_of_the_other_auth_bases_as_public(string $middleware): void
+    public function brain_reads_a_descendant_of_the_other_auth_bases_as_authed(string $middleware): void
     {
-        $this->assertSame('public', $this->exposureOf([$middleware]));
-        $this->assertTrue($this->drawsPublicWrite([$middleware]));
+        $this->assertSame('authed', $this->exposureOf([$middleware]));
+        $this->assertFalse($this->drawsPublicWrite([$middleware]));
     }
 
     /** @return Iterator<string, array{string}> */
@@ -132,29 +135,30 @@ final class BrainSecurityContractTest extends TestCase
     }
 
     #[Test]
-    public function brain_loses_the_verified_alias_once_the_app_registers_it(): void
+    public function brain_keeps_the_verified_alias_even_once_the_app_registers_it(): void
     {
-        // Registering the alias hands Brain the FQCN instead of the word, and
-        // `Illuminate\Auth\Middleware\EnsureEmailIsVerified` matches no pattern, no basename and no
-        // chain. `auth` survives the same treatment because its class IS the base the walk ends on.
+        // Since 2.6 the registered FQCN resolves through the widened ancestry walk, so registering
+        // the alias no longer loses the classification it had as a bare word.
         $registry = new MiddlewareRegistry([], [], [
             'auth' => 'Illuminate\\Auth\\Middleware\\Authenticate',
             'verified' => 'Illuminate\\Auth\\Middleware\\EnsureEmailIsVerified',
         ]);
 
         $this->assertSame('authed', $this->exposureOf(['auth'], $registry));
-        $this->assertSame('public', $this->exposureOf(['verified'], $registry));
+        $this->assertSame('authed', $this->exposureOf(['verified'], $registry));
     }
 
     #[Test]
-    public function brain_does_not_expand_a_named_middleware_group(): void
+    public function brain_expands_a_named_middleware_group_since_two_six(): void
     {
-        // The other shape neither side sees: the guard is real, and it reaches the route through a
-        // group nobody resolves. Richter declines to expand groups too — mapping one onto every
-        // route would report every route in the app for a change to any member.
+        // Brain 2.6 resolves a group's members when classifying exposure, so a guard reaching the
+        // route through a named group is seen statically. Richter still declines to expand groups
+        // into GRAPH EDGES — mapping one onto every route would report every route in the app for
+        // a change to any member — and the runtime-router lane still corroborates against the
+        // BOOTED router, which also sees runtime-registered shapes this static registry cannot.
         $registry = new MiddlewareRegistry([], ['api' => [self::AUTHENTICATE_DESCENDANT]], []);
 
-        $this->assertSame('public', $this->exposureOf(['api'], $registry));
-        $this->assertTrue($this->drawsPublicWrite(['api'], $registry));
+        $this->assertSame('authed', $this->exposureOf(['api'], $registry));
+        $this->assertFalse($this->drawsPublicWrite(['api'], $registry));
     }
 }

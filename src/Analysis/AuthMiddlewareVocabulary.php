@@ -19,26 +19,14 @@ use Throwable;
 final class AuthMiddlewareVocabulary
 {
     /**
-     * The framework middlewares whose descendants authenticate a request. Laravel's whole set, which
-     * is deliberately WIDER than what Brain recognises rather than a divergent opinion about what
-     * counts as authentication — every one of them gates a request, and Brain reaching only some is
-     * the gap the cross-check lanes report on:
-     *
-     * - `Authenticate` — Brain matches it by name, by basename, and by walking an `extends` chain.
-     * - `ValidateSignature` — by name and basename only, so a renamed descendant is missed.
-     * - `EnsureEmailIsVerified` — only while the `verified` alias reaches Brain unresolved.
-     *   `resolveMiddlewares()` maps an alias through the registry first, and
-     *   `MiddlewareRegistry::resolveAlias()` returns it unchanged when the app never registered it —
-     *   the usual case, since the framework's own aliases live in Laravel, not in the app's Kernel
-     *   or `bootstrap/app.php`. An app that registers it hands Brain the FQCN, which matches nothing.
-     * - `AuthenticateWithBasicAuth` — nothing reaches it. `auth.basic` is not the `auth` pattern
-     *   (that one matches `auth`, `auth:…` and `auth\…`, not a dotted sibling), and the class is
-     *   named for neither pattern that carries a namespace.
-     *
-     * Ancestry is unaffected by every one of those distinctions, which is the point of reading it
-     * here. `BrainSecurityContractTest` pins each row — named in prose, not linked: a `{@see}` here
-     * would be turned into an import of a test class by the style pass, and `tests/` is
-     * export-ignored from the dist archive, so the shipped file would import what is not there.
+     * The framework middlewares whose descendants authenticate a request. Laravel's whole set.
+     * Brain 2.6 walks the `extends` chain to all four bases itself, so on the supported floor this
+     * ancestry test mostly CORROBORATES Brain rather than out-reaching it — kept pointed at all
+     * four regardless, because a base Brain resolves makes a lane silent for that shape, never
+     * wrong about it, and the lanes must not depend on which Brain version a consumer resolved.
+     * `BrainSecurityContractTest` pins the upstream behaviour — named in prose, not linked: a
+     * `{@see}` here would be turned into an import of a test class by the style pass, and `tests/`
+     * is export-ignored from the dist archive, so the shipped file would import what is not there.
      *
      * @var list<class-string>
      */
@@ -58,6 +46,7 @@ final class AuthMiddlewareVocabulary
      */
     private const array BRAIN_AUTH_PATTERNS = [
         'auth',
+        'auth.basic',
         'sanctum',
         'jwt',
         'passport',
