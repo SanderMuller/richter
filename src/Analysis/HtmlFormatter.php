@@ -23,7 +23,7 @@ use SanderMuller\Richter\Support\HubFold;
  * @phpstan-import-type SecurityShape from NodeMetadata
  * @phpstan-import-type Layout from RadialLayout
  * @phpstan-type GateVerdict array{failOn: string|null, failOnHazard: int|null, failOnUnresolved: bool, tripped: bool, reasons: list<string>}
- * @phpstan-type DetectChangesResult array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, associationEntryPoints?: list<string>, associationEntryPointsVia?: array<string, list<string>>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, SecurityShape>, entryPointGates: array<string, list<string>>, entryPointAuthGates?: array<string, list<string>>, entryPointAuthMiddleware?: array<string, list<string>>, entryPointAttribution?: array<string, array{via: string, ownReach: int}>, entryPointKeepSet?: array{kept: list<string>, droppedHub: int}, seeds: list<string>, reach: array<string, array<string, true>>, edges: list<array{source: string, target: string, via: string, depth: int}>, impacted: int, relatedModels: list<string>, traitAndOverrideReach?: list<string>, traitAndOverrideReachVia?: array<string, list<string>>, risk: RiskLevel, riskCause?: string, hazards?: list<Hazard>, verification?: array<string, bool|null>, lowConfidence: bool, findings: list<string>, ...}
+ * @phpstan-type DetectChangesResult array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, associationEntryPoints?: list<string>, associationEntryPointsVia?: array<string, list<string>>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, SecurityShape>, entryPointGates: array<string, list<string>>, entryPointAuthGates?: array<string, list<string>>, entryPointAuthMiddleware?: array<string, list<string>>, entryPointRuntimeGuards?: array<string, list<array{middleware: string, group: string|null}>>, entryPointAttribution?: array<string, array{via: string, ownReach: int}>, entryPointKeepSet?: array{kept: list<string>, droppedHub: int}, seeds: list<string>, reach: array<string, array<string, true>>, edges: list<array{source: string, target: string, via: string, depth: int}>, impacted: int, relatedModels: list<string>, traitAndOverrideReach?: list<string>, traitAndOverrideReachVia?: array<string, list<string>>, risk: RiskLevel, riskCause?: string, hazards?: list<Hazard>, verification?: array<string, bool|null>, lowConfidence: bool, findings: list<string>, ...}
  */
 final class HtmlFormatter
 {
@@ -49,6 +49,7 @@ final class HtmlFormatter
             $result['entryPointAuthMiddleware'] ?? [],
             $tests,
             $result['entryPointAttribution'] ?? [],
+            $result['entryPointRuntimeGuards'] ?? [],
         );
 
         $layout = RadialLayout::compute($result['edges'], $result['reach'], $result['seeds'], $result['entryPointLocations']);
@@ -202,6 +203,7 @@ final class HtmlFormatter
                 . ($meta === '' ? '' : '<p class="entry-meta">' . $meta . '</p>')
                 . self::securityIssues($row->security, $editor)
                 . self::authMiddlewareNote($row->authMiddleware)
+                . self::runtimeGuardsNote($row->runtimeGuardLabels())
                 . self::authGatesNote($row->authGates)
                 . '</li>';
         }
@@ -220,16 +222,40 @@ final class HtmlFormatter
      */
     private static function authMiddlewareNote(array $authMiddleware): string
     {
-        if ($authMiddleware === []) {
+        return self::evidenceNote($authMiddleware, '', ' is applied to this route and '
+            . 'extends a framework authentication middleware, so the finding above is likely wrong. '
+            . 'Brain walks an <code>extends</code> chain to <code>Authenticate</code> only, so a descendant '
+            . 'of another auth middleware still reads public.');
+    }
+
+    /**
+     * One shape for every evidence note: the items in code tags between two sentence halves, or
+     * nothing at all when there is no evidence to show.
+     *
+     * @param  list<string>  $items
+     */
+    private static function evidenceNote(array $items, string $before, string $after): string
+    {
+        if ($items === []) {
             return '';
         }
 
-        $middleware = implode('</code>, <code>', array_map(Html::e(...), $authMiddleware));
+        return '<p class="note">richter: ' . $before . '<code>'
+            . implode('</code>, <code>', array_map(Html::e(...), $items)) . '</code>' . $after . '</p>';
+    }
 
-        return '<p class="note">richter: <code>' . $middleware . '</code> is applied to this route and '
-            . 'extends a framework authentication middleware, so the finding above is likely wrong. '
-            . 'Brain walks an <code>extends</code> chain to <code>Authenticate</code> only, so a descendant '
-            . 'of another auth middleware still reads public.</p>';
+    /**
+     * The third evidence lane: guards the BOOTED ROUTER proves on the route, group expansion
+     * included — the one surface the static analyses cannot see. Rendered beside, never replacing,
+     * Brain's finding.
+     *
+     * @param  list<string>  $labels  {@see EntryPointRow::runtimeGuardLabels()}
+     */
+    private static function runtimeGuardsNote(array $labels): string
+    {
+        return self::evidenceNote($labels, 'the booted router shows ', ' on this route, so the '
+            . 'finding above is likely wrong — runtime router evidence the static middleware '
+            . 'surface cannot see.');
     }
 
     /**
@@ -240,15 +266,9 @@ final class HtmlFormatter
      */
     private static function authGatesNote(array $authGates): string
     {
-        if ($authGates === []) {
-            return '';
-        }
-
-        $policies = implode('</code>, <code>', array_map(Html::e(...), $authGates));
-
-        return '<p class="note">richter: an authorization policy (<code>' . $policies . '</code>) is applied '
+        return self::evidenceNote($authGates, 'an authorization policy (', ') is applied '
             . 'in this route\'s reach — verify whether it gates this write. Brain does not resolve middleware '
-            . 'groups or in-controller gates.</p>';
+            . 'groups or in-controller gates.');
     }
 
     /**

@@ -17,13 +17,16 @@ use SanderMuller\Richter\Support\InheritanceSurfaces;
 final class ImpactFormatter
 {
     /**
+     * One shared value with the MCP structured-content cap ({@see BoundedPresenter::LIST_CAP}), so
+     * the prefix a human reads here is the prefix an agent gets there.
+     *
      * Rendered breadth lists are capped at this many entries — a 100+-entry-point hub change is
      * breadth context, not a checklist, so a long list buries the signal rather than adding to it.
      */
-    private const int LIST_CAP = 15;
+    private const int LIST_CAP = BoundedPresenter::LIST_CAP;
 
     /**
-     * @param  array{target: string, callers: list<array{depth: int, node: string, via: string, file?: string, line?: int}>, dependencies: list<array{depth: int, node: string, via: string, file?: string, line?: int}>, entryPoints?: list<string>, associationEntryPoints?: list<string>, associationEntryPointsVia?: array<string, list<string>>, entryPointPaths?: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations?: array<string, array{file: string, line?: int}>, entryPointSecurity?: array<string, SecurityShape>, entryPointGates?: array<string, list<string>>, entryPointAuthGates?: array<string, list<string>>, entryPointAuthMiddleware?: array<string, list<string>>, entryPointAttribution?: array<string, array{via: string, ownReach: int}>, suggestions?: list<string>, graphNodeCount?: int}  $result
+     * @param  array{target: string, callers: list<array{depth: int, node: string, via: string, file?: string, line?: int}>, dependencies: list<array{depth: int, node: string, via: string, file?: string, line?: int}>, entryPoints?: list<string>, associationEntryPoints?: list<string>, associationEntryPointsVia?: array<string, list<string>>, entryPointPaths?: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations?: array<string, array{file: string, line?: int}>, entryPointSecurity?: array<string, SecurityShape>, entryPointGates?: array<string, list<string>>, entryPointAuthGates?: array<string, list<string>>, entryPointAuthMiddleware?: array<string, list<string>>, entryPointRuntimeGuards?: array<string, list<array{middleware: string, group: string|null}>>, entryPointAttribution?: array<string, array{via: string, ownReach: int}>, suggestions?: list<string>, graphNodeCount?: int}  $result
      * @param  bool  $explain  render the call chain from each reached entry surface down to the symbol
      */
     public static function impact(array $result, ?TestReferenceIndex $tests = null, bool $explain = false): string
@@ -49,6 +52,7 @@ final class ImpactFormatter
                 $result['entryPointAuthGates'] ?? [],
                 $result['entryPointAuthMiddleware'] ?? [],
                 $tests,
+                runtimeGuards: $result['entryPointRuntimeGuards'] ?? [],
             )),
             ...self::associationSurfaces($result['associationEntryPoints'] ?? [], $result['associationEntryPointsVia'] ?? []),
             '',
@@ -83,7 +87,7 @@ final class ImpactFormatter
     }
 
     /**
-     * @param  array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, newFiles?: list<string>, fqcns?: array<string, string>, entryPoints: list<string>, associationEntryPoints?: list<string>, associationEntryPointsVia?: array<string, list<string>>, entryPointPaths?: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations?: array<string, array{file: string, line?: int}>, entryPointSecurity?: array<string, SecurityShape>, entryPointGates?: array<string, list<string>>, entryPointAuthGates?: array<string, list<string>>, entryPointAuthMiddleware?: array<string, list<string>>, entryPointAttribution?: array<string, array{via: string, ownReach: int}>, entryPointKeepSet?: array{kept: list<string>, droppedHub: int}, impacted: int, relatedModels: list<string>, traitAndOverrideReach?: list<string>, traitAndOverrideReachVia?: array<string, list<string>>, risk: RiskLevel, riskCause?: string, hazards?: list<Hazard>, lowConfidence: bool, findings?: list<string>, ...}  $result
+     * @param  array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, newFiles?: list<string>, fqcns?: array<string, string>, entryPoints: list<string>, associationEntryPoints?: list<string>, associationEntryPointsVia?: array<string, list<string>>, entryPointPaths?: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations?: array<string, array{file: string, line?: int}>, entryPointSecurity?: array<string, SecurityShape>, entryPointGates?: array<string, list<string>>, entryPointAuthGates?: array<string, list<string>>, entryPointAuthMiddleware?: array<string, list<string>>, entryPointRuntimeGuards?: array<string, list<array{middleware: string, group: string|null}>>, entryPointAttribution?: array<string, array{via: string, ownReach: int}>, entryPointKeepSet?: array{kept: list<string>, droppedHub: int}, impacted: int, relatedModels: list<string>, traitAndOverrideReach?: list<string>, traitAndOverrideReachVia?: array<string, list<string>>, risk: RiskLevel, riskCause?: string, hazards?: list<Hazard>, lowConfidence: bool, findings?: list<string>, ...}  $result
      * @param  bool  $gateActive  when a `--fail-on*` gate is active the command prints its own verdict, so the advisory suffix is dropped to avoid contradicting it
      * @param  bool  $explain  render the call chain from each reached entry point down to the changed symbol
      */
@@ -122,6 +126,7 @@ final class ImpactFormatter
             $result['entryPointAuthMiddleware'] ?? [],
             $tests,
             $result['entryPointAttribution'] ?? [],
+            $result['entryPointRuntimeGuards'] ?? [],
         )];
 
         foreach (HubFold::sentences(
@@ -381,13 +386,14 @@ final class ImpactFormatter
      * @param  array<string, SecurityShape>  $security  keyed by entry-point node; routes only
      * @param  array<string, list<string>>  $gates  keyed by entry-point node; Pennant flags gating the route
      * @param  array<string, list<string>>  $authGates  keyed by entry-point node; policy gates that contradict a PUBLIC_WRITE finding
+     * @param  array<string, list<array{middleware: string, group: string|null}>>  $runtimeGuards  keyed by entry-point node; runtime-proven guards
      * @param  array<string, list<string>>  $authMiddleware  keyed by entry-point node; auth middleware that contradicts one
      * @param  array<string, array{via: string, ownReach: int}>  $attribution  keyed by entry-point node; empty for a single-symbol report
      * @return list<string>
      */
-    private static function entryPointList(array $entryPoints, array $paths, array $locations, array $security, array $gates, array $authGates, array $authMiddleware, ?TestReferenceIndex $tests, array $attribution = []): array
+    private static function entryPointList(array $entryPoints, array $paths, array $locations, array $security, array $gates, array $authGates, array $authMiddleware, ?TestReferenceIndex $tests, array $attribution = [], array $runtimeGuards = []): array
     {
-        $rows = EntryPointRow::build($entryPoints, $paths, $locations, $security, $gates, $authGates, $authMiddleware, $tests, $attribution);
+        $rows = EntryPointRow::build($entryPoints, $paths, $locations, $security, $gates, $authGates, $authMiddleware, $tests, $attribution, $runtimeGuards);
 
         $overCap = count($rows) > self::LIST_CAP;
         $shown = $overCap ? array_slice($rows, 0, self::LIST_CAP) : $rows;
@@ -418,6 +424,12 @@ final class ImpactFormatter
                     . ' is applied to this route and extends a framework authentication middleware, '
                     . 'so the finding above is likely wrong (Brain walks an extends chain to Authenticate only, '
                     . 'so a descendant of another auth middleware still reads public).';
+            }
+
+            if ($row->runtimeGuards !== []) {
+                $lines[] = '      richter: the booted router shows ' . implode(', ', $row->runtimeGuardLabels())
+                    . ' on this route, so the finding above is likely wrong — runtime router evidence '
+                    . 'the static middleware surface cannot see.';
             }
 
             if ($row->authGates !== []) {
@@ -507,6 +519,11 @@ final class ImpactFormatter
     }
 
     /**
+     * Capped at {@see LIST_CAP} like the breadth lists — the input is BFS-ordered, so the cap keeps
+     * the nearest hops, which are what breaks first. This prose is also the MCP response's text
+     * block, so an uncapped hub here would hand an agent thousands of hop lines beside a bounded
+     * structured payload.
+     *
      * @param  list<array{depth: int, node: string, via: string, file?: string, line?: int}>  $hops
      * @return list<string>
      */
@@ -516,7 +533,9 @@ final class ImpactFormatter
             return ['  (none)'];
         }
 
-        return array_map(
+        $shown = count($hops) > self::LIST_CAP ? array_slice($hops, 0, self::LIST_CAP) : $hops;
+
+        $lines = array_map(
             static function (array $hop): string {
                 $location = isset($hop['file'])
                     ? '  — ' . $hop['file'] . (isset($hop['line']) ? ":{$hop['line']}" : '')
@@ -524,7 +543,13 @@ final class ImpactFormatter
 
                 return '  d' . $hop['depth'] . '  ' . NodeLabel::display($hop['node']) . "  (via {$hop['via']}){$location}";
             },
-            $hops,
+            $shown,
         );
+
+        if (count($hops) > self::LIST_CAP) {
+            $lines[] = '  … and ' . (count($hops) - self::LIST_CAP) . ' more';
+        }
+
+        return $lines;
     }
 }

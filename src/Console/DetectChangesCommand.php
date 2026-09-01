@@ -193,7 +193,8 @@ final class DetectChangesCommand extends Command
     {
         try {
             $base = RichterConfig::baseRef($this->option('base'));
-            ['changed' => $changed, 'outOfScope' => $outOfScope] = ChangedSymbols::resolveWithScope($base, RichterConfig::headRef($this->option('head')));
+            $head = RichterConfig::headRef($this->option('head'));
+            ['changed' => $changed, 'outOfScope' => $outOfScope] = ChangedSymbols::resolveWithScope($base, $head);
         } catch (RuntimeException $runtimeException) {
             // A broken diff can't be assessed: advisory still exits 0, but under a gate that reads as failure.
             $this->warn($runtimeException->getMessage());
@@ -223,7 +224,7 @@ final class DetectChangesCommand extends Command
         $tests = TestReferenceIndex::fromTests(base_path('tests'));
         $tests->useGraph($graph);
 
-        $result = new ImpactAnalyzer($graph)->detectChanges($changed, payloadParityEnabled: $this->payloadParityEnabled(), tests: $tests, hazardsEnabled: $this->hazardsEnabled());
+        $result = new ImpactAnalyzer($graph)->detectChanges($changed, payloadParityEnabled: $this->payloadParityEnabled(), tests: $tests, hazardsEnabled: $this->hazardsEnabled(), runtimeEvidenceRoot: RichterConfig::runtimeEvidenceRoot($head));
 
         $markdown = (bool) $this->option('markdown');
         $explain = (bool) $this->option('explain');
@@ -274,7 +275,8 @@ final class DetectChangesCommand extends Command
         try {
             try {
                 $base = RichterConfig::baseRef($this->option('base'));
-                ['changed' => $changed, 'outOfScope' => $outOfScope] = ChangedSymbols::resolveWithScope($base, RichterConfig::headRef($this->option('head')));
+                $head = RichterConfig::headRef($this->option('head'));
+                ['changed' => $changed, 'outOfScope' => $outOfScope] = ChangedSymbols::resolveWithScope($base, $head);
             } catch (InvalidArgumentException|RuntimeException $expected) {
                 // Expected operational failures (bad/option-shaped ref, broken diff): advisory unless gated.
                 return $this->jsonError($expected->getMessage(), $gateActive ? self::FAILURE : self::SUCCESS);
@@ -282,7 +284,7 @@ final class DetectChangesCommand extends Command
 
             $this->noteOutOfScopeFiles($outOfScope);
 
-            return $this->emitJson($graphs, $base, $changed, $failOn, $failOnUnresolved, $gateActive);
+            return $this->emitJson($graphs, $base, $changed, $failOn, $failOnUnresolved, $gateActive, RichterConfig::runtimeEvidenceRoot($head));
         } catch (Throwable $throwable) {
             // Backstop: an unexpected graph-build/analyze (or resolution) error is not "no impact" —
             // fail, but keep stdout a single JSON document instead of a leaked stack trace.
@@ -293,7 +295,7 @@ final class DetectChangesCommand extends Command
     /**
      * @param  list<ChangedFileSymbols>  $changed
      */
-    private function emitJson(GraphCache $graphs, string $base, array $changed, ?RiskLevel $failOn, bool $failOnUnresolved, bool $gateActive): int
+    private function emitJson(GraphCache $graphs, string $base, array $changed, ?RiskLevel $failOn, bool $failOnUnresolved, bool $gateActive, ?string $runtimeEvidenceRoot): int
     {
         if ($changed === []) {
             // Empty diff always passes: gate not evaluated, so a bare --fail-on=low can't trip on zero changes.
@@ -316,7 +318,7 @@ final class DetectChangesCommand extends Command
         $tests = TestReferenceIndex::fromTests(base_path('tests'));
         $tests->useGraph($graph);
 
-        $result = new ImpactAnalyzer($graph)->detectChanges($changed, payloadParityEnabled: $this->payloadParityEnabled(), tests: $tests, hazardsEnabled: $this->hazardsEnabled());
+        $result = new ImpactAnalyzer($graph)->detectChanges($changed, payloadParityEnabled: $this->payloadParityEnabled(), tests: $tests, hazardsEnabled: $this->hazardsEnabled(), runtimeEvidenceRoot: $runtimeEvidenceRoot);
         $payload = JsonPresenter::detectChanges($result, $base, $tests);
 
         if (! $gateActive) {

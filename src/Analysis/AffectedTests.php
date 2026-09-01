@@ -114,6 +114,8 @@ final class AffectedTests
             payloadParityEnabled: $fullAnalysis ? null : false,
             tests: $fullAnalysis ? TestReferenceIndex::fromTests(base_path('tests'), base_path()) : null,
             attributionEnabled: $fullAnalysis,
+            // Working-tree analyses only: a named head describes a commit the booted router does not.
+            runtimeEvidenceRoot: RichterConfig::runtimeEvidenceRoot($head),
         );
 
         $selection = self::select(

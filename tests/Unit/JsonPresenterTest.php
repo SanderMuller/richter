@@ -44,6 +44,7 @@ final class JsonPresenterTest extends TestCase
             'entryPointSecurity',
             'entryPointGates',
             'entryPointAuthGates',
+            'entryPointRuntimeGuards',
             'entryPointTestReferences',
         ], array_keys($json));
         $this->assertSame(['route::GET /users'], $json['entryPoints']);

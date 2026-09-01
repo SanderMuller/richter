@@ -28,6 +28,9 @@ final readonly class EntryPointRow
      * @param  list<string>  $authGates  `App\Policies\*` classes richter's own `authorizes` edges show
      *   this route's reach gates on — evidence that contradicts a Brain `PUBLIC_WRITE` finding; empty
      *   unless the route carries a `PUBLIC_WRITE` issue and a gate is found in reach
+     * @param  list<array{middleware: string, group: string|null}>  $runtimeGuards  guards the booted
+     *   router proves on this route ({@see RuntimeRouterGuards}) — runtime evidence beside Brain's
+     *   finding, with the named middleware group each guard arrived through (null = applied directly)
      * @param  bool  $assertionWeak  {@see TestReferenceIndex::referencedWithoutBehaviouralAssertion()}; false whenever it cannot be graded true, never a tri-state
      */
     private function __construct(
@@ -40,8 +43,25 @@ final readonly class EntryPointRow
         public array $gates,
         public array $authGates,
         public array $authMiddleware,
+        public array $runtimeGuards,
         public bool $assertionWeak,
     ) {}
+
+    /**
+     * The runtime guards as plain display labels — `FQCN (via middleware group 'web')` /
+     * `FQCN (applied directly)` — so each formatter only wraps and escapes, keeping the branchy
+     * part in one place.
+     *
+     * @return list<string>
+     */
+    public function runtimeGuardLabels(): array
+    {
+        return array_map(
+            static fn (array $guard): string => $guard['middleware']
+                . ($guard['group'] === null ? ' (applied directly)' : " (via middleware group '{$guard['group']}')"),
+            $this->runtimeGuards,
+        );
+    }
 
     /**
      * One row per entry point, in the order every formatter renders and cuts at its cap.
@@ -64,9 +84,10 @@ final readonly class EntryPointRow
      * @param  array<string, list<string>>  $authGates  keyed by entry-point node; contradicting policy gates
      * @param  array<string, list<string>>  $authMiddleware  keyed by entry-point node; contradicting auth middleware
      * @param  array<string, array{via: string, ownReach: int}>  $attribution  keyed by entry-point node; empty when the caller has none to give
+     * @param  array<string, list<array{middleware: string, group: string|null}>>  $runtimeGuards  keyed by entry-point node; runtime-proven guards
      * @return list<self>
      */
-    public static function build(array $entryPoints, array $paths, array $locations, array $security, array $gates, array $authGates, array $authMiddleware, ?TestReferenceIndex $tests, array $attribution = []): array
+    public static function build(array $entryPoints, array $paths, array $locations, array $security, array $gates, array $authGates, array $authMiddleware, ?TestReferenceIndex $tests, array $attribution = [], array $runtimeGuards = []): array
     {
         return array_map(static fn (string $node): self => new self(
             node: $node,
@@ -78,6 +99,7 @@ final readonly class EntryPointRow
             gates: $gates[$node] ?? [],
             authGates: $authGates[$node] ?? [],
             authMiddleware: $authMiddleware[$node] ?? [],
+            runtimeGuards: $runtimeGuards[$node] ?? [],
             assertionWeak: $tests?->referencedWithoutBehaviouralAssertion($node) ?? false,
         ), EntryPointAttribution::order($entryPoints, $attribution));
     }

@@ -356,6 +356,17 @@ final class RichterConfig
      * working-tree mode on the literal string, and a flag that silently did nothing for the most
      * obvious value anyone would type is worse than no flag.
      */
+    /**
+     * The analyzed root the runtime-guards lane may trust, derived from a resolved head ref: the
+     * literal 'HEAD' is working-tree mode (the booted router describes exactly that tree), and any
+     * resolved commit sha is a historical state the router does not describe — null, fail-closed.
+     * One seam for every detect-changes caller, so no call site re-derives the ternary.
+     */
+    public static function runtimeEvidenceRoot(string $head): ?string
+    {
+        return $head === 'HEAD' ? base_path() : null;
+    }
+
     public static function headRef(mixed $option = null): string
     {
         if (! is_string($option) || $option === '') {

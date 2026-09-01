@@ -13,6 +13,7 @@ use Laravel\Mcp\Server\McpServiceProvider;
 use Override;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\Attributes\Test;
+use SanderMuller\Richter\Analysis\BoundedPresenter;
 use SanderMuller\Richter\Analysis\JsonPresenter;
 use SanderMuller\Richter\Mcp\Resources\ConfigResource;
 use SanderMuller\Richter\Mcp\Resources\EntryPointsResource;
@@ -228,6 +229,64 @@ final class McpTest extends TestCase
     }
 
     #[Test]
+    public function the_bounded_tools_reject_invalid_drilldown_arguments(): void
+    {
+        // The values reach handle() as mixed via Request::get(), so the input schema alone proves
+        // nothing about the direct path.
+        foreach ([
+            ['symbol' => 'User', 'full' => 'yes'],
+            ['symbol' => 'User', 'entries' => 'route::GET::/x'],
+            ['symbol' => 'User', 'entries' => ['route::GET::/x', 42]],
+            ['symbol' => 'User', 'entries' => ['named' => 'route::GET::/x']],
+        ] as $arguments) {
+            $response = resolve(ImpactTool::class)->handle(new Request($arguments));
+
+            $this->assertInstanceOf(Response::class, $response);
+            $this->assertTrue($response->isError());
+        }
+    }
+
+    #[Test]
+    public function the_bounded_tools_accept_valid_drilldown_arguments_end_to_end(): void
+    {
+        // The unit tests prove the presenter's full/entries semantics; this proves the tools
+        // actually thread the arguments through — a swapped parameter would fail here at runtime.
+        Process::fake([
+            '*merge-base*' => Process::result("abc123\n"),
+            '*diff*' => Process::result(''),
+        ]);
+
+        $detectChanges = resolve(DetectChangesTool::class)->handle(new Request(['full' => true, 'entries' => ['route::GET::/x']]));
+        $this->assertInstanceOf(ResponseFactory::class, $detectChanges);
+        $this->assertSame(
+            BoundedPresenter::detectChanges(JsonPresenter::emptyDetectChanges('origin/main'), full: true),
+            $detectChanges->getStructuredContent(),
+        );
+
+        $impact = resolve(ImpactTool::class)->handle(new Request(['symbol' => 'User', 'full' => true, 'entries' => ['route::GET::/x']]));
+        $this->assertInstanceOf(ResponseFactory::class, $impact);
+        $structured = $impact->getStructuredContent();
+        $this->assertIsArray($structured);
+        $this->assertFalse($structured['bounded']);
+    }
+
+    #[Test]
+    public function the_detect_changes_tool_rejects_invalid_drilldown_arguments_even_on_an_empty_diff(): void
+    {
+        // Validation must run BEFORE the diff resolves: the empty-diff early return would
+        // otherwise silently accept invalid input whenever the diff is empty.
+        Process::fake([
+            '*merge-base*' => Process::result("abc123\n"),
+            '*diff*' => Process::result(''),
+        ]);
+
+        $response = resolve(DetectChangesTool::class)->handle(new Request(['full' => 'yes']));
+
+        $this->assertInstanceOf(Response::class, $response);
+        $this->assertTrue($response->isError());
+    }
+
+    #[Test]
     public function the_detect_changes_tool_reports_a_broken_ref_as_an_error(): void
     {
         $response = resolve(DetectChangesTool::class)->handle(new Request(['base' => 'this-ref-does-not-exist-zzz']));
@@ -256,6 +315,15 @@ final class McpTest extends TestCase
         $properties = $schema['properties'] ?? [];
         $this->assertIsArray($properties);
         $this->assertArrayHasKey('head', $properties);
+        $this->assertArrayHasKey('full', $properties);
+        $this->assertArrayHasKey('entries', $properties);
+
+        $impactSchema = resolve(ImpactTool::class)->toArray()['inputSchema'] ?? [];
+        $this->assertIsArray($impactSchema);
+        $impactInputProperties = $impactSchema['properties'] ?? [];
+        $this->assertIsArray($impactInputProperties);
+        $this->assertArrayHasKey('full', $impactInputProperties);
+        $this->assertArrayHasKey('entries', $impactInputProperties);
 
         $response = resolve(DetectChangesTool::class)->handle(new Request(['head' => 'this-ref-does-not-exist-zzz']));
 
@@ -301,6 +369,14 @@ final class McpTest extends TestCase
                     ->has('dependencies')
                     ->has('entryPoints')
                     ->has('entryPointTestReferences')
+                    ->has('entryPointRuntimeGuards')
+                    // The skeleton graph is a leaf-sized result: nothing crosses the cap, so the
+                    // bounded marker must read false while the totals are still present.
+                    ->where('bounded', false)
+                    ->has('callersTotal')
+                    ->has('dependenciesTotal')
+                    ->has('entryPointsTotal')
+                    ->has('associationEntryPointsTotal')
                     ->etc();
 
                 return true;
@@ -316,11 +392,12 @@ final class McpTest extends TestCase
         ]);
 
         // The testbench config default base is origin/main; the exact-array form pins every
-        // field of the zero contract.
+        // field of the zero contract. Routed through the bounding step on both sides, exactly as
+        // the tool routes it — which also pins bounded:false and zero totals on an empty result.
         RichterServer::tool(DetectChangesTool::class)
             ->assertOk()
             ->assertSee('No changed PHP files under app/')
-            ->assertStructuredContent(JsonPresenter::emptyDetectChanges('origin/main'));
+            ->assertStructuredContent(BoundedPresenter::detectChanges(JsonPresenter::emptyDetectChanges('origin/main')));
     }
 
     #[Test]
@@ -386,7 +463,13 @@ final class McpTest extends TestCase
             'entryPointSecurity',
             'entryPointGates',
             'entryPointAuthGates',
+            'entryPointRuntimeGuards',
             'entryPointTestReferences',
+            'bounded',
+            'callersTotal',
+            'dependenciesTotal',
+            'entryPointsTotal',
+            'associationEntryPointsTotal',
         ], array_keys($impactProperties));
         $this->assertSame(['from', 'to', 'resolvedFrom', 'resolvedTo', 'found', 'path', 'furthestReached'], array_keys($traceProperties));
         $this->assertSame([
@@ -400,6 +483,7 @@ final class McpTest extends TestCase
             'entryPointLocations',
             'entryPointSecurity',
             'entryPointGates',
+            'entryPointRuntimeGuards',
             'entryPointTestReferences',
             'entryPointAttribution',
             'entryPointKeepSet',
@@ -414,6 +498,11 @@ final class McpTest extends TestCase
             'lowConfidence',
             'findings',
             'unresolved',
+            'bounded',
+            'entryPointsTotal',
+            'associationEntryPointsTotal',
+            'relatedModelsTotal',
+            'traitAndOverrideReachTotal',
         ], array_keys($detectChangesProperties));
     }
 

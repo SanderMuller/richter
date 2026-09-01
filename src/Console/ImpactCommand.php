@@ -56,7 +56,7 @@ final class ImpactCommand extends Command
         }
 
         $graph = $this->graph($graphs);
-        $result = new ImpactAnalyzer($graph)->impact($symbol);
+        $result = new ImpactAnalyzer($graph)->impact($symbol, runtimeEvidenceRoot: base_path());
         $explain = (bool) $this->option('explain');
         $tests = $this->testIndexFor($result, $graph);
 
@@ -102,7 +102,7 @@ final class ImpactCommand extends Command
     {
         try {
             $graph = $this->graph($graphs);
-            $result = new ImpactAnalyzer($graph)->impact($symbol);
+            $result = new ImpactAnalyzer($graph)->impact($symbol, runtimeEvidenceRoot: base_path());
 
             $this->writeDocument(JsonPresenter::encode(JsonPresenter::impact($result, $this->testIndexFor($result, $graph))));
 

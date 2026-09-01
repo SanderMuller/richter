@@ -233,7 +233,7 @@ admissions.
 | State | | Meaning |
 |---|---|---|
 | `public-write` | finding | a route Brain marks `PUBLIC_WRITE`, with no guard richter can point at, reaches the hazardous member |
-| `gated` | finding | every reaching entry point shows a guard: Brain classifies it `authed`, `admin` or `internal`, or the cross-check correlated a policy or auth middleware to it |
+| `gated` | finding | every reaching entry point shows a guard: Brain classifies it `authed`, `admin` or `internal`, or a cross-check correlated a policy, an auth middleware, or a runtime-proven guard (the booted router's expanded stack) to it |
 | `no-guard-found` | admission | it is reached, and no guard is visible on at least one of the routes that reach it |
 | `no-known-path` | admission | no reaching entry point was found |
 

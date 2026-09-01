@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\Route;
 use LaraMint\LaravelBrain\Analysis\MiddlewareAnalyzer;
 use SanderMuller\Richter\Graph\CodeGraph;
 use SanderMuller\Richter\Graph\MiddlewareAliases;
+use SanderMuller\Richter\Support\RunningApplication;
 use Throwable;
 
 /**
@@ -186,7 +187,9 @@ final class MiddlewareGroupFindings
         $root = $this->projectRoot;
 
         try {
-            if ($root !== null && realpath($root) !== realpath(base_path())) {
+            // A null root proceeds — a lenient default this COUNT can afford and the runtime-guards
+            // lane deliberately cannot (it fails closed on an unknown root; see RuntimeRouterGuards).
+            if ($root !== null && ! RunningApplication::isProject($root)) {
                 return null;
             }
 

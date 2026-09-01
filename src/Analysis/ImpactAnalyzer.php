@@ -109,11 +109,12 @@ final readonly class ImpactAnalyzer
      *     entryPointGates: array<string, list<string>>,
      *     entryPointAuthGates: array<string, list<string>>,
      *     entryPointAuthMiddleware: array<string, list<string>>,
+     *     entryPointRuntimeGuards: array<string, list<array{middleware: string, group: string|null}>>,
      *     suggestions: list<string>,
      *     graphNodeCount: int,
      * }
      */
-    public function impact(string $symbol, int $maxDepth = 6): array
+    public function impact(string $symbol, int $maxDepth = 6, ?string $runtimeEvidenceRoot = null): array
     {
         $seeds = $this->seedsFor($symbol);
         $callers = $this->withHopLocations($this->graph->callersOf($seeds, $maxDepth));
@@ -138,6 +139,7 @@ final readonly class ImpactAnalyzer
             'entryPointGates' => $entryPointGates,
             'entryPointAuthGates' => $crossCheck->gatesByEntryPoint($entryPointSecurity, $maxDepth),
             'entryPointAuthMiddleware' => $crossCheck->authMiddlewareByEntryPoint($entryPointSecurity),
+            'entryPointRuntimeGuards' => new RuntimeRouterGuards($runtimeEvidenceRoot)->guardsByEntryPoint($entryPointSecurity),
             // Only on a miss: a hit needs no lead, and the token scan is not free.
             'suggestions' => $seeds === [] ? $this->graph->nearestNodes($symbol) : [],
             'graphNodeCount' => $this->graph->nodeCount(),
@@ -164,7 +166,7 @@ final readonly class ImpactAnalyzer
      * draw "nothing changed" without a graph build. {@see JsonPresenter::emptyDetectChanges()} is
      * the separate JSON-shaped equivalent; the two differ in `risk` (enum here, string there).
      *
-     * @return array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, newFiles: list<string>, fqcns: array<string, string>, callers: list<array{depth: int, node: string, via: string}>, dependencies: list<array{depth: int, node: string, via: string}>, seeds: list<string>, reach: array<string, array<string, true>>, edges: list<array{source: string, target: string, via: string, depth: int}>, entryPoints: list<string>, associationEntryPoints: list<string>, associationEntryPointsVia: array<string, list<string>>, registryEntryPoints: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, SecurityShape>, entryPointGates: array<string, list<string>>, entryPointAuthGates: array<string, list<string>>, entryPointAuthMiddleware: array<string, list<string>>, entryPointAttribution: array<string, array{via: string, ownReach: int}>, entryPointKeepSet: array{kept: list<string>, droppedHub: int}, impacted: int, relatedModels: list<string>, traitAndOverrideReach: list<string>, traitAndOverrideReachVia: array<string, list<string>>, risk: RiskLevel, riskCause: string, hazards: list<Hazard>, verification: array<string, bool|null>, lowConfidence: bool, findings: list<string>}
+     * @return array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, newFiles: list<string>, fqcns: array<string, string>, callers: list<array{depth: int, node: string, via: string}>, dependencies: list<array{depth: int, node: string, via: string}>, seeds: list<string>, reach: array<string, array<string, true>>, edges: list<array{source: string, target: string, via: string, depth: int}>, entryPoints: list<string>, associationEntryPoints: list<string>, associationEntryPointsVia: array<string, list<string>>, registryEntryPoints: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, SecurityShape>, entryPointGates: array<string, list<string>>, entryPointAuthGates: array<string, list<string>>, entryPointAuthMiddleware: array<string, list<string>>, entryPointRuntimeGuards: array<string, list<array{middleware: string, group: string|null}>>, entryPointAttribution: array<string, array{via: string, ownReach: int}>, entryPointKeepSet: array{kept: list<string>, droppedHub: int}, impacted: int, relatedModels: list<string>, traitAndOverrideReach: list<string>, traitAndOverrideReachVia: array<string, list<string>>, risk: RiskLevel, riskCause: string, hazards: list<Hazard>, verification: array<string, bool|null>, lowConfidence: bool, findings: list<string>}
      */
     public static function emptyDetectChanges(): array
     {
@@ -173,7 +175,7 @@ final readonly class ImpactAnalyzer
             'seeds' => [], 'reach' => [], 'edges' => [], 'entryPoints' => [], 'associationEntryPoints' => [], 'associationEntryPointsVia' => [], 'entryPointPaths' => [],
             'entryPointLocations' => [], 'entryPointSecurity' => [], 'entryPointGates' => [],
             'entryPointKeepSet' => ['kept' => [], 'droppedHub' => 0],
-            'entryPointAuthGates' => [], 'entryPointAuthMiddleware' => [], 'entryPointAttribution' => [],
+            'entryPointAuthGates' => [], 'entryPointAuthMiddleware' => [], 'entryPointRuntimeGuards' => [], 'entryPointAttribution' => [],
             'impacted' => 0, 'relatedModels' => [], 'registryEntryPoints' => [], 'traitAndOverrideReach' => [], 'traitAndOverrideReachVia' => [], 'risk' => RiskLevel::Low,
             // Ladder step 0: nothing was analysed, which is not the same fact as "analysed and could
             // not be placed". An empty diff has always reported LOW and still does.
@@ -214,6 +216,7 @@ final readonly class ImpactAnalyzer
      *     entryPointGates: array<string, list<string>>,
      *     entryPointAuthGates: array<string, list<string>>,
      *     entryPointAuthMiddleware: array<string, list<string>>,
+     *     entryPointRuntimeGuards: array<string, list<array{middleware: string, group: string|null}>>,
      *     entryPointAttribution: array<string, array{via: string, ownReach: int}>,
      *     entryPointKeepSet: array{kept: list<string>, droppedHub: int},
      *     impacted: int,
@@ -229,7 +232,7 @@ final readonly class ImpactAnalyzer
      *     findings: list<string>,
      * }
      */
-    public function detectChanges(array $changed, int $maxDepth = 6, ?bool $payloadParityEnabled = null, ?TestReferenceIndex $tests = null, ?bool $hazardsEnabled = null, bool $attributionEnabled = true): array
+    public function detectChanges(array $changed, int $maxDepth = 6, ?bool $payloadParityEnabled = null, ?TestReferenceIndex $tests = null, ?bool $hazardsEnabled = null, bool $attributionEnabled = true, ?string $runtimeEvidenceRoot = null): array
     {
         $preciseSeeds = [];
         $coarseSeeds = [];
@@ -408,12 +411,15 @@ final readonly class ImpactAnalyzer
         $crossCheck = new PublicWriteAuthCrossCheck($this->graph);
         $entryPointAuthGates = $crossCheck->gatesByEntryPoint($entryPointSecurity, $maxDepth);
         $entryPointAuthMiddleware = $crossCheck->authMiddlewareByEntryPoint($entryPointSecurity);
+        // Fail-closed: a null root means "not analysing the booted working tree" (a named head, a
+        // benchmark replay, a caller that never opted in), and the lane stays silent.
+        $entryPointRuntimeGuards = new RuntimeRouterGuards($runtimeEvidenceRoot)->guardsByEntryPoint($entryPointSecurity);
 
         // The level is decided LAST, because it needs all three of the above: the hazards from the
         // findings pass, the reach class from the security annotations, and the entry-point set the
         // verification lane grades. The old breadth score could run early precisely because it needed
         // none of them — it only counted.
-        $hazards = new HazardReach($this->graph, $entryPointPaths, $entryPointSecurity, $entryPointAuthGates, $entryPointAuthMiddleware, $maxDepth, $this->entryPointsAmong(...))
+        $hazards = new HazardReach($this->graph, $entryPointPaths, $entryPointSecurity, $entryPointAuthGates, $entryPointAuthMiddleware, $entryPointRuntimeGuards, $maxDepth, $this->entryPointsAmong(...))
             ->attach(HazardFindings::for($changed, $hazardsEnabled, $parityHazards));
 
         // Runs on what survived suppression, so a silenced column costs no lookup. Evidence only: it
@@ -467,6 +473,7 @@ final readonly class ImpactAnalyzer
             'entryPointGates' => $entryPointGates,
             'entryPointAuthGates' => $entryPointAuthGates,
             'entryPointAuthMiddleware' => $entryPointAuthMiddleware,
+            'entryPointRuntimeGuards' => $entryPointRuntimeGuards,
             'entryPointAttribution' => $entryPointAttribution,
             'entryPointKeepSet' => ['kept' => $keepSet->kept, 'droppedHub' => $keepSet->droppedHub],
             'impacted' => $impacted,

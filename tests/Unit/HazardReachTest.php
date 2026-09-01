@@ -34,6 +34,7 @@ final class HazardReachTest extends TestCase
             $security,
             $authGates,
             $authMiddleware,
+            [],
             6,
         )->attach([new Hazard('contract', 2, null, self::MEMBER, 'the public method is gone')]);
 
@@ -220,7 +221,7 @@ final class HazardReachTest extends TestCase
             ['source' => self::ROUTE, 'target' => 'App\Services\Publisher', 'type' => 'route-to-controller'],
         ], hasUnparseableFiles: false);
 
-        $reach = new HazardReach($graph, [], [self::ROUTE => $this->security('admin')], [], [], 6)
+        $reach = new HazardReach($graph, [], [self::ROUTE => $this->security('admin')], [], [], [], 6)
             ->attach([new Hazard('contract', 2, null, 'App\Services\Publisher::goneForGood', 'the public method is gone')]);
 
         $this->assertSame(Hazard::REACH_GATED, $reach[0]->reach);
@@ -237,7 +238,7 @@ final class HazardReachTest extends TestCase
             ['source' => self::ROUTE, 'target' => 'App\Services\Publisher', 'type' => 'route-to-controller'],
         ], hasUnparseableFiles: false);
 
-        $reach = new HazardReach($graph, [], [self::ROUTE => $this->security('public', ['PUBLIC_WRITE'])], [], [], 6)
+        $reach = new HazardReach($graph, [], [self::ROUTE => $this->security('public', ['PUBLIC_WRITE'])], [], [], [], 6)
             ->attach([new Hazard('contract', 2, null, 'App\Services\Publisher::goneForGood', 'the public method is gone')]);
 
         $this->assertSame(Hazard::REACH_PUBLIC_WRITE, $reach[0]->reach);
@@ -256,7 +257,7 @@ final class HazardReachTest extends TestCase
         ], hasUnparseableFiles: false);
 
         $reach = new HazardReach(
-            $graph, [], [], [], [], 6,
+            $graph, [], [], [], [], [], 6,
             static fn (array $callers): array => array_values(array_filter(
                 array_column($callers, 'node'),
                 static fn (string $node): bool => str_contains($node, '\\Livewire\\'),
@@ -269,7 +270,7 @@ final class HazardReachTest extends TestCase
     #[Test]
     public function a_removed_member_on_a_class_the_graph_never_charted_is_no_known_path(): void
     {
-        $reach = new HazardReach(new CodeGraph([], hasUnparseableFiles: false), [], [], [], [], 6)
+        $reach = new HazardReach(new CodeGraph([], hasUnparseableFiles: false), [], [], [], [], [], 6)
             ->attach([new Hazard('contract', 2, null, 'App\Unknown\Thing::gone', 'the public method is gone')]);
 
         $this->assertSame(Hazard::REACH_NO_KNOWN_PATH, $reach[0]->reach);
@@ -285,6 +286,7 @@ final class HazardReachTest extends TestCase
             new CodeGraph([], hasUnparseableFiles: false),
             ['route::GET::/ping' => [['node' => 'route::GET::/ping', 'via' => '']]],
             ['route::GET::/ping' => ['exposure' => 'authed', 'riskLevel' => 'low', 'issues' => []]],
+            [],
             [],
             [],
             6,
@@ -304,6 +306,7 @@ final class HazardReachTest extends TestCase
             [],
             [],
             [],
+            [],
             6,
         )->attach([new Hazard('auth', 3, 'CWE-306', 'route::GET::/ping', 'the `auth` middleware is gone')]);
 
@@ -320,7 +323,7 @@ final class HazardReachTest extends TestCase
             ['source' => 'route::POST::/posts', 'target' => 'App\Services\Publisher', 'type' => 'route-to-controller'],
         ], hasUnparseableFiles: false);
 
-        $hazards = new HazardReach($graph, [], [], [], [], 6, static fn (array $callers): array => array_values(array_filter(
+        $hazards = new HazardReach($graph, [], [], [], [], [], 6, static fn (array $callers): array => array_values(array_filter(
             array_column($callers, 'node'),
             static fn (string $node): bool => str_starts_with($node, 'route::'),
         )))->attach([new Hazard('model', 2, 'CWE-915', 'App\Services\Publisher::$fillable', '$fillable gained `role`')]);
@@ -339,6 +342,7 @@ final class HazardReachTest extends TestCase
             new CodeGraph([], hasUnparseableFiles: false),
             $this->pathTo(self::ROUTE),
             [self::ROUTE => ['exposure' => 'authed', 'riskLevel' => 'low', 'issues' => []]],
+            [],
             [],
             [],
             6,
@@ -360,7 +364,7 @@ final class HazardReachTest extends TestCase
             ['source' => self::ROUTE, 'target' => 'App\Models\Post', 'type' => 'route-to-controller'],
         ], hasUnparseableFiles: false);
 
-        $hazards = new HazardReach($graph, [], [self::ROUTE => $this->security('admin')], [], [], 6)
+        $hazards = new HazardReach($graph, [], [self::ROUTE => $this->security('admin')], [], [], [], 6)
             ->attach([new Hazard('migration', 2, null, 'App\Models\Post', 'the `subtitle` column is dropped', ignoreKey: 'posts.subtitle')]);
 
         $this->assertSame(Hazard::REACH_GATED, $hazards[0]->reach);
@@ -373,11 +377,30 @@ final class HazardReachTest extends TestCase
     {
         // The declaring-class lane RAN here and found nothing. There is no provenance worth stating:
         // the grade and the diff's zero counts agree, which is the case that needs no explaining.
-        $hazards = new HazardReach(new CodeGraph([], hasUnparseableFiles: false), [], [], [], [], 6)
+        $hazards = new HazardReach(new CodeGraph([], hasUnparseableFiles: false), [], [], [], [], [], 6)
             ->attach([new Hazard('contract', 2, null, 'App\Unknown\Thing::gone', 'the public method is gone')]);
 
         $this->assertSame(Hazard::REACH_NO_KNOWN_PATH, $hazards[0]->reach);
         $this->assertFalse($hazards[0]->reachViaDeclaringClass);
         $this->assertSame('no-known-path', $hazards[0]->reachLabel());
+    }
+
+    #[Test]
+    public function a_runtime_proven_guard_overturns_public_write_like_the_other_cross_checks(): void
+    {
+        // The third cross-check map feeds the same overturn door: a tier-2 hazard behind a route
+        // Brain flags PUBLIC_WRITE grades `gated` when the booted router proves a group guard —
+        // HIGH becomes MEDIUM through the tier x reach matrix, with Brain's finding still shown.
+        $hazards = new HazardReach(
+            new CodeGraph([], hasUnparseableFiles: false),
+            $this->pathTo(self::ROUTE),
+            [self::ROUTE => $this->security('public', ['PUBLIC_WRITE'])],
+            [],
+            [],
+            [self::ROUTE => [['middleware' => 'Illuminate\\Auth\\Middleware\\Authenticate', 'group' => 'web']]],
+            6,
+        )->attach([new Hazard('contract', 2, null, self::MEMBER, 'the public method is gone')]);
+
+        $this->assertSame(Hazard::REACH_GATED, $hazards[0]->reach);
     }
 }

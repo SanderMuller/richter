@@ -4,7 +4,7 @@ When [`laravel/mcp`](https://github.com/laravel/mcp) is installed, Richter regis
 
 ## Tools
 
-Four read-only tools:
+Five read-only tools:
 
 | Tool | What it returns |
 |---|---|
@@ -21,7 +21,34 @@ argument the tool could only ever read a range ending at the working tree.
 
 For `affected-tests`, `determinable: false` means run the full suite. Every non-determinable cause returns that shape with its reasons, never a tool error.
 
-Every tool returns MCP structured content in the same shape as the CLI `--json` output, so an agent can branch on fields instead of parsing prose. Because the MCP session holds the graph cache in memory, repeated tool calls in one review do not rebuild the graph.
+Every tool returns MCP structured content in the same vocabulary and shapes as the CLI `--json` output, so an agent can branch on fields instead of parsing prose. Because the MCP session holds the graph cache in memory, repeated tool calls in one review do not rebuild the graph.
+
+### Bounded by default
+
+`impact` and `detect-changes` cap their structured content: the breadth arrays (callers,
+dependencies, entry points, association surfaces, and their kin) cut at 15 entries in their
+existing order, and the per-entry maps restrict to the entry points still shown. A full document
+on a hub symbol runs to megabytes — far past what an agent can carry beside its task — so the
+default response keeps the nearest hops and the first surfaces, which are the rows a reviewer
+reads first anyway.
+
+The bound is honest: `bounded` is `true` whenever anything was held back, and every capped array
+carries its full count in a `…Total` field (`callersTotal`, `entryPointsTotal`, and so on;
+`entryPointKeepSet` carries `keptTotal` inside the object). An empty section still means "not
+found", never "safe" — the cap changes how much is listed, not what is claimed. `hazards`,
+`verification`, and the risk verdict are never capped.
+
+Two optional arguments drill down:
+
+- `full: true` returns the uncapped lists and maps. The response still carries the
+  `bounded`/`…Total` fields, so it is the CLI `--json` document plus those fields, not
+  byte-identical to it.
+- `entries: [...]` names entry points (copied from a previous response) to keep visible past the
+  cap, in `entryPoints` and in every per-entry map. Unknown names are ignored; `full` wins when
+  both are passed.
+
+The CLI `--json` output is unaffected: it remains the complete, uncapped machine contract — a
+script has a disk, not a context window.
 
 ## Resources
 

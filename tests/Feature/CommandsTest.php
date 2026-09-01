@@ -1137,6 +1137,7 @@ final class CommandsTest extends TestCase
             'entryPointSecurity',
             'entryPointGates',
             'entryPointAuthGates',
+            'entryPointRuntimeGuards',
             'entryPointTestReferences',
         ], array_keys($document));
         $entryPoints = $document['entryPoints'] ?? null;

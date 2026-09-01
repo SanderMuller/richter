@@ -42,6 +42,9 @@ final readonly class HazardReach
      * @param  array<string, SecurityShape>  $entryPointSecurity
      * @param  array<string, list<string>>  $entryPointAuthGates
      * @param  array<string, list<string>>  $entryPointAuthMiddleware
+     * @param  array<string, list<array{middleware: string, group: string|null}>>  $entryPointRuntimeGuards
+     *   the booted router's proven guards ({@see RuntimeRouterGuards}) — the third cross-check map,
+     *   consumed through the same overturn door as the two graph-based ones
      * @param  (callable(list<array{depth: int, node: string, via: string}>): list<string>)|null  $entryPointsAmong
      *   the analyzer's own entry-point classification. Passed in rather than reimplemented because
      *   the vocabulary is wider than the `route::`/`command::`/`schedule::` prefixes: a Livewire,
@@ -55,6 +58,7 @@ final readonly class HazardReach
         private array $entryPointSecurity,
         private array $entryPointAuthGates,
         private array $entryPointAuthMiddleware,
+        private array $entryPointRuntimeGuards,
         private int $maxDepth,
         private mixed $entryPointsAmong = null,
     ) {}
@@ -230,6 +234,7 @@ final readonly class HazardReach
     private function contradictsPublicWrite(string $entryPoint): bool
     {
         return ($this->entryPointAuthGates[$entryPoint] ?? []) !== []
-            || ($this->entryPointAuthMiddleware[$entryPoint] ?? []) !== [];
+            || ($this->entryPointAuthMiddleware[$entryPoint] ?? []) !== []
+            || ($this->entryPointRuntimeGuards[$entryPoint] ?? []) !== [];
     }
 }
