@@ -284,6 +284,30 @@ final class CodeGraph
     }
 
     /**
+     * Every file key {@see nodesDefinedIn()} can answer for, sorted. The lead a missed file lookup
+     * otherwise withholds: a path that differs from a known one only by prefix or a typo looks
+     * identical to the file being absent, and the remedies are nothing alike ({@see
+     * \SanderMuller\Richter\Support\ScopedRebuild} carries the same diagnostic for the same reason).
+     *
+     * Restricted exactly as {@see nodesDefinedIn()} is — edge-backed nodes only — so a file listed
+     * here is a file that lookup can resolve, and nothing else.
+     *
+     * @internal a miss diagnostic's raw material, paired with {@see nodesDefinedIn()} and shaped by
+     *   it rather than by consumers.
+     *
+     * @return list<string>
+     */
+    public function definedFiles(): array
+    {
+        // Sorted here, not in the index: nodesByFile() sorts each node LIST, and its keys keep the
+        // metadata's iteration order, which is build order.
+        $files = array_keys($this->nodesByFile());
+        sort($files);
+
+        return $files;
+    }
+
+    /**
      * Lazily-built file → node ids index, on the same terms as {@see nodesByToken()}: a caller that
      * never resolves a changed file must not pay to walk the metadata.
      *

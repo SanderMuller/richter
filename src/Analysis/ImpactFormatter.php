@@ -13,6 +13,7 @@ use SanderMuller\Richter\Support\InheritanceSurfaces;
  * and the MCP tools so output stays consistent across both surfaces.
  *
  * @phpstan-import-type SecurityShape from NodeMetadata
+ * @phpstan-import-type LocateResult from SymbolLocator
  */
 final class ImpactFormatter
 {
@@ -84,6 +85,17 @@ final class ImpactFormatter
                 : '  Upstream walk from "' . $result['to'] . '" reached ' . NodeLabel::display($furthest['node']) . " (d{$furthest['depth']}) — the deepest caller within the depth limit, not a pointer toward \"{$result['from']}\".",
             '  Swap the arguments to query the reverse direction.',
         ]);
+    }
+
+    /**
+     * The `locate` report. Rendered by {@see LocateReport}, which the markdown formatter shares, so
+     * a reader at a terminal and a reviewer reading the pasted markdown see the same lookup.
+     *
+     * @param  LocateResult  $result
+     */
+    public static function locate(array $result): string
+    {
+        return LocateReport::text($result);
     }
 
     /**

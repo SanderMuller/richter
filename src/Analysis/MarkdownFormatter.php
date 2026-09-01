@@ -18,6 +18,7 @@ use SanderMuller\Richter\Support\InheritanceSurfaces;
  * backticks, so the changed-files table escapes them via {@see pathCell()}.
  *
  * @phpstan-import-type SecurityShape from NodeMetadata
+ * @phpstan-import-type LocateResult from SymbolLocator
  */
 final class MarkdownFormatter
 {
@@ -185,6 +186,17 @@ final class MarkdownFormatter
             ),
             $body,
         )];
+    }
+
+    /**
+     * The `locate` result as a markdown list, rendered by {@see LocateReport} — the same segments
+     * the prose report shows, escaped for markdown.
+     *
+     * @param  LocateResult  $result
+     */
+    public static function locate(array $result): string
+    {
+        return LocateReport::markdown($result);
     }
 
     /** @param  array{from: string, to: string, resolvedFrom: list<string>, resolvedTo: list<string>, found: bool, path: list<array{node: string, via: string, file?: string, line?: int}>, furthestReached?: array{node: string, depth: int, file?: string, line?: int}}  $result */
@@ -375,9 +387,15 @@ final class MarkdownFormatter
         return $fqcn === '' ? '' : '<br>→ ' . self::pathCell($fqcn);
     }
 
-    /** A diff-derived file path may contain `|` or backticks — the one repo-derived value the
-     *  no-escaping rule in the class docblock cannot cover. */
-    private static function pathCell(string $file): string
+    /**
+     * A diff-derived file path may contain `|` or backticks — the one repo-derived value the
+     * no-escaping rule in the class docblock cannot cover. A caller-supplied query is the other,
+     * which is why {@see LocateReport} routes its subject line through here too.
+     *
+     * @internal widened from private for that caller; shared inside the package, never a consumer
+     *   promise. Nothing outside `src/` should depend on richter's markdown escaping.
+     */
+    public static function pathCell(string $file): string
     {
         $escaped = str_replace('|', '\|', $file);
 

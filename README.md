@@ -91,6 +91,7 @@ Read the full documentation at **[sandermuller.github.io/richter](https://sander
 - [Shortest path between symbols](https://sandermuller.github.io/richter/trace): `richter:trace`
 - [Affected-test selection](https://sandermuller.github.io/richter/affected-tests): `richter:affected-tests`
 - [Task slice](https://sandermuller.github.io/richter/task-slice): `richter:task-slice`, one document for work in progress
+- [Where a symbol or file is](https://sandermuller.github.io/richter/locate): `richter:locate`, the node id `impact` and `trace` need
 
 **Digging deeper**
 - [Frontend changes](https://sandermuller.github.io/richter/frontend): the Wayfinder/Ziggy bridge in full

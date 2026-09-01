@@ -22,6 +22,7 @@ use SanderMuller\Richter\Mcp\RichterServer;
 use SanderMuller\Richter\Mcp\Tools\AffectedTestsTool;
 use SanderMuller\Richter\Mcp\Tools\DetectChangesTool;
 use SanderMuller\Richter\Mcp\Tools\ImpactTool;
+use SanderMuller\Richter\Mcp\Tools\LocateTool;
 use SanderMuller\Richter\Mcp\Tools\TaskSliceTool;
 use SanderMuller\Richter\Mcp\Tools\TraceTool;
 use SanderMuller\Richter\Tests\TestCase;
@@ -55,6 +56,7 @@ final class McpTest extends TestCase
     #[Test]
     public function the_tools_carry_the_names_the_server_instructions_promise(): void
     {
+        $this->assertSame('locate', resolve(LocateTool::class)->name());
         $this->assertSame('impact', resolve(ImpactTool::class)->name());
         $this->assertSame('trace', resolve(TraceTool::class)->name());
         $this->assertSame('detect-changes', resolve(DetectChangesTool::class)->name());
@@ -384,6 +386,132 @@ final class McpTest extends TestCase
     }
 
     #[Test]
+    public function the_locate_tool_reports_a_symbol_with_structured_content(): void
+    {
+        $this->useFixtureProject();
+
+        RichterServer::tool(LocateTool::class, ['symbol' => 'App\\Models\\Post'])
+            ->assertOk()
+            ->assertSee('app/Models/Post.php')
+            ->assertStructuredContent(function (AssertableJson $json): bool {
+                $json->where('by', 'symbol')
+                    ->where('query', 'App\\Models\\Post')
+                    ->has('total')
+                    ->has('bounded')
+                    ->has('matches')
+                    ->etc();
+
+                return true;
+            });
+    }
+
+    #[Test]
+    public function the_locate_tool_lists_what_a_file_defines(): void
+    {
+        $this->useFixtureProject();
+
+        RichterServer::tool(LocateTool::class, ['file' => 'app/Models/Post.php'])
+            ->assertOk()
+            ->assertSee('defined in "app/Models/Post.php"')
+            ->assertStructuredContent(function (AssertableJson $json): bool {
+                $json->where('by', 'file')->etc();
+
+                return true;
+            });
+    }
+
+    #[Test]
+    public function the_locate_tool_caps_by_default_because_a_tool_response_lands_in_a_context_window(): void
+    {
+        // The mirror of LocateCommandTest's uncapped `--json` assertion. Same document, two
+        // defaults — the split BoundedPresenter's docblock draws between the surfaces.
+        $this->useFixtureProject();
+
+        RichterServer::tool(LocateTool::class, ['symbol' => 'Post'])
+            ->assertOk()
+            ->assertStructuredContent(function (AssertableJson $json): bool {
+                $json->where('limit', BoundedPresenter::LIST_CAP)
+                    ->where('bounded', true)
+                    ->has('matches', BoundedPresenter::LIST_CAP)
+                    ->etc();
+
+                return true;
+            });
+    }
+
+    #[Test]
+    public function a_locate_miss_is_a_result_carrying_its_lead_rather_than_an_error(): void
+    {
+        $this->useFixtureProject();
+
+        RichterServer::tool(LocateTool::class, ['symbol' => 'App\\Models\\Pots'])
+            ->assertOk()
+            ->assertSee('Nearest graph nodes:')
+            ->assertStructuredContent(function (AssertableJson $json): bool {
+                $json->where('total', 0)
+                    ->where('matches', [])
+                    ->has('suggestions')
+                    ->etc();
+
+                return true;
+            });
+
+        RichterServer::tool(LocateTool::class, ['symbol' => 'Zzz'])
+            ->assertOk()
+            ->assertStructuredContent(function (AssertableJson $json): bool {
+                $json->has('graphNodeCount')->missing('suggestions')->etc();
+
+                return true;
+            });
+
+        // The file lane's own miss line — never the node-shaped sentences, which are false of a path.
+        RichterServer::tool(LocateTool::class, ['file' => 'app/Modles/Post.php'])
+            ->assertOk()
+            ->assertSee('same file name')
+            ->assertStructuredContent(function (AssertableJson $json): bool {
+                $json->missing('graphNodeCount')->has('suggestions')->etc();
+
+                return true;
+            });
+    }
+
+    #[Test]
+    public function the_locate_tool_refuses_a_bad_argument_before_building_a_graph(): void
+    {
+        foreach ([[], ['symbol' => 'Post', 'file' => 'app/Models/Post.php'], ['symbol' => '  ']] as $arguments) {
+            $response = resolve(LocateTool::class)->handle(new Request($arguments));
+
+            $this->assertInstanceOf(Response::class, $response);
+            $this->assertTrue($response->isError());
+        }
+
+        $badLimit = resolve(LocateTool::class)->handle(new Request(['symbol' => 'Post', 'limit' => 0]));
+
+        $this->assertInstanceOf(Response::class, $badLimit);
+        $this->assertTrue($badLimit->isError());
+    }
+
+    #[Test]
+    public function a_project_with_nothing_in_it_reaches_the_locate_client_as_an_empty_answer(): void
+    {
+        // The mirror of LocateCommandTest's empty-project case. A missing project root yields an
+        // empty graph rather than a throw, so the honest answer is "scanned 0 nodes", never an error.
+        // The tool's Throwable catch is defence in depth and has no forcing seam — GraphCache and
+        // CodeGraphBuilder are both final, so nothing can be injected to make a build throw.
+        $app = $this->app;
+        $this->assertInstanceOf(Application::class, $app);
+        $app->setBasePath('/definitely-not-a-project-zzz');
+
+        RichterServer::tool(LocateTool::class, ['symbol' => 'Post'])
+            ->assertOk()
+            ->assertStructuredContent(function (AssertableJson $json): bool {
+                $json->where('total', 0)->where('graphNodeCount', 0)->etc();
+
+                return true;
+            });
+    }
+
+    #[Test]
     public function the_detect_changes_tool_reports_an_empty_diff_cleanly(): void
     {
         Process::fake([
@@ -429,6 +557,7 @@ final class McpTest extends TestCase
     #[Test]
     public function the_tools_advertise_output_schemas_matching_their_json_presenter_shapes(): void
     {
+        $locateOutputSchema = resolve(LocateTool::class)->toArray()['outputSchema'] ?? [];
         $impactOutputSchema = resolve(ImpactTool::class)->toArray()['outputSchema'] ?? [];
         $traceOutputSchema = resolve(TraceTool::class)->toArray()['outputSchema'] ?? [];
         $affectedTestsOutputSchema = resolve(AffectedTestsTool::class)->toArray()['outputSchema'] ?? [];
@@ -438,6 +567,17 @@ final class McpTest extends TestCase
         $affectedTestsProperties = $affectedTestsOutputSchema['properties'] ?? [];
         $this->assertIsArray($affectedTestsProperties);
         $this->assertSame(['base', 'determinable', 'reasons', 'tests', 'frontendTests', 'unreferencedEntryPoints', 'unresolvedDispatchSites'], array_keys($affectedTestsProperties));
+
+        $this->assertIsArray($locateOutputSchema);
+        $locateProperties = $locateOutputSchema['properties'] ?? [];
+        $this->assertIsArray($locateProperties);
+        // Property order mirrors the document JsonPresenter::locate() emits, `limit` included.
+        $this->assertSame(['query', 'by', 'total', 'limit', 'bounded', 'matches', 'suggestions', 'graphNodeCount', 'graphFileCount'], array_keys($locateProperties));
+        // The five keys every document carries are required; the four conditional ones are not, and
+        // each is ABSENT rather than null when it does not apply. A schema that required the
+        // conditional keys would make an honest sparse document look malformed — and one that
+        // required none would let a malformed response read as an empty answer.
+        $this->assertSame(['query', 'by', 'total', 'bounded', 'matches'], $locateOutputSchema['required'] ?? []);
 
         $this->assertIsArray($impactOutputSchema);
         $this->assertIsArray($traceOutputSchema);

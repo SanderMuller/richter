@@ -11,6 +11,7 @@ use SanderMuller\Richter\Graph\NodeMetadata;
  * walk internals, exposing only the meaningful blast-radius summary.
  *
  * @phpstan-import-type SecurityShape from NodeMetadata
+ * @phpstan-import-type LocateResult from SymbolLocator
  */
 final class JsonPresenter
 {
@@ -70,6 +71,45 @@ final class JsonPresenter
             $document['furthestReached'] = $result['furthestReached'];
         }
 
+        return $document;
+    }
+
+    /**
+     * The `locate` document. Unlike impact/detect-changes this one is already the analyzer's own
+     * shape — {@see SymbolLocator} builds it sparse and ordered — so this method exists to pin that
+     * shape as the contract rather than to remap it. Keys are still picked one by one: an extra key
+     * reaching the MCP surface is an output-schema violation, not a bonus.
+     *
+     * @param  LocateResult  $result
+     * @return LocateResult
+     */
+    public static function locate(array $result): array
+    {
+        $document = [
+            'query' => $result['query'],
+            'by' => $result['by'],
+            'total' => $result['total'],
+        ];
+
+        if (isset($result['limit'])) {
+            $document['limit'] = $result['limit'];
+        }
+
+        $document['bounded'] = $result['bounded'];
+        $document['matches'] = $result['matches'];
+
+        // Exactly one of these, and only on a miss — never a bare empty list. The symbol lane's
+        // either/or mirrors ImpactFormatter::missDiagnostic(); the file lane's denominator is a file
+        // count, because a node count answers nothing about a path.
+        if (isset($result['suggestions'])) {
+            $document['suggestions'] = $result['suggestions'];
+        } elseif (isset($result['graphNodeCount'])) {
+            $document['graphNodeCount'] = $result['graphNodeCount'];
+        } elseif (isset($result['graphFileCount'])) {
+            $document['graphFileCount'] = $result['graphFileCount'];
+        }
+
+        /** @var LocateResult $document */
         return $document;
     }
 

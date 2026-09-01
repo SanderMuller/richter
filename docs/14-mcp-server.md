@@ -4,10 +4,11 @@ When [`laravel/mcp`](https://github.com/laravel/mcp) is installed, Richter regis
 
 ## Tools
 
-Five read-only tools:
+Six read-only tools:
 
 | Tool | What it returns |
 |---|---|
+| `locate` | Where a symbol or file is, with no walk — the node id `impact` and `trace` need. |
 | `impact` | Blast radius plus reached entry surfaces of a symbol. |
 | `trace` | Shortest call-direction path between two symbols. |
 | `detect-changes` | Advisory impact of the current branch diff. |
@@ -46,6 +47,12 @@ Two optional arguments drill down:
 - `entries: [...]` names entry points (copied from a previous response) to keep visible past the
   cap, in `entryPoints` and in every per-entry map. Unknown names are ignored; `full` wins when
   both are passed.
+
+`locate` bounds itself the same way, with one argument instead of two: `limit` defaults to 15,
+`total` carries the uncapped count, and `bounded` says whether anything was held back. Raise
+`limit` to `total` for the rest. The `richter:locate` command applies **no** default cap — a
+script has a disk, not a context window — so its `--json` document is complete unless you pass
+`--limit`. See [`richter:locate`](21-locate.md).
 
 The CLI `--json` output is unaffected: it remains the complete, uncapped machine contract — a
 script has a disk, not a context window.

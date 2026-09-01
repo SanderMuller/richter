@@ -10,6 +10,7 @@ use SanderMuller\Richter\Console\BenchmarkCommand;
 use SanderMuller\Richter\Console\DetectChangesCommand;
 use SanderMuller\Richter\Console\ImpactCommand;
 use SanderMuller\Richter\Console\InternalTracerBranchCommand;
+use SanderMuller\Richter\Console\LocateCommand;
 use SanderMuller\Richter\Console\TaskSliceCommand;
 use SanderMuller\Richter\Console\TraceCommand;
 use SanderMuller\Richter\Graph\GraphCache;
@@ -25,7 +26,7 @@ final class RichterServiceProvider extends PackageServiceProvider
         $package
             ->name('richter')
             ->hasConfigFile()
-            ->hasCommands(ImpactCommand::class, TraceCommand::class, DetectChangesCommand::class, AffectedTestsCommand::class, TaskSliceCommand::class, BenchmarkCommand::class, BenchmarkAddCommand::class, InternalTracerBranchCommand::class);
+            ->hasCommands(LocateCommand::class, ImpactCommand::class, TraceCommand::class, DetectChangesCommand::class, AffectedTestsCommand::class, TaskSliceCommand::class, BenchmarkCommand::class, BenchmarkAddCommand::class, InternalTracerBranchCommand::class);
     }
 
     #[Override]

@@ -23,6 +23,7 @@ Measure the magnitude of impact of code changes in a Laravel codebase. For a qui
 - [Shortest path between symbols](11-trace.md): `richter:trace`: call chains and depth
 - [Affected-test selection](12-affected-tests.md): `richter:affected-tests`: selection mechanics and the exit-code contract
 - [Task slice](20-task-slice.md): `richter:task-slice`: one document for work in progress — the surfaces this task owns, and what to run
+- [Where a symbol or file is](21-locate.md): `richter:locate`: the exact node id `impact` and `trace` need, without a walk
 
 ## Digging deeper
 

@@ -96,6 +96,11 @@ export const sections: DocSection[] = [
                 text: 'Task slice',
                 blurb: 'One document for work in progress: the surfaces this task owns, and what to run.',
             },
+            {
+                file: '21-locate',
+                text: 'Where a symbol or file is',
+                blurb: 'Find the exact node id impact and trace need, without paying for a walk.',
+            },
         ],
     },
     {
