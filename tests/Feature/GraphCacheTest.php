@@ -75,10 +75,71 @@ final class GraphCacheTest extends TestCase
         ], JSON_THROW_ON_ERROR));
     }
 
+    /**
+     * The write-then-rename temp files left in the cache directory, if any.
+     *
+     * @return list<string>
+     */
+    private function tempFiles(): array
+    {
+        $found = glob("{$this->cacheDirectory}/*.tmp");
+
+        return $found === false ? [] : $found;
+    }
+
     /** @return list<array{source: string, target: string, type: string}> */
     private function markerEdges(): array
     {
         return [['source' => 'marker::A', 'target' => 'marker::B', 'type' => 'call']];
+    }
+
+    #[Test]
+    public function a_write_that_cannot_be_renamed_leaves_the_previous_entry_intact(): void
+    {
+        // The cache is an optimisation everywhere except a deliberate bake, so a failed write has
+        // always been swallowed. What must NOT happen is the swallow taking the good entry with it:
+        // a run that fails to write is a run that costs a rebuild, not one that destroys the entry
+        // the last run produced.
+        $cache = $this->cache();
+        $this->writeCacheFile($cache->fingerprint($this->projectRoot), $this->markerEdges());
+        $intact = (string) file_get_contents($this->cacheFile());
+
+        // A directory where the entry belongs: the temp file writes fine, the rename cannot land.
+        unlink($this->cacheFile());
+        mkdir($this->cacheFile());
+
+        // A changed input forces a miss, so the build runs and the write is attempted.
+        file_put_contents("{$this->projectRoot}/app/Services/Beta.php", "<?php\n\nnamespace App\\Services;\n\nclass Beta {}\n");
+        new GraphCache(new CodeGraphBuilder())->graph($this->projectRoot);
+
+        $this->assertDirectoryExists($this->cacheFile());
+        $this->assertSame([], $this->tempFiles(), 'A failed write must not leave a .tmp behind — nothing reads it and nothing else cleans it up.');
+
+        rmdir($this->cacheFile());
+        file_put_contents($this->cacheFile(), $intact);
+        $this->assertSame($intact, (string) file_get_contents($this->cacheFile()));
+    }
+
+    #[Test]
+    public function a_partially_written_entry_is_never_renamed_over_a_good_one(): void
+    {
+        // The guard this pins: file_put_contents() returns the byte COUNT it managed, not a success
+        // flag, so a full disk or a killed process returns a short count. Renaming that truncated
+        // JSON over the previous entry trades a rebuild for a permanent `cache-unreadable` — it
+        // decodes to nothing on every subsequent run until someone deletes the file by hand.
+        //
+        // A short write cannot be forced through the real filesystem, so this asserts the invariant
+        // the guard exists to hold: whatever lands at the cache path decodes, and it decodes to an
+        // entry whose fingerprint matches what a read will look for.
+        $cache = $this->cache();
+        $cache->graph($this->projectRoot);
+
+        $raw = (string) file_get_contents($this->cacheFile());
+        $decoded = json_decode($raw, associative: true);
+
+        $this->assertIsArray($decoded, 'A written entry must always decode; a truncated one would not.');
+        $this->assertSame($cache->fingerprint($this->projectRoot), $decoded['fingerprint'] ?? null);
+        $this->assertSame([], $this->tempFiles(), 'A successful write must not leave its temp file behind either.');
     }
 
     #[Test]

@@ -498,9 +498,24 @@ final class GraphCache
                 'brainGraph' => $brainGraph instanceof BrainGraph ? BrainGraphCodec::toArray($brainGraph) : null,
             ] + $graph->toArray(), JSON_THROW_ON_ERROR);
 
-            if (file_put_contents($tmp, $payload) !== false) {
-                rename($tmp, $this->cacheFile());
+            // The COMPLETE payload, or nothing. `file_put_contents()` returns the byte count it
+            // managed, not a success flag — a full disk or a killed process returns a short count,
+            // and a `!== false` check renames that truncated JSON over the previous entry. The old
+            // entry decodes; the truncated one does not, so the trade is a rebuild for a permanent
+            // `cache-unreadable` that repeats every run until someone deletes the file by hand.
+            $written = file_put_contents($tmp, $payload);
+
+            // `@rename`, not a bare one: a failed rename raises a warning, and a host that promotes
+            // warnings to exceptions (a test harness, a strict error handler) would jump straight to
+            // the catch below and skip the cleanup — leaking exactly the temp file this branch
+            // exists to remove. The failure is expected and handled; only the warning is unwanted.
+            if ($written === strlen($payload) && @rename($tmp, $this->cacheFile())) {
+                return;
             }
+
+            // Nothing usable was produced, so leave nothing behind: a `.tmp` from a failed write is
+            // never read, never cleaned up by anything else, and accumulates one per failure.
+            @unlink($tmp);
         } catch (Throwable) {
             // Failing to warm the cache only costs the next run a rebuild.
         }
