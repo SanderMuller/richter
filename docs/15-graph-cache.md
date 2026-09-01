@@ -9,6 +9,51 @@ Any input change rebuilds automatically, so a hit can only ever serve the graph 
 - `--no-cache` (on every command) bypasses it for one run, the escape hatch for an input the fingerprint does not cover.
 - A corrupt or mismatched cache file reads as a miss and is rebuilt; it never fails a run.
 
+## Baking an entry at deploy time
+
+`richter:warm` builds the graph on purpose and leaves it on disk. Every other command builds it as a side effect of a report, so without this there is no way to ask for a graph — and no way to find out whether the one you baked is being used.
+
+```bash
+php artisan richter:warm          # build it and store it
+php artisan richter:warm --check  # does the stored entry still match this tree?
+php artisan richter:warm --json   # for a deploy step to branch on
+```
+
+```text
+Built the code graph in 8.8s.
+  fingerprint  6edb07f18e3d6fac36cc12a9671ab797
+  nodes        94,318
+  entry        /app/storage/framework/cache/richter/graph.json (10.4 MB)
+```
+
+A matching entry is not rebuilt — the fingerprint sweep is already the currency check — and the report says `already current` rather than implying a build. Both modes exit non-zero when the answer is no, so a deploy step can gate on them.
+
+Point `cache.directory` at somewhere inside the deployed artifact. The default sits under `storage/`, which hosted platforms commonly provision as ephemeral or per-container, so an entry baked there at deploy time may not be the one the runtime reads.
+
+The entry is portable: it carries project-relative paths, not the build machine's. Bake it on one machine and ship the file.
+
+### What a baked cache buys, and what it does not
+
+It removes the build. It does not remove the fingerprint sweep, which runs on **every call in every process** — before the in-memory memo is consulted, so a long-lived worker pays it per call too. A warm hit still stats and content-hashes every input file, then decodes and revives the entry. That is what makes staleness designed out rather than expired out, and it is not free.
+
+### Two things silently invalidate a baked entry
+
+The PHP version is part of the fingerprint, at full patch precision. A build container on 8.5.8 and a runtime on 8.5.9 miss on **every request, forever**, with nothing in the logs — the cache is failure-tolerant by design, so a miss just rebuilds. Any config difference that reaches the fingerprint does the same.
+
+`--check` is how you see either:
+
+```text
+The cached entry does NOT match this tree — every run rebuilds.
+  reason       inputs-changed
+  differing non-file inputs: php (8.5.8 → 8.5.9)
+```
+
+It names the differing input rather than reporting that one differs. It also separates a **stale** entry from a **broken** one — a corrupt entry reports `UNUSABLE`, because a rebuild will not fix it and someone has to remove the file.
+
+`--check` builds nothing and writes nothing, but it is not free either: it revives the stored graph to prove the entry revives. Fine once per deploy; not something to put in a health-check endpoint.
+
+Run one warm per deploy. Two concurrent warms both build and both rename, so the last one wins and the other may report a failure for work that succeeded.
+
 ## Profiling a build
 
 `--profile` (on `richter:detect-changes`) forces a build and prints a phase-by-phase timing split to stderr, for judging where build time goes on a given codebase. A cache hit leaves nothing to time, so it refuses one. It still reuses the stored merge base, which keeps the timings representative of the build this project gets.

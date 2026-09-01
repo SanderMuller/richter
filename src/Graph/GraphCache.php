@@ -184,29 +184,186 @@ final class GraphCache
         $graph = $rebuild ? null : $this->read($fingerprint);
 
         if (! $graph instanceof CodeGraph) {
-            // A miss is precisely when a merge base is useful — and the only time one is available,
-            // since a hit builds nothing. The stored entry is read by file rather than by fingerprint
-            // equality, and {@see ScopedRebuild} decides whether it may be built onto.
-            $base = $this->mergeBase();
-            $built = $this->builder->buildDetailed(
-                $projectRoot,
-                $onProgress,
-                $base->brainGraph,
-                // A base that refused already carries its own reason; only an available one leaves
-                // ScopedRebuild anything to decide.
-                $base->refusal !== null
-                    ? ScopedRebuildDecision::refused($base->refusal, $base->detail)
-                    : ScopedRebuild::decide($base->inputs, $record, $projectRoot, $base->provenanceFiles()),
-            );
-
-            $graph = $built->graph;
-            $this->write($fingerprint, $graph, $built->brainGraph, $record);
+            $graph = $this->buildAndStore($projectRoot, $record, $fingerprint, $onProgress);
         }
 
         $this->memoized = $graph;
         $this->memoizedFingerprint = $fingerprint;
 
         return $graph;
+    }
+
+    /**
+     * Build the graph deliberately and persist it, reporting what landed on disk.
+     *
+     * Deliberately NOT a wrapper over {@see graph()}, for two reasons the report depends on.
+     *
+     * It computes the input record ONCE and threads it through the lookup, the build, the write and
+     * the read-back. `graph()` computes its own and returns neither it nor the fingerprint, so a
+     * caller asking afterwards would re-run the sweep — the most expensive part of the call, paid
+     * twice, over a tree that may have moved between the two observations.
+     *
+     * And it bypasses the in-memory memo. `graph()` returns the memoized graph without touching disk
+     * (a correct optimisation for a report), so a warm running in a process that already holds one
+     * would never notice that the entry it is supposed to guarantee had been deleted underneath it.
+     *
+     * On a failed read-back it writes what it is already holding and reads again. Only a second
+     * failure is a failure: a warm's job is that a usable entry exists when it returns, not that it
+     * personally built one.
+     *
+     * @internal the warm command's plumbing, shaped by it rather than by consumers
+     */
+    public function warm(?string $projectRoot = null): WarmResult
+    {
+        $projectRoot ??= base_path();
+        $started = hrtime(true);
+
+        $record = $this->inputRecord($projectRoot);
+        $fingerprint = $this->hashRecord($record);
+
+        $entry = $this->entry();
+        $outcome = $this->readDetailed($fingerprint, $entry);
+        $graph = $outcome->graph;
+        $built = false;
+
+        if (! $graph instanceof CodeGraph) {
+            $graph = $this->buildAndStore($projectRoot, $record, $fingerprint, null);
+            $built = true;
+        }
+
+        // The read-back is what makes `written` mean "revivable" rather than "a file exists". It
+        // costs a second decode of an entry that can run to megabytes; against a build measured in
+        // seconds that is noise, and it is the only thing standing between a warm and reporting
+        // success over an entry no run can revive.
+        $verified = $this->readDetailed($fingerprint, $this->entry())->hit();
+        $repaired = false;
+
+        if (! $verified && ! $built) {
+            // A hit whose entry has since gone: write what is in hand rather than report a failure
+            // this call is holding the fix for. Reported as a REPAIR, not a build — no builder ran,
+            // and a deploy log that said "built" here would be describing work that did not happen.
+            //
+            // The Brain graph rides along from the entry that was read a moment ago. Writing null
+            // there would leave a readable entry whose NEXT miss is refused as `brain-graph-rejected`
+            // and pays a full rebuild — a repair that quietly costs the incremental path.
+            $this->write($fingerprint, $graph, $this->mergeBase($entry)->brainGraph, $record);
+            $repaired = true;
+            $verified = $this->readDetailed($fingerprint, $this->entry())->hit();
+        }
+
+        $file = $this->cacheFile();
+        $bytes = is_file($file) ? filesize($file) : false;
+        $seconds = (hrtime(true) - $started) / 1e9;
+
+        return $verified
+            ? WarmResult::stored($fingerprint, $graph->nodeCount(), $file, $bytes === false ? null : $bytes, $built, $repaired, $seconds)
+            : WarmResult::unwritten($fingerprint, $graph->nodeCount(), $file, $built, $repaired, $seconds);
+    }
+
+    /**
+     * Would a run hit the stored entry, and if not, which input differs?
+     *
+     * Builds nothing and writes nothing. It does REVIVE the stored graph, because the verdict is the
+     * real read path rather than an approximation of it — a hit here is a hit exactly when a run
+     * would hit, by construction. A cheaper readability probe would be a second copy of
+     * {@see readDetailed()}'s validations, and two copies of a validation is how one of them drifts.
+     *
+     * The verdict and the reason come from ONE decode ({@see CacheEntry}), so a concurrent write
+     * cannot make this describe a verdict from one entry beside a reason from another.
+     *
+     * {@see ScopedRebuild::decide()} supplies the reason and never the verdict. The two answer
+     * different questions and can disagree: `decide()` compares input records and never looks at the
+     * entry's stored fingerprint, so an entry with current inputs and a stale fingerprint reports
+     * `no-change` while a real run misses. The read wins, and the disagreement is reported rather
+     * than assumed away.
+     *
+     * @internal the warm command's plumbing, shaped by it rather than by consumers
+     */
+    public function inspect(?string $projectRoot = null): CacheStatus
+    {
+        $projectRoot ??= base_path();
+
+        $record = $this->inputRecord($projectRoot);
+        $fingerprint = $this->hashRecord($record);
+        $entry = $this->entry();
+        $outcome = $this->readDetailed($fingerprint, $entry);
+
+        $file = $this->cacheFile();
+        $bytes = is_file($file) ? filesize($file) : false;
+        $stored = $entry->data['fingerprint'] ?? null;
+
+        $storedFingerprint = is_string($stored) ? $stored : null;
+        $size = $bytes === false ? null : $bytes;
+
+        if ($outcome->hit()) {
+            return CacheStatus::matched($fingerprint, $storedFingerprint, $file, $size);
+        }
+
+        $status = fn (?string $reason, ?string $detail): CacheStatus => CacheStatus::missed(
+            $fingerprint,
+            $storedFingerprint,
+            $file,
+            $size,
+            $reason,
+            $detail,
+            $outcome->corrupt(),
+        );
+
+        // A broken entry is not a stale one, and a reader told "stale" waits for a rebuild that
+        // cannot help. The read's own reason is the only one that distinguishes them.
+        if ($outcome->corrupt() || $outcome->refusal === 'no-cache-entry') {
+            return $status($outcome->refusal, $outcome->detail);
+        }
+
+        $base = $this->mergeBase($entry);
+
+        if ($base->refusal !== null) {
+            return $status($base->refusal, $base->detail);
+        }
+
+        $decision = ScopedRebuild::decide($base->inputs, $record, $projectRoot, $base->provenanceFiles());
+
+        // decide() saw no difference while the read refused: the stored inputs match and the stored
+        // fingerprint does not. Rare, and a real run misses, so say so instead of reporting a match.
+        if ($decision->reason === 'no-change') {
+            return $status('fingerprint-mismatch', 'the stored inputs match this tree while the stored fingerprint does not, so a run rebuilds');
+        }
+
+        return $decision->reason === null
+            ? $status('app-files-changed', 'files under app/ differ from the cached graph: ' . implode(', ', array_map(basename(...), $decision->files ?? [])))
+            : $status($decision->reason, $decision->detail);
+    }
+
+    /**
+     * Build on whatever base the stored entry offers, and store the result.
+     *
+     * Shared by {@see graph()}'s miss branch and {@see warm()}, which must take the same path: a
+     * warm that built differently from a real run would warm the cache with a graph no run produces.
+     *
+     * A miss is precisely when a merge base is useful — and the only time one is available, since a
+     * hit builds nothing. The stored entry is read by file rather than by fingerprint equality, and
+     * {@see ScopedRebuild} decides whether it may be built onto.
+     *
+     * @param  array{nonFile: array{format: int, php: string, richter: string, brain: string, config: string}, files: array<string, string>}  $record
+     * @param  (callable(string, array<string, mixed>): void)|null  $onProgress
+     */
+    private function buildAndStore(string $projectRoot, array $record, string $fingerprint, ?callable $onProgress): CodeGraph
+    {
+        $base = $this->mergeBase();
+        $built = $this->builder->buildDetailed(
+            $projectRoot,
+            $onProgress,
+            $base->brainGraph,
+            // A base that refused already carries its own reason; only an available one leaves
+            // ScopedRebuild anything to decide.
+            $base->refusal !== null
+                ? ScopedRebuildDecision::refused($base->refusal, $base->detail)
+                : ScopedRebuild::decide($base->inputs, $record, $projectRoot, $base->provenanceFiles()),
+        );
+
+        $this->write($fingerprint, $built->graph, $built->brainGraph, $record);
+
+        return $built->graph;
     }
 
     /**
@@ -363,38 +520,78 @@ final class GraphCache
         return $config === [] ? null : $config;
     }
 
-    private function read(string $fingerprint): ?CodeGraph
+    /**
+     * The cache file, read and decoded ONCE.
+     *
+     * Both readers below work from the result rather than opening the file for themselves, so a
+     * caller wanting a verdict from one and a reason from the other cannot straddle a concurrent
+     * write and describe two different entries as one ({@see CacheEntry}).
+     */
+    private function entry(): CacheEntry
     {
         $file = $this->cacheFile();
 
         if (! is_file($file)) {
-            return null;
+            return CacheEntry::refused('no-cache-entry', 'nothing cached yet, so there is no graph to build onto');
         }
 
         try {
             $data = json_decode((string) file_get_contents($file), associative: true, flags: JSON_THROW_ON_ERROR);
-        } catch (Throwable) {
-            return null;
+        } catch (Throwable $throwable) {
+            return CacheEntry::refused('cache-unreadable', "{$file}: " . $throwable->getMessage());
         }
 
-        if (! is_array($data) || ($data['fingerprint'] ?? null) !== $fingerprint) {
-            return null;
+        if (! is_array($data)) {
+            return CacheEntry::refused('cache-unreadable', "{$file} does not decode to an object");
         }
 
-        $edges = $this->validEdges($data['edges'] ?? null);
-        $metadata = $this->validNodeMetadata($data['nodeMetadata'] ?? null);
-        $dispatchSites = $this->validDispatchSites($data['unresolvedDispatchSites'] ?? null);
+        /** @var array<string, mixed> $data */
+        return CacheEntry::of($data);
+    }
 
-        // All three are whole-entry conditions. A malformed site list must not coalesce to "no
-        // sites": that reads as no unfollowable dispatch, drops the S2 taint, and lets a selection
-        // report determinable when it is not — under-selection, from a file this code chose to
-        // trust. The fingerprint is no defence here, since it lives in the same entry and can match
-        // while a later key is corrupt.
-        if ($edges === null || $metadata === null || $dispatchSites === null) {
-            return null;
+    private function read(string $fingerprint): ?CodeGraph
+    {
+        return $this->readDetailed($fingerprint, $this->entry())->graph;
+    }
+
+    /**
+     * The same read, saying which of the six ways it failed ({@see ReadOutcome}).
+     *
+     * All three payload conditions are whole-entry: a malformed site list must not coalesce to "no
+     * sites", which reads as no unfollowable dispatch, drops the S2 taint, and lets a selection
+     * report determinable when it is not — under-selection, from a file this code chose to trust.
+     * The fingerprint is no defence there, since it lives in the same entry and can match while a
+     * later key is corrupt.
+     */
+    private function readDetailed(string $fingerprint, CacheEntry $entry): ReadOutcome
+    {
+        $file = $this->cacheFile();
+
+        if ($entry->data === null) {
+            return ReadOutcome::refused((string) $entry->refusal, (string) $entry->detail);
         }
 
-        return new CodeGraph($edges, ($data['hasUnparseableFiles'] ?? false) === true, $dispatchSites, $metadata);
+        if (($entry->data['fingerprint'] ?? null) !== $fingerprint) {
+            return ReadOutcome::refused('fingerprint-mismatch', "the entry in {$file} was built from different inputs");
+        }
+
+        $edges = $this->validEdges($entry->data['edges'] ?? null);
+        $metadata = $this->validNodeMetadata($entry->data['nodeMetadata'] ?? null);
+        $dispatchSites = $this->validDispatchSites($entry->data['unresolvedDispatchSites'] ?? null);
+
+        if ($edges === null) {
+            return ReadOutcome::refused('edges-rejected', "the edge list in {$file} is not one this version can revive");
+        }
+
+        if ($metadata === null) {
+            return ReadOutcome::refused('metadata-rejected', "the node metadata in {$file} is not one this version can revive");
+        }
+
+        if ($dispatchSites === null) {
+            return ReadOutcome::refused('dispatch-sites-rejected', "the unresolved-dispatch list in {$file} is not one this version can revive");
+        }
+
+        return ReadOutcome::of(new CodeGraph($edges, ($entry->data['hasUnparseableFiles'] ?? false) === true, $dispatchSites, $metadata));
     }
 
     /**
@@ -413,23 +610,16 @@ final class GraphCache
      * @internal one half of an incremental build's plumbing, paired with
      *   {@see CodeGraphBuilder::buildDetailed()} and shaped by it rather than by consumers.
      */
-    public function mergeBase(): MergeBase
+    public function mergeBase(?CacheEntry $entry = null): MergeBase
     {
         $file = $this->cacheFile();
+        $entry ??= $this->entry();
 
-        if (! is_file($file)) {
-            return MergeBase::refused('no-cache-entry', 'nothing cached yet, so there is no graph to build onto');
+        if ($entry->data === null) {
+            return MergeBase::refused((string) $entry->refusal, (string) $entry->detail);
         }
 
-        try {
-            $data = json_decode((string) file_get_contents($file), associative: true, flags: JSON_THROW_ON_ERROR);
-        } catch (Throwable $throwable) {
-            return MergeBase::refused('cache-unreadable', "{$file}: " . $throwable->getMessage());
-        }
-
-        if (! is_array($data)) {
-            return MergeBase::refused('cache-unreadable', "{$file} does not decode to an object");
-        }
+        $data = $entry->data;
 
         // An entry written before this feature carries neither key. That is "no merge base", not an
         // error — the run simply builds in full, exactly as every run did before.

@@ -92,6 +92,7 @@ Read the full documentation at **[sandermuller.github.io/richter](https://sander
 - [Affected-test selection](https://sandermuller.github.io/richter/affected-tests): `richter:affected-tests`
 - [Task slice](https://sandermuller.github.io/richter/task-slice): `richter:task-slice`, one document for work in progress
 - [Where a symbol or file is](https://sandermuller.github.io/richter/locate): `richter:locate`, the node id `impact` and `trace` need
+- [Warm the graph cache](https://sandermuller.github.io/richter/graph-cache#baking-an-entry-at-deploy-time): `richter:warm`, to bake an entry at deploy time and check it is being used
 
 **Digging deeper**
 - [Frontend changes](https://sandermuller.github.io/richter/frontend): the Wayfinder/Ziggy bridge in full

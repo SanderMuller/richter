@@ -94,6 +94,233 @@ final class GraphCacheTest extends TestCase
     }
 
     #[Test]
+    public function warm_builds_stores_and_reports_what_landed(): void
+    {
+        $result = $this->cache()->warm($this->projectRoot);
+
+        $this->assertTrue($result->built, 'Nothing was cached, so this call had to build it.');
+        $this->assertTrue($result->written);
+        $this->assertSame($this->cacheFile(), $result->file);
+        $this->assertSame(filesize($this->cacheFile()), $result->bytes);
+        $this->assertSame($this->cache()->fingerprint($this->projectRoot), $result->fingerprint);
+        $this->assertGreaterThan(0, $result->seconds);
+    }
+
+    #[Test]
+    public function warm_reports_an_already_current_entry_as_written_but_not_built(): void
+    {
+        // The distinction a deploy log needs: `written` says a usable entry exists, `built` says
+        // this call produced it. A hit and a successful bake both leave `written` true.
+        $this->cache()->warm($this->projectRoot);
+
+        $second = new GraphCache(new CodeGraphBuilder())->warm($this->projectRoot);
+
+        $this->assertTrue($second->written);
+        $this->assertFalse($second->built);
+    }
+
+    #[Test]
+    public function warm_rebuilds_an_entry_deleted_under_a_process_holding_the_memo(): void
+    {
+        // graph() serves the memo without touching disk — right for a report, and wrong for a warm,
+        // which would then never notice that the entry it exists to guarantee had been deleted.
+        // warm() sidesteps that by not calling graph() at all: it reads the DISK, misses, and
+        // rebuilds. The memo below is what a report would have been served.
+        $cache = $this->cache();
+        $cache->graph($this->projectRoot);
+        unlink($this->cacheFile());
+
+        $result = $cache->warm($this->projectRoot);
+
+        $this->assertTrue($result->written, 'The entry was gone; warm must put it back.');
+        $this->assertTrue($result->built);
+        $this->assertFileExists($this->cacheFile());
+    }
+
+    #[Test]
+    public function warm_reports_failure_when_the_entry_cannot_be_written(): void
+    {
+        // The one mode where write()'s deliberate silence is wrong: writing IS the job.
+        mkdir($this->cacheDirectory, recursive: true);
+        mkdir($this->cacheFile());
+
+        $result = $this->cache()->warm($this->projectRoot);
+
+        $this->assertFalse($result->written, 'The rename cannot land on a directory.');
+        $this->assertTrue($result->built, 'The build still ran; only storing it failed.');
+
+        rmdir($this->cacheFile());
+    }
+
+    #[Test]
+    public function inspect_reports_a_current_entry_as_a_match(): void
+    {
+        $this->cache()->warm($this->projectRoot);
+
+        $status = new GraphCache(new CodeGraphBuilder())->inspect($this->projectRoot);
+
+        $this->assertTrue($status->matches);
+        $this->assertNull($status->reason);
+        $this->assertFalse($status->corrupt);
+        $this->assertSame($status->fingerprint, $status->storedFingerprint);
+    }
+
+    #[Test]
+    public function inspect_names_the_differing_non_file_input_rather_than_reporting_that_one_differs(): void
+    {
+        // The whole point of the mode, and the answer to the deploy question the cache cannot
+        // otherwise be asked: a build container and a runtime container on different PHP patch
+        // releases miss forever, silently. `php (X → Y)` is that made visible.
+        $this->cache()->warm($this->projectRoot);
+
+        $entry = $this->storedEntry();
+        $this->assertIsArray($entry['inputs']);
+        $inputs = $entry['inputs'];
+        $this->assertIsArray($inputs['nonFile']);
+        $inputs['nonFile']['php'] = '0.0.0-not-this-runtime';
+        $entry['inputs'] = $inputs;
+        $entry['fingerprint'] = 'deliberately-not-the-live-one';
+        file_put_contents($this->cacheFile(), json_encode($entry, JSON_THROW_ON_ERROR));
+
+        $status = new GraphCache(new CodeGraphBuilder())->inspect($this->projectRoot);
+
+        $this->assertFalse($status->matches);
+        $this->assertSame('inputs-changed', $status->reason);
+        $this->assertStringContainsString('php (0.0.0-not-this-runtime → ', (string) $status->detail);
+        $this->assertSame('deliberately-not-the-live-one', $status->storedFingerprint);
+    }
+
+    #[Test]
+    public function inspect_reports_an_absent_entry_as_absent_not_as_stale(): void
+    {
+        $status = $this->cache()->inspect($this->projectRoot);
+
+        $this->assertFalse($status->matches);
+        $this->assertSame('no-cache-entry', $status->reason);
+        $this->assertFalse($status->corrupt, 'An absent entry fixes itself on the next warm.');
+        $this->assertNull($status->storedFingerprint);
+    }
+
+    #[Test]
+    public function inspect_separates_a_corrupt_entry_from_a_stale_one(): void
+    {
+        // The finding that forced ReadOutcome to carry a reason. mergeBase() validates `brainGraph`
+        // and `inputs`; read() also validates the edges, metadata and dispatch sites. So an entry
+        // with CURRENT inputs and a broken edge list compares equal on the record while failing the
+        // read — and reporting "the fingerprint differs" would be a false statement about a file
+        // whose fingerprint is fine, pointing at a rebuild that will not fix it.
+        $cache = $this->cache();
+        $cache->warm($this->projectRoot);
+
+        $entry = $this->storedEntry();
+        $entry['edges'] = 'not a list of edges at all';
+        file_put_contents($this->cacheFile(), json_encode($entry, JSON_THROW_ON_ERROR));
+
+        $status = new GraphCache(new CodeGraphBuilder())->inspect($this->projectRoot);
+
+        $this->assertFalse($status->matches);
+        $this->assertTrue($status->corrupt);
+        $this->assertSame('edges-rejected', $status->reason);
+    }
+
+    #[Test]
+    public function inspect_names_which_part_of_a_corrupt_payload_was_rejected(): void
+    {
+        // Three separate whole-entry conditions, and the third is the one that matters most: a
+        // malformed dispatch-site list must never coalesce to "no sites", which reads as no
+        // unfollowable dispatch and lets a selection report determinable when it is not. A reporter
+        // that collapsed these into one reason would hide which of them the file actually failed.
+        foreach (['nodeMetadata' => 'metadata-rejected', 'unresolvedDispatchSites' => 'dispatch-sites-rejected'] as $key => $expected) {
+            $this->cache()->warm($this->projectRoot);
+
+            $entry = $this->storedEntry();
+            $entry[$key] = 'not a valid ' . $key;
+            file_put_contents($this->cacheFile(), json_encode($entry, JSON_THROW_ON_ERROR));
+
+            $status = new GraphCache(new CodeGraphBuilder())->inspect($this->projectRoot);
+
+            $this->assertFalse($status->matches, "A rejected {$key} must not read as a hit.");
+            $this->assertTrue($status->corrupt);
+            $this->assertSame($expected, $status->reason);
+        }
+    }
+
+    #[Test]
+    public function neither_a_build_nor_a_hit_reports_itself_as_a_repair(): void
+    {
+        // `repaired` covers one narrow race: the entry reads fine, then is gone or unusable by the
+        // read-back a moment later, and this call is holding the graph that fixes it. Every ordinary
+        // path must leave it false, or a deploy log would claim a repair that never happened.
+        //
+        // The race itself is not reproducible without two processes interleaving between two reads
+        // microseconds apart, so this pins the invariant around it rather than the race.
+        $cache = $this->cache();
+
+        $built = $cache->warm($this->projectRoot);
+        $this->assertTrue($built->built);
+        $this->assertFalse($built->repaired);
+
+        $hit = new GraphCache(new CodeGraphBuilder())->warm($this->projectRoot);
+        $this->assertFalse($hit->built);
+        $this->assertFalse($hit->repaired);
+        $this->assertTrue($hit->written);
+    }
+
+    #[Test]
+    public function inspect_reports_an_undecodable_entry_as_unreadable(): void
+    {
+        mkdir($this->cacheDirectory, recursive: true);
+        file_put_contents($this->cacheFile(), '{ this is not json');
+
+        $status = $this->cache()->inspect($this->projectRoot);
+
+        $this->assertFalse($status->matches);
+        $this->assertTrue($status->corrupt, 'It is there and does not decode, so it repeats every run.');
+        $this->assertSame('cache-unreadable', $status->reason);
+    }
+
+    #[Test]
+    public function inspect_reports_a_changed_source_file_as_a_miss(): void
+    {
+        $this->cache()->warm($this->projectRoot);
+        file_put_contents("{$this->projectRoot}/app/Services/Alpha.php", "<?php\n\nnamespace App\\Services;\n\nclass Alpha\n{\n    public function run(): void {}\n    public function added(): void {}\n}\n");
+
+        $status = new GraphCache(new CodeGraphBuilder())->inspect($this->projectRoot);
+
+        $this->assertFalse($status->matches);
+        $this->assertFalse($status->corrupt);
+        // `not-in-provenance`, not a generic mismatch: this fixture's changed file is one the
+        // previous Brain graph attributes nothing to, which is a different fact from "it changed"
+        // and the one a reader needs. The detail names the file either way.
+        $this->assertSame('not-in-provenance', $status->reason);
+        $this->assertStringContainsString('Alpha.php', (string) $status->detail);
+    }
+
+    #[Test]
+    public function inspect_builds_nothing_and_writes_nothing(): void
+    {
+        // A deploy step runs this to decide whether the bake worked. If it could write, it would be
+        // warming the cache it is supposed to be reporting on — and a green check would prove
+        // nothing about the entry the deploy actually produced.
+        $this->cache()->warm($this->projectRoot);
+        $before = (string) file_get_contents($this->cacheFile());
+        $mtime = filemtime($this->cacheFile());
+
+        new GraphCache(new CodeGraphBuilder())->inspect($this->projectRoot);
+
+        $this->assertSame($before, (string) file_get_contents($this->cacheFile()));
+        $this->assertSame($mtime, filemtime($this->cacheFile()));
+    }
+
+    #[Test]
+    public function inspect_leaves_no_entry_behind_when_there_was_none(): void
+    {
+        $this->cache()->inspect($this->projectRoot);
+
+        $this->assertFileDoesNotExist($this->cacheFile(), 'A check on a cold cache must not warm it.');
+    }
+
+    #[Test]
     public function a_write_that_cannot_be_renamed_leaves_the_previous_entry_intact(): void
     {
         // The cache is an optimisation everywhere except a deliberate bake, so a failed write has

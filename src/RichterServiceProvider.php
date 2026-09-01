@@ -13,6 +13,7 @@ use SanderMuller\Richter\Console\InternalTracerBranchCommand;
 use SanderMuller\Richter\Console\LocateCommand;
 use SanderMuller\Richter\Console\TaskSliceCommand;
 use SanderMuller\Richter\Console\TraceCommand;
+use SanderMuller\Richter\Console\WarmCommand;
 use SanderMuller\Richter\Graph\GraphCache;
 use SanderMuller\Richter\Mcp\RichterServer;
 use Spatie\LaravelPackageTools\Package;
@@ -26,7 +27,7 @@ final class RichterServiceProvider extends PackageServiceProvider
         $package
             ->name('richter')
             ->hasConfigFile()
-            ->hasCommands(LocateCommand::class, ImpactCommand::class, TraceCommand::class, DetectChangesCommand::class, AffectedTestsCommand::class, TaskSliceCommand::class, BenchmarkCommand::class, BenchmarkAddCommand::class, InternalTracerBranchCommand::class);
+            ->hasCommands(LocateCommand::class, ImpactCommand::class, TraceCommand::class, DetectChangesCommand::class, AffectedTestsCommand::class, TaskSliceCommand::class, BenchmarkCommand::class, BenchmarkAddCommand::class, WarmCommand::class, InternalTracerBranchCommand::class);
     }
 
     #[Override]

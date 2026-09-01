@@ -24,6 +24,7 @@ Measure the magnitude of impact of code changes in a Laravel codebase. For a qui
 - [Affected-test selection](12-affected-tests.md): `richter:affected-tests`: selection mechanics and the exit-code contract
 - [Task slice](20-task-slice.md): `richter:task-slice`: one document for work in progress — the surfaces this task owns, and what to run
 - [Where a symbol or file is](21-locate.md): `richter:locate`: the exact node id `impact` and `trace` need, without a walk
+- [Warm the graph cache](15-graph-cache.md#baking-an-entry-at-deploy-time): `richter:warm`: bake an entry at deploy time, and check it is being used
 
 ## Digging deeper
 
