@@ -90,6 +90,7 @@ Read the full documentation at **[sandermuller.github.io/richter](https://sander
 - [Blast radius of a symbol](https://sandermuller.github.io/richter/impact): `richter:impact`
 - [Shortest path between symbols](https://sandermuller.github.io/richter/trace): `richter:trace`
 - [Affected-test selection](https://sandermuller.github.io/richter/affected-tests): `richter:affected-tests`
+- [Task slice](https://sandermuller.github.io/richter/task-slice): `richter:task-slice`, one document for work in progress
 
 **Digging deeper**
 - [Frontend changes](https://sandermuller.github.io/richter/frontend): the Wayfinder/Ziggy bridge in full

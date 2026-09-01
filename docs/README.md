@@ -6,6 +6,7 @@ Measure the magnitude of impact of code changes in a Laravel codebase. For a qui
 
 - [Why Richter?](01-why-richter.md): what a report tells you, what it refuses to guess at, and how the analysis runs
 - [Installation](02-installation.md): requirements, the `laravel/mcp` constraint, publishing the config
+- [Getting started](03-getting-started.md): one command on a branch, and the line in the report worth acting on
 - [Set up your project](04-project-setup.md): the setup skill, or two prompts you can paste to any agent
 
 ## Change impact
@@ -21,11 +22,11 @@ Measure the magnitude of impact of code changes in a Laravel codebase. For a qui
 - [Blast radius of a symbol](10-impact.md): `richter:impact`: callers, dependencies, entry surfaces
 - [Shortest path between symbols](11-trace.md): `richter:trace`: call chains and depth
 - [Affected-test selection](12-affected-tests.md): `richter:affected-tests`: selection mechanics and the exit-code contract
+- [Task slice](20-task-slice.md): `richter:task-slice`: one document for work in progress — the surfaces this task owns, and what to run
 
 ## Digging deeper
 
 - [Frontend changes](13-frontend.md): the Wayfinder/Ziggy bridge in full
-- [Task slice](20-task-slice.md): one document for work in progress — the surfaces this task owns, and what to run
 - [MCP server](14-mcp-server.md): the read-only tools and resources an agent can call
 - [Graph cache](15-graph-cache.md): the fingerprinted cache, profiling, scoped rebuilds
 - [Coverage beyond Laravel Brain](16-coverage.md): the edges a route-anchored analysis misses, and the known limits
