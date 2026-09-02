@@ -34,7 +34,25 @@ The entry is portable: it carries project-relative paths, not the build machine'
 
 ### What a baked cache buys, and what it does not
 
-It removes the build. It does not remove the fingerprint sweep, which runs on **every call in every process** — before the in-memory memo is consulted, so a long-lived worker pays it per call too. A warm hit still stats and content-hashes every input file, then decodes and revives the entry. That is what makes staleness designed out rather than expired out, and it is not free.
+It removes the build. It does not remove the fingerprint sweep, which runs on **every call in every process** — before the in-memory memo is consulted, so a long-lived worker pays it per call too. That is what makes staleness designed out rather than expired out.
+
+What a warm hit still costs, and how it scales:
+
+| Step | Scales with |
+|---|---|
+| The sweep | One content hash per input file, across `app/`, `routes/`, `resources/views` and `config/` — so, your file count and their total size |
+| The decode | The entry's size on disk, which `richter:warm` prints |
+| The revive | The graph's edge count |
+
+Measure it on the host you care about rather than trusting a number from someone else's machine — a network filesystem and a local SSD are not the same thing, and the sweep is per-file reads.
+
+`richter:warm --check` is the instrument for that. It builds nothing and writes nothing, but it does sweep, decode and revive, which is exactly the residual and nothing else:
+
+```bash
+time php artisan richter:warm --check
+```
+
+Run that on the target host, against a current entry, and the number is yours rather than an estimate.
 
 ### Two things silently invalidate a baked entry
 
@@ -50,7 +68,7 @@ The cached entry does NOT match this tree — every run rebuilds.
 
 It names the differing input rather than reporting that one differs. It also separates a **stale** entry from a **broken** one — a corrupt entry reports `UNUSABLE`, because a rebuild will not fix it and someone has to remove the file.
 
-`--check` builds nothing and writes nothing, but it is not free either: it revives the stored graph to prove the entry revives. Fine once per deploy; not something to put in a health-check endpoint.
+`--check` builds nothing and writes nothing, but it is not free either: it revives the stored graph to prove the entry revives — which is what also makes it the instrument for measuring a warm hit, above. Fine once per deploy; not something to put in a health-check endpoint.
 
 Run one warm per deploy. Two concurrent warms both build and both rename, so the last one wins and the other may report a failure for work that succeeded.
 
