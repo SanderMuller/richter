@@ -5,6 +5,7 @@ namespace SanderMuller\Richter\Console;
 use Illuminate\Console\Command;
 use SanderMuller\Richter\Analysis\AffectedTests;
 use SanderMuller\Richter\Analysis\JsonPresenter;
+use SanderMuller\Richter\Analysis\SelectionProvenance;
 use SanderMuller\Richter\Console\Concerns\WarnsAboutRootNamespace;
 use SanderMuller\Richter\Console\Concerns\WritesDocuments;
 use SanderMuller\Richter\Graph\GraphCache;
@@ -34,6 +35,7 @@ final class AffectedTestsCommand extends Command
         {--head= : Select against the COMMITTED tree of this ref instead of the working tree}
         {--json : Emit the selection as JSON on stdout}
         {--plain : Print one test path per line and nothing else — for command substitution}
+        {--explain= : Explain why one test file is, or is not, in the selection}
         {--no-cache : Build the code graph fresh, bypassing the graph cache}';
 
     /** @var string */
@@ -43,10 +45,20 @@ final class AffectedTestsCommand extends Command
     {
         $json = (bool) $this->option('json');
         $plain = (bool) $this->option('plain');
+        $explainOption = $this->option('explain');
+        $explain = is_string($explainOption) && $explainOption !== '' ? $explainOption : null;
 
         if ($json && $plain) {
             // With --json present the usage error honours the JSON contract: stdout stays one parseable document.
             $this->writeDocument(JsonPresenter::encode(['error' => 'The --json and --plain options are mutually exclusive.']));
+
+            return self::FAILURE;
+        }
+
+        if ($explain !== null && $plain) {
+            // Same reason --json and --plain cannot pair: `--plain` feeds
+            // `php artisan test $(…)`, so an explanation line there arrives as a file argument.
+            $this->writeDocument(JsonPresenter::encode(['error' => 'The --explain and --plain options are mutually exclusive.']));
 
             return self::FAILURE;
         }
@@ -60,9 +72,16 @@ final class AffectedTestsCommand extends Command
                 is_string($base) ? $base : null,
                 (bool) $this->option('no-cache'),
                 is_string($head) ? $head : null,
+                provenance: $provenance,
             );
 
             $this->warnAboutUntrackedFiles($selection['untrackedFiles']);
+
+            if ($explain !== null) {
+                // The same run, read a second way. The exit code stays the selection's — this is a
+                // diagnostic over the verdict, never a replacement for it.
+                return $this->explain($json, $provenance->explain($explain, $selection['determinable']), $selection);
+            }
 
             return $this->emit($json, $plain, $selection);
         } catch (Throwable $throwable) {
@@ -180,6 +199,83 @@ final class AffectedTestsCommand extends Command
         }
 
         return $exit;
+    }
+
+    /**
+     * The `--explain` answer for one queried path, from the run that just produced the selection.
+     *
+     * The exit code is the SELECTION's, untouched: a caller who wraps this in a script still gets
+     * "run the full suite" from an undeterminable run, and asking why one file was picked must never
+     * change what the command says about the whole diff.
+     *
+     * @param  array{test: string, selected: bool, determinable: bool, reasons?: list<array{axis: string, node?: string, class?: string, origin?: string}>, notSelected?: string, excludedBy?: string, entryPointsConsidered: int, classesConsidered: int}  $explanation
+     * @param  array{determinable: bool, ...}  $selection
+     */
+    private function explain(bool $json, array $explanation, array $selection): int
+    {
+        $exit = $selection['determinable'] ? self::SUCCESS : self::UNDETERMINED;
+
+        if ($json) {
+            $this->writeDocument(JsonPresenter::encode($explanation));
+
+            return $exit;
+        }
+
+        $this->line($explanation['selected']
+            ? "{$explanation['test']} IS in the selection."
+            : "{$explanation['test']} is NOT in the selection.");
+
+        // Read the glob rather than inferring it from the verdict: the two travel together, and a
+        // line naming an empty glob would be worse than no line.
+        $excludedBy = $explanation['excludedBy'] ?? null;
+
+        if ($excludedBy !== null) {
+            $this->line("  - a configured tests.unrunnable_paths glob excludes it: {$excludedBy}");
+        }
+
+        foreach ($explanation['reasons'] ?? [] as $reason) {
+            $this->line('  - ' . $this->reasonLine($reason));
+        }
+
+        if (($explanation['notSelected'] ?? null) === 'not-a-test-file') {
+            $this->line('  - only conventionally-named *Test.php files under tests/, and frontend spec files, can be selected.');
+        }
+
+        if (($explanation['notSelected'] ?? null) === 'no-axis-matched') {
+            $this->line(sprintf(
+                '  - no axis matched it: the diff did not change it, it references none of the %d reached entry point(s), and it imports none of the %d class(es) the change involves.',
+                $explanation['entryPointsConsidered'],
+                $explanation['classesConsidered'],
+            ));
+        }
+
+        if (! $explanation['determinable']) {
+            $this->line('');
+            $this->warn('The selection is not determinable — it is a floor, not the answer. Run the full suite.');
+        }
+
+        return $exit;
+    }
+
+    /** @param  array{axis: string, node?: string, class?: string, origin?: string}  $reason */
+    private function reasonLine(array $reason): string
+    {
+        if ($reason['axis'] === SelectionProvenance::AXIS_CHANGED_FILE) {
+            return 'the diff changed this file';
+        }
+
+        if ($reason['axis'] === SelectionProvenance::AXIS_ENTRY_POINT) {
+            $node = $reason['node'] ?? null;
+
+            return $node === null ? 'it references a reached entry point' : "it references entry point {$node}";
+        }
+
+        // The origin is the part worth reading: a changed class is the diff itself, a caller is one
+        // hop of reasoning, and the two warrant different amounts of trust.
+        $class = $reason['class'] ?? null;
+        $kind = ($reason['origin'] ?? '') === 'changed' ? 'a changed class' : 'a caller of the change';
+
+        return $class === null ? "it imports {$kind}" : "it imports {$class} ({$kind})";
     }
 
     /**

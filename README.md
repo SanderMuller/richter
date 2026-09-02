@@ -66,6 +66,7 @@ php artisan richter:locate --symbol=PostPublisher          # where is it? no wal
 php artisan richter:impact "App\Services\PostPublisher"   # blast radius of one symbol
 php artisan richter:trace PostController PostPublisher    # shortest call chain between two symbols
 php artisan richter:affected-tests                        # the test selection the diff warrants
+php artisan richter:affected-tests --explain=tests/Feature/PostTest.php  # why is that test in the selection?
 ```
 
 Each of these takes `--json` for machine-readable output. `richter:detect-changes` also takes `--html=<path>` for a self-contained visual report.

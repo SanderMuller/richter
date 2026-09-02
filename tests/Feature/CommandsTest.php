@@ -439,6 +439,129 @@ final class CommandsTest extends TestCase
     }
 
     #[Test]
+    public function affected_tests_explain_names_every_reason_a_file_was_selected(): void
+    {
+        $existing = 'tests/Feature/ExplainedTest.php';
+        @mkdir(base_path('tests/Feature'), 0777, true);
+        file_put_contents(base_path($existing), "<?php\n");
+        $diff = "diff --git a/{$existing} b/{$existing}\n--- a/{$existing}\n+++ b/{$existing}\n@@ -0,0 +1,1 @@\n+// touched\n";
+
+        Process::fake([
+            '*merge-base*' => Process::result("abc123\n"),
+            '*show-prefix*' => Process::result(),
+            '*show*' => Process::result(errorOutput: 'bad object', exitCode: 128),
+            '*status*' => Process::result(''),
+            '*diff*' => Process::result($diff),
+        ]);
+
+        $this->withoutMockingConsoleOutput();
+        $exitCode = Artisan::call('richter:affected-tests', ['--base' => 'some-base', '--explain' => $existing]);
+        $output = Artisan::output();
+
+        @unlink(base_path($existing));
+
+        $this->assertSame(0, $exitCode);
+        $this->assertStringContainsString("{$existing} IS in the selection.", $output);
+        $this->assertStringContainsString('the diff changed this file', $output);
+    }
+
+    #[Test]
+    public function affected_tests_explain_answers_for_a_file_that_does_not_exist(): void
+    {
+        // Answered, not rejected. The command never stats the path — a caller asking about a file
+        // they just deleted gets the honest answer rather than a usage error.
+        Process::fake([
+            '*merge-base*' => Process::result("abc123\n"),
+            '*show-prefix*' => Process::result(),
+            '*status*' => Process::result(''),
+            '*diff*' => Process::result(''),
+        ]);
+
+        $this->withoutMockingConsoleOutput();
+        $exitCode = Artisan::call('richter:affected-tests', ['--base' => 'some-base', '--explain' => 'tests/Feature/GoneForeverTest.php']);
+        $output = Artisan::output();
+
+        $this->assertSame(0, $exitCode);
+        $this->assertStringContainsString('is NOT in the selection.', $output);
+        $this->assertStringContainsString('no axis matched it', $output);
+    }
+
+    #[Test]
+    public function affected_tests_explain_says_when_a_path_could_never_be_selected(): void
+    {
+        Process::fake([
+            '*merge-base*' => Process::result("abc123\n"),
+            '*show-prefix*' => Process::result(),
+            '*status*' => Process::result(''),
+            '*diff*' => Process::result(''),
+        ]);
+
+        $this->withoutMockingConsoleOutput();
+        Artisan::call('richter:affected-tests', ['--base' => 'some-base', '--explain' => 'tests/Support/InteractsWithPosts.php']);
+
+        $this->assertStringContainsString('only conventionally-named *Test.php files', Artisan::output());
+    }
+
+    #[Test]
+    public function affected_tests_explain_emits_a_sparse_json_document(): void
+    {
+        Process::fake([
+            '*merge-base*' => Process::result("abc123\n"),
+            '*show-prefix*' => Process::result(),
+            '*status*' => Process::result(''),
+            '*diff*' => Process::result(''),
+        ]);
+
+        $this->withoutMockingConsoleOutput();
+        Artisan::call('richter:affected-tests', ['--base' => 'some-base', '--explain' => 'tests/Feature/UnmatchedTest.php', '--json' => true]);
+        $decoded = json_decode(Artisan::output(), associative: true);
+
+        $this->assertIsArray($decoded);
+        $this->assertSame('tests/Feature/UnmatchedTest.php', $decoded['test']);
+        $this->assertFalse($decoded['selected']);
+        $this->assertSame('no-axis-matched', $decoded['notSelected']);
+        // Sparse: the keys that do not apply are absent, never null.
+        $this->assertArrayNotHasKey('excludedBy', $decoded);
+        $this->assertArrayNotHasKey('reasons', $decoded);
+    }
+
+    #[Test]
+    public function affected_tests_explain_is_rejected_alongside_plain(): void
+    {
+        // `--plain` feeds `php artisan test $(…)`, so an explanation line there arrives as a file
+        // argument to the runner.
+        $this->withoutMockingConsoleOutput();
+        $exitCode = Artisan::call('richter:affected-tests', ['--base' => 'HEAD', '--explain' => 'tests/Feature/AnyTest.php', '--plain' => true]);
+        $decoded = json_decode(Artisan::output(), associative: true);
+
+        $this->assertSame(1, $exitCode);
+        $this->assertIsArray($decoded);
+        $error = $decoded['error'] ?? null;
+        $this->assertIsString($error);
+        $this->assertStringContainsString('mutually exclusive', $error);
+    }
+
+    #[Test]
+    public function affected_tests_explain_still_answers_when_the_selection_is_undeterminable(): void
+    {
+        // The exit code is the SELECTION's, untouched — asking why one file was picked must never
+        // change what the command says about the whole diff.
+        Process::fake([
+            '*merge-base*' => Process::result(errorOutput: 'fatal: bad revision', exitCode: 128),
+            '*rev-parse*' => Process::result(),
+            '*status*' => Process::result(''),
+        ]);
+
+        $this->withoutMockingConsoleOutput();
+        $exitCode = Artisan::call('richter:affected-tests', ['--base' => 'this-ref-does-not-exist-zzz', '--explain' => 'tests/Feature/AnyTest.php']);
+        $output = Artisan::output();
+
+        $this->assertSame(2, $exitCode);
+        $this->assertStringContainsString('is NOT in the selection.', $output);
+        $this->assertStringContainsString('floor, not the answer', $output);
+    }
+
+    #[Test]
     public function affected_tests_an_unresolvable_head_is_undetermined_not_an_error(): void
     {
         // The exit code is the contract: 2 means "run the full suite", 1 means the command itself

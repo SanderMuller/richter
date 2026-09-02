@@ -7,10 +7,11 @@ php artisan richter:affected-tests                        # human-readable selec
 php artisan richter:affected-tests --base=origin/develop
 php artisan richter:affected-tests --head=HEAD            # select against the committed tree
 php artisan richter:affected-tests --json                 # {base, determinable, reasons, tests, testsTotal, testsShare, testsExcluded, frontendTests, unreferencedEntryPoints, unresolvedDispatchSites}
+php artisan richter:affected-tests --explain=tests/Feature/PostTest.php  # why is this file in, or out?
 php artisan test $(php artisan richter:affected-tests --plain)   # simple form: coarse but safe
 ```
 
-It selects the test files that reference any entry point the diff reaches, plus the tests that import any changed or reached class, plus any test file the diff itself touched. That last one needs no graph reasoning and gets none, since `tests/` is outside every tree the analysis reads. It diffs the same way [`detect-changes`](05-detect-changes.md#which-diff-is-analysed) does, so staged and unstaged edits are included. Selection is reference-based recall, not proof of coverage.
+It selects the test files that reference any entry point the diff reaches, plus the tests that import any changed class or any class that reaches the change, plus any test file the diff itself touched. That last one needs no graph reasoning and gets none, since `tests/` is outside every tree the analysis reads. It diffs the same way [`detect-changes`](05-detect-changes.md#which-diff-is-analysed) does, so staged and unstaged edits are included. Selection is reference-based recall, not proof of coverage.
 
 ## The exit-code contract
 
@@ -35,7 +36,26 @@ else php artisan test; fi   # exit 2: not determinable, run the full suite
 
 ## How tests are selected
 
-The command inverts the test-reference index into a selection: the test files that reference any entry point the diff reaches, plus the tests that import any changed **or reached** class (a unit test of an intermediate caller never touches an entry point). A test naming a Livewire component by string (`Livewire::test('admin.dashboard')`, the `livewire()` helper) counts as referencing `App\Livewire\Admin\Dashboard` via the default naming convention. A `schedule::` entry resolves through the command it runs, and a route matched by neither its name nor a literal URI resolves through the class handling it, so a test importing a Livewire component or a Filament page selects the route driven by it. Only conventionally-named `*Test.php` files are selected; helpers and fixtures under `tests/` never end up as runner arguments, and an entry point whose only references live in a support trait blocks determination rather than silently dropping the tests using that trait. Selection is reference-based recall, not proof of coverage: reached entry points nothing references contribute nothing, and the report says how many those are.
+The command inverts the test-reference index into a selection: the test files that reference any entry point the diff reaches, plus the tests that import any changed class or any class that **reaches** the change (a unit test of an intermediate caller never touches an entry point). That axis runs upward only, and [not downward](#why-the-import-axis-runs-one-way). A test naming a Livewire component by string (`Livewire::test('admin.dashboard')`, the `livewire()` helper) counts as referencing `App\Livewire\Admin\Dashboard` via the default naming convention. A `schedule::` entry resolves through the command it runs, and a route matched by neither its name nor a literal URI resolves through the class handling it, so a test importing a Livewire component or a Filament page selects the route driven by it. Only conventionally-named `*Test.php` files are selected; helpers and fixtures under `tests/` never end up as runner arguments, and an entry point whose only references live in a support trait blocks determination rather than silently dropping the tests using that trait. Selection is reference-based recall, not proof of coverage: reached entry points nothing references contribute nothing, and the report says how many those are.
+
+## Why the import axis runs one way
+
+The axis selects tests importing a changed class, or a class that **reaches** the change. It does not select tests importing a class the change **calls**. The two look symmetric and are not.
+
+A class that calls the changed code runs it. A test of that caller exercises the change even though it references no entry point, which is the whole reason this axis exists beside the entry-point one.
+
+A class the change calls did not change. A test importing it exercises that class, and never touches the code the diff touched. Selecting it adds a test that cannot fail because of this change.
+
+The downstream direction used to be included. It pulled in the change's dependency closure to a depth of six, which measured **97-99% of the entire suite** on four real diffs of different shapes — a controller, two enums, and a helper. Nothing replaced it, because every case it could have protected already belongs somewhere:
+
+| A test that… | Selected by |
+|---|---|
+| imports the changed class | the changed-class half of this axis |
+| imports a class that calls the change | the caller half of this axis |
+| drives an endpoint reaching the change | the entry-point axis |
+| imports a class the change calls | nothing, on purpose |
+
+One consequence worth naming: for a controller change, the callers are `route::` nodes rather than app classes, so this axis contributes nothing and the entry-point axis carries the selection alone. That is correct, and it is why a controller diff selects so few tests by import.
 
 ## Unfollowable dispatches
 
@@ -190,6 +210,44 @@ A selection can cover most of the suite and still report `determinable: true` wi
 The prose report prints the same thing under the count. It is not printed in `--plain`, which stays one test path per line: that output feeds `php artisan test $(…)`, where an extra line arrives as a file argument.
 
 **The share never withdraws a selection.** A selection covering most of the suite is large, not untrustworthy, and `determinable` already answers the second question — any reason it carries tells the caller to run everything. There is no threshold here, because the number that decides whether a selective run is worth it depends on your suite's wall-clock cost, which only you know. Branch on `testsShare` in your own wrapper with your own number.
+
+## Why is this test in the selection?
+
+`--explain=<test path>` answers that for one file, from the same run that produced the selection. It changes nothing else: the exit code is still the selection's, so a script that wraps the command keeps its contract.
+
+```text
+$ php artisan richter:affected-tests --explain=tests/Feature/PostTest.php
+tests/Feature/PostTest.php IS in the selection.
+  - the diff changed this file
+  - it references entry point route::PATCH::/api/posts/{post}
+  - it imports App\Services\PostPublisher (a caller of the change)
+```
+
+Every reason is listed, not the first one that matched — the useful question is usually whether *one* of the reasons is the weak one. An import reason says whether the class changed or merely calls the change, because those warrant different amounts of trust.
+
+The answer for a file that is not selected is deliberately bounded. There are three, and no fourth:
+
+```text
+tests/Browser/PostTest.php is NOT in the selection.
+  - a configured tests.unrunnable_paths glob excludes it: tests/Browser/*
+```
+
+```text
+tests/Support/InteractsWithPosts.php is NOT in the selection.
+  - only conventionally-named *Test.php files under tests/, and frontend spec files, can be selected.
+```
+
+```text
+tests/Feature/OrderTest.php is NOT in the selection.
+  - no axis matched it: the diff did not change it, it references none of the 2 reached entry
+    point(s), and it imports none of the 7 class(es) the change involves.
+```
+
+Past those three the honest answer is that the command does not know, and a diagnostic that guesses is worse than one that stops. A file the run never saw — including one that does not exist — gets the third answer, which is accurate.
+
+`--explain` takes `--json` for the same document as a sparse object: a key that does not apply is absent, never null. It cannot be combined with `--plain`, for the reason `--json` cannot: that output feeds `php artisan test $(…)`, where an extra line arrives as a file argument.
+
+When the selection is not determinable the explanation still answers, and says the selection it describes is a floor rather than the answer.
 
 ## Untracked files
 

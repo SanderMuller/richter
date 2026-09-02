@@ -71,6 +71,9 @@ Run `affected-tests` (tool or CLI). When determinable, suggest the selection as 
 pre-push run; when not determinable, say why and recommend the full suite — never a narrowed
 guess. Mention the unreferenced-entry-point count as the selection's known blind spot.
 
+When a selection looks surprising, `richter:affected-tests --explain=<test path>` names every axis
+that put one file in it, or the one bounded reason it is out. Use it before guessing at a cause.
+
 Read `testsShare` before you call the selection minimal. A selection covering most of the suite is
 still determinable — the field says how large it is, and the verdict says whether to trust it. When
 the share is high, say so and let the reviewer decide whether a selective run is worth it.

@@ -15,8 +15,8 @@ use SanderMuller\Richter\Support\RichterConfig;
 /**
  * Inverts the test-reference mapping into a test selection: which test files exercise the surface
  * a diff can reach? Selection runs on two axes — tests referencing any reached entry point, and
- * tests importing any changed or reached class (a unit test never touches an entry point) — and
- * fails safe: whenever the analysis cannot vouch for completeness (an UNRESOLVED file, a coarse
+ * tests importing any changed class or any class that REACHES it (a unit test never touches an
+ * entry point) — and fails safe: whenever the analysis cannot vouch for completeness (an UNRESOLVED file, a coarse
  * low-confidence seed, an unfollowable dispatch, an uncheckable entry point, references that live
  * only in non-runnable support files), the verdict is "not determinable — run the full suite",
  * never a silently smaller set. Over-selection is the acceptable error; under-selection is the one
@@ -50,11 +50,17 @@ final class AffectedTests
      *   from, so a caller composing both halves of one report cannot describe two different runs; stays
      *   null when the diff never got that far (an unresolvable ref, an untracked file, nothing changed)
      * @param-out DetectChangesResult|null $analysisUsed
+     * @param  SelectionProvenance|null  $provenance  set to why each file is in the selection, or out
+     *   of it — what `--explain` answers from. An out-param rather than a document key: every
+     *   document field reaches MCP structured content wholesale, so one that rode along would have
+     *   to be stripped by each consumer.
+     * @param-out SelectionProvenance $provenance
      *
      * @return array{base: string, determinable: bool, reasons: list<string>, tests: list<string>, testsTotal: int, testsShare: float, testsExcluded: int, frontendTests: list<string>, unreferencedEntryPoints: int, unresolvedDispatchSites: list<array{file: string, line: int, dispatcher: string}>, untrackedFiles: list<string>}
      */
-    public static function selectForCurrentDiff(GraphCache $graphs, ?string $requestedBase, bool $fresh = false, ?string $requestedHead = null, bool $fullAnalysis = false, ?array &$analysisUsed = null): array
+    public static function selectForCurrentDiff(GraphCache $graphs, ?string $requestedBase, bool $fresh = false, ?string $requestedHead = null, bool $fullAnalysis = false, ?array &$analysisUsed = null, ?SelectionProvenance &$provenance = null): array
     {
+        $provenance = new SelectionProvenance();
         $untracked = [];
 
         try {
@@ -113,7 +119,15 @@ final class AffectedTests
             // The exclusion applies here too: a diff that edits ONLY a Dusk test never reaches
             // select(), and handing that path to `php artisan test` is the failure this key exists
             // to stop.
-            $kept = self::withoutUnrunnable($changedTests, $unrunnable);
+            $partition = self::partitionUnrunnable($changedTests, $unrunnable);
+            $kept = $partition['kept'];
+
+            foreach ([...$changedTests, ...$changedFrontendTests] as $file) {
+                $provenance->changedFile($file);
+            }
+
+            $provenance->excludedBy($partition['excluded']);
+            $provenance->considered(0, 0);
 
             return ['base' => $base, 'determinable' => true, 'reasons' => [], 'tests' => $kept]
                 + self::sizeSignal($kept, $suiteRunnable, $unrunnable, count($changedTests) - count($kept))
@@ -152,6 +166,7 @@ final class AffectedTests
             $changedFrontendTests,
             $suiteRunnable,
             $unrunnable,
+            $provenance,
         );
 
         return ['base' => $base] + $selection + ['untrackedFiles' => $untracked];
@@ -213,11 +228,38 @@ final class AffectedTests
      */
     private static function withoutUnrunnable(array $files, array $globs): array
     {
+        return self::partitionUnrunnable($files, $globs)['kept'];
+    }
+
+    /**
+     * {@see withoutUnrunnable()}, keeping which glob removed each dropped file — what `--explain`
+     * needs to answer the first question a caller asks after configuring one.
+     *
+     * @param  list<string>  $files
+     * @param  list<string>  $globs
+     * @return array{kept: list<string>, excluded: array<string, string>}
+     */
+    private static function partitionUnrunnable(array $files, array $globs): array
+    {
         if ($globs === []) {
-            return $files;
+            return ['kept' => $files, 'excluded' => []];
         }
 
-        return array_values(array_filter($files, static fn (string $file): bool => array_all($globs, static fn (string $glob): bool => ! fnmatch($glob, $file))));
+        $kept = [];
+        $excluded = [];
+
+        foreach ($files as $file) {
+            $matched = array_find($globs, static fn (string $glob): bool => fnmatch($glob, $file));
+            if ($matched === null) {
+                $kept[] = $file;
+
+                continue;
+            }
+
+            $excluded[$file] = $matched;
+        }
+
+        return ['kept' => $kept, 'excluded' => $excluded];
     }
 
     /**
@@ -291,10 +333,15 @@ final class AffectedTests
      *   suite total, never to the index: an excluded test is still real coverage for the
      *   `[test-referenced]` annotation and for the risk ladder, and excluding it at discovery would
      *   turn a browser-covered route into a reported gap.
+     * @param  SelectionProvenance|null  $provenance  filled in as the axes run, never recomputed
+     *   afterwards — a second pass deriving "which axis would have matched this" is a second
+     *   implementation of the selection rule, and two implementations of one rule drift
+     * @param-out SelectionProvenance $provenance
      * @return array{determinable: bool, reasons: list<string>, tests: list<string>, testsTotal: int, testsShare: float, testsExcluded: int, frontendTests: list<string>, unreferencedEntryPoints: int, unresolvedDispatchSites: list<array{file: string, line: int, dispatcher: string}>}
      */
-    public static function select(array $result, array $changed, TestReferenceIndex $tests, array $unresolvedDispatchSites, ?CodeGraph $graph = null, ?FrontendTestIndex $frontendTests = null, bool $hasUnparseableFiles = false, array $changedTests = [], array $changedFrontendTests = [], array $suiteRunnableFiles = [], array $unrunnablePaths = []): array
+    public static function select(array $result, array $changed, TestReferenceIndex $tests, array $unresolvedDispatchSites, ?CodeGraph $graph = null, ?FrontendTestIndex $frontendTests = null, bool $hasUnparseableFiles = false, array $changedTests = [], array $changedFrontendTests = [], array $suiteRunnableFiles = [], array $unrunnablePaths = [], ?SelectionProvenance &$provenance = null): array
     {
+        $provenance ??= new SelectionProvenance();
         $reasons = [];
 
         if (in_array('unresolved', $result['coverage'], strict: true)) {
@@ -338,12 +385,20 @@ final class AffectedTests
         $frontendSelected = $changedFrontendTests;
         $unreferenced = 0;
 
+        foreach ([...$changedTests, ...$changedFrontendTests] as $file) {
+            $provenance->changedFile($file);
+        }
+
         // Selection walks the registry fan-out surfaces too. They are context in the report, since
         // they cannot tell one class of a registry from another — but each is a route that really
         // may dispatch the change, and a selection that skips them under-selects, which is the one
         // direction this command must never fail in.
-        foreach ([...$result['entryPoints'], ...$result['registryEntryPoints'] ?? []] as $entryPoint) {
-            $frontendSelected = [...$frontendSelected, ...$frontendTests?->testsReferencing($entryPoint) ?? []];
+        $entryPointsConsidered = [...$result['entryPoints'], ...$result['registryEntryPoints'] ?? []];
+
+        foreach ($entryPointsConsidered as $entryPoint) {
+            $referencingSpecs = $frontendTests?->testsReferencing($entryPoint) ?? [];
+            $provenance->referencingEntryPoint($referencingSpecs, $entryPoint);
+            $frontendSelected = [...$frontendSelected, ...$referencingSpecs];
             $referencing = $tests->testsReferencing($entryPoint);
 
             if ($referencing === null) {
@@ -369,25 +424,34 @@ final class AffectedTests
                 continue;
             }
 
+            $provenance->referencingEntryPoint($runnable, $entryPoint);
             $selected = [...$selected, ...$runnable];
         }
 
-        // The import axis is deliberately broad — every changed class, every class the change
-        // reaches in either direction, and a rename's vanished old FQCN — because a unit test of an
-        // intermediate caller never references an entry point. Imports are a weak signal though, so
-        // unlike the entry-point axis, non-runnable files (fixtures import app classes too) simply
-        // filter out without blocking determination.
-        foreach (self::classesToMatch($result, $changed) as $class) {
-            $selected = [...$selected, ...TestReferenceIndex::runnableOnly($tests->testsImporting($class))];
+        // The import axis is broad but DIRECTIONAL — every changed class, every class that reaches
+        // the change, and a rename's vanished old FQCN — because a unit test of an intermediate
+        // caller never references an entry point. {@see classesToMatch()} says why the downstream
+        // direction is not here. Imports are a weak signal though, so unlike the entry-point axis,
+        // non-runnable files (fixtures import app classes too) simply filter out without blocking
+        // determination.
+        $classesConsidered = self::classesToMatch($result, $changed);
+
+        foreach ($classesConsidered as $class => $origin) {
+            $importing = TestReferenceIndex::runnableOnly($tests->testsImporting($class));
+            $provenance->importing($importing, $class, $origin);
+            $selected = [...$selected, ...$importing];
         }
+
+        $provenance->considered(count($entryPointsConsidered), count($classesConsidered));
 
         // Both axes and the seeded set are unioned first, so a file reached two ways is counted once
         // — then the exclusion runs over the whole selection at once, which is where the count of
         // what it removed comes from.
         $selected = array_values(array_unique($selected));
-        $kept = self::withoutUnrunnable($selected, $unrunnablePaths);
-        $excluded = count($selected) - count($kept);
-        $selected = $kept;
+        $partition = self::partitionUnrunnable($selected, $unrunnablePaths);
+        $provenance->excludedBy($partition['excluded']);
+        $excluded = count($partition['excluded']);
+        $selected = $partition['kept'];
         sort($selected);
         $frontendSelected = array_values(array_unique($frontendSelected));
         sort($frontendSelected);
@@ -413,9 +477,24 @@ final class AffectedTests
     }
 
     /**
-     * @param  array{entryPoints: list<string>, callers?: list<array{depth: int, node: string, via: string, file?: string, line?: int}>, dependencies?: list<array{depth: int, node: string, via: string, file?: string, line?: int}>, ...}  $result
+     * The app classes whose importers count as affected, each mapped to why it qualified — `changed`
+     * for a class the diff touched, `caller` for one that reaches the change. The origin is what
+     * lets `--explain` name the relation instead of only the class.
+     *
+     * The axis is UPWARD ONLY, and that is a decision rather than an omission. A test importing a
+     * class the change CALLS exercises that class: the callee did not change, and the test never
+     * touches the code that did. A test importing a class that calls the change is the opposite —
+     * it runs the changed code, and it may reference no entry point at all, which is the whole
+     * reason this axis exists beside the entry-point one.
+     *
+     * The downstream half used to be included here. It selected the change's dependency closure to
+     * depth six, which measured 97-99% of the whole suite on four real diffs of different shapes.
+     * Nothing replaced it: every case it could have protected belongs to the caller half, the
+     * changed-class half, or the entry-point axis.
+     *
+     * @param  array{entryPoints: list<string>, callers?: list<array{depth: int, node: string, via: string, file?: string, line?: int}>, ...}  $result
      * @param  list<ChangedFileSymbols>  $changed
-     * @return list<string>
+     * @return array<string, 'changed'|'caller'>
      */
     private static function classesToMatch(array $result, array $changed): array
     {
@@ -423,25 +502,27 @@ final class AffectedTests
 
         foreach ($changed as $file) {
             if ($file->fqcn !== '') {
-                $classes[$file->fqcn] = true;
+                $classes[$file->fqcn] = 'changed';
             }
 
             foreach ($file->directSeeds as $seed) {
                 if (AppNamespace::isAppClass($seed)) {
-                    $classes[$seed] = true;
+                    $classes[$seed] = 'changed';
                 }
             }
         }
 
-        foreach ([...$result['callers'] ?? [], ...$result['dependencies'] ?? []] as $hop) {
+        foreach ($result['callers'] ?? [] as $hop) {
             $class = explode('::', $hop['node'], 2)[0];
 
-            if (AppNamespace::isAppClass($class)) {
-                $classes[$class] = true;
+            // A changed class that is also its own caller keeps the stronger origin: the diff
+            // touched it, which is the more direct thing to tell a reader.
+            if (AppNamespace::isAppClass($class) && ! isset($classes[$class])) {
+                $classes[$class] = 'caller';
             }
         }
 
-        return array_keys($classes);
+        return $classes;
     }
 
     /**

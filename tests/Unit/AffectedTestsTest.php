@@ -20,11 +20,14 @@ final class AffectedTestsTest extends TestCase
      * @param  array<string, 'analyzed'|'unresolved'>  $coverage
      * @param  list<array{depth: int, node: string, via: string}>  $callers
      * @param  list<string>  $registryEntryPoints
+     * @param  list<array{depth: int, node: string, via: string}>  $dependencies  the change's
+     *   DOWNSTREAM closure. Defaults empty, which is what it was for every test here until the
+     *   import axis became directional — a test that does not pass one proves nothing about it.
      * @return array{coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, registryEntryPoints: list<string>, lowConfidence: bool, callers: list<array{depth: int, node: string, via: string}>, dependencies: list<array{depth: int, node: string, via: string}>}
      */
-    private function detectResult(array $entryPoints, array $coverage = ['app/Services/X.php' => 'analyzed'], bool $lowConfidence = false, array $callers = [], array $registryEntryPoints = []): array
+    private function detectResult(array $entryPoints, array $coverage = ['app/Services/X.php' => 'analyzed'], bool $lowConfidence = false, array $callers = [], array $registryEntryPoints = [], array $dependencies = []): array
     {
-        return ['coverage' => $coverage, 'entryPoints' => $entryPoints, 'registryEntryPoints' => $registryEntryPoints, 'lowConfidence' => $lowConfidence, 'callers' => $callers, 'dependencies' => []];
+        return ['coverage' => $coverage, 'entryPoints' => $entryPoints, 'registryEntryPoints' => $registryEntryPoints, 'lowConfidence' => $lowConfidence, 'callers' => $callers, 'dependencies' => $dependencies];
     }
 
     private function changed(string $file, string $fqcn): ChangedFileSymbols
@@ -1079,5 +1082,67 @@ final class AffectedTestsTest extends TestCase
 
         $this->assertSame([], $selection['tests']);
         $this->assertSame(['resources/js/lib/__tests__/thresholds.test.ts'], $selection['frontendTests']);
+    }
+
+    #[Test]
+    public function a_test_importing_a_class_the_change_calls_is_not_selected(): void
+    {
+        // The test the downstream half never had, written as its inverse. `App\Services\Callee` did
+        // not change; the change calls it. A test importing it exercises the callee, and never runs
+        // the code the diff touched.
+        $index = new TestReferenceIndex();
+        $index->addSource("<?php\nuse App\Services\Callee;\n", 'tests/Unit/CalleeTest.php');
+
+        $selection = AffectedTests::select(
+            $this->detectResult([], dependencies: [['depth' => 1, 'node' => 'App\Services\Callee::run', 'via' => 'call']]),
+            [$this->changed('app/Services/X.php', 'App\Services\X')],
+            $index,
+            unresolvedDispatchSites: [],
+        );
+
+        $this->assertSame([], $selection['tests']);
+        $this->assertTrue($selection['determinable']);
+    }
+
+    #[Test]
+    public function a_test_importing_a_class_that_calls_the_change_is_still_selected(): void
+    {
+        // The other half of the same pair, and the reason the axis exists at all: a unit test of an
+        // intermediate caller references no entry point, so nothing else would find it.
+        $index = new TestReferenceIndex();
+        $index->addSource("<?php\nuse App\Services\Caller;\n", 'tests/Unit/CallerTest.php');
+        $index->addSource("<?php\nuse App\Services\Callee;\n", 'tests/Unit/CalleeTest.php');
+
+        $selection = AffectedTests::select(
+            $this->detectResult(
+                [],
+                callers: [['depth' => 1, 'node' => 'App\Services\Caller::run', 'via' => 'call']],
+                dependencies: [['depth' => 1, 'node' => 'App\Services\Callee::run', 'via' => 'call']],
+            ),
+            [$this->changed('app/Services/X.php', 'App\Services\X')],
+            $index,
+            unresolvedDispatchSites: [],
+        );
+
+        $this->assertSame(['tests/Unit/CallerTest.php'], $selection['tests']);
+    }
+
+    #[Test]
+    public function a_change_whose_callers_are_all_route_nodes_selects_through_the_entry_point_axis(): void
+    {
+        // The controller shape. `AppNamespace::isAppClass()` filters a `route::` node out of the
+        // import axis, so the caller half contributes nothing here and the entry-point axis carries
+        // the selection alone. This is why a controller diff measured 2 on callers only.
+        $selection = AffectedTests::select(
+            $this->detectResult(
+                ['route::GET::/errors/log'],
+                callers: [['depth' => 1, 'node' => 'route::GET::/errors/log', 'via' => 'route']],
+            ),
+            [$this->changed('app/Http/Controllers/ErrorController.php', 'App\Http\Controllers\ErrorController')],
+            $this->index(),
+            unresolvedDispatchSites: [],
+        );
+
+        $this->assertSame(['tests/Feature/ErrorLogTest.php'], $selection['tests']);
     }
 }
