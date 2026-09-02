@@ -84,9 +84,12 @@ final class McpTest extends TestCase
                     ->has('tests')
                     // Advisory size fields, present on every path including this early return:
                     // a consumer branching on testsTotal must never meet an undefined key.
-                    // JSON has one number type, so a whole share serialises without its fraction —
-                    // 0.0 arrives as 0. The schema declares `number` for exactly that reason.
-                    ->where('testsShare', 0)
+                    //
+                    // Compared as a number, not by identity: whether a whole share reaches this
+                    // assertion as float 0.0 or as int 0 depends on whether the framework version
+                    // under test round-trips the structured content through JSON, which has one
+                    // number type. The declared schema is `number`, so both are the same answer.
+                    ->where('testsShare', static fn (mixed $share): bool => is_numeric($share) && (float) $share === 0.0)
                     ->has('testsTotal')
                     ->has('testsExcluded')
                     ->has('frontendTests')
