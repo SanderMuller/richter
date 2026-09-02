@@ -105,7 +105,7 @@ final class AffectedTestsCommand extends Command
         ));
     }
 
-    /** @param  array{base: string, determinable: bool, reasons: list<string>, tests: list<string>, frontendTests: list<string>, unreferencedEntryPoints: int, unresolvedDispatchSites: list<array{file: string, line: int, dispatcher: string}>, untrackedFiles: list<string>}  $selection */
+    /** @param  array{base: string, determinable: bool, reasons: list<string>, tests: list<string>, testsTotal: int, testsShare: float, testsExcluded: int, frontendTests: list<string>, unreferencedEntryPoints: int, unresolvedDispatchSites: list<array{file: string, line: int, dispatcher: string}>, untrackedFiles: list<string>}  $selection */
     private function emit(bool $json, bool $plain, array $selection): int
     {
         $exit = $selection['determinable'] ? self::SUCCESS : self::UNDETERMINED;
@@ -158,6 +158,11 @@ final class AffectedTestsCommand extends Command
 
         $this->line('Affected tests: ' . count($selection['tests']));
 
+        // Prose branch only, deliberately. `--plain` is a command-substitution contract — one test
+        // path per line and nothing else — so a summary line printed there would reach
+        // `php artisan test` as a file argument and fail the run.
+        $this->line($this->sizeLine($selection));
+
         foreach ($selection['tests'] as $test) {
             $this->line("  - {$test}");
         }
@@ -175,5 +180,29 @@ final class AffectedTestsCommand extends Command
         }
 
         return $exit;
+    }
+
+    /**
+     * How much of the suite this selection is. Advisory: a large share is a fact about the diff,
+     * not a defect in the selection, so it never changes the exit code — a caller that wants to run
+     * everything above some share reads `testsShare` from `--json` and picks its own number, which
+     * is the number it actually knows.
+     *
+     * @param  array{tests: list<string>, testsTotal: int, testsShare: float, testsExcluded: int, ...}  $selection
+     */
+    private function sizeLine(array $selection): string
+    {
+        $line = $selection['testsTotal'] === 0
+            ? 'No runnable test files found in the suite, so there is no share to report'
+            : sprintf(
+                '%d of %d runnable test files (%d%%)',
+                count($selection['tests']),
+                $selection['testsTotal'],
+                (int) round($selection['testsShare'] * 100),
+            );
+
+        return $selection['testsExcluded'] === 0
+            ? $line
+            : $line . sprintf(', %d excluded as unrunnable', $selection['testsExcluded']);
     }
 }

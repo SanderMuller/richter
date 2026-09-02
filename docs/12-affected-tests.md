@@ -6,7 +6,7 @@
 php artisan richter:affected-tests                        # human-readable selection
 php artisan richter:affected-tests --base=origin/develop
 php artisan richter:affected-tests --head=HEAD            # select against the committed tree
-php artisan richter:affected-tests --json                 # {base, determinable, reasons, tests, frontendTests, unreferencedEntryPoints, unresolvedDispatchSites}
+php artisan richter:affected-tests --json                 # {base, determinable, reasons, tests, testsTotal, testsShare, testsExcluded, frontendTests, unreferencedEntryPoints, unresolvedDispatchSites}
 php artisan test $(php artisan richter:affected-tests --plain)   # simple form: coarse but safe
 ```
 
@@ -156,6 +156,41 @@ Five shapes look unfollowable and are not counted, because none of them hides an
   `static::` reference whose value a subclass can replace. Each of those would need what this pass
   cannot see, and guessing risks dropping a genuine unfollowable dispatch, so they stay listed.
 
+## Tests the runner cannot execute
+
+Richter reads nothing from `phpunit.xml`. It scans the whole `tests/` tree, so a Dusk case is discovered like any other test — and a selection that names one hands `php artisan test` a file that dies in `DuskTestCase`, because passing explicit paths bypasses your testsuite definitions. One consumer measured 482 failures from a change that broke nothing.
+
+Name those paths, and the selection stops including them:
+
+```php
+// config/richter.php
+'tests' => [
+    'unrunnable_paths' => ['tests/Browser/*'],
+],
+```
+
+Globs are relative to the project root, and `*` crosses `/`, so `tests/Browser/*` covers the whole tree under it. The default is empty: an unconfigured project gets the selection it got before, byte for byte.
+
+**Name the key for what the runner cannot execute, not for phpunit's `<exclude>` entries.** Those are different sets. A suite may exclude a directory that another suite runs — an `Api` directory excluded from `Backend` and run under `API` is the common shape — and excluding it here would drop tests that do run. That is under-selection, which is the failure this command exists to prevent. The question this key answers is narrower: can `php artisan test <path>` execute the file at all?
+
+**An excluded test is still coverage.** The exclusion applies to the selection only, never to test discovery. A route covered only by a browser test keeps its `[test-referenced]` annotation in [`detect-changes`](05-detect-changes.md) and [`impact`](10-impact.md), and still feeds the [risk level](08-risk-levels.md). Only the list of files to run drops it. A Dusk test the diff itself touched is dropped too: it is in the diff and it still cannot run here.
+
+## How large is the selection?
+
+A selection can cover most of the suite and still report `determinable: true` with no reasons — correct by the contract, and useless to a caller who cannot see it. Three fields say how large it is:
+
+| Field | Meaning |
+|---|---|
+| `testsTotal` | Runnable test files in the **suite**, after removing the unrunnable paths above |
+| `testsShare` | `tests` divided by `testsTotal`, two decimals; `0.0` when the suite has no runnable files. JSON has one number type, so a whole value arrives without its fraction — `1.0` reads as `1` |
+| `testsExcluded` | Files **this run** dropped as unrunnable |
+
+`testsTotal` describes the suite and `testsExcluded` describes this run, so adding them together means nothing. Both sides of the share come from the same side of the exclusion filter — a numerator taken before it over a denominator taken after it would overstate every selection.
+
+The prose report prints the same thing under the count. It is not printed in `--plain`, which stays one test path per line: that output feeds `php artisan test $(…)`, where an extra line arrives as a file argument.
+
+**The share never withdraws a selection.** A selection covering most of the suite is large, not untrustworthy, and `determinable` already answers the second question — any reason it carries tells the caller to run everything. There is no threshold here, because the number that decides whether a selective run is worth it depends on your suite's wall-clock cost, which only you know. Branch on `testsShare` in your own wrapper with your own number.
+
 ## Untracked files
 
 An untracked (never `git add`-ed) file under a watched root is one `git diff` cannot see, so it makes the selection **undeterminable** (exit 2) rather than emit a narrowed set that silently omits it. That includes an untracked migration, which `detect-changes` does analyse: this command stays conservative because its contract is a test SELECTION, and the safe direction is the full suite. The stderr note still fires, and `git add`-ing the file includes it. The note is stderr-only, never on stdout, so `--plain`/`--json` stay clean.
@@ -167,3 +202,7 @@ In `--plain` mode an undeterminable run prints nothing, so the command-substitut
 ## Frontend tests
 
 Frontend spec files referencing a touched route surface as an advisory `frontendTests` list for the JS runner, never in `--plain` (which feeds the PHP runner), and never a determinability input. See [Frontend changes](13-frontend.md).
+
+A spec the diff itself changed is added to that list too, the way a changed PHP test is added to `tests` — otherwise a spec added by the diff is invisible while a PHP test in the same position is named. This one works on the path alone, so a spec outside every configured frontend path still counts, and a deleted spec is dropped rather than handed to a runner.
+
+**The reference axis is endpoint-only by design.** A spec is suggested when it references a route the diff reaches. A spec for a pure function — a formatter, a threshold calculation — references no endpoint, so it is out of scope for that axis rather than missed. If the diff changes it, the seeding above names it; if the diff does not, nothing will.

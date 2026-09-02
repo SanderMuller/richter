@@ -354,6 +354,40 @@ final class TestReferenceIndex
         return array_values(array_filter($files, static fn (string $file): bool => str_ends_with($file, 'Test.php')));
     }
 
+    /**
+     * Every runnable test file in the suite, project-relative — the denominator behind
+     * `affected-tests`' selection share. A name-only scan: no file is read, unlike
+     * {@see fromTests()}, so a caller that needs the size but not the references does not pay for
+     * the index. Separators are normalised to `/` so a path compares against a git-diff path on
+     * every platform.
+     *
+     * Runnable is {@see runnableOnly()}'s rule, applied by Finder's name filter rather than after
+     * the fact, so numerator and denominator can never drift apart.
+     *
+     * @return list<string>
+     */
+    public static function runnableFiles(string $testsDir, ?string $projectRoot = null): array
+    {
+        if (! is_dir($testsDir)) {
+            return [];
+        }
+
+        $files = [];
+
+        foreach (Finder::create()->files()->in($testsDir)->name('*Test.php') as $file) {
+            $path = str_replace('\\', '/', $file->getPathname());
+            $root = $projectRoot === null ? null : str_replace('\\', '/', $projectRoot);
+
+            $files[] = $root !== null && str_starts_with($path, $root . '/')
+                ? substr($path, strlen($root) + 1)
+                : $path;
+        }
+
+        sort($files);
+
+        return $files;
+    }
+
     /** @param  array<string, list<string>>  $bucket */
     private function record(array &$bucket, string $key, ?string $file): void
     {

@@ -97,6 +97,24 @@ return [
     ],
 
     /*
+     * The PHP test suite, as `richter:affected-tests` has to treat it.
+     */
+    'tests' => [
+        // Paths whose tests the runner this command feeds cannot execute at all — Dusk cases that
+        // need `php artisan dusk`, anything needing a browser or a separate binary. Globs relative
+        // to the project root; `*` crosses `/`, so 'tests/Browser/*' covers the whole tree.
+        //
+        // NOT "the excludes from phpunit.xml". Those are a different set: one testsuite may exclude
+        // a directory that another testsuite runs, and excluding it here would drop tests that do
+        // run — the under-selection this key exists to avoid, caused by the key. The question this
+        // answers is narrower: can `php artisan test <path>` execute the file at all?
+        //
+        // An excluded test still counts as coverage everywhere else. It keeps its [test-referenced]
+        // annotation and still feeds the risk ladder — only the selection drops it.
+        'unrunnable_paths' => [],
+    ],
+
+    /*
      * On-disk cache for the built code graph, keyed by a content fingerprint of everything the
      * build reads (app/, routes/, resources/views, the richter and laravel-brain config, package
      * versions). Any input change rebuilds automatically; `--no-cache` bypasses it for one run.

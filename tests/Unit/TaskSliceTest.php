@@ -45,16 +45,19 @@ final class TaskSliceTest extends TestCase
 
     /**
      * @param  array<string, mixed>  $overrides
-     * @return array{base: string, determinable: bool, reasons: list<string>, tests: list<string>, frontendTests: list<string>, unreferencedEntryPoints: int, unresolvedDispatchSites: list<array{file: string, line: int, dispatcher: string}>}
+     * @return array{base: string, determinable: bool, reasons: list<string>, tests: list<string>, testsTotal: int, testsShare: float, testsExcluded: int, frontendTests: list<string>, unreferencedEntryPoints: int, unresolvedDispatchSites: list<array{file: string, line: int, dispatcher: string}>}
      */
     private function selection(array $overrides = []): array
     {
-        /** @var array{base: string, determinable: bool, reasons: list<string>, tests: list<string>, frontendTests: list<string>, unreferencedEntryPoints: int, unresolvedDispatchSites: list<array{file: string, line: int, dispatcher: string}>} $selection */
+        /** @var array{base: string, determinable: bool, reasons: list<string>, tests: list<string>, testsTotal: int, testsShare: float, testsExcluded: int, frontendTests: list<string>, unreferencedEntryPoints: int, unresolvedDispatchSites: list<array{file: string, line: int, dispatcher: string}>} $selection */
         $selection = [
             'base' => 'HEAD~1',
             'determinable' => true,
             'reasons' => [],
             'tests' => ['tests/Feature/StatsTest.php'],
+            'testsTotal' => 1,
+            'testsShare' => 1.0,
+            'testsExcluded' => 0,
             'frontendTests' => [],
             'unreferencedEntryPoints' => 0,
             'unresolvedDispatchSites' => [],

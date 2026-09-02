@@ -22,6 +22,12 @@ use SanderMuller\Richter\Support\RichterConfig;
  * never a silently smaller set. Over-selection is the acceptable error; under-selection is the one
  * this tool exists to prevent.
  *
+ * Two things narrow or describe the result without touching that verdict. Paths the runner cannot
+ * execute ({@see RichterConfig::unrunnableTestPaths()}) are removed from the SELECTION, never from
+ * discovery, so a browser-only test stays real coverage everywhere else. And the size fields say how
+ * much of the suite the selection is — a fact for the caller to act on, never a reason, because
+ * "large" and "untrustworthy" are different claims and `determinable` already carries the second.
+ *
  * @phpstan-import-type DetectChangesResult from HtmlFormatter
  */
 final class AffectedTests
@@ -45,7 +51,7 @@ final class AffectedTests
      *   null when the diff never got that far (an unresolvable ref, an untracked file, nothing changed)
      * @param-out DetectChangesResult|null $analysisUsed
      *
-     * @return array{base: string, determinable: bool, reasons: list<string>, tests: list<string>, frontendTests: list<string>, unreferencedEntryPoints: int, unresolvedDispatchSites: list<array{file: string, line: int, dispatcher: string}>, untrackedFiles: list<string>}
+     * @return array{base: string, determinable: bool, reasons: list<string>, tests: list<string>, testsTotal: int, testsShare: float, testsExcluded: int, frontendTests: list<string>, unreferencedEntryPoints: int, unresolvedDispatchSites: list<array{file: string, line: int, dispatcher: string}>, untrackedFiles: list<string>}
      */
     public static function selectForCurrentDiff(GraphCache $graphs, ?string $requestedBase, bool $fresh = false, ?string $requestedHead = null, bool $fullAnalysis = false, ?array &$analysisUsed = null): array
     {
@@ -94,8 +100,24 @@ final class AffectedTests
             static fn (string $file): bool => str_starts_with($file, 'tests/') && is_file(base_path($file)),
         ));
 
+        // A spec the diff itself changed is affected the way a changed PHP test is, and for the same
+        // reason: no lane can find it, because the endpoint-reference axis only ever suggests specs
+        // that name a reached route. Collected from the diff's own paths, so a spec outside every
+        // configured frontend path is still named.
+        $changedFrontendTests = self::changedFrontendSpecs($changed, $outOfScope);
+
+        $unrunnable = RichterConfig::unrunnableTestPaths();
+        $suiteRunnable = TestReferenceIndex::runnableFiles(base_path('tests'), base_path());
+
         if ($changed === []) {
-            return ['base' => $base, 'determinable' => true, 'reasons' => [], 'tests' => $changedTests, 'frontendTests' => [], 'unreferencedEntryPoints' => 0, 'unresolvedDispatchSites' => [], 'untrackedFiles' => $untracked];
+            // The exclusion applies here too: a diff that edits ONLY a Dusk test never reaches
+            // select(), and handing that path to `php artisan test` is the failure this key exists
+            // to stop.
+            $kept = self::withoutUnrunnable($changedTests, $unrunnable);
+
+            return ['base' => $base, 'determinable' => true, 'reasons' => [], 'tests' => $kept]
+                + self::sizeSignal($kept, $suiteRunnable, $unrunnable, count($changedTests) - count($kept))
+                + ['frontendTests' => $changedFrontendTests, 'unreferencedEntryPoints' => 0, 'unresolvedDispatchSites' => [], 'untrackedFiles' => $untracked];
         }
 
         $graph = $graphs->graph(fresh: $fresh);
@@ -127,6 +149,9 @@ final class AffectedTests
             self::configuredFrontendTestIndex(),
             $graph->hasUnparseableFiles(),
             $changedTests,
+            $changedFrontendTests,
+            $suiteRunnable,
+            $unrunnable,
         );
 
         return ['base' => $base] + $selection + ['untrackedFiles' => $untracked];
@@ -135,11 +160,90 @@ final class AffectedTests
     /**
      * @param  list<string>  $reasons
      * @param  list<string>  $untracked
-     * @return array{base: string, determinable: bool, reasons: list<string>, tests: list<string>, frontendTests: list<string>, unreferencedEntryPoints: int, unresolvedDispatchSites: list<array{file: string, line: int, dispatcher: string}>, untrackedFiles: list<string>}
+     * @return array{base: string, determinable: bool, reasons: list<string>, tests: list<string>, testsTotal: int, testsShare: float, testsExcluded: int, frontendTests: list<string>, unreferencedEntryPoints: int, unresolvedDispatchSites: list<array{file: string, line: int, dispatcher: string}>, untrackedFiles: list<string>}
      */
     private static function undeterminedForCurrentDiff(string $base, array $reasons, array $untracked): array
     {
-        return ['base' => $base, 'determinable' => false, 'reasons' => $reasons, 'tests' => [], 'frontendTests' => [], 'unreferencedEntryPoints' => 0, 'unresolvedDispatchSites' => [], 'untrackedFiles' => $untracked];
+        // The suite size is a property of the checkout, not of the diff, so it is still answerable
+        // when the diff is not — and a caller reading `testsTotal` must not get an undefined key
+        // just because the base ref would not resolve.
+        $unrunnable = RichterConfig::unrunnableTestPaths();
+
+        return ['base' => $base, 'determinable' => false, 'reasons' => $reasons, 'tests' => []]
+            + self::sizeSignal([], TestReferenceIndex::runnableFiles(base_path('tests'), base_path()), $unrunnable, 0)
+            + ['frontendTests' => [], 'unreferencedEntryPoints' => 0, 'unresolvedDispatchSites' => [], 'untrackedFiles' => $untracked];
+    }
+
+    /**
+     * The frontend spec files the diff itself changed, taken from the diff's own paths — every
+     * changed file, whether a lane analysed it or not, since a project without `frontend.roots`
+     * configured drops its specs into the out-of-scope list instead. A DELETED spec is filtered
+     * out for the reason a deleted PHP test is: handing a path that no longer exists to a runner
+     * fails the run this selection exists to shorten.
+     *
+     * @param  list<ChangedFileSymbols>  $changed
+     * @param  list<string>  $outOfScope
+     * @return list<string>
+     */
+    private static function changedFrontendSpecs(array $changed, array $outOfScope): array
+    {
+        $paths = [
+            ...array_map(static fn (ChangedFileSymbols $file): string => $file->file, $changed),
+            ...$outOfScope,
+        ];
+
+        $specs = array_values(array_unique(array_filter(
+            $paths,
+            static fn (string $file): bool => FrontendTestIndex::isSpecFile($file) && is_file(base_path($file)),
+        )));
+
+        sort($specs);
+
+        return $specs;
+    }
+
+    /**
+     * The files left after the paths the runner cannot execute are removed. Globs are matched with
+     * `fnmatch()`'s default flags, where `*` crosses `/` — so `tests/Browser/*` covers the whole
+     * tree under it, which is the shape a project actually writes.
+     *
+     * @param  list<string>  $files
+     * @param  list<string>  $globs
+     * @return list<string>
+     */
+    private static function withoutUnrunnable(array $files, array $globs): array
+    {
+        if ($globs === []) {
+            return $files;
+        }
+
+        return array_values(array_filter($files, static fn (string $file): bool => array_all($globs, static fn (string $glob): bool => ! fnmatch($glob, $file))));
+    }
+
+    /**
+     * The three advisory size fields. `testsTotal` describes the SUITE, `testsExcluded` describes
+     * THIS run — different sets, so adding them together means nothing. Both sides of the share come
+     * from the same side of the exclusion filter: a numerator taken before the filter and a
+     * denominator taken after it would overstate every selection.
+     *
+     * Advisory by construction — nothing here touches `reasons`, so nothing here can withdraw a
+     * selection. "This selection is large" and "this selection cannot be trusted" are different
+     * claims, and `determinable` already carries the second.
+     *
+     * @param  list<string>  $selected  the selection, already filtered
+     * @param  list<string>  $suiteRunnable  every runnable file in the suite, unfiltered
+     * @param  list<string>  $globs
+     * @return array{testsTotal: int, testsShare: float, testsExcluded: int}
+     */
+    private static function sizeSignal(array $selected, array $suiteRunnable, array $globs, int $excluded): array
+    {
+        $total = count(self::withoutUnrunnable($suiteRunnable, $globs));
+
+        return [
+            'testsTotal' => $total,
+            'testsShare' => $total === 0 ? 0.0 : round(count($selected) / $total, 2),
+            'testsExcluded' => $excluded,
+        ];
     }
 
     /**
@@ -175,9 +279,21 @@ final class AffectedTests
      *   affected without any graph reasoning, and no lane here can find them — `tests/` is outside
      *   every tree the analysis reads. Folded into the selection so an undetermined verdict still
      *   names something correct instead of nothing.
-     * @return array{determinable: bool, reasons: list<string>, tests: list<string>, frontendTests: list<string>, unreferencedEntryPoints: int, unresolvedDispatchSites: list<array{file: string, line: int, dispatcher: string}>}
+     * @param  list<string>  $changedFrontendTests  frontend spec files the diff itself changed. They
+     *   are seeded the way `$changedTests` is, and for the same reason: the frontend axis only
+     *   suggests specs referencing a reached route, so a spec for a pure function has no endpoint to
+     *   match and would otherwise be invisible while a PHP test in the same position is listed.
+     * @param  list<string>  $suiteRunnableFiles  every runnable test file in the suite
+     *   ({@see TestReferenceIndex::runnableFiles()}) — the denominator behind `testsShare`. Empty
+     *   means the size is unknown, and the share reports 0.0 rather than guessing.
+     * @param  list<string>  $unrunnablePaths  globs whose tests the runner cannot execute
+     *   ({@see RichterConfig::unrunnableTestPaths()}). Applied HERE, to the selection and to the
+     *   suite total, never to the index: an excluded test is still real coverage for the
+     *   `[test-referenced]` annotation and for the risk ladder, and excluding it at discovery would
+     *   turn a browser-covered route into a reported gap.
+     * @return array{determinable: bool, reasons: list<string>, tests: list<string>, testsTotal: int, testsShare: float, testsExcluded: int, frontendTests: list<string>, unreferencedEntryPoints: int, unresolvedDispatchSites: list<array{file: string, line: int, dispatcher: string}>}
      */
-    public static function select(array $result, array $changed, TestReferenceIndex $tests, array $unresolvedDispatchSites, ?CodeGraph $graph = null, ?FrontendTestIndex $frontendTests = null, bool $hasUnparseableFiles = false, array $changedTests = []): array
+    public static function select(array $result, array $changed, TestReferenceIndex $tests, array $unresolvedDispatchSites, ?CodeGraph $graph = null, ?FrontendTestIndex $frontendTests = null, bool $hasUnparseableFiles = false, array $changedTests = [], array $changedFrontendTests = [], array $suiteRunnableFiles = [], array $unrunnablePaths = []): array
     {
         $reasons = [];
 
@@ -219,7 +335,7 @@ final class AffectedTests
         }
 
         $selected = $changedTests;
-        $frontendSelected = [];
+        $frontendSelected = $changedFrontendTests;
         $unreferenced = 0;
 
         // Selection walks the registry fan-out surfaces too. They are context in the report, since
@@ -265,7 +381,13 @@ final class AffectedTests
             $selected = [...$selected, ...TestReferenceIndex::runnableOnly($tests->testsImporting($class))];
         }
 
+        // Both axes and the seeded set are unioned first, so a file reached two ways is counted once
+        // — then the exclusion runs over the whole selection at once, which is where the count of
+        // what it removed comes from.
         $selected = array_values(array_unique($selected));
+        $kept = self::withoutUnrunnable($selected, $unrunnablePaths);
+        $excluded = count($selected) - count($kept);
+        $selected = $kept;
         sort($selected);
         $frontendSelected = array_values(array_unique($frontendSelected));
         sort($frontendSelected);
@@ -276,6 +398,7 @@ final class AffectedTests
             // The selection is still reported when not determinable — useful context — but a
             // consumer must treat it as incomplete and run the full suite.
             'tests' => $selected,
+        ] + self::sizeSignal($selected, $suiteRunnableFiles, $unrunnablePaths, $excluded) + [
             'frontendTests' => $frontendSelected,
             'unreferencedEntryPoints' => $unreferenced,
             // The sites that blocked THIS selection, uncapped while the reason above stays capped:

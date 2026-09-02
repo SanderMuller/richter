@@ -71,6 +71,10 @@ Run `affected-tests` (tool or CLI). When determinable, suggest the selection as 
 pre-push run; when not determinable, say why and recommend the full suite — never a narrowed
 guess. Mention the unreferenced-entry-point count as the selection's known blind spot.
 
+Read `testsShare` before you call the selection minimal. A selection covering most of the suite is
+still determinable — the field says how large it is, and the verdict says whether to trust it. When
+the share is high, say so and let the reviewer decide whether a selective run is worth it.
+
 ## Step 5 — Close with an advisory verdict
 
 Summarize: what the change reaches (entry points, with the unexpected ones called out), what to

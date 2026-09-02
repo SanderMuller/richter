@@ -329,6 +329,116 @@ final class CommandsTest extends TestCase
     }
 
     #[Test]
+    public function affected_tests_excludes_a_changed_test_the_runner_cannot_execute(): void
+    {
+        // A diff that edits ONLY a browser test never reaches select() — `$changed` is empty and the
+        // fast path returns straight away. That is also the diff shape most likely to hit the
+        // exclusion, so the filter has to run here too.
+        config(['richter.tests.unrunnable_paths' => ['tests/Browser/*']]);
+
+        $browser = 'tests/Browser/SmokeTest.php';
+        $feature = 'tests/Feature/StillRunnableTest.php';
+        @mkdir(base_path('tests/Browser'), 0777, true);
+        @mkdir(base_path('tests/Feature'), 0777, true);
+        file_put_contents(base_path($browser), "<?php\n");
+        file_put_contents(base_path($feature), "<?php\n");
+
+        $diff = "diff --git a/{$browser} b/{$browser}\n--- a/{$browser}\n+++ b/{$browser}\n@@ -0,0 +1,1 @@\n+// touched\n"
+            . "diff --git a/{$feature} b/{$feature}\n--- a/{$feature}\n+++ b/{$feature}\n@@ -0,0 +1,1 @@\n+// touched\n";
+
+        Process::fake([
+            '*merge-base*' => Process::result("abc123\n"),
+            '*show-prefix*' => Process::result(),
+            '*show*' => Process::result(errorOutput: 'bad object', exitCode: 128),
+            '*status*' => Process::result(''),
+            '*diff*' => Process::result($diff),
+        ]);
+
+        $this->withoutMockingConsoleOutput();
+        $exitCode = Artisan::call('richter:affected-tests', ['--base' => 'some-base', '--json' => true]);
+        $output = Artisan::output();
+
+        @unlink(base_path($browser));
+        @unlink(base_path($feature));
+
+        $decoded = json_decode(substr($output, (int) strpos($output, '{')), associative: true);
+        $this->assertIsArray($decoded);
+        $this->assertSame(0, $exitCode);
+        $this->assertSame([$feature], $decoded['tests']);
+        $this->assertSame(1, $decoded['testsExcluded']);
+        // Still determinable: the runner cannot execute the file, which is a configuration answer,
+        // not a reason to distrust the selection.
+        $this->assertTrue($decoded['determinable']);
+    }
+
+    #[Test]
+    public function affected_tests_seeds_a_frontend_spec_the_diff_itself_changed(): void
+    {
+        // The seeding asymmetry: a changed PHP test is listed, a changed spec was not. The
+        // endpoint-reference axis cannot find a spec for a pure function — it references no
+        // endpoint — so without seeding it is invisible.
+        $spec = 'resources/js/lib/__tests__/thresholds.test.ts';
+        @mkdir(base_path('resources/js/lib/__tests__'), 0777, true);
+        file_put_contents(base_path($spec), "export const x = 1;\n");
+
+        $diff = "diff --git a/{$spec} b/{$spec}\n--- a/{$spec}\n+++ b/{$spec}\n@@ -0,0 +1,1 @@\n+// touched\n";
+
+        Process::fake([
+            '*merge-base*' => Process::result("abc123\n"),
+            '*show-prefix*' => Process::result(),
+            '*show*' => Process::result(errorOutput: 'bad object', exitCode: 128),
+            '*status*' => Process::result(''),
+            '*diff*' => Process::result($diff),
+        ]);
+
+        $this->withoutMockingConsoleOutput();
+        $exitCode = Artisan::call('richter:affected-tests', ['--base' => 'some-base', '--json' => true]);
+        $output = Artisan::output();
+
+        @unlink(base_path($spec));
+
+        $decoded = json_decode(substr($output, (int) strpos($output, '{')), associative: true);
+        $this->assertIsArray($decoded);
+        $this->assertSame(0, $exitCode);
+        $this->assertSame([$spec], $decoded['frontendTests']);
+    }
+
+    #[Test]
+    public function affected_tests_reports_the_selection_share_in_prose_but_never_in_plain(): void
+    {
+        // `--plain` is a command-substitution contract: it feeds
+        // `php artisan test $(php artisan richter:affected-tests --plain)`, so one extra line there
+        // reaches the runner as a file argument.
+        $existing = 'tests/Feature/SharedTouchedTest.php';
+        @mkdir(base_path('tests/Feature'), 0777, true);
+        file_put_contents(base_path($existing), "<?php\n");
+        $diff = "diff --git a/{$existing} b/{$existing}\n--- a/{$existing}\n+++ b/{$existing}\n@@ -0,0 +1,1 @@\n+// touched\n";
+
+        Process::fake([
+            '*merge-base*' => Process::result("abc123\n"),
+            '*show-prefix*' => Process::result(),
+            '*show*' => Process::result(errorOutput: 'bad object', exitCode: 128),
+            '*status*' => Process::result(''),
+            '*diff*' => Process::result($diff),
+        ]);
+
+        $this->withoutMockingConsoleOutput();
+        Artisan::call('richter:affected-tests', ['--base' => 'some-base']);
+        $prose = Artisan::output();
+
+        Artisan::call('richter:affected-tests', ['--base' => 'some-base', '--plain' => true]);
+        $plain = Artisan::output();
+
+        @unlink(base_path($existing));
+
+        $this->assertStringContainsString('runnable test files', $prose);
+        $this->assertSame($existing, trim($plain));
+        foreach (explode("\n", trim($plain)) as $line) {
+            $this->assertStringEndsWith('Test.php', trim($line));
+        }
+    }
+
+    #[Test]
     public function affected_tests_an_unresolvable_head_is_undetermined_not_an_error(): void
     {
         // The exit code is the contract: 2 means "run the full suite", 1 means the command itself
@@ -1186,7 +1296,7 @@ final class CommandsTest extends TestCase
         $this->assertSame('nonsense-ref', $document['base']);
         // The stderr note's data source never leaks into the document — the key set IS
         // the declared --json contract.
-        $this->assertSame(['base', 'determinable', 'reasons', 'tests', 'frontendTests', 'unreferencedEntryPoints', 'unresolvedDispatchSites'], array_keys($document));
+        $this->assertSame(['base', 'determinable', 'reasons', 'tests', 'testsTotal', 'testsShare', 'testsExcluded', 'frontendTests', 'unreferencedEntryPoints', 'unresolvedDispatchSites'], array_keys($document));
 
         $reasons = $document['reasons'] ?? null;
         $this->assertIsArray($reasons);

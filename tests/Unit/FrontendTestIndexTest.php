@@ -66,4 +66,17 @@ final class FrontendTestIndexTest extends TestCase
         $this->assertSame(['e2e/posts.spec.ts'], $index->testsReferencing('route::POST::/posts'));
         $this->assertSame([], $index->testsReferencing('route::GET::/posts/{post}'));
     }
+
+    #[Test]
+    public function a_spec_file_is_recognised_by_name_wherever_it_lives(): void
+    {
+        // `affected-tests` seeds specs the diff itself changed and has only the path to go on: the
+        // file may sit outside every configured test path, or the project may configure none.
+        $this->assertTrue(FrontendTestIndex::isSpecFile('resources/js/lib/__tests__/thresholds.test.ts'));
+        $this->assertTrue(FrontendTestIndex::isSpecFile('resources/js/pages/Post.spec.tsx'));
+        $this->assertTrue(FrontendTestIndex::isSpecFile('cypress/e2e/login.cy.js'));
+
+        $this->assertFalse(FrontendTestIndex::isSpecFile('resources/js/lib/thresholds.ts'));
+        $this->assertFalse(FrontendTestIndex::isSpecFile('resources/js/types/api.d.ts'));
+    }
 }

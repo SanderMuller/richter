@@ -523,4 +523,38 @@ final class TestReferenceIndexTest extends TestCase
         $this->assertTrue($index->hasReference('route::GET::/errors/log'));
         $this->assertFalse($index->referencedWithoutBehaviouralAssertion('route::GET::/errors/log'));
     }
+
+    #[Test]
+    public function the_runnable_file_scan_counts_only_conventionally_named_tests(): void
+    {
+        // The denominator behind `affected-tests`' share. It applies `runnableOnly()`'s rule, so a
+        // helper, a trait or a base case under tests/ is not part of the suite size — a share
+        // computed against those would understate every selection.
+        $root = sys_get_temp_dir() . '/richter-runnable-' . bin2hex(random_bytes(8));
+        @mkdir($root . '/tests/Feature', 0777, true);
+        @mkdir($root . '/tests/Support', 0777, true);
+        file_put_contents($root . '/tests/Feature/PostTest.php', "<?php\n");
+        file_put_contents($root . '/tests/Support/InteractsWithPosts.php', "<?php\n");
+        file_put_contents($root . '/tests/Feature/TestCase.php', "<?php\n");
+
+        $files = TestReferenceIndex::runnableFiles($root . '/tests', $root);
+
+        $this->assertSame(['tests/Feature/PostTest.php'], $files);
+
+        foreach ((array) glob($root . '/tests/*/*.php') as $leftover) {
+            if (is_string($leftover)) {
+                unlink($leftover);
+            }
+        }
+
+        foreach ([$root . '/tests/Feature', $root . '/tests/Support', $root . '/tests', $root] as $directory) {
+            rmdir($directory);
+        }
+    }
+
+    #[Test]
+    public function the_runnable_file_scan_answers_an_absent_tests_directory_with_nothing(): void
+    {
+        $this->assertSame([], TestReferenceIndex::runnableFiles(sys_get_temp_dir() . '/richter-no-such-dir-' . bin2hex(random_bytes(8))));
+    }
 }

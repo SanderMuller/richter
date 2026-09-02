@@ -28,7 +28,7 @@ final readonly class TaskSlice
 {
     /**
      * @param  array<string, mixed>  $document  a {@see JsonPresenter::detectChanges()} document
-     * @param  array{base: string, determinable: bool, reasons: list<string>, tests: list<string>, frontendTests: list<string>, unreferencedEntryPoints: int, unresolvedDispatchSites: list<array{file: string, line: int, dispatcher: string}>}  $selection  the caller strips `untrackedFiles` first: it feeds a stderr note, never a document
+     * @param  array{base: string, determinable: bool, reasons: list<string>, tests: list<string>, testsTotal: int, testsShare: float, testsExcluded: int, frontendTests: list<string>, unreferencedEntryPoints: int, unresolvedDispatchSites: list<array{file: string, line: int, dispatcher: string}>}  $selection  the caller strips `untrackedFiles` first: it feeds a stderr note, never a document. The selection's size fields are not carried into the slice: this document reports one task's keep set, and a share of the whole suite is a fact about the diff, which `affected-tests` already reports.
      * @return array<string, mixed>
      */
     public static function compose(array $document, array $selection): array

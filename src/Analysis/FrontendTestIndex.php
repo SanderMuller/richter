@@ -59,6 +59,18 @@ final class FrontendTestIndex
         return $index;
     }
 
+    /**
+     * Whether a path names a frontend spec file, by the same patterns {@see fromConfiguredPaths()}
+     * scans for. Shared with {@see AffectedTests}, which seeds specs the diff itself changed and has
+     * only the path to go on — the file may not be under a configured test path at all.
+     */
+    public static function isSpecFile(string $path): bool
+    {
+        $name = basename(str_replace('\\', '/', $path));
+
+        return array_any(self::SPEC_PATTERNS, fn (string $pattern) => fnmatch($pattern, $name));
+    }
+
     public function addSource(string $source, string $file): void
     {
         foreach ($this->frontendChanges->routeNodesIn($source) as $node) {

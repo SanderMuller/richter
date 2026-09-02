@@ -456,4 +456,30 @@ final class RichterConfigTest extends TestCase
             RichterConfig::payloadParityIgnore(),
         );
     }
+
+    #[Test]
+    public function unrunnable_test_paths_default_to_an_empty_list(): void
+    {
+        config()->offsetUnset('richter.tests');
+
+        $this->assertSame([], RichterConfig::unrunnableTestPaths());
+    }
+
+    #[Test]
+    public function configured_unrunnable_test_paths_round_trip(): void
+    {
+        config()->set('richter.tests.unrunnable_paths', ['tests/Browser/*', 'tests/Smoke/*']);
+
+        $this->assertSame(['tests/Browser/*', 'tests/Smoke/*'], RichterConfig::unrunnableTestPaths());
+    }
+
+    #[Test]
+    public function a_non_string_unrunnable_test_path_is_rejected_where_the_reader_can_see_it(): void
+    {
+        config()->set('richter.tests.unrunnable_paths', [123]);
+
+        $this->expectException(InvalidArgumentException::class);
+
+        RichterConfig::unrunnableTestPaths();
+    }
 }

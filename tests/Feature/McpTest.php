@@ -82,6 +82,13 @@ final class McpTest extends TestCase
                     ->where('unreferencedEntryPoints', 0)
                     ->has('reasons')
                     ->has('tests')
+                    // Advisory size fields, present on every path including this early return:
+                    // a consumer branching on testsTotal must never meet an undefined key.
+                    // JSON has one number type, so a whole share serialises without its fraction —
+                    // 0.0 arrives as 0. The schema declares `number` for exactly that reason.
+                    ->where('testsShare', 0)
+                    ->has('testsTotal')
+                    ->has('testsExcluded')
                     ->has('frontendTests')
                     ->has('unresolvedDispatchSites');
 
@@ -566,7 +573,10 @@ final class McpTest extends TestCase
         $this->assertIsArray($affectedTestsOutputSchema);
         $affectedTestsProperties = $affectedTestsOutputSchema['properties'] ?? [];
         $this->assertIsArray($affectedTestsProperties);
-        $this->assertSame(['base', 'determinable', 'reasons', 'tests', 'frontendTests', 'unreferencedEntryPoints', 'unresolvedDispatchSites'], array_keys($affectedTestsProperties));
+        // The tool passes the selection through wholesale, so every document field is an MCP field:
+        // the three size fields have to be declared here or the schema describes a shape the tool
+        // does not emit.
+        $this->assertSame(['base', 'determinable', 'reasons', 'tests', 'testsTotal', 'testsShare', 'testsExcluded', 'frontendTests', 'unreferencedEntryPoints', 'unresolvedDispatchSites'], array_keys($affectedTestsProperties));
 
         $this->assertIsArray($locateOutputSchema);
         $locateProperties = $locateOutputSchema['properties'] ?? [];

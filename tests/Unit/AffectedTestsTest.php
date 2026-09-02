@@ -841,4 +841,243 @@ final class AffectedTestsTest extends TestCase
         $this->assertStringNotContainsString('App\Services\X', $selection['reasons'][0]);
         $this->assertStringContainsString('App\Models\Post::perPage', $selection['reasons'][0]);
     }
+
+    /**
+     * The Dusk case, as a project actually configures it: a browser test that references a reached
+     * route, plus a runnable test that does not.
+     */
+    private function indexWithBrowserTest(): TestReferenceIndex
+    {
+        $index = new TestReferenceIndex();
+        $index->addSource('<?php $this->get("/errors/log");', 'tests/Browser/ErrorLogTest.php');
+        $index->addSource("<?php\nuse App\Services\X;\n", 'tests/Unit/XTest.php');
+
+        return $index;
+    }
+
+    #[Test]
+    public function an_unconfigured_exclusion_leaves_every_selection_byte_identical(): void
+    {
+        $selection = AffectedTests::select(
+            $this->detectResult(['route::GET::/errors/log']),
+            [$this->changed('app/Services/X.php', 'App\Services\X')],
+            $this->index(),
+            unresolvedDispatchSites: [],
+            unrunnablePaths: [],
+        );
+
+        $this->assertSame(['tests/Feature/ErrorLogTest.php', 'tests/Unit/XTest.php'], $selection['tests']);
+        $this->assertSame(0, $selection['testsExcluded']);
+    }
+
+    #[Test]
+    public function a_glob_matching_nothing_is_not_an_error(): void
+    {
+        // A project may configure a path it later deletes. Failing a gate over a stale config line
+        // is worse than the line being useless.
+        $selection = AffectedTests::select(
+            $this->detectResult(['route::GET::/errors/log']),
+            [$this->changed('app/Services/X.php', 'App\Services\X')],
+            $this->index(),
+            unresolvedDispatchSites: [],
+            unrunnablePaths: ['tests/Deleted/*'],
+        );
+
+        $this->assertSame(['tests/Feature/ErrorLogTest.php', 'tests/Unit/XTest.php'], $selection['tests']);
+        $this->assertSame(0, $selection['testsExcluded']);
+    }
+
+    #[Test]
+    public function a_glob_matching_every_test_empties_the_selection_and_leaves_it_determinable(): void
+    {
+        // Richter was asked to exclude everything and did. That is a configuration answer, not an
+        // untrustworthy selection, so `determinable` does not move.
+        $selection = AffectedTests::select(
+            $this->detectResult(['route::GET::/errors/log']),
+            [$this->changed('app/Services/X.php', 'App\Services\X')],
+            $this->index(),
+            unresolvedDispatchSites: [],
+            unrunnablePaths: ['tests/*'],
+        );
+
+        $this->assertSame([], $selection['tests']);
+        $this->assertSame(2, $selection['testsExcluded']);
+        $this->assertTrue($selection['determinable']);
+    }
+
+    #[Test]
+    public function a_changed_test_the_runner_cannot_execute_is_excluded_too(): void
+    {
+        // `$changedTests` seeds any test file the diff touched. A browser test edited in the diff is
+        // in the diff and still cannot run under this command's runner, so the same filter applies.
+        $selection = AffectedTests::select(
+            $this->detectResult([]),
+            [$this->changed('app/Services/X.php', 'App\Services\X')],
+            new TestReferenceIndex(),
+            unresolvedDispatchSites: [],
+            changedTests: ['tests/Browser/LoginTest.php', 'tests/Feature/LoginTest.php'],
+            unrunnablePaths: ['tests/Browser/*'],
+        );
+
+        $this->assertSame(['tests/Feature/LoginTest.php'], $selection['tests']);
+        $this->assertSame(1, $selection['testsExcluded']);
+    }
+
+    #[Test]
+    public function an_excluded_test_still_counts_as_a_reference_for_the_coverage_annotation(): void
+    {
+        // The row that pins the whole design. The exclusion sits at SELECTION, so discovery is
+        // untouched: a route covered only by a browser test keeps its [test-referenced] annotation
+        // and keeps feeding the risk ladder. Excluding at discovery would turn real coverage into a
+        // reported gap — a worse defect than the one the key fixes.
+        $index = $this->indexWithBrowserTest();
+
+        $this->assertSame(['tests/Browser/ErrorLogTest.php'], $index->testsReferencing('route::GET::/errors/log'));
+
+        $selection = AffectedTests::select(
+            $this->detectResult(['route::GET::/errors/log']),
+            [$this->changed('app/Services/X.php', 'App\Services\X')],
+            $index,
+            unresolvedDispatchSites: [],
+            unrunnablePaths: ['tests/Browser/*'],
+        );
+
+        $this->assertSame(['tests/Unit/XTest.php'], $selection['tests']);
+        $this->assertSame(1, $selection['testsExcluded']);
+    }
+
+    #[Test]
+    public function the_share_divides_both_sides_by_the_same_definition_of_runnable(): void
+    {
+        $selection = AffectedTests::select(
+            $this->detectResult([]),
+            [$this->changed('app/Services/X.php', 'App\Services\X')],
+            $this->index(),
+            unresolvedDispatchSites: [],
+            suiteRunnableFiles: [
+                'tests/Feature/ErrorLogTest.php',
+                'tests/Unit/ATest.php',
+                'tests/Unit/BTest.php',
+                'tests/Unit/XTest.php',
+            ],
+        );
+
+        $this->assertSame(['tests/Unit/XTest.php'], $selection['tests']);
+        $this->assertSame(4, $selection['testsTotal']);
+        $this->assertEqualsWithDelta(0.25, $selection['testsShare'], PHP_FLOAT_EPSILON);
+    }
+
+    #[Test]
+    public function the_excluded_paths_leave_the_suite_total_as_well_as_the_selection(): void
+    {
+        // A suite of 4 runnable files where 2 cannot run has 2 runnable files. A share against 4
+        // would flatter every selection.
+        $selection = AffectedTests::select(
+            $this->detectResult([]),
+            [$this->changed('app/Services/X.php', 'App\Services\X')],
+            $this->index(),
+            unresolvedDispatchSites: [],
+            suiteRunnableFiles: [
+                'tests/Browser/OneTest.php',
+                'tests/Browser/TwoTest.php',
+                'tests/Unit/ATest.php',
+                'tests/Unit/XTest.php',
+            ],
+            unrunnablePaths: ['tests/Browser/*'],
+        );
+
+        $this->assertSame(2, $selection['testsTotal']);
+        $this->assertEqualsWithDelta(0.5, $selection['testsShare'], PHP_FLOAT_EPSILON);
+    }
+
+    #[Test]
+    public function a_suite_with_no_runnable_files_reports_a_zero_share_rather_than_dividing(): void
+    {
+        $selection = AffectedTests::select(
+            $this->detectResult([]),
+            [$this->changed('app/Services/X.php', 'App\Services\X')],
+            $this->index(),
+            unresolvedDispatchSites: [],
+            suiteRunnableFiles: [],
+        );
+
+        $this->assertSame(0, $selection['testsTotal']);
+        $this->assertEqualsWithDelta(0.0, $selection['testsShare'], PHP_FLOAT_EPSILON);
+    }
+
+    #[Test]
+    public function a_selection_covering_the_whole_suite_stays_determinable(): void
+    {
+        // The assertion that stops a later change from turning the size signal into a veto by
+        // accident. A selection covering everything is large, not untrustworthy, and `determinable`
+        // answers the second question.
+        $selection = AffectedTests::select(
+            $this->detectResult(['route::GET::/errors/log']),
+            [$this->changed('app/Services/X.php', 'App\Services\X')],
+            $this->index(),
+            unresolvedDispatchSites: [],
+            suiteRunnableFiles: ['tests/Feature/ErrorLogTest.php', 'tests/Unit/XTest.php'],
+        );
+
+        $this->assertEqualsWithDelta(1.0, $selection['testsShare'], PHP_FLOAT_EPSILON);
+        $this->assertTrue($selection['determinable']);
+        $this->assertSame([], $selection['reasons']);
+    }
+
+    #[Test]
+    public function a_changed_frontend_spec_referencing_no_endpoint_is_still_selected(): void
+    {
+        // The seeding asymmetry: a PHP test the diff touched is listed, a spec in the same position
+        // was not. The endpoint-reference axis cannot find a spec for a pure function, by design.
+        $selection = AffectedTests::select(
+            $this->detectResult([]),
+            [$this->changed('app/Services/X.php', 'App\Services\X')],
+            $this->index(),
+            unresolvedDispatchSites: [],
+            changedFrontendTests: ['resources/js/lib/__tests__/thresholds.test.ts'],
+        );
+
+        $this->assertSame(['resources/js/lib/__tests__/thresholds.test.ts'], $selection['frontendTests']);
+    }
+
+    #[Test]
+    public function a_spec_that_is_both_changed_and_endpoint_referencing_appears_once(): void
+    {
+        Route::get('/errors/log', ['App\Http\Controllers\ErrorController', 'index'])->name('errors.log');
+        $frontend = new FrontendTestIndex();
+        $frontend->addSource("route('errors.log');", 'resources/js/pages/__tests__/log.test.ts');
+
+        // Pre-asserted, or the union is unexercised: with the endpoint axis contributing nothing,
+        // the seeded set alone produces the same single-entry list and the test passes for the
+        // wrong reason.
+        $this->assertSame(['resources/js/pages/__tests__/log.test.ts'], $frontend->testsReferencing('route::GET::/errors/log'));
+
+        $selection = AffectedTests::select(
+            $this->detectResult(['route::GET::/errors/log']),
+            [$this->changed('app/Services/X.php', 'App\Services\X')],
+            $this->index(),
+            unresolvedDispatchSites: [],
+            frontendTests: $frontend,
+            changedFrontendTests: ['resources/js/pages/__tests__/log.test.ts'],
+        );
+
+        $this->assertSame(['resources/js/pages/__tests__/log.test.ts'], $selection['frontendTests']);
+    }
+
+    #[Test]
+    public function a_changed_spec_is_seeded_even_when_the_walk_reaches_no_entry_point(): void
+    {
+        // The seeding axis does not depend on the walk finding anything — the same property
+        // `$changedTests` has.
+        $selection = AffectedTests::select(
+            $this->detectResult([]),
+            [$this->changed('app/Services/X.php', 'App\Services\X')],
+            new TestReferenceIndex(),
+            unresolvedDispatchSites: [],
+            changedFrontendTests: ['resources/js/lib/__tests__/thresholds.test.ts'],
+        );
+
+        $this->assertSame([], $selection['tests']);
+        $this->assertSame(['resources/js/lib/__tests__/thresholds.test.ts'], $selection['frontendTests']);
+    }
 }

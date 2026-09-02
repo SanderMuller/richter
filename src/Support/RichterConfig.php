@@ -100,6 +100,19 @@ final class RichterConfig
         return self::stringList('richter.frontend.test_paths') ?? [];
     }
 
+    /**
+     * Globs, relative to the project root, whose test files the runner cannot execute at all —
+     * Dusk cases and anything else needing a separate binary. Applied to the `affected-tests`
+     * SELECTION only, never to test discovery: an excluded test is still real coverage for the
+     * `[test-referenced]` annotation and the risk ladder.
+     *
+     * @return list<string> empty by default — nothing is excluded
+     */
+    public static function unrunnableTestPaths(): array
+    {
+        return self::stringList('richter.tests.unrunnable_paths') ?? [];
+    }
+
     /** @return list<string> project-custom callees merged with the scanner's built-in HTTP/route defaults */
     public static function frontendHttpCallees(): array
     {
