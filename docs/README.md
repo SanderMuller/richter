@@ -36,5 +36,6 @@ Measure the magnitude of impact of code changes in a Laravel codebase. For a qui
 ## Reference
 
 - [Configuration reference](17-configuration.md): every key in `config/richter.php`
+- [Using richter from your own code](22-programmatic-use.md): the supported programmatic entry points, and what `@internal` means
 - [Benchmarking](18-benchmark.md): scoring accuracy against replayable history
 - [Troubleshooting](19-troubleshooting.md): a symptom index: empty reports, UNRESOLVED files, saturated risk levels, exit 2

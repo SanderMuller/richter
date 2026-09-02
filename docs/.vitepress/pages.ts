@@ -132,6 +132,11 @@ export const sections: DocSection[] = [
         text: 'Reference',
         pages: [
             {
+                file: '22-programmatic-use',
+                text: 'Using richter from your own code',
+                blurb: 'Call the same classes the commands and MCP tools call, and know which ones are supported.',
+            },
+            {
                 file: '17-configuration',
                 text: 'Configuration reference',
                 blurb: 'Every key in config/richter.php, with defaults and what each one changes.',

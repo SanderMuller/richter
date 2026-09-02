@@ -28,7 +28,7 @@ Built the code graph in 8.8s.
 
 A matching entry is not rebuilt — the fingerprint sweep is already the currency check — and the report says `already current` rather than implying a build. Both modes exit non-zero when the answer is no, so a deploy step can gate on them.
 
-Point `cache.directory` at somewhere inside the deployed artifact. The default sits under `storage/`, which hosted platforms commonly provision as ephemeral or per-container, so an entry baked there at deploy time may not be the one the runtime reads.
+Point `cache.directory` inside the deployed artifact. The default sits under `storage/`, which hosted platforms commonly provision as ephemeral or per-container, so an entry baked there at deploy time may not be the one the runtime reads.
 
 The entry is portable: it carries project-relative paths, not the build machine's. Bake it on one machine and ship the file.
 
@@ -44,7 +44,7 @@ What a warm hit still costs, and how it scales:
 | The decode | The entry's size on disk, which `richter:warm` prints |
 | The revive | The graph's edge count |
 
-Measure it on the host you care about rather than trusting a number from someone else's machine — a network filesystem and a local SSD are not the same thing, and the sweep is per-file reads.
+Measure it on the host you care about rather than trusting a number from someone else's machine. The sweep is per-file reads, and a network filesystem is not a local SSD.
 
 `richter:warm --check` is the instrument for that. It builds nothing and writes nothing, but it does sweep, decode and revive, which is exactly the residual and nothing else:
 
@@ -52,7 +52,7 @@ Measure it on the host you care about rather than trusting a number from someone
 time php artisan richter:warm --check
 ```
 
-Run that on the target host, against a current entry, and the number is yours rather than an estimate.
+Run it on the target host against a current entry, and you have a real number instead of an estimate.
 
 ### Two things silently invalidate a baked entry
 
@@ -66,7 +66,7 @@ The cached entry does NOT match this tree — every run rebuilds.
   differing non-file inputs: php (8.5.8 → 8.5.9)
 ```
 
-It names the differing input rather than reporting that one differs. It also separates a **stale** entry from a **broken** one — a corrupt entry reports `UNUSABLE`, because a rebuild will not fix it and someone has to remove the file.
+It names the differing input rather than reporting that one differs. It also separates a stale entry from a broken one. A corrupt entry reports `UNUSABLE`, because a rebuild will not fix it and someone has to remove the file.
 
 `--check` builds nothing and writes nothing, but it is not free either: it revives the stored graph to prove the entry revives — which is what also makes it the instrument for measuring a warm hit, above. Fine once per deploy; not something to put in a health-check endpoint.
 

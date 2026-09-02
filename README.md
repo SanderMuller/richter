@@ -62,6 +62,7 @@ Richter is accurate only once it knows your app's shape. Ask your agent to "set 
 php artisan richter:detect-changes                     # advisory impact of the current diff
 php artisan richter:detect-changes --explain           # show how each entry point reaches the change
 php artisan richter:detect-changes --markdown          # PR-ready markdown
+php artisan richter:locate --symbol=PostPublisher          # where is it? no walk
 php artisan richter:impact "App\Services\PostPublisher"   # blast radius of one symbol
 php artisan richter:trace PostController PostPublisher    # shortest call chain between two symbols
 php artisan richter:affected-tests                        # the test selection the diff warrants
@@ -102,6 +103,7 @@ Read the full documentation at **[sandermuller.github.io/richter](https://sander
 
 **Reference**
 - [Configuration reference](https://sandermuller.github.io/richter/configuration): every key in `config/richter.php`
+- [Using richter from your own code](https://sandermuller.github.io/richter/programmatic-use): the supported classes, for wrapping richter in your own tool
 - [Benchmarking](https://sandermuller.github.io/richter/benchmark): scoring accuracy against replayable history
 - [Troubleshooting](https://sandermuller.github.io/richter/troubleshooting): a symptom index: empty reports, UNRESOLVED files, a level that reads medium everywhere, exit 2
 
