@@ -5,6 +5,79 @@ All notable changes to `sandermuller/richter` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.68.0 - 2026-09-03
+
+`richter:affected-tests` selected far too much, and could not tell you why. This release fixes the
+first and answers the second.
+
+### Changed
+
+**The import axis runs one way now, and your selections will get smaller.** It selected every test
+importing any class in the change's callers **and** its dependencies. The dependency half is the
+reverse relation: the changed code calls Y, Y did not change, and a test importing Y exercises Y
+rather than the change.
+
+Measured across four diffs of different shapes — a controller, two enums called from throughout an
+application, and a small helper — the dependency half accounted for **97-99% of the entire
+selection**. One diff went from 776 test files to 2.
+
+Nothing replaces it. Every case it could have protected already belongs somewhere:
+
+| A test that… | Selected by |
+|---|---|
+| imports the changed class | the changed-class half of this axis |
+| imports a class that calls the change | the caller half of this axis |
+| drives an endpoint reaching the change | the entry-point axis |
+| imports a class the change calls | nothing, on purpose |
+
+A narrower rule — keeping dependencies at depth 1 — was considered and rejected on the same ground:
+the callee still did not change.
+
+**Read this if you have tuned around the old breadth.** Selecting fewer tests is the point, but it
+is a real change to what the command returns. The half had never been exercised by a test — the
+result builder hard-coded an empty dependency list — so no case it was protecting was ever written
+down. Both directions are pinned now. If your selection loses a test that genuinely exercises a
+change, that is a bug worth reporting: under-selection is the one direction this command must not
+fail in.
+
+### Added
+
+**`--explain=<test path>` — why is this file in the selection, or why is it not?**
+
+```text
+$ php artisan richter:affected-tests --explain=tests/Feature/PostTest.php
+tests/Feature/PostTest.php IS in the selection.
+  - the diff changed this file
+  - it references entry point route::PATCH::/api/posts/{post}
+  - it imports App\Services\PostPublisher (a caller of the change)
+
+```
+Every reason is listed, not the first that matched — the useful question is usually whether *one* of
+them is the weak one. An import reason says whether the class changed or merely calls the change,
+because those warrant different amounts of trust.
+
+The answers for a file that is not selected are deliberately bounded to three: a configured
+`tests.unrunnable_paths` glob excluded it, it is not a file any axis could name, or no axis matched
+it — the last naming how many entry points and classes were consulted. Past those the command does
+not know, and a diagnostic that guesses is worse than one that stops.
+
+It takes `--json` for the same answer as a sparse document, refuses `--plain` for the reason `--json`
+does, and never changes the exit code — asking about one file must not change what the command says
+about the whole diff.
+
+### Internal
+
+`SelectionProvenance` records why each file was selected as the axes run, rather than recomputing it
+afterwards: a second pass deriving "which axis would have matched this" is a second implementation of
+the selection rule, and two implementations of one rule drift. It reaches the command through an
+out-param rather than a document key, so it cannot leak into MCP structured content the way a
+document field does. The class is `@internal`.
+
+`AffectedTests::select()` takes one more optional by-reference parameter; existing callers are
+unaffected.
+
+**Full Changelog**: https://github.com/SanderMuller/richter/compare/v0.67.0...v0.68.0
+
 ## v0.67.0 - 2026-09-02
 
 `richter:affected-tests` selected tests a runner cannot execute, could not say how much of the suite
@@ -24,6 +97,7 @@ broke nothing**.
 'tests' => [
     'unrunnable_paths' => ['tests/Browser/*'],
 ],
+
 
 ```
 Globs are relative to the project root, and `*` crosses `/`. The default is empty: an unconfigured
@@ -97,6 +171,7 @@ php artisan richter:warm --check  # does the stored entry still match this tree?
 php artisan richter:warm --json   # for a deploy step to branch on
 
 
+
 ```
 `--check` names the input that differs rather than reporting that one does:
 
@@ -104,6 +179,7 @@ php artisan richter:warm --json   # for a deploy step to branch on
 The cached entry does NOT match this tree — every run rebuilds.
   reason       inputs-changed
   differing non-file inputs: php (8.5.8 → 8.5.9)
+
 
 
 ```
@@ -173,6 +249,7 @@ prose, `--json` and `--markdown` output.
 ```bash
 php artisan richter:locate --symbol="App\Models\Post"
 php artisan richter:locate --file=app/Models/Post.php
+
 
 
 
@@ -309,6 +386,7 @@ Richter now learns hubs from configuration:
 
 
 
+
 ```
 **Both lists empty means off**, and that is the default. A project that has not described its hubs keeps every surface. No measurement produced a rule for hub-ness — two applications gave no defensible threshold, and a real hub list names a service provider, a shared client and one model, a set the measurement explicitly could not derive — so a shipped default would be a guess presented as a finding.
 
@@ -320,6 +398,7 @@ Two kinds of surface are always kept. One whose **own file is in the diff** — 
 
 ```bash
 php artisan richter:task-slice --base=HEAD~1 --head=HEAD
+
 
 
 
@@ -462,6 +541,7 @@ $f = $order->flag; if (! $f) { }     // read as guarded, and silent
 
 
 
+
 ```
 `! $x`, `if ($x)` and a ternary condition are now soft wherever they appear, on the fetch itself or on a local it was assigned to.
 
@@ -511,6 +591,7 @@ Nothing is hidden or folded. The same surfaces are reported, the count beside th
 app/Actions/CreateTask.php: App\Actions\CreateTask::handle reads Order->external_id (bare);
 App\Models\Order::resolvedExternalId reads it (fallback). Nullable per its docblock. Check
 whether this read needs the same handling.
+
 
 
 
@@ -653,6 +734,7 @@ app/Models/Article.php (App\Models\Article::table, property)
 
 
 
+
 ```
 The rule covers the 25 properties the base `Model` declares that an application sets to change behaviour — among them `$table`, `$connection`, `$primaryKey`, `$keyType`, `$incrementing`, `$timestamps`, `$perPage`, `$with`, `$appends`, `$hidden`, `$visible`, `$fillable`, `$guarded`, `$casts` and `$touches`. The runtime caches Eloquent writes are excluded.
 
@@ -675,6 +757,7 @@ The named low-confidence reason from 0.57.0 now names the right kind. Sourced fr
 ```
 a changed member could not be pinned to a graph node (low confidence):
 app/Models/Post.php (App\Models\Post, class declaration)
+
 
 
 
@@ -718,6 +801,7 @@ It now names each one:
 ```
 a changed member could not be pinned to a graph node (low confidence):
 app/Models/Post.php (App\Models\Post::perPage, property)
+
 
 
 
@@ -877,6 +961,7 @@ The --html option requires a path: --html=<path>.
 
 
 
+
 ```
 This is the rule `--fail-on` and `--fail-on-hazard` already apply, through the same mechanism: a flag the user actually typed fails closed rather than being silently ignored. `--open` without `--html` was already guarded for exactly this reason; `--html` itself was the gap.
 
@@ -1003,6 +1088,7 @@ The three prose formats now keep the discriminating surfaces inline and fold the
 
 
 
+
 ```
 **Nothing is dropped.** The section still counts every surface, and the collapsed group states its own count, so the report cannot read as shorter than the reach it found. A surface whose reason the walk could not record stays inline: absence of a reason is not evidence of a weak one.
 
@@ -1031,6 +1117,7 @@ A dropped column now names what still refers to it, so the report says who has n
   ```
   ! [tier 2 migration] App\Models\Post — column `posts`.`subtitle` dropped, still named by
     App\Models\Post's own $fillable/$casts, a `subtitle` key in app/Http/Resources/PostResource.php
+  
   
   
   
@@ -1178,6 +1265,7 @@ Hazards (1):
 
 
 
+
 ```
 The suffix says "via its class" rather than naming a declaring class, because a `migration` hazard is named for a model and a `contract` hazard can name a class deleted whole — neither has a declaring class to point at.
 
@@ -1254,6 +1342,7 @@ Tightening a rate limit reported a tier-3 HIGH saying the limit was gone. A guar
   
   ```
   the rate limit on the GET /search route in routes/api.php rose from `throttle:60,1` to `throttle:120,1`
+  
   
   
   
@@ -1717,6 +1806,7 @@ dispatch($job);
 
 
 
+
 ```
 That was recorded as a dispatch whose target could not be followed — and the taint is global, so one of them makes every `richter:affected-tests` run report `not determinable` and fall back to the full suite. The graph has carried the edge for this shape all along: the instantiation is in the same method, right above the dispatch. The site pointed at a place to restructure where nothing was hidden and nothing needed restructuring.
 
@@ -1840,6 +1930,7 @@ Build profile: nothing was built — the diff holds nothing the graph is built f
 
 
 
+
 ```
 On stderr, like the table it stands in for, and before the payload in `--json` mode so stdout stays one document. Building anyway was the alternative, and it would make a no-op run pay for an analysis nothing asked for.
 
@@ -1857,6 +1948,7 @@ An event named by a class constant resolves in **any** declaration form, includi
 public const string
     SUBTITLE_CHANGED = 'subtitle-changed',
     SUBTITLE_DELETED = 'subtitle-deleted';
+
 
 
 
@@ -1928,6 +2020,7 @@ Build profile (forced rebuild):
   total                      3.85s
   no scoped rebuild: non-app-change
     config/services.php differs from the cached graph and sits outside app/
+
 
 
 
@@ -2054,6 +2147,7 @@ It now names every site:
 ```
 the graph contains job dispatches that could not be followed:
 app/Jobs/Fanout.php:88 (App\Jobs\Fanout::handle), app/Services/Importer.php:12 (App\Services\Importer::run)
+
 
 
 
@@ -2496,6 +2590,7 @@ Note: 2 changed file(s) are outside the analysed scope (not PHP under app/, a Bl
 
 
 
+
 ```
 Stderr, like the untracked-file note, so `--json` and `--markdown` stdout stay exactly the report. Frontend sources the configuration declines to scan are not counted: generated Wayfinder output under `frontend.generated_paths` and `.d.ts` declarations were silenced on purpose, and a note that fires loudest on regeneration churn is one people stop reading.
 
@@ -2611,6 +2706,7 @@ One new advisory lane, and a README that finally leads with what the package is 
   
   
   
+  
   ```
   The count comes off the `route:: → middleware::<group>` edges already in the graph, so it counts endpoints only: a controller-level attachment of the same group does not inflate it. Membership is read from `$middlewareGroups` on a Laravel 10 Kernel or the `->web(append: [...])` form in a Laravel 11+ `bootstrap/app.php`. A member written as an alias resolves through the same alias map, parameters are cut first (`tenant:strict` is one alias with an argument), and a group that names another group is expanded transitively, since Laravel runs the inner group's middleware on the outer group's routes too.
   
@@ -2643,6 +2739,7 @@ Two silent-failure shapes that richter used to miss: a call through an applicati
   
   ```text
     ! resources/js/Pages/Posts/Create.vue posts to POST /posts and sends 'subtitle', which this diff removes from App\Http\Requests\StorePostRequest::rules() (renamed to 'sub_title'?)
+  
   
   
   
