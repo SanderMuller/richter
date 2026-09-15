@@ -69,7 +69,9 @@ Three read-only resources cover orientation without a tool call:
 
 ## Supported versions
 
-The supported range is `laravel/mcp` `^0.8||^0.9`. `composer.json` carries a matching `conflict` entry, so an unvalidated release fails at resolution time rather than at boot.
+The supported range is `laravel/mcp` `^0.8||^0.9||^1.0`. `composer.json` carries a matching `conflict` entry, so an unvalidated release fails at resolution time rather than at boot.
+
+When `laravel/boost` is installed, `laravel/mcp` 1.0 needs Boost v2.9 or later. An older Boost caps `laravel/mcp` at `^0.9`, which Richter also supports.
 
 ## Registering the server
 

@@ -18,13 +18,15 @@ composer require --dev sandermuller/richter -W
 
 ## The `laravel/mcp` constraint
 
-`laravel/mcp` is optional. It lights up the [MCP server](14-mcp-server.md), but when present it must fall in the supported `^0.8||^0.9` range; Richter declares a conflict with anything outside it.
+`laravel/mcp` is optional. It lights up the [MCP server](14-mcp-server.md), but when present it must fall in the supported `^0.8||^0.9||^1.0` range; Richter declares a conflict with anything outside it.
 
 `laravel/boost` only pulls a compatible `laravel/mcp` from v2, and Composer will not upgrade a package Richter does not depend on. An existing `laravel/boost` v1 install therefore has to take that major in the same command, or the install fails on the `laravel/mcp` conflict:
 
 ```bash
 composer require --dev sandermuller/richter laravel/boost:* -W
 ```
+
+Boost v2.9 is the first release that allows `laravel/mcp` 1.0. An older v2 install stays on `^0.9`, which Richter also supports.
 
 ## Publish the config
 

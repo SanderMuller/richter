@@ -129,7 +129,7 @@ On yes:
 1. **Check whether `laravel/mcp` is installed** (`composer show laravel/mcp`, or the `require-dev`
    block). richter only suggests it; the server registers itself automatically once the package is
    present. If it is absent, the proposal starts with `composer require --dev laravel/mcp` (richter's
-   supported range is `^0.8||^0.9` — an unvalidated release fails at resolution time by design).
+   supported range is `^0.8||^0.9||^1.0` — an unvalidated release fails at resolution time by design).
 2. **Propose the `.mcp.json` entry — merge, never overwrite.** Read any existing `.mcp.json` first: if
    other servers are registered, propose adding the `richter` key beside them; if a `richter` entry
    already exists, say so and change nothing (idempotent). Only when no file exists, propose creating:

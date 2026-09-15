@@ -90,7 +90,7 @@ A cache hit leaves nothing to time, so add `--no-cache` to time a cold build, or
 
 ### Composer refuses to install alongside `laravel/boost`
 
-Richter supports `laravel/mcp` `^0.8||^0.9` and declares a conflict outside it. `laravel/boost` only pulls a compatible `laravel/mcp` from v2, so a v1 install has to take that major in the same command. See [Installation](02-installation.md).
+Richter supports `laravel/mcp` `^0.8||^0.9||^1.0` and declares a conflict outside it. `laravel/boost` only pulls a compatible `laravel/mcp` from v2, so a v1 install has to take that major in the same command. See [Installation](02-installation.md).
 
 ## Still stuck?
 

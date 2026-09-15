@@ -52,7 +52,7 @@ The analysis is static, built on [Laravel Brain](https://github.com/laramint/lar
 composer require --dev sandermuller/richter
 ```
 
-Requires PHP 8.4+ and Laravel 12 or 13. `laravel/mcp` is optional and, when present, must fall in the supported `^0.8||^0.9` range; see [Installation](https://sandermuller.github.io/richter/installation) for the `laravel/boost` v1 case.
+Requires PHP 8.4+ and Laravel 12 or 13. `laravel/mcp` is optional and, when present, must fall in the supported `^0.8||^0.9||^1.0` range; see [Installation](https://sandermuller.github.io/richter/installation) for the `laravel/boost` v1 case.
 
 Richter is accurate only once it knows your app's shape. Ask your agent to "set up Richter", or follow [Set up your project](https://sandermuller.github.io/richter/project-setup).
 
