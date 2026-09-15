@@ -129,12 +129,10 @@ final class CodeGraphBuilderTest extends TestCase
     #[Test]
     public function a_listen_registered_listener_links_to_its_event(): void
     {
-        // Brain owns this link since v2.4.0 and points it at the constructor — where the event is
-        // actually built — so the event CLASS reaches the listener one `declares` hop further out
-        // than richter's own reader used to put it. Asserted on reach, which is the contract.
+        // Brain owns this link and, since v2.7.0, draws it from the event CLASS rather than from the
+        // constructor. Asserted on reach, which is the contract.
         $callers = array_column(new ImpactAnalyzer($this->graph())->impact(SendPostNotification::class . '::handle')['callers'], 'node');
 
-        $this->assertContains(PostPublished::class . '::__construct', $callers);
         $this->assertContains(PostPublished::class, $callers);
     }
 

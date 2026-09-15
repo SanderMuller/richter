@@ -124,8 +124,14 @@ final class GraphCache
      * above the dispatch, where only a chain written out at the dispatch site did before. That drops
      * unresolved-dispatch sites a 25 entry still carries, and one such site holds every
      * `richter:affected-tests` run at "could not be determined".
+     * 26 → 27: Brain 2.7 moved the listener link. It ran from the event's `__construct` under the
+     * `action-to-listener` type and now runs from the event CLASS under `event-to-listener`, so the
+     * edge set changes shape for identical file inputs rather than growing or shrinking. A 26 entry
+     * carries the old source and type, and a walk that matches on either reads the wrong answer in
+     * both directions. The brain version in the fingerprint already invalidates every entry for THIS
+     * change; the bump is for the general case, as the 9 → 10 note explains.
      */
-    private const int FORMAT_VERSION = 26;
+    private const int FORMAT_VERSION = 27;
 
     private ?CodeGraph $memoized = null;
 

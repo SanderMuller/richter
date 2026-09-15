@@ -10,7 +10,7 @@ App\Enums\ExperimentFlag	declares	App\Enums\ExperimentFlag::NewCheckout
 App\Enums\FeatureToggle	declares	App\Enums\FeatureToggle::BETA_DASHBOARD
 App\Enums\FeatureToggle	declares	App\Enums\FeatureToggle::isActive
 App\Events\PostPublished	declares	App\Events\PostPublished::__construct
-App\Events\PostPublished::__construct	action-to-listener	App\Listeners\SendPostNotification::handle
+App\Events\PostPublished	event-to-listener	App\Listeners\SendPostNotification::handle
 App\Filament\Resources\PostResource	declares	App\Filament\Resources\PostResource::table
 App\Filament\Resources\PostResource::table	loads-relation	App\Models\Post::reviews
 App\Filament\Resources\PostResource::table	model	App\Models\Post::reviews
