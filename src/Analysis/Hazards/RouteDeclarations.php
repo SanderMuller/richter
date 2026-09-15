@@ -285,7 +285,7 @@ final class RouteDeclarations
     }
 
     /**
-     * @param  array<Arg|Node\VariadicPlaceholder>  $args
+     * @param  array<Node>  $args
      * @return list<string>
      */
     private static function middlewareTokens(array $args): array
@@ -296,7 +296,7 @@ final class RouteDeclarations
     }
 
     /**
-     * @param  array<Arg|Node\VariadicPlaceholder>  $args
+     * @param  array<Node>  $args
      */
     private static function uriOf(string $verb, array $args): ?string
     {
@@ -321,7 +321,7 @@ final class RouteDeclarations
      * the declared URI is the registered one, and grades `no-known-path` when a group prefix made it
      * something else. Never a guess dressed as a class name.
      *
-     * @param  array<Arg|Node\VariadicPlaceholder>  $args
+     * @param  array<Node>  $args
      */
     private static function memberOf(string $verb, string $uri, array $args): string
     {
@@ -387,7 +387,7 @@ final class RouteDeclarations
      * such a declaration unguards every route in the included file, and dropping the group silently
      * would say nothing about it.
      *
-     * @param  array<Arg|Node\VariadicPlaceholder>  $args
+     * @param  array<Node>  $args
      * @param  list<string>  $guards
      * @param  array<string, RouteRecord>  $routes
      */
@@ -420,7 +420,7 @@ final class RouteDeclarations
      * printed, which is stable enough to line the two sides up and names nothing the reader has to
      * trust.
      *
-     * @param  array<Arg|Node\VariadicPlaceholder>  $args
+     * @param  array<Node>  $args
      */
     private static function loadedPathOf(array $args): ?string
     {
@@ -436,7 +436,7 @@ final class RouteDeclarations
     }
 
     /**
-     * @param  array<Arg|Node\VariadicPlaceholder>  $args
+     * @param  array<Node>  $args
      * @return array<Node>
      */
     private static function closureBodyOf(array $args): array

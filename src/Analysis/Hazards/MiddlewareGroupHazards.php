@@ -11,7 +11,6 @@ use PhpParser\Node\Expr\MethodCall;
 use PhpParser\Node\Identifier;
 use PhpParser\Node\Scalar\String_;
 use PhpParser\Node\Stmt\Property;
-use PhpParser\Node\VariadicPlaceholder;
 use PhpParser\NodeFinder;
 use SanderMuller\Richter\Analysis\Hazard;
 use SanderMuller\Richter\Support\AppFiles;
@@ -293,7 +292,7 @@ final class MiddlewareGroupHazards
      * does not run, so adding it there removes a guard as surely as deleting the entry would.
      *
      * @param  array<string, array{0: list<string>, 1: list<string>}>  $groups
-     * @param  array<Arg|VariadicPlaceholder>  $args
+     * @param  array<Node>  $args
      */
     private static function mergeConfigurator(array &$groups, string $group, array $args): void
     {

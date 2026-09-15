@@ -14,7 +14,6 @@ use PhpParser\Node\Stmt\Class_;
 use PhpParser\Node\Stmt\ClassLike;
 use PhpParser\Node\Stmt\ClassMethod;
 use PhpParser\Node\Stmt\Return_;
-use PhpParser\Node\VariadicPlaceholder;
 use SanderMuller\Richter\Analysis\Hazard;
 use SanderMuller\Richter\Support\AppFiles;
 
@@ -204,11 +203,11 @@ final class BoundaryHazardLane implements HazardLane
      * written out at the call site. A named argument shifts every position, so it is refused rather
      * than counted — the lane would rather read no rules than the wrong array.
      *
-     * @param  array<Arg|VariadicPlaceholder>  $args
+     * @param  array<Node>  $args
      */
     private static function arrayArgument(array $args, int $position): ?Array_
     {
-        if (array_any($args, static fn (Arg|VariadicPlaceholder $arg): bool => $arg instanceof Arg && $arg->name instanceof Identifier)) {
+        if (array_any($args, static fn (Node $arg): bool => $arg instanceof Arg && $arg->name instanceof Identifier)) {
             return null;
         }
 

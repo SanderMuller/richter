@@ -21,7 +21,6 @@ use PhpParser\Node\Stmt\ClassMethod;
 use PhpParser\Node\Stmt\Property;
 use PhpParser\Node\Stmt\Return_;
 use PhpParser\Node\UnionType;
-use PhpParser\Node\VariadicPlaceholder;
 use PhpParser\NodeFinder;
 use PhpParser\PrettyPrinter\Standard;
 use SanderMuller\Richter\Support\AppFiles;
@@ -230,7 +229,7 @@ final class HazardSource
     }
 
     /** The literal string value of an argument, or null when it is not written out at the call site. */
-    public static function literalArgument(Arg|VariadicPlaceholder|null $arg): ?string
+    public static function literalArgument(?Node $arg): ?string
     {
         return $arg instanceof Arg && $arg->value instanceof String_ ? $arg->value->value : null;
     }
