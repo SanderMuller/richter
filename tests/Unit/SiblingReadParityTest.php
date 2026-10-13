@@ -341,7 +341,7 @@ final class SiblingReadParityTest extends TestCase
             ->detectChanges([$changed], payloadParityEnabled: false);
 
         // File-prefixed, in `findings` — the advisory channel.
-        $this->assertNotEmpty(array_filter(
+        $this->assertNotSame([], array_filter(
             $result['findings'],
             static fn (string $finding): bool => str_starts_with($finding, 'app/Actions/CreateTask.php: ')
                 && str_contains($finding, 'reads Order->external_id'),

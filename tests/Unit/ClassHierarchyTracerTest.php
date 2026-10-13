@@ -83,7 +83,8 @@ final class ClassHierarchyTracerTest extends TestCase
     /** @param  list<array{source: string, target: string, type: string}>  $edges */
     private function assertNoOverrideTo(array $edges, string $target): void
     {
-        $this->assertEmpty(
+        $this->assertSame(
+            [],
             array_filter($edges, static fn (array $edge): bool => $edge['target'] === $target),
             "expected no override edge targeting {$target}",
         );

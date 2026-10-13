@@ -37,20 +37,7 @@ final class HtmlFormatter
      */
     public static function detectChanges(array $result, array $changed, string $base, ?TestReferenceIndex $tests = null, bool $gateActive = false, ?array $gate = null, ?EditorLink $editor = null): string
     {
-        $keep = $result['entryPointKeepSet'] ?? null;
-        $kept = $keep['kept'] ?? $result['entryPoints'];
-        $rows = EntryPointRow::build(
-            $kept,
-            $result['entryPointPaths'],
-            $result['entryPointLocations'],
-            $result['entryPointSecurity'],
-            $result['entryPointGates'],
-            $result['entryPointAuthGates'] ?? [],
-            $result['entryPointAuthMiddleware'] ?? [],
-            $tests,
-            $result['entryPointAttribution'] ?? [],
-            $result['entryPointRuntimeGuards'] ?? [],
-        );
+        $rows = self::rows($result, $tests);
 
         $layout = RadialLayout::compute($result['edges'], $result['reach'], $result['seeds'], $result['entryPointLocations']);
 
@@ -65,6 +52,32 @@ final class HtmlFormatter
         ]);
 
         return self::document($body);
+    }
+
+    /**
+     * A method of its own, not inline in detectChanges(): PHPStan 2.3 drops an optional key from an
+     * unsealed shape once `??` reads it (https://github.com/phpstan/phpstan/issues/15428), so the
+     * reads must not happen in the scope that passes the whole result on.
+     *
+     * @param  DetectChangesResult  $result
+     * @return list<EntryPointRow>
+     */
+    private static function rows(array $result, ?TestReferenceIndex $tests): array
+    {
+        $keep = $result['entryPointKeepSet'] ?? null;
+
+        return EntryPointRow::build(
+            $keep['kept'] ?? $result['entryPoints'],
+            $result['entryPointPaths'],
+            $result['entryPointLocations'],
+            $result['entryPointSecurity'],
+            $result['entryPointGates'],
+            $result['entryPointAuthGates'] ?? [],
+            $result['entryPointAuthMiddleware'] ?? [],
+            $tests,
+            $result['entryPointAttribution'] ?? [],
+            $result['entryPointRuntimeGuards'] ?? [],
+        );
     }
 
     // ---------------------------------------------------------------- tabs
@@ -106,7 +119,7 @@ final class HtmlFormatter
     {
         return self::statRow($result)
             . self::lowConfidenceNote($result)
-            . self::hazardSection($result['hazards'] ?? [])
+            . self::hazardSection($result)
             . '<div class="cards">'
             . self::card('Entry points reached', self::entryPointList($rows, $editor) . self::hubFold($result, $rows))
             . self::card('What to focus on', self::focusList($result, $rows))
@@ -338,10 +351,15 @@ final class HtmlFormatter
      * The hazards, above everything else in the overview. A hazard says something may BREAK; the
      * cards below say how far the change reaches. The first is what a reviewer opens this for.
      *
-     * @param  list<Hazard>  $hazards
+     * Takes the whole result, not the hazard list: see rows() for the PHPStan issue that keeps the
+     * `??` read out of overview().
+     *
+     * @param  DetectChangesResult  $result
      */
-    private static function hazardSection(array $hazards): string
+    private static function hazardSection(array $result): string
     {
+        $hazards = $result['hazards'] ?? [];
+
         if ($hazards === []) {
             return '';
         }

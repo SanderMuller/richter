@@ -41,7 +41,7 @@ When invoked, implement the change, write or update a PHPUnit test that proves i
 
 ## Public repo — anonymization
 
-Everything here is world-readable on GitHub. Fixtures, doc snippets, and specs must be synthetic: framework-conventional placeholders (`App\Models\Article`, `PostController`), never code, names, strings, or provenance (PR/ticket numbers, product names) from any real consumer codebase. See `CLAUDE.md` for the full rule; scan your diff for leaks before finishing.
+Everything here is world-readable on GitHub. Fixtures, doc snippets, and specs must be synthetic: framework-conventional placeholders (`App\Models\Article`, `PostController`), never code, names, strings, or provenance (PR/ticket numbers, product names) from any real consumer codebase. See `AGENTS.md` for the full rule; scan your diff for leaks before finishing.
 
 ## Semver discipline
 

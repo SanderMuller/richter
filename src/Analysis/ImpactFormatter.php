@@ -128,6 +128,7 @@ final class ImpactFormatter
         $lines[] = 'Entry points reached: ' . count($result['entryPoints']) . $unresolvedSuffix;
         $keep = $result['entryPointKeepSet'] ?? null;
         $kept = $keep['kept'] ?? $result['entryPoints'];
+        $attribution = $result['entryPointAttribution'] ?? [];
         $lines = [...$lines, ...self::entryPointList(
             $kept,
             $explain ? ($result['entryPointPaths'] ?? []) : [],
@@ -137,12 +138,12 @@ final class ImpactFormatter
             $result['entryPointAuthGates'] ?? [],
             $result['entryPointAuthMiddleware'] ?? [],
             $tests,
-            $result['entryPointAttribution'] ?? [],
+            $attribution,
             $result['entryPointRuntimeGuards'] ?? [],
         )];
 
         foreach (HubFold::sentences(
-            HubFold::counts($result['entryPoints'], $kept, $result['entryPointAttribution'] ?? []),
+            HubFold::counts($result['entryPoints'], $kept, $attribution),
             count($kept) > self::LIST_CAP,
         ) as $sentence) {
             $lines[] = '  ' . $sentence;
@@ -170,18 +171,21 @@ final class ImpactFormatter
 
         $lines = [...$lines, ...self::hazardLines($result['hazards'] ?? [])];
 
-        if (($result['findings'] ?? []) !== []) {
+        $findings = $result['findings'] ?? [];
+
+        if ($findings !== []) {
             $lines[] = '';
             $lines[] = 'Findings (in the changed source itself):';
 
-            foreach ($result['findings'] as $finding) {
+            foreach ($findings as $finding) {
                 $lines[] = "  ! {$finding}";
             }
         }
 
         $lines[] = '';
+        $riskCause = $result['riskCause'] ?? '';
         $lines[] = 'Risk:   ' . Str::upper($result['risk']->value) . ($gateActive ? '' : ' (advisory)')
-            . (($result['riskCause'] ?? '') === '' ? '' : ' — ' . $result['riskCause']);
+            . ($riskCause === '' ? '' : ' — ' . $riskCause);
         // Breadth, decoupled. It describes the change; it no longer grades it.
         $lines[] = 'Impact: ' . count($result['entryPoints']) . ' entry point(s) · ' . $result['impacted'] . ' impacted node(s)';
 

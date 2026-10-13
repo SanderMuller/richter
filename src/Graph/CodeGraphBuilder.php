@@ -197,7 +197,7 @@ final class CodeGraphBuilder
             ];
         }
 
-        $phaseStart = $this->emitPhase($onProgress, 'canonicalize-metadata', $phaseStart);
+        $this->emitPhase($onProgress, 'canonicalize-metadata', $phaseStart);
 
         // Branch B: richter's own source-tracer edges. The concurrent worker's result when it ran
         // and succeeded, else in-process (serial / profiling / fallback). Returned in the same order

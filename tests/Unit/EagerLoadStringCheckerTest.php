@@ -124,7 +124,7 @@ final class EagerLoadStringCheckerTest extends TestCase
         // A models directory whose classes cannot be autoloaded degrades the checker: it must
         // suppress validation visibly (one note per file), never silently — and never fire false
         // alarms from the shrunken set.
-        $checker = new EagerLoadStringChecker(dirname(__DIR__) . '/Fixtures/broken-models');
+        $checker = new EagerLoadStringChecker(__DIR__ . '/../Fixtures/broken-models');
 
         $source = "<?php\nnamespace App\Exports;\nuse App\Models\Post;\nclass PostExport\n{\n    public function a(): void { \$x->load(Post::REVIEWS . 'zz'); }\n    public function b(): void { \$x->load(Post::COMMENTS . 'yy'); }\n}\n";
 
@@ -188,7 +188,7 @@ final class EagerLoadStringCheckerTest extends TestCase
         $source = "<?php\nnamespace App\Exports;\nuse App\Models\Post;\nclass PostExport\n{\n    public function a(): void { \$x->load(Post::REVIEWS . 'zz'); }\n}\n";
 
         $fixtureFindings = new EagerLoadStringChecker(self::fixtureProjectPath() . '/app/Models')->findingsFor($source);
-        $brokenFindings = new EagerLoadStringChecker(dirname(__DIR__) . '/Fixtures/broken-models')->findingsFor($source);
+        $brokenFindings = new EagerLoadStringChecker(__DIR__ . '/../Fixtures/broken-models')->findingsFor($source);
 
         $this->assertCount(1, $fixtureFindings);
         $this->assertStringContainsString("'reviewszz'", $fixtureFindings[0]);

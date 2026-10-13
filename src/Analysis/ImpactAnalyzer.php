@@ -243,7 +243,6 @@ final readonly class ImpactAnalyzer
         $coverage = [];
         /** @var list<string> $newFileFindings */
         $newFileFindings = [];
-        $touchesEntryClass = false;
         // Scoped to this single detectChanges() run — see riskInputs()'s docblock.
         $riskInputsMemo = [];
 
@@ -283,11 +282,6 @@ final readonly class ImpactAnalyzer
             $coarseSeeds = [...$coarseSeeds, ...$coarse];
             $coarseDependencySeeds = [...$coarseDependencySeeds, ...$coarseDependencies];
             $fileSeeds = [...$precise, ...$coarse];
-
-            // Only a real change to an uncharted entry-point class keeps the MEDIUM floor; the additive/cosmetic case returned LOW above.
-            if ($this->isEntryPointClass($file->file)) {
-                $touchesEntryClass = true;
-            }
 
             $fileSeeds = array_values(array_unique($fileSeeds));
             $perFileSeeds[$file->file] = $fileSeeds;
@@ -643,8 +637,8 @@ final readonly class ImpactAnalyzer
      * calls it (a vendor-fired event, an unfollowable dispatch) — "Entry points reached: 0"
      * under-communicates "this runs on every SAML login". List the class itself, but only when its
      * own seeds reached no entry point (a job whose dispatcher resolved to a route needs no echo).
-     * Excluded from the risk inputs: the risk floor for entry classes is touchesEntryClass, and
-     * counting self-listings would rate touching three jobs as HIGH by count alone.
+     * Excluded from the risk inputs: counting self-listings would rate touching three jobs as HIGH
+     * by count alone.
      *
      * @param  list<string>  $entryPoints
      * @param  list<ChangedFileSymbols>  $changed

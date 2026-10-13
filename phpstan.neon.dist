@@ -8,6 +8,17 @@ includes:
 parameters:
     tmpDir: .cache/phpstan
 
+    # symplify/phpstan-rules >= 14.17 auto-loads every rule set; this project uses none of them.
+    symplify:
+        naming: false
+        complexity: false
+        configurable: false
+        static: false
+        symfony: false
+        symfonyConfig: false
+        doctrine: false
+        phpunit: false
+
     # See the file's docblock: Larastan's own bootstrap leaves LARAVEL_VERSION undefined on CI, and
     # its stub-file extension then aborts the run.
     bootstrapFiles:
@@ -35,7 +46,6 @@ parameters:
         param: 100
         property: 100
         constant: 0
-        declare: 100
 
     cognitive_complexity:
         class: 80

@@ -512,7 +512,9 @@ final class AffectedTests
             }
         }
 
-        foreach ($result['callers'] ?? [] as $hop) {
+        $callers = $result['callers'] ?? [];
+
+        foreach ($callers as $hop) {
             $class = explode('::', $hop['node'], 2)[0];
 
             // A changed class that is also its own caller keeps the stronger origin: the diff
@@ -582,7 +584,9 @@ final class AffectedTests
             }
         }
 
-        foreach ($result['callers'] ?? [] as $hop) {
+        $callers = $result['callers'] ?? [];
+
+        foreach ($callers as $hop) {
             $class = self::classOfNode($hop['node']);
 
             if ($class !== null && DispatchTarget::matches($class)) {
