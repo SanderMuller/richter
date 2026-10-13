@@ -241,7 +241,7 @@ final class CommandsTest extends TestCase
         $this->assertSame(0, $exitCode);
         // The diff range is the two-dot-three form against the resolved commit, never the
         // single-ref working-tree form.
-        Process::assertRan(fn (PendingProcess $process): bool => is_array($process->command)
+        Process::assertRan(static fn (PendingProcess $process): bool => is_array($process->command)
             && in_array('diff', $process->command, true)
             && in_array('some-base...def456', $process->command, true));
     }
@@ -1082,7 +1082,7 @@ final class CommandsTest extends TestCase
 
         @unlink($path);
 
-        Process::assertRan(fn (PendingProcess $process): bool => is_array($process->command)
+        Process::assertRan(static fn (PendingProcess $process): bool => is_array($process->command)
             && in_array($path, $process->command, strict: true));
     }
 

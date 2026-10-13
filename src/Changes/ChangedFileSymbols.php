@@ -140,6 +140,6 @@ final readonly class ChangedFileSymbols
             return true;
         }
 
-        return array_all($this->members, fn (MemberChange $member): bool => $member->isAdditive());
+        return array_all($this->members, static fn (MemberChange $member): bool => $member->isAdditive());
     }
 }

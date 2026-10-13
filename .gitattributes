@@ -38,6 +38,7 @@ workbench/ export-ignore
 plans/ export-ignore
 specs/ export-ignore
 quality/ export-ignore
+structarmed.php export-ignore
 
 # Documentation site source: published to GitHub Pages, never installed with the package.
 docs/ export-ignore

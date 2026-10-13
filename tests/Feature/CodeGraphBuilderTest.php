@@ -316,7 +316,7 @@ final class CodeGraphBuilderTest extends TestCase
 
         new CodeGraphBuilder()->build(
             self::fixtureProjectPath(),
-            function (string $event, array $data) use (&$events): void {
+            static function (string $event, array $data) use (&$events): void {
                 if ($event === 'richter:phase') {
                     $events[] = $data;
                 }

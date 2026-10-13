@@ -109,7 +109,7 @@ final readonly class EntryPointKeepSet
             }
         }
 
-        return array_any($hubPathPrefixes, fn (string $prefix) => str_starts_with($path, self::normalise($prefix)));
+        return array_any($hubPathPrefixes, static fn (string $prefix) => str_starts_with($path, self::normalise($prefix)));
     }
 
     /** A configured path and a reported one can disagree about a `./` prefix and mean the same file. */

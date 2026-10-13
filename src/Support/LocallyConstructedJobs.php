@@ -209,7 +209,7 @@ final class LocallyConstructedJobs
      */
     private static function hasCandidate(array $assignments): bool
     {
-        return array_any($assignments, fn (array $assignment) => self::constructedTarget($assignment['expr']) !== null || MappedCollectionJobs::in($assignment['expr']) !== null);
+        return array_any($assignments, static fn (array $assignment) => self::constructedTarget($assignment['expr']) !== null || MappedCollectionJobs::in($assignment['expr']) !== null);
     }
 
     /**

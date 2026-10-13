@@ -477,7 +477,7 @@ final class GuardMiddleware
      */
     public static function throttles(array $tokens): bool
     {
-        return array_any($tokens, fn (string $token) => self::aliasOfToken($token) === 'throttle');
+        return array_any($tokens, static fn (string $token) => self::aliasOfToken($token) === 'throttle');
     }
 
     /**

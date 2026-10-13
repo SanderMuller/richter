@@ -305,7 +305,7 @@ final class GraphCache
             return CacheStatus::matched($fingerprint, $storedFingerprint, $file, $size);
         }
 
-        $status = fn (?string $reason, ?string $detail): CacheStatus => CacheStatus::missed(
+        $status = static fn (?string $reason, ?string $detail): CacheStatus => CacheStatus::missed(
             $fingerprint,
             $storedFingerprint,
             $file,

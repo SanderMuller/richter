@@ -174,7 +174,7 @@ final class WarmCommand extends Command
 
     private function size(?int $bytes): string
     {
-        return $bytes === null ? '' : sprintf(' (%.1f MB)', $bytes / 1048576);
+        return $bytes === null ? '' : sprintf(' (%.1f MB)', $bytes / 1_048_576);
     }
 
     /**

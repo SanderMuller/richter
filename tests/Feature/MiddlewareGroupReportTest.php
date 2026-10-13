@@ -50,9 +50,9 @@ final class MiddlewareGroupReportTest extends TestCase
 
         // The size comes from the registered route table, not from graph edges: a provider that
         // loops over route files and groups them there draws no route → middleware edge at all.
-        Route::middleware('api')->group(function (): void {
-            Route::get('/api/a', fn (): string => 'a');
-            Route::get('/api/b', fn (): string => 'b');
+        Route::middleware('api')->group(static function (): void {
+            Route::get('/api/a', static fn (): string => 'a');
+            Route::get('/api/b', static fn (): string => 'b');
         });
     }
 
