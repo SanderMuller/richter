@@ -56,7 +56,7 @@ Nothing scans for this automatically — you are the gate. In fixtures (`tests/F
 - Real-looking route paths, table/column names, config keys, or validation fields.
 - Provenance: internal PR/issue/ticket numbers, employee names, "modelled on …" references.
 
-Framework/vendor symbols (`Illuminate\…`, Testbench, Brain) and generic nouns (`Article`, `Post`, `Order`) are fine. See `CLAUDE.md` for the full rule.
+Framework/vendor symbols (`Illuminate\…`, Testbench, Brain) and generic nouns (`Article`, `Post`, `Order`) are fine. See `AGENTS.md` for the full rule.
 
 ## Public-API & semver axis
 

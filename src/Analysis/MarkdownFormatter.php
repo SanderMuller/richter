@@ -258,12 +258,13 @@ final class MarkdownFormatter
     {
         $unresolved = in_array('unresolved', $result['coverage'], strict: true);
 
+        $riskCause = $result['riskCause'] ?? '';
         $lines = ['## Richter change impact', ''];
         $lines[] = sprintf(
             '**Risk:** %s%s%s',
             self::riskBadge($result['risk']),
             $gateActive ? '' : ' _(advisory)_',
-            ($result['riskCause'] ?? '') === '' ? '' : ' — ' . $result['riskCause'],
+            $riskCause === '' ? '' : ' — ' . $riskCause,
         );
         // Breadth, decoupled from the level: it describes the change, it no longer grades it.
         $lines[] = sprintf(
@@ -316,6 +317,7 @@ final class MarkdownFormatter
 
         $keep = $result['entryPointKeepSet'] ?? null;
         $kept = $keep['kept'] ?? $result['entryPoints'];
+        $attribution = $result['entryPointAttribution'] ?? [];
         $lines = [...$lines, ...self::entryPointChecklist(
             $kept,
             $explain ? ($result['entryPointPaths'] ?? []) : [],
@@ -325,12 +327,12 @@ final class MarkdownFormatter
             $result['entryPointAuthGates'] ?? [],
             $result['entryPointAuthMiddleware'] ?? [],
             $tests,
-            $result['entryPointAttribution'] ?? [],
+            $attribution,
             $result['entryPointRuntimeGuards'] ?? [],
         )];
 
         foreach (HubFold::sentences(
-            HubFold::counts($result['entryPoints'], $kept, $result['entryPointAttribution'] ?? []),
+            HubFold::counts($result['entryPoints'], $kept, $attribution),
             count($kept) > self::LIST_CAP,
         ) as $sentence) {
             $lines[] = '';
@@ -357,10 +359,12 @@ final class MarkdownFormatter
             )];
         }
 
-        if (($result['findings'] ?? []) !== []) {
+        $findings = $result['findings'] ?? [];
+
+        if ($findings !== []) {
             $lines = [...$lines, '', '### Findings (in the changed source itself)', ''];
 
-            foreach ($result['findings'] as $finding) {
+            foreach ($findings as $finding) {
                 $lines[] = "- ⚠️ {$finding}";
             }
         }

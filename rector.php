@@ -3,13 +3,11 @@
 use Rector\Caching\ValueObject\Storage\FileCacheStorage;
 use Rector\Carbon\Rector\FuncCall\TimeFuncCallToCarbonRector;
 use Rector\CodeQuality\Rector\ClassMethod\InlineArrayReturnAssignRector;
-use Rector\CodeQuality\Rector\If_\ExplicitBoolCompareRector;
 use Rector\CodingStyle\Rector\String_\UseClassKeywordForClassNameResolutionRector;
 use Rector\Config\RectorConfig;
 use Rector\DeadCode\Rector\ClassMethod\RemoveUselessParamTagRector;
 use Rector\DeadCode\Rector\ClassMethod\RemoveUselessReturnTagRector;
 use Rector\Php55\Rector\String_\StringClassNameToClassConstantRector;
-use Rector\Php81\Rector\FuncCall\NullToStrictStringFuncCallArgRector;
 use Rector\Privatization\Rector\ClassMethod\PrivatizeFinalClassMethodRector;
 use Rector\TypeDeclaration\Rector\ArrowFunction\AddArrowFunctionReturnTypeRector;
 use RectorLaravel\Set\LaravelSetList;
@@ -58,9 +56,7 @@ return RectorConfig::configure()
         ] : [],
     ))
     ->withSkip([
-        NullToStrictStringFuncCallArgRector::class,
         AddArrowFunctionReturnTypeRector::class,
-        ExplicitBoolCompareRector::class,
         InlineArrayReturnAssignRector::class,
         PrivatizeFinalClassMethodRector::class,
         RemoveUselessParamTagRector::class,

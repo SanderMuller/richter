@@ -35,7 +35,7 @@ When invoked, identify what needs testing, write or fix the tests, then run them
 
 - `tests/Fixtures/project` (`App\` namespace) is the main mini Laravel tree; `TestCase::fixtureProjectPath()` points at it. `tests/Fixtures/acme-project` (`Acme\`) exercises a non-default root namespace.
 - Extend the existing fixture project rather than building throwaway trees, unless the test specifically needs an isolated/mutated tree — then build under a temp dir and clean up with `$this->deleteTree()`.
-- **Fixtures are public.** This repo is open source: fixture code must be synthetic and framework-generic (`Article`, `Post`, `Order`), never copied from a real consumer codebase. See `CLAUDE.md`.
+- **Fixtures are public.** This repo is open source: fixture code must be synthetic and framework-generic (`Article`, `Post`, `Order`), never copied from a real consumer codebase. See `AGENTS.md`.
 - Adding a fixture file usually changes graph-wide counts — expect unrelated assertions on node/edge totals to need updating, and check whether the fixture is reached by entry-point coverage tests.
 
 ## Contract tests to know
