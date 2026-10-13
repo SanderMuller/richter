@@ -66,7 +66,7 @@ final class FrontendChanges
             return true;
         }
 
-        return ! array_all(RichterConfig::frontendGeneratedPaths(), function (string $generated) use ($file, $root): bool {
+        return ! array_all(RichterConfig::frontendGeneratedPaths(), static function (string $generated) use ($file, $root): bool {
             $entry = trim($generated, '/');
 
             // Directory-prefix semantics (the original contract), plus exact files and

@@ -68,7 +68,7 @@ final class FrontendTestIndex
     {
         $name = basename(str_replace('\\', '/', $path));
 
-        return array_any(self::SPEC_PATTERNS, fn (string $pattern) => fnmatch($pattern, $name));
+        return array_any(self::SPEC_PATTERNS, static fn (string $pattern) => fnmatch($pattern, $name));
     }
 
     public function addSource(string $source, string $file): void

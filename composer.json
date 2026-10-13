@@ -29,6 +29,7 @@
         "symfony/finder": "^7.2||^8.0"
     },
     "require-dev": {
+        "boundwize/structarmed": "^0.19",
         "driftingly/rector-laravel": "^2.5",
         "larastan/larastan": "^3.10",
         "laravel/boost": "^2.5.3",
@@ -91,18 +92,21 @@
         "phpstan-clear-cache": "vendor/bin/phpstan clear-result-cache",
         "format": "vendor/bin/pint",
         "rector": "vendor/bin/rector process",
+        "structarmed": "vendor/bin/structarmed analyze",
         "test": "vendor/bin/phpunit",
         "test-coverage": "vendor/bin/phpunit --coverage-html=coverage",
         "sync-ai": "vendor/bin/boost sync",
         "qa": [
             "@rector",
             "@format",
-            "@phpstan-simplified"
+            "@phpstan-simplified",
+            "@structarmed"
         ],
         "qa-check": [
             "vendor/bin/rector process --dry-run",
             "vendor/bin/pint --test",
             "@phpstan-simplified",
+            "@structarmed",
             "@test"
         ]
     },

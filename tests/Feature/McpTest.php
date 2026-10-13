@@ -76,7 +76,7 @@ final class McpTest extends TestCase
         RichterServer::tool(AffectedTestsTool::class)
             ->assertOk()
             ->assertSee('Affected tests: 0')
-            ->assertStructuredContent(function (AssertableJson $json): bool {
+            ->assertStructuredContent(static function (AssertableJson $json): bool {
                 $json->where('determinable', true)
                     ->where('base', 'origin/main')
                     ->where('unreferencedEntryPoints', 0)
@@ -112,7 +112,7 @@ final class McpTest extends TestCase
         RichterServer::tool(AffectedTestsTool::class, ['base' => 'some-base'])
             ->assertOk()
             ->assertSee('run the full suite')
-            ->assertStructuredContent(function (AssertableJson $json): bool {
+            ->assertStructuredContent(static function (AssertableJson $json): bool {
                 $json->where('determinable', false)
                     ->etc();
 
@@ -140,7 +140,7 @@ final class McpTest extends TestCase
         RichterServer::tool(AffectedTestsTool::class, ['base' => 'this-ref-does-not-exist-zzz'])
             ->assertOk()
             ->assertSee('run the full suite')
-            ->assertStructuredContent(function (AssertableJson $json): bool {
+            ->assertStructuredContent(static function (AssertableJson $json): bool {
                 $json->where('determinable', false)
                     ->etc();
 
@@ -161,7 +161,7 @@ final class McpTest extends TestCase
         RichterServer::tool(AffectedTestsTool::class, ['base' => '--upload-pack=x'])
             ->assertOk()
             ->assertSee('run the full suite')
-            ->assertStructuredContent(function (AssertableJson $json): bool {
+            ->assertStructuredContent(static function (AssertableJson $json): bool {
                 $json->where('determinable', false)
                     ->where('base', '--upload-pack=x')
                     ->etc();
@@ -199,7 +199,7 @@ final class McpTest extends TestCase
         RichterServer::tool(TraceTool::class, ['from' => 'ReviewController', 'to' => 'App\\Jobs\\ProcessPostJob'])
             ->assertOk()
             ->assertSee('Path from')
-            ->assertStructuredContent(function (AssertableJson $json): bool {
+            ->assertStructuredContent(static function (AssertableJson $json): bool {
                 $json->where('found', true)
                     ->has('resolvedFrom')
                     ->has('resolvedTo')
@@ -220,7 +220,7 @@ final class McpTest extends TestCase
         RichterServer::tool(TraceTool::class, ['from' => 'App\\Jobs\\ProcessPostJob', 'to' => 'ReviewController'])
             ->assertOk()
             ->assertSee('Swap the arguments')
-            ->assertStructuredContent(function (AssertableJson $json): bool {
+            ->assertStructuredContent(static function (AssertableJson $json): bool {
                 $json->where('found', false)
                     ->has('furthestReached')
                     ->etc();
@@ -375,7 +375,7 @@ final class McpTest extends TestCase
         RichterServer::tool(ImpactTool::class, ['symbol' => 'User'])
             ->assertOk()
             ->assertSee('User')
-            ->assertStructuredContent(function (AssertableJson $json): bool {
+            ->assertStructuredContent(static function (AssertableJson $json): bool {
                 $json->where('target', 'User')
                     ->has('callers')
                     ->has('dependencies')
@@ -403,7 +403,7 @@ final class McpTest extends TestCase
         RichterServer::tool(LocateTool::class, ['symbol' => 'App\\Models\\Post'])
             ->assertOk()
             ->assertSee('app/Models/Post.php')
-            ->assertStructuredContent(function (AssertableJson $json): bool {
+            ->assertStructuredContent(static function (AssertableJson $json): bool {
                 $json->where('by', 'symbol')
                     ->where('query', 'App\\Models\\Post')
                     ->has('total')
@@ -423,7 +423,7 @@ final class McpTest extends TestCase
         RichterServer::tool(LocateTool::class, ['file' => 'app/Models/Post.php'])
             ->assertOk()
             ->assertSee('defined in "app/Models/Post.php"')
-            ->assertStructuredContent(function (AssertableJson $json): bool {
+            ->assertStructuredContent(static function (AssertableJson $json): bool {
                 $json->where('by', 'file')->etc();
 
                 return true;
@@ -439,7 +439,7 @@ final class McpTest extends TestCase
 
         RichterServer::tool(LocateTool::class, ['symbol' => 'Post'])
             ->assertOk()
-            ->assertStructuredContent(function (AssertableJson $json): bool {
+            ->assertStructuredContent(static function (AssertableJson $json): bool {
                 $json->where('limit', BoundedPresenter::LIST_CAP)
                     ->where('bounded', true)
                     ->has('matches', BoundedPresenter::LIST_CAP)
@@ -457,7 +457,7 @@ final class McpTest extends TestCase
         RichterServer::tool(LocateTool::class, ['symbol' => 'App\\Models\\Pots'])
             ->assertOk()
             ->assertSee('Nearest graph nodes:')
-            ->assertStructuredContent(function (AssertableJson $json): bool {
+            ->assertStructuredContent(static function (AssertableJson $json): bool {
                 $json->where('total', 0)
                     ->where('matches', [])
                     ->has('suggestions')
@@ -468,7 +468,7 @@ final class McpTest extends TestCase
 
         RichterServer::tool(LocateTool::class, ['symbol' => 'Zzz'])
             ->assertOk()
-            ->assertStructuredContent(function (AssertableJson $json): bool {
+            ->assertStructuredContent(static function (AssertableJson $json): bool {
                 $json->has('graphNodeCount')->missing('suggestions')->etc();
 
                 return true;
@@ -478,7 +478,7 @@ final class McpTest extends TestCase
         RichterServer::tool(LocateTool::class, ['file' => 'app/Modles/Post.php'])
             ->assertOk()
             ->assertSee('same file name')
-            ->assertStructuredContent(function (AssertableJson $json): bool {
+            ->assertStructuredContent(static function (AssertableJson $json): bool {
                 $json->missing('graphNodeCount')->has('suggestions')->etc();
 
                 return true;
@@ -514,7 +514,7 @@ final class McpTest extends TestCase
 
         RichterServer::tool(LocateTool::class, ['symbol' => 'Post'])
             ->assertOk()
-            ->assertStructuredContent(function (AssertableJson $json): bool {
+            ->assertStructuredContent(static function (AssertableJson $json): bool {
                 $json->where('total', 0)->where('graphNodeCount', 0)->etc();
 
                 return true;
@@ -554,7 +554,7 @@ final class McpTest extends TestCase
 
         RichterServer::tool(DetectChangesTool::class, ['base' => 'some-base'])
             ->assertOk()
-            ->assertStructuredContent(function (AssertableJson $json): bool {
+            ->assertStructuredContent(static function (AssertableJson $json): bool {
                 $json->has('base')
                     ->has('risk')
                     ->has('entryPointTestReferences')
@@ -714,7 +714,7 @@ final class McpTest extends TestCase
         try {
             RichterServer::tool(ImpactTool::class, ['symbol' => 'App\\Http\\Controllers\\Auth\\SocialAuthController'])
                 ->assertOk()
-                ->assertStructuredContent(function (AssertableJson $json): bool {
+                ->assertStructuredContent(static function (AssertableJson $json): bool {
                     // The weak sub-tag, not plain `referenced`: the stub asserts nothing. What this
                     // pins is that the route is referenced at all — without the graph it reads
                     // `unreferenced`.

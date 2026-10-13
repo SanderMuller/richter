@@ -460,7 +460,7 @@ final class DetectChangesCommand extends Command
         // actually gets. `--no-cache` alongside still forces the cold one.
         $graph = $graphs->graph(
             fresh: (bool) $this->option('no-cache'),
-            onProgress: function (string $event, array $data) use (&$phases, &$path, &$refusal): void {
+            onProgress: static function (string $event, array $data) use (&$phases, &$path, &$refusal): void {
                 if ($event !== 'richter:phase' || ! is_string($data['phase'] ?? null) || ! is_float($data['seconds'] ?? null)) {
                     return;
                 }

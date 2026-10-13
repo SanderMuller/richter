@@ -119,7 +119,7 @@ final class EloquentConfig
         }
 
         // Addition-only: every base entry survives unchanged in head (head may add more).
-        return array_all($baseMap, fn (string $value, string $key): bool => array_key_exists($key, $headMap) && $headMap[$key] === $value);
+        return array_all($baseMap, static fn (string $value, string $key): bool => array_key_exists($key, $headMap) && $headMap[$key] === $value);
     }
 
     /**

@@ -142,8 +142,8 @@ final class ChangedSymbols
             // unclaimed file costs no `git show`.
             $nonPhp = NonPhpFileChange::resolve(
                 $file,
-                fn (): ?string => self::headSource($head, $file, $prefix),
-                fn (): ?string => self::baseSource($mergeBase, $hunk['oldPath'], $prefix),
+                static fn (): ?string => self::headSource($head, $file, $prefix),
+                static fn (): ?string => self::baseSource($mergeBase, $hunk['oldPath'], $prefix),
                 $hunk['isNew'],
                 $hunk['added'] !== [],
                 $frontendChanges,
@@ -170,7 +170,7 @@ final class ChangedSymbols
         if ($head === 'HEAD') {
             $changed = [...$changed, ...MigrationChanges::resolveUntracked(
                 self::untrackedMigrations(),
-                fn (string $file): ?string => self::headSource($head, $file, $prefix),
+                static fn (string $file): ?string => self::headSource($head, $file, $prefix),
             )];
         }
 
@@ -179,9 +179,9 @@ final class ChangedSymbols
         // return key would carry it to some of them and not others.
         SiblingReadIndex::remember(SiblingReadIndex::build(
             $changed,
-            fn (string $directory): array => SiblingReadIndex::baseDirectoryListing($mergeBase, $directory, $prefix),
-            fn (string $file): ?string => self::baseSource($mergeBase, $file, $prefix),
-            fn (string $file): ?string => self::headSource($head, $file, $prefix),
+            static fn (string $directory): array => SiblingReadIndex::baseDirectoryListing($mergeBase, $directory, $prefix),
+            static fn (string $file): ?string => self::baseSource($mergeBase, $file, $prefix),
+            static fn (string $file): ?string => self::headSource($head, $file, $prefix),
         ));
 
         return ['changed' => $changed, 'outOfScope' => $outOfScope];
@@ -486,7 +486,7 @@ final class ChangedSymbols
         $texts = [];
 
         foreach ($lines as $line) {
-            $inClass = array_any($classRanges, fn (array $range): bool => $line['line'] >= $range['start'] && $line['line'] <= $range['end']);
+            $inClass = array_any($classRanges, static fn (array $range): bool => $line['line'] >= $range['start'] && $line['line'] <= $range['end']);
             if (! $inClass) {
                 continue;
             }

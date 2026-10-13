@@ -37,6 +37,6 @@ final class EntryPointMethodFilter
     {
         $finder = new NodeFinder();
 
-        return array_any([MethodCall::class, StaticCall::class, NullsafeMethodCall::class, FuncCall::class, New_::class, ClassConstFetch::class], fn (string $edgeNode) => $finder->findFirstInstanceOf((array) $method->stmts, $edgeNode) instanceof Node);
+        return array_any([MethodCall::class, StaticCall::class, NullsafeMethodCall::class, FuncCall::class, New_::class, ClassConstFetch::class], static fn (string $edgeNode) => $finder->findFirstInstanceOf((array) $method->stmts, $edgeNode) instanceof Node);
     }
 }
