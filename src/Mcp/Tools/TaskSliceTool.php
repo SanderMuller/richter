@@ -45,6 +45,7 @@ final class TaskSliceTool extends Tool
         $head = $request->get('head');
         /** @var DetectChangesResult|null $analysis */
         $analysis = null;
+        $tests = null;
 
         $selection = AffectedTests::selectForCurrentDiff(
             $this->graphs,
@@ -53,13 +54,14 @@ final class TaskSliceTool extends Tool
             is_string($head) && $head !== '' ? $head : null,
             fullAnalysis: true,
             analysisUsed: $analysis,
+            testsUsed: $tests,
         );
 
         unset($selection['untrackedFiles']);
 
         $document = $analysis === null
             ? JsonPresenter::emptyDetectChanges($selection['base'])
-            : JsonPresenter::detectChanges($analysis, $selection['base']);
+            : JsonPresenter::detectChanges($analysis, $selection['base'], $tests);
 
         $slice = TaskSlice::compose($document, $selection);
 

@@ -615,6 +615,47 @@ final class CommandsTest extends TestCase
     }
 
     #[Test]
+    public function task_slice_reads_a_kept_route_as_proven_through_its_handler_class(): void
+    {
+        // The stub names neither the route nor its URI, only the controller, so the surface resolves
+        // solely through the graph. Both halves have to hold for the route to leave `unreferencedKept`:
+        // the presenter must be handed the test index at all, and that index must be bound to the graph.
+        $this->fakeBenchmarkReplayReachingRoutes([
+            '*show-prefix*' => Process::result(),
+            '*^{commit}*' => Process::result("abc123\n"),
+            '*status*' => Process::result(''),
+        ]);
+        $testsDir = self::fixtureProjectPath() . '/tests';
+        // The cleanup below removes this tree. Fail loudly rather than delete a real fixture dir if
+        // one is ever added.
+        $this->assertDirectoryDoesNotExist($testsDir);
+        $test = $testsDir . '/Feature/ReviewPageTest.php';
+        @mkdir(dirname($test), 0777, true);
+        file_put_contents($test, "<?php\n\nuse App\\Http\\Controllers\\Post\\ReviewController;\n\nit('renders', fn () => \$this->assertSame(ReviewController::class, ReviewController::class));\n");
+
+        try {
+            $this->withoutMockingConsoleOutput();
+            $exitCode = Artisan::call('richter:task-slice', ['--base' => 'some-base']);
+            $output = Artisan::output();
+        } finally {
+            $this->deleteTree($testsDir);
+        }
+
+        $this->assertSame(0, $exitCode);
+        $decoded = json_decode(substr($output, (int) strpos($output, '{')), associative: true);
+        $this->assertIsArray($decoded);
+        $this->assertIsArray($decoded['kept']);
+        $this->assertIsArray($decoded['unreferencedKept']);
+        $this->assertIsArray($decoded['verificationFalse']);
+        $this->assertContains('route::GET::/posts/{post}/reviews', $decoded['kept']);
+        $this->assertNotContains('route::GET::/posts/{post}/reviews', $decoded['unreferencedKept']);
+        // The analysis grades risk BEFORE the selection runs, so it reads the index unbound unless the
+        // bind comes first — the route then counts as unverified and the level floors at medium.
+        $this->assertNotContains('route::GET::/posts/{post}/reviews', $decoded['verificationFalse']);
+        $this->assertSame('low', $decoded['risk']);
+    }
+
+    #[Test]
     public function task_slice_stays_one_document_when_the_ref_will_not_resolve(): void
     {
         Process::fake([

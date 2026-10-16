@@ -49,8 +49,8 @@ final class TaskSliceCommand extends Command
             $base = $this->option('base');
             $head = $this->option('head');
             /** @var DetectChangesResult|null $analysis */
-            /** @var DetectChangesResult|null $analysis */
             $analysis = null;
+            $tests = null;
 
             $selection = AffectedTests::selectForCurrentDiff(
                 $graphs,
@@ -59,6 +59,7 @@ final class TaskSliceCommand extends Command
                 is_string($head) ? $head : null,
                 fullAnalysis: true,
                 analysisUsed: $analysis,
+                testsUsed: $tests,
             );
 
             $this->warnAboutUntrackedFiles($selection['untrackedFiles']);
@@ -69,7 +70,7 @@ final class TaskSliceCommand extends Command
                 // file, or nothing changed. The selection already says so; the slice reports an empty
                 // keep set beside it rather than inventing one.
                 ? JsonPresenter::emptyDetectChanges($selection['base'])
-                : JsonPresenter::detectChanges($analysis, $selection['base']);
+                : JsonPresenter::detectChanges($analysis, $selection['base'], $tests);
 
             $this->writeDocument(JsonPresenter::encode(TaskSlice::compose($document, $selection)));
 

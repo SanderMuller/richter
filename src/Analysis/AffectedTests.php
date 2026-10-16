@@ -55,10 +55,14 @@ final class AffectedTests
      *   document field reaches MCP structured content wholesale, so one that rode along would have
      *   to be stripped by each consumer.
      * @param-out SelectionProvenance $provenance
+     * @param  TestReferenceIndex|null  $testsUsed  set to the graph-bound test index both the analysis and
+     *   the selection read, so a caller presenting the analysis grades test references with the same
+     *   index; stays null exactly when `$analysisUsed` does
+     * @param-out TestReferenceIndex|null $testsUsed
      *
      * @return array{base: string, determinable: bool, reasons: list<string>, tests: list<string>, testsTotal: int, testsShare: float, testsExcluded: int, frontendTests: list<string>, unreferencedEntryPoints: int, unresolvedDispatchSites: list<array{file: string, line: int, dispatcher: string}>, untrackedFiles: list<string>}
      */
-    public static function selectForCurrentDiff(GraphCache $graphs, ?string $requestedBase, bool $fresh = false, ?string $requestedHead = null, bool $fullAnalysis = false, ?array &$analysisUsed = null, ?SelectionProvenance &$provenance = null): array
+    public static function selectForCurrentDiff(GraphCache $graphs, ?string $requestedBase, bool $fresh = false, ?string $requestedHead = null, bool $fullAnalysis = false, ?array &$analysisUsed = null, ?SelectionProvenance &$provenance = null, ?TestReferenceIndex &$testsUsed = null): array
     {
         $provenance = new SelectionProvenance();
         $untracked = [];
@@ -135,6 +139,11 @@ final class AffectedTests
         }
 
         $graph = $graphs->graph(fresh: $fresh);
+        // One index, bound before anything reads it. Built twice before — and only the second copy got
+        // the graph — so the analysis graded a class-driven surface unreferenced while the selection
+        // read it referenced, and one report gave two answers to "is this surface proven".
+        $testsUsed = TestReferenceIndex::fromTests(base_path('tests'), base_path());
+        $testsUsed->useGraph($graph);
         // Parity lanes off: they only produce findings, which the selection never reads —
         // and the consumer lane would otherwise pay a whole frontend-tree scan on a CI
         // hot path for output this command discards. Entry-point attribution is off for the same
@@ -148,7 +157,7 @@ final class AffectedTests
         $analysisUsed = new ImpactAnalyzer($graph)->detectChanges(
             $changed,
             payloadParityEnabled: $fullAnalysis ? null : false,
-            tests: $fullAnalysis ? TestReferenceIndex::fromTests(base_path('tests'), base_path()) : null,
+            tests: $fullAnalysis ? $testsUsed : null,
             attributionEnabled: $fullAnalysis,
             // Working-tree analyses only: a named head describes a commit the booted router does not.
             runtimeEvidenceRoot: RichterConfig::runtimeEvidenceRoot($head),
@@ -157,7 +166,7 @@ final class AffectedTests
         $selection = self::select(
             $analysisUsed,
             $changed,
-            TestReferenceIndex::fromTests(base_path('tests'), base_path()),
+            $testsUsed,
             $graph->unresolvedDispatchSites(),
             $graph,
             self::configuredFrontendTestIndex(),

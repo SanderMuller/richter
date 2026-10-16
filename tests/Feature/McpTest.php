@@ -3,6 +3,7 @@
 namespace SanderMuller\Richter\Tests\Feature;
 
 use Illuminate\Foundation\Application;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Process;
 use Illuminate\Testing\Fluent\AssertableJson;
 use Laravel\Mcp\Facades\Mcp;
@@ -719,6 +720,54 @@ final class McpTest extends TestCase
                     // pins is that the route is referenced at all — without the graph it reads
                     // `unreferenced`.
                     $json->where('entryPointTestReferences', ['route::GET::/auth/login' => 'referenced-no-behavioural-assertion'])
+                        ->etc();
+
+                    return true;
+                });
+        } finally {
+            $this->deleteTree($testsDir);
+        }
+    }
+
+    #[Test]
+    public function the_task_slice_tool_reads_a_kept_route_as_proven_through_its_handler_class(): void
+    {
+        // The MCP half of `CommandsTest::task_slice_reads_a_kept_route_as_proven_through_its_handler_class`.
+        // The tool composes its own document, so the console fix alone would leave this path wrong.
+        $this->useFixtureProject();
+        $file = 'app/Http/Controllers/Post/ReviewController.php';
+        $source = (string) file_get_contents(self::fixtureProjectPath() . '/' . $file);
+        $changedLine = array_search('        return ReviewResource::make($post);', explode("\n", $source), true);
+        $this->assertIsInt($changedLine);
+        ++$changedLine;
+
+        Process::fake([
+            '*show-prefix*' => Process::result(),
+            '*^{commit}*' => Process::result("abc123\n"),
+            '*status*' => Process::result(''),
+            '*cat-file*' => Process::result(),
+            '*merge-base*' => Process::result("base123\n"),
+            '*diff*' => Process::result("diff --git a/{$file} b/{$file}\n--- a/{$file}\n+++ b/{$file}\n"
+                . "@@ -{$changedLine},1 +{$changedLine},1 @@\n"
+                . "-        return ReviewResource::make(\$post->withoutRelations());\n"
+                . "+        return ReviewResource::make(\$post);\n"),
+            '*show*' => Process::result($source),
+        ]);
+
+        $testsDir = self::fixtureProjectPath() . '/tests';
+        $this->assertDirectoryDoesNotExist($testsDir);
+        $test = $testsDir . '/Feature/ReviewPageTest.php';
+        @mkdir(dirname($test), 0777, true);
+        file_put_contents($test, "<?php\n\nuse App\\Http\\Controllers\\Post\\ReviewController;\n\nit('renders', fn () => \$this->assertSame(ReviewController::class, ReviewController::class));\n");
+
+        try {
+            RichterServer::tool(TaskSliceTool::class, ['base' => 'some-base'])
+                ->assertOk()
+                ->assertStructuredContent(static function (AssertableJson $json): bool {
+                    $json->where('kept', static fn (Collection $kept): bool => $kept->contains('route::GET::/posts/{post}/reviews'))
+                        ->where('unreferencedKept', static fn (Collection $unreferenced): bool => ! $unreferenced->contains('route::GET::/posts/{post}/reviews'))
+                        ->where('verificationFalse', static fn (Collection $unverified): bool => ! $unverified->contains('route::GET::/posts/{post}/reviews'))
+                        ->where('risk', 'low')
                         ->etc();
 
                     return true;
