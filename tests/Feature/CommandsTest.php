@@ -656,6 +656,58 @@ final class CommandsTest extends TestCase
     }
 
     #[Test]
+    public function the_keep_set_lists_its_surfaces_in_the_reading_order_of_the_entry_points(): void
+    {
+        // Two changed controllers, one explaining two routes and one explaining a single route. The
+        // reading order puts the more specifically explained route first; the walk reaches it last.
+        $app = $this->app;
+        $this->assertInstanceOf(Application::class, $app);
+        $app->setBasePath(self::fixtureProjectPath());
+        $review = 'app/Http/Controllers/Post/ReviewController.php';
+        $reviewSource = (string) file_get_contents(self::fixtureProjectPath() . '/' . $review);
+        $reviewLine = array_search('        return ReviewResource::make($post);', explode("\n", $reviewSource), true);
+        $this->assertIsInt($reviewLine);
+        ++$reviewLine;
+        $search = 'app/Http/Controllers/Post/DashboardSearchController.php';
+        $searchSource = (string) file_get_contents(self::fixtureProjectPath() . '/' . $search);
+        $searchLine = array_search('        return Post::query()->get();', explode("\n", $searchSource), true);
+        $this->assertIsInt($searchLine);
+        ++$searchLine;
+
+        Process::fake([
+            '*show-prefix*' => Process::result(),
+            '*^{commit}*' => Process::result("abc123\n"),
+            '*status*' => Process::result(''),
+            '*cat-file*' => Process::result(),
+            '*merge-base*' => Process::result("base123\n"),
+            '*diff*' => Process::result("diff --git a/{$review} b/{$review}\n--- a/{$review}\n+++ b/{$review}\n"
+                . "@@ -{$reviewLine},1 +{$reviewLine},1 @@\n"
+                . "-        return ReviewResource::make(\$post->withoutRelations());\n"
+                . "+        return ReviewResource::make(\$post);\n"
+                . "diff --git a/{$search} b/{$search}\n--- a/{$search}\n+++ b/{$search}\n"
+                . "@@ -{$searchLine},1 +{$searchLine},1 @@\n"
+                . "-        return Post::query()->latest()->get();\n"
+                . "+        return Post::query()->get();\n"),
+            "*show*{$search}*" => Process::result($searchSource),
+            '*show*' => Process::result($reviewSource),
+        ]);
+
+        $this->withoutMockingConsoleOutput();
+        Artisan::call('richter:detect-changes', ['--base' => 'some-base', '--json' => true]);
+        $output = Artisan::output();
+
+        $decoded = json_decode(substr($output, (int) strpos($output, '{')), associative: true);
+        $this->assertIsArray($decoded);
+        $this->assertIsArray($decoded['entryPointKeepSet']);
+        $this->assertSame(
+            ['route::GET::/dashboard/search', 'route::GET::/posts/{post}/edit', 'route::GET::/posts/{post}/reviews'],
+            $decoded['entryPoints'],
+        );
+        // No hub list is configured, so the keep set is every surface, in the same order.
+        $this->assertSame($decoded['entryPoints'], $decoded['entryPointKeepSet']['kept']);
+    }
+
+    #[Test]
     public function task_slice_stays_one_document_when_the_ref_will_not_resolve(): void
     {
         Process::fake([

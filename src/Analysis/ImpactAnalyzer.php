@@ -432,8 +432,10 @@ final readonly class ImpactAnalyzer
 
         // Computed HERE, once, and carried — never re-derived by a formatter or by the presenter. The
         // ordering shipped as two implementations of one rule and they diverged; ownership gets one.
+        // Fed the READING order: the keep set preserves the order it is given, and `$entryPoints` is
+        // still in walk order here, so without the sort `kept` disagreed with `entryPoints`.
         $keepSet = EntryPointKeepSet::for(
-            $entryPoints,
+            EntryPointAttribution::order($entryPoints, $entryPointAttribution),
             $entryPointAttribution,
             $entryPointLocations,
             $summary,
