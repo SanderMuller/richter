@@ -117,44 +117,13 @@ final class HtmlFormatter
      */
     private static function overview(array $result, array $rows, ?EditorLink $editor): string
     {
-        return self::statRow($result)
+        return HtmlStatRow::render($result)
             . self::lowConfidenceNote($result)
             . self::hazardSection($result)
             . '<div class="cards">'
             . self::card('Entry points reached', self::entryPointList($rows, $editor) . self::hubFold($result, $rows))
             . self::card('What to focus on', self::focusList($result, $rows))
             . '</div>';
-    }
-
-    /**
-     * No "Functions" tile: `impacted` spans routes, commands, views and models, so a function count
-     * is a number the analyzer never computes.
-     *
-     * @param  DetectChangesResult  $result
-     */
-    private static function statRow(array $result): string
-    {
-        $tiles = self::tile('Files', (string) count($result['changed']))
-            . self::tile('Impacted', (string) $result['impacted'])
-            . self::tile('Depth', (string) self::maxDepth($result))
-            . self::tile('Risk', strtoupper($result['risk']->value), self::riskClass($result['risk']));
-
-        return "<div class=\"stats\">{$tiles}</div>";
-    }
-
-    private static function tile(string $label, string $value, string $class = ''): string
-    {
-        $modifier = $class === '' ? '' : ' ' . $class;
-
-        return '<div class="tile' . $modifier . '"><span class="k">' . Html::e($label) . '</span><strong>' . Html::e($value) . '</strong></div>';
-    }
-
-    /** @param  DetectChangesResult  $result */
-    private static function maxDepth(array $result): int
-    {
-        $depths = array_map(static fn (array $edge): int => $edge['depth'], $result['edges']);
-
-        return $depths === [] ? 0 : max($depths);
     }
 
     /**
@@ -665,15 +634,6 @@ final class HtmlFormatter
             $referenced === true => ' <span class="badge ok">test-referenced</span>',
             $referenced === false => ' <span class="badge warn">no test references this</span>',
             default => '',
-        };
-    }
-
-    private static function riskClass(RiskLevel $risk): string
-    {
-        return match ($risk) {
-            RiskLevel::High => 'risk-high',
-            RiskLevel::Medium => 'risk-medium',
-            RiskLevel::Low => 'risk-low',
         };
     }
 

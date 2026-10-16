@@ -482,6 +482,22 @@ final class FormatterContractTest extends TestCase
         );
     }
 
+    #[Test]
+    public function every_formatter_says_why_the_risk_level_is_what_it_is(): void
+    {
+        // The level alone tells a reader what to do; the cause tells them whether to believe it. The
+        // HTML report is the CI artifact, so it cannot be the one format that drops it.
+        $outputs = [
+            'text' => ImpactFormatter::detectChanges($this->richFixture(), $this->richTestIndex()),
+            'markdown' => MarkdownFormatter::detectChanges($this->richFixture(), $this->richTestIndex()),
+            'html' => HtmlFormatter::detectChanges($this->richFixture(), [], 'origin/main', $this->richTestIndex()),
+        ];
+
+        foreach ($outputs as $format => $output) {
+            $this->assertStringContainsString('hazard on App\\Http\\Controllers\\PostController::update, reach public-write', $output, $format);
+        }
+    }
+
     /**
      * The reason sentence with each formatter's own wrapping removed: HTML tags, markdown backticks,
      * and the brackets the two text formats parenthesise it with.
