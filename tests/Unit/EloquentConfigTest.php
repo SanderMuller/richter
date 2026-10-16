@@ -4,6 +4,7 @@ namespace SanderMuller\Richter\Tests\Unit;
 
 use PHPUnit\Framework\Attributes\Test;
 use SanderMuller\Richter\Changes\EloquentConfig;
+use SanderMuller\Richter\Changes\MemberChange;
 use SanderMuller\Richter\Tests\TestCase;
 
 final class EloquentConfigTest extends TestCase
@@ -108,5 +109,29 @@ final class EloquentConfigTest extends TestCase
         $head = "<?php\nclass Post\n{\n    protected \$fillable = ['title', 'slug'], \$casts = ['status' => 'string'];\n}\n";
 
         $this->assertSame(['status'], EloquentConfig::addedNames($head, $base));
+    }
+
+    #[Test]
+    public function config_map_reads_the_named_propertys_own_array_in_a_combined_declaration(): void
+    {
+        // Both orders: the first PropertyItem must not stand in for the one the caller named.
+        $alone = EloquentConfig::configMap("<?php\nclass Post\n{\n    protected \$guarded = ['secret'];\n}\n", 'guarded', MemberChange::KIND_PROPERTY);
+        $this->assertNotNull($alone);
+
+        foreach ([
+            "<?php\nclass Post\n{\n    protected \$fillable = ['title'], \$guarded = ['secret'];\n}\n",
+            "<?php\nclass Post\n{\n    protected \$guarded = ['secret'], \$fillable = ['title'];\n}\n",
+        ] as $source) {
+            $this->assertSame($alone, EloquentConfig::configMap($source, 'guarded', MemberChange::KIND_PROPERTY));
+        }
+    }
+
+    #[Test]
+    public function an_addition_to_the_second_property_of_a_combined_declaration_is_addition_only(): void
+    {
+        $base = "<?php\nclass Post\n{\n    protected \$casts = ['views' => 'int'], \$fillable = ['title'];\n}\n";
+        $head = "<?php\nclass Post\n{\n    protected \$casts = ['views' => 'int'], \$fillable = ['title', 'slug'];\n}\n";
+
+        $this->assertTrue(EloquentConfig::isAdditionOnlyEdit($head, $base, 'fillable', MemberChange::KIND_PROPERTY));
     }
 }

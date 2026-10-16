@@ -426,6 +426,36 @@ final class HazardLanesTest extends TestCase
     }
 
     #[Test]
+    public function hidden_losing_an_entry_is_seen_behind_another_property_in_one_declaration(): void
+    {
+        // `$guarded` comes first in the statement. Reading the first array for `$hidden` compared two
+        // empty block-lists and missed the exposed column.
+        $hazards = $this->lanes(
+            'app/Models/Post.php',
+            $this->model("    protected \$guarded = [], \$hidden = ['secret'];"),
+            $this->model("    protected \$guarded = [], \$hidden = ['secret', 'internal_note'];"),
+        );
+
+        $this->assertSame([3], array_column($hazards, 'tier'));
+        $this->assertSame('CWE-200', $hazards[0]->cwe);
+        $this->assertStringContainsString('internal_note', $hazards[0]->evidence);
+    }
+
+    #[Test]
+    public function fillable_losing_an_entry_is_not_read_as_guarded_losing_one(): void
+    {
+        // Narrowing `$fillable` restricts mass assignment. Read through the first array of the
+        // statement, `$guarded` appeared to lose `status` and raised a mass-assignment hazard.
+        $hazards = $this->lanes(
+            'app/Models/Post.php',
+            $this->model("    protected \$fillable = ['title'], \$guarded = ['id'];"),
+            $this->model("    protected \$fillable = ['title', 'status'], \$guarded = ['id'];"),
+        );
+
+        $this->assertSame([], $hazards);
+    }
+
+    #[Test]
     public function guarded_emptied_is_the_widest_possible_write_surface(): void
     {
         $hazards = $this->lanes(

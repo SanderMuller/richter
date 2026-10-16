@@ -105,8 +105,8 @@ final class EloquentConfig
             return false;
         }
 
-        $headMap = self::toMap(self::arrayOf($headNode, $kind));
-        $baseMap = self::toMap(self::arrayOf($baseNode, $kind));
+        $headMap = self::toMap(self::arrayOf($headNode, $name));
+        $baseMap = self::toMap(self::arrayOf($baseNode, $name));
 
         if ($headMap === null || $baseMap === null) {
             return false;
@@ -114,7 +114,7 @@ final class EloquentConfig
 
         // Only the array contents may differ — a co-occurring change to the member's declaration
         // (visibility/modifiers/type/return/params/attributes) means it isn't a pure column add.
-        if (self::skeleton($headNode, $kind) !== self::skeleton($baseNode, $kind)) {
+        if (self::skeleton($headNode, $name) !== self::skeleton($baseNode, $name)) {
             return false;
         }
 
@@ -139,7 +139,7 @@ final class EloquentConfig
             return null;
         }
 
-        $array = self::arrayOf($node, $kind);
+        $array = self::arrayOf($node, $name);
 
         // A spread hides an unknown number of entries behind one element. {@see toMap()} canonicalises
         // the spread's own expression as if it were a value, which is harmless for the addition-only
@@ -201,20 +201,13 @@ final class EloquentConfig
     }
 
     /**
-     * `$fillable`'s field names are its array VALUES (a plain list of column names). Resolved
-     * through {@see arrayForNamedProperty()}, not the name-agnostic {@see arrayOf()} — a combined
-     * declaration (`protected $fillable = [...], $casts = [...];`) is ONE `Property` node shared by
-     * both names, and `arrayOf()` would always hand back whichever PropertyItem it finds first.
+     * `$fillable`'s field names are its array VALUES (a plain list of column names).
      *
      * @return list<string>
      */
     private static function propertyFieldNames(Property $node, string $name, ?string $selfFqcn): array
     {
-        $array = self::arrayForNamedProperty($node, $name);
-
-        if (! $array instanceof Array_) {
-            return [];
-        }
+        $array = self::arrayOf($node, $name);
 
         if ($name !== 'fillable') {
             return self::keysOf($array, $selfFqcn);
@@ -234,29 +227,13 @@ final class EloquentConfig
     }
 
     /**
-     * `casts()`'s field names are its array KEYS (column name → cast type). A method has exactly one
-     * return array, so no name-aware resolution is needed here — {@see propertyFieldNames()} is
-     * where the combined-property ambiguity lives.
+     * `casts()`'s field names are its array KEYS (column name → cast type).
      *
      * @return list<string>
      */
     private static function keyFieldNames(ClassMethod $node, ?string $selfFqcn): array
     {
-        return self::keysOf(self::arrayOf($node, MemberChange::KIND_METHOD), $selfFqcn);
-    }
-
-    /**
-     * The Array_ default of the PropertyItem named `$name` within a (possibly multi-property)
-     * declaration — e.g. `protected $fillable = ['a'], $casts = ['b' => 'int'];` declares both
-     * `$fillable` and `$casts` on ONE `Property` node, each with its own `PropertyItem`. Null when no
-     * item of that name defaults to an array literal (guaranteed not to happen for a node
-     * {@see declaresMember()} already matched, but kept total for safety).
-     */
-    private static function arrayForNamedProperty(Property $node, string $name): ?Array_
-    {
-        $prop = array_find($node->props, static fn (PropertyItem $prop): bool => $prop->name->toString() === $name && $prop->default instanceof Array_);
-
-        return $prop?->default instanceof Array_ ? $prop->default : null;
+        return self::keysOf(self::arrayOf($node, 'casts'), $selfFqcn);
     }
 
     /** @return list<string> */
@@ -318,11 +295,17 @@ final class EloquentConfig
             && $stmt->stmts[0]->expr instanceof Array_;
     }
 
-    private static function arrayOf(Property|ClassMethod $node, string $kind): Array_
+    /**
+     * The config array of the member named `$name`. A combined declaration
+     * (`protected $fillable = ['a'], $casts = ['b' => 'int'];`) is ONE `Property` node with a
+     * `PropertyItem` per name, so the item is matched by name: the first array in the statement can
+     * belong to a different member.
+     */
+    private static function arrayOf(Property|ClassMethod $node, string $name): Array_
     {
-        if ($kind === MemberChange::KIND_PROPERTY && $node instanceof Property) {
-            // Guaranteed by declaresMember: one of the props defaults to an array literal.
-            $prop = array_find($node->props, static fn (PropertyItem $prop): bool => $prop->default instanceof Array_);
+        if ($node instanceof Property) {
+            // Guaranteed by declaresMember: the prop named `$name` defaults to an array literal.
+            $prop = array_find($node->props, static fn (PropertyItem $prop): bool => $prop->name->toString() === $name && $prop->default instanceof Array_);
             assert($prop?->default instanceof Array_);
 
             return $prop->default;
@@ -340,9 +323,9 @@ final class EloquentConfig
      * *except* the array contents (visibility, modifiers, type, return type, params, attributes).
      * The parsed AST is local to this call, so emptying the array in place is safe.
      */
-    private static function skeleton(Property|ClassMethod $node, string $kind): string
+    private static function skeleton(Property|ClassMethod $node, string $name): string
     {
-        self::arrayOf($node, $kind)->items = [];
+        self::arrayOf($node, $name)->items = [];
 
         return new Standard()->prettyPrint([$node]);
     }
