@@ -75,7 +75,6 @@ final class SiblingReads
             $own = $class->namespacedName instanceof Name
                 ? AppFiles::resolveName($class->namespacedName)
                 : $class->name->toString();
-            $properties = $types->propertyTypesOf($class);
 
             foreach ($class->getMethods() as $method) {
                 $name = $method->name->toString();
@@ -84,7 +83,10 @@ final class SiblingReads
                     continue;
                 }
 
-                self::readMethod($method, $own . '::' . $name, ['this' => $own] + $properties + $types->parameterTypesOf($method), $reads);
+                // Parameters only. A property is reached as `$this->x`, a chained receiver this lane
+                // skips, so its type has no variable to apply to — and keyed by the property's name it
+                // would retype a same-named parameter or local.
+                self::readMethod($method, $own . '::' . $name, ['this' => $own] + $types->parameterTypesOf($method), $reads);
             }
         }
 

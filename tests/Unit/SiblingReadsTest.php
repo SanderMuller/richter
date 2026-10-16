@@ -31,6 +31,34 @@ final class SiblingReadsTest extends TestCase
     }
 
     #[Test]
+    public function a_parameter_keeps_its_own_type_beside_a_same_named_property(): void
+    {
+        // The property is reached as `$this->order`, never as `$order`. Reading the property's type for
+        // the variable sent the parameter's reads to the wrong class.
+        $source = <<<'PHP'
+            <?php
+            namespace App\Actions;
+            use App\Models\Invoice;
+            use App\Models\Order;
+            class CreateTask {
+                private Invoice $order;
+                public function handle(Order $order): void {
+                    $id = $order->external_id;
+                }
+                public function rebuild(): void {
+                    $order = make();
+                    $id = $order->external_id;
+                }
+            }
+            PHP;
+
+        $reads = SiblingReads::in($source);
+
+        $this->assertSame(['bare' => ['App\Actions\CreateTask::handle']], $reads['App\Models\Order->external_id'] ?? []);
+        $this->assertArrayNotHasKey('App\Models\Invoice->external_id', $reads);
+    }
+
+    #[Test]
     public function a_bare_read_is_bare(): void
     {
         $this->assertSame(
