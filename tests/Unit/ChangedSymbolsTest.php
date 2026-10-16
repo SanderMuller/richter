@@ -11,12 +11,15 @@ use RuntimeException;
 use SanderMuller\Richter\Changes\ChangedFileSymbols;
 use SanderMuller\Richter\Changes\ChangedSymbols;
 use SanderMuller\Richter\Changes\MemberChange;
+use SanderMuller\Richter\Tests\Support\FakesGit;
 use SanderMuller\Richter\Tests\TestCase;
 use SanderMuller\Richter\Tracers\EagerLoadStringChecker;
 use SanderMuller\Richter\Tracers\InertiaPageChecker;
 
 final class ChangedSymbolsTest extends TestCase
 {
+    use FakesGit;
+
     /** Set only by the working-tree-diff tests below; {@see tearDown()} cleans it up when present. */
     private ?string $tempWorkingTree = null;
 
@@ -833,7 +836,7 @@ final class ChangedSymbolsTest extends TestCase
         $diff = "diff --git a/app/Fake/Nope.php b/app/Fake/Nope.php\n--- a/app/Fake/Nope.php\n+++ b/app/Fake/Nope.php\n@@ -0,0 +1,1 @@\n+    public function x(): void {}\n";
 
         // Patterns are matched against the shell-quoted command string, so wrap in wildcards.
-        Process::fake([
+        $this->fakeGit([
             '*merge-base*' => Process::result("abc123\n"),
             '*diff*' => Process::result($diff),
             '*show*' => Process::result(errorOutput: 'bad object', exitCode: 128),
@@ -896,7 +899,7 @@ final class ChangedSymbolsTest extends TestCase
 
         $diff = "diff --git a/resources/js/Pages/Posts.vue b/resources/js/Pages/Posts.vue\n--- a/resources/js/Pages/Posts.vue\n+++ b/resources/js/Pages/Posts.vue\n@@ -0,0 +1,1 @@\n+<template>x</template>\n";
 
-        Process::fake([
+        $this->fakeGit([
             '*merge-base*' => Process::result("abc123\n"),
             '*diff*' => Process::result($diff),
             '*show*' => Process::result(errorOutput: 'bad object', exitCode: 128),
@@ -917,7 +920,7 @@ final class ChangedSymbolsTest extends TestCase
         // FQCN directly (head-tree callers still reference it) plus the new FQCN coarsely.
         $diff = "diff --git a/app/Services/Old.php b/app/Services/New.php\nsimilarity index 100%\nrename from app/Services/Old.php\nrename to app/Services/New.php\n";
 
-        Process::fake([
+        $this->fakeGit([
             '*merge-base*' => Process::result("abc123\n"),
             '*diff*' => Process::result($diff),
             '*show*' => Process::result("<?php\nnamespace App\Services;\nclass New {}\n"),
@@ -950,7 +953,7 @@ final class ChangedSymbolsTest extends TestCase
         $tempDir = $this->useTempWorkingTree();
         file_put_contents("{$tempDir}/{$file}", $after);
 
-        Process::fake([
+        $this->fakeGit([
             '*merge-base*' => Process::result("mergebasesha\n"),
             '*show*' => Process::result($before),
             '*diff*' => Process::result($this->diffHeader($file) . $this->unifiedHunk($line, ['        return 1;'], $line, ['        return 2;'])),
@@ -977,7 +980,7 @@ final class ChangedSymbolsTest extends TestCase
         $line = $this->lineOf($mergeBaseSrc, '        return 1;');
         $historicalRef = 'historical-fix-sha123';
 
-        Process::fake([
+        $this->fakeGit([
             '*merge-base*' => Process::result("mergebasesha\n"),
             '*show*mergebasesha:*' => Process::result($mergeBaseSrc),
             "*show*{$historicalRef}:*" => Process::result($committedHeadSrc),
@@ -1008,7 +1011,7 @@ final class ChangedSymbolsTest extends TestCase
         $tempDir = $this->useTempWorkingTree();
         file_put_contents("{$tempDir}/{$file}", $after);
 
-        Process::fake([
+        $this->fakeGit([
             '*merge-base*' => Process::result("mergebasesha\n"),
             '*show*' => Process::result($before),
             // The old, committed-only three-dot form sees nothing (unmatched here since nothing was
@@ -1054,7 +1057,7 @@ final class ChangedSymbolsTest extends TestCase
         $committedOnlyDiff = $this->diffHeader($file)
             . $this->unifiedHunk($showOldLine, ['        return 1;'], $showOldLine, ['        return 2;']);
 
-        Process::fake([
+        $this->fakeGit([
             '*merge-base*' => Process::result("mergebasesha\n"),
             '*show*' => Process::result($mergeBaseSrc),
             '*diff*...*' => Process::result($committedOnlyDiff),
@@ -1112,7 +1115,7 @@ final class ChangedSymbolsTest extends TestCase
         $diff = $this->addedLineDiff('resources/sass/app.scss')
             . $this->addedLineDiff('.github/workflows/deploy.yml');
 
-        Process::fake([
+        $this->fakeGit([
             '*merge-base*' => Process::result("abc123\n"),
             '*diff*' => Process::result($diff),
             '*show*' => Process::result(''),
@@ -1136,7 +1139,7 @@ final class ChangedSymbolsTest extends TestCase
             . $this->addedLineDiff('resources/js/types/api.d.ts')
             . $this->addedLineDiff('resources/js/README.md');
 
-        Process::fake([
+        $this->fakeGit([
             '*merge-base*' => Process::result("abc123\n"),
             '*diff*' => Process::result($diff),
             '*show*' => Process::result('export function show() {}'),
@@ -1155,7 +1158,7 @@ final class ChangedSymbolsTest extends TestCase
         $head = "<?php\nuse App\\Http\\Controllers\\PostController;\nuse Illuminate\\Support\\Facades\\Route;\nRoute::get('/posts/{post}/edit', [PostController::class, 'edit']);\n";
         $base = str_replace("'edit']);", "'edit'])->middleware('auth');", $head);
 
-        Process::fake([
+        $this->fakeGit([
             '*merge-base*' => Process::result("abc123\n"),
             '*rev-parse*' => Process::result("\n"),
             '*diff*' => Process::result($this->addedLineDiff('routes/web.php')),
@@ -1175,6 +1178,29 @@ final class ChangedSymbolsTest extends TestCase
     }
 
     #[Test]
+    public function the_base_side_is_read_under_the_projects_path_inside_the_repository(): void
+    {
+        // The app lives in `backend/` of its repository. `git show <ref>:<path>` takes a path from the
+        // repository root, so the base read must carry the prefix, or it reads a file that is not there.
+        $head = "<?php\nuse App\\Http\\Controllers\\PostController;\nuse Illuminate\\Support\\Facades\\Route;\nRoute::get('/posts/{post}/edit', [PostController::class, 'edit']);\n";
+        $base = str_replace("'edit']);", "'edit'])->middleware('auth');", $head);
+
+        $this->fakeGit([
+            '*show-prefix*' => Process::result("backend/\n"),
+            '*merge-base*' => Process::result("abc123\n"),
+            '*rev-parse*' => Process::result("\n"),
+            '*diff*' => Process::result($this->addedLineDiff('routes/web.php')),
+            '*abc123:backend/routes/web.php*' => Process::result($base),
+            '*show*' => Process::result($head),
+        ]);
+
+        $resolved = ChangedSymbols::resolveWithScope('base-ref', 'head-ref');
+
+        $this->assertCount(1, $resolved['changed']);
+        $this->assertCount(1, $resolved['changed'][0]->hazards);
+    }
+
+    #[Test]
     public function the_middleware_bootstrap_contributes_arrivals_and_no_hazard(): void
     {
         // A guard moved out of a route file and into a middleware group. The group side raises
@@ -1182,7 +1208,7 @@ final class ChangedSymbolsTest extends TestCase
         $head = "<?php\nreturn Application::configure()->withMiddleware(function (\$middleware): void {\n    \$middleware->web(append: ['auth']);\n})->create();\n";
         $base = str_replace("append: ['auth']", 'append: []', $head);
 
-        Process::fake([
+        $this->fakeGit([
             '*merge-base*' => Process::result("abc123\n"),
             '*rev-parse*' => Process::result("\n"),
             '*diff*' => Process::result($this->addedLineDiff('bootstrap/app.php')),
@@ -1203,7 +1229,7 @@ final class ChangedSymbolsTest extends TestCase
         $base = "<?php\nreturn Application::configure()->withMiddleware(function (\$middleware): void {\n    \$middleware->web(append: ['auth']);\n})->create();\n";
         $head = str_replace("append: ['auth']", 'append: []', $base);
 
-        Process::fake([
+        $this->fakeGit([
             '*merge-base*' => Process::result("abc123\n"),
             '*rev-parse*' => Process::result("\n"),
             '*diff*' => Process::result($this->addedLineDiff('bootstrap/app.php')),

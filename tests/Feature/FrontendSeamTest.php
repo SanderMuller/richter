@@ -13,6 +13,7 @@ use SanderMuller\Richter\Analysis\FrontendTestIndex;
 use SanderMuller\Richter\Analysis\JsonPresenter;
 use SanderMuller\Richter\Changes\ChangedSymbols;
 use SanderMuller\Richter\Changes\FrontendChanges;
+use SanderMuller\Richter\Tests\Support\FakesGit;
 use SanderMuller\Richter\Tests\TestCase;
 
 /**
@@ -32,6 +33,8 @@ use SanderMuller\Richter\Tests\TestCase;
  */
 final class FrontendSeamTest extends TestCase
 {
+    use FakesGit;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -56,7 +59,7 @@ final class FrontendSeamTest extends TestCase
     /** Fakes the git plumbing for one diff, runs richter:detect-changes --json, asserts success, and returns the decoded report. */
     private function detectChangesFor(string $diff): mixed
     {
-        Process::fake([
+        $this->fakeGit([
             '*merge-base*' => Process::result("abc123\n"),
             '*show*' => Process::result(errorOutput: 'bad object', exitCode: 128),
             '*diff*' => Process::result($diff),

@@ -26,11 +26,14 @@ use SanderMuller\Richter\Mcp\Tools\ImpactTool;
 use SanderMuller\Richter\Mcp\Tools\LocateTool;
 use SanderMuller\Richter\Mcp\Tools\TaskSliceTool;
 use SanderMuller\Richter\Mcp\Tools\TraceTool;
+use SanderMuller\Richter\Tests\Support\FakesGit;
 use SanderMuller\Richter\Tests\TestCase;
 
 #[Group('requires-mcp')]
 final class McpTest extends TestCase
 {
+    use FakesGit;
+
     /**
      * Orchestra\Testbench\TestCase disables package auto-discovery by default
      * ($enablesPackageDiscoveries = false), so laravel/mcp's own service provider never boots for
@@ -68,7 +71,7 @@ final class McpTest extends TestCase
     #[Test]
     public function the_affected_tests_tool_reports_an_empty_diff_as_a_determinable_empty_selection(): void
     {
-        Process::fake([
+        $this->fakeGit([
             '*merge-base*' => Process::result("abc123\n"),
             '*diff*' => Process::result(''),
             '*status*' => Process::result(''),
@@ -103,7 +106,7 @@ final class McpTest extends TestCase
     #[Test]
     public function the_affected_tests_tool_reports_an_untracked_file_as_not_determinable(): void
     {
-        Process::fake([
+        $this->fakeGit([
             '*merge-base*' => Process::result("abc123\n"),
             '*rev-parse*' => Process::result(),
             '*diff*' => Process::result(''),
@@ -128,7 +131,7 @@ final class McpTest extends TestCase
         // ref is a tool error for detect-changes but determinable:false for
         // affected-tests, whose fail-safe answer ("run the full suite") must stay
         // visible in the result shape.
-        Process::fake([
+        $this->fakeGit([
             '*merge-base*' => Process::result(errorOutput: 'fatal: bad revision', exitCode: 128),
             '*rev-parse*' => Process::result(),
             '*status*' => Process::result(''),
@@ -155,7 +158,7 @@ final class McpTest extends TestCase
         // Resolved Question 2: every non-determinable cause is determinable:false +
         // reasons — never Response::error like DetectChangesTool maps the same
         // exception. "Run the full suite" must stay the visible, actionable answer.
-        Process::fake([
+        $this->fakeGit([
             '*status*' => Process::result(''),
         ]);
 
@@ -342,6 +345,7 @@ final class McpTest extends TestCase
 
         $this->assertInstanceOf(Response::class, $response);
         $this->assertTrue($response->isError());
+        $this->assertStringContainsString('this-ref-does-not-exist-zzz', (string) $response->content());
     }
 
     #[Test]
@@ -351,7 +355,7 @@ final class McpTest extends TestCase
         // version of this test ran real git and passed on a branch, where the configured
         // `origin/main` resolves — then failed on the tag-ref checkout of its own release, where it
         // does not. A test that reads the repository it happens to run in is testing the runner.
-        Process::fake([
+        $this->fakeGit([
             '*merge-base*' => Process::result("abc123\n"),
             '*show-prefix*' => Process::result(),
             '*^{commit}*' => Process::result("abc123\n"),
@@ -525,7 +529,7 @@ final class McpTest extends TestCase
     #[Test]
     public function the_detect_changes_tool_reports_an_empty_diff_cleanly(): void
     {
-        Process::fake([
+        $this->fakeGit([
             '*merge-base*' => Process::result("abc123\n"),
             '*diff*' => Process::result(''),
         ]);
@@ -547,7 +551,7 @@ final class McpTest extends TestCase
         // returning an unresolved coverage entry rather than a falsely-empty "no impact".
         $diff = "diff --git a/app/Models/User.php b/app/Models/User.php\n--- a/app/Models/User.php\n+++ b/app/Models/User.php\n@@ -0,0 +1,1 @@\n+    public function added(): void {}\n";
 
-        Process::fake([
+        $this->fakeGit([
             '*merge-base*' => Process::result("abc123\n"),
             '*show*' => Process::result(errorOutput: 'bad object', exitCode: 128),
             '*diff*' => Process::result($diff),
@@ -741,7 +745,7 @@ final class McpTest extends TestCase
         $this->assertIsInt($changedLine);
         ++$changedLine;
 
-        Process::fake([
+        $this->fakeGit([
             '*show-prefix*' => Process::result(),
             '*^{commit}*' => Process::result("abc123\n"),
             '*status*' => Process::result(''),

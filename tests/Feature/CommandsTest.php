@@ -13,11 +13,13 @@ use Illuminate\Testing\PendingCommand;
 use InvalidArgumentException;
 use PHPUnit\Framework\Attributes\Test;
 use SanderMuller\Richter\Support\RichterConfig;
+use SanderMuller\Richter\Tests\Support\FakesGit;
 use SanderMuller\Richter\Tests\Support\RebindsConsoleOutput;
 use SanderMuller\Richter\Tests\TestCase;
 
 final class CommandsTest extends TestCase
 {
+    use FakesGit;
     use RebindsConsoleOutput;
 
     #[Test]
@@ -43,7 +45,7 @@ final class CommandsTest extends TestCase
     {
         config()->set('richter.benchmark_cases', [$this->benchmarkCase()]);
 
-        Process::fake([
+        $this->fakeGit([
             '*cat-file*' => Process::result(errorOutput: 'missing', exitCode: 1),
         ]);
 
@@ -119,7 +121,7 @@ final class CommandsTest extends TestCase
 
         $diff = "diff --git a/app/Models/User.php b/app/Models/User.php\n--- a/app/Models/User.php\n+++ b/app/Models/User.php\n@@ -0,0 +1,1 @@\n+    public function added(): void {}\n";
 
-        Process::fake([
+        $this->fakeGit([
             '*merge-base*' => Process::result("abc123\n"),
             '*show*' => Process::result(errorOutput: 'bad object', exitCode: 128),
             '*diff*' => Process::result($diff),
@@ -179,7 +181,7 @@ final class CommandsTest extends TestCase
         // must read UNRESOLVED, never as a falsely-empty "no impact".
         $diff = "diff --git a/app/Models/User.php b/app/Models/User.php\n--- a/app/Models/User.php\n+++ b/app/Models/User.php\n@@ -0,0 +1,1 @@\n+    public function added(): void {}\n";
 
-        Process::fake([
+        $this->fakeGit([
             '*merge-base*' => Process::result("abc123\n"),
             '*show*' => Process::result(errorOutput: 'bad object', exitCode: 128),
             '*diff*' => Process::result($diff),
@@ -203,7 +205,7 @@ final class CommandsTest extends TestCase
     {
         $diff = "diff --git a/app/Models/User.php b/app/Models/User.php\n--- a/app/Models/User.php\n+++ b/app/Models/User.php\n@@ -0,0 +1,1 @@\n+    public function added(): void {}\n";
 
-        Process::fake([
+        $this->fakeGit([
             '*merge-base*' => Process::result("abc123\n"),
             '*show*' => Process::result(errorOutput: 'bad object', exitCode: 128),
             '*diff*' => Process::result($diff),
@@ -228,7 +230,7 @@ final class CommandsTest extends TestCase
         // committing. With it, the uncommitted work is excluded — the run in a dirty checkout whose
         // WIP is not the subject. `HEAD` must resolve to the commit, or the flag would silently mean
         // "working tree" for the most obvious value anyone would type.
-        Process::fake([
+        $this->fakeGit([
             '*merge-base*' => Process::result("abc123\n"),
             '*rev-parse*' => Process::result("def456\n"),
             '*show*' => Process::result(errorOutput: 'bad object', exitCode: 128),
@@ -252,7 +254,7 @@ final class CommandsTest extends TestCase
         // The flag exists for a dirty checkout, so the guard it was added around must not fire in
         // it: a file never `git add`-ed cannot be part of the committed tree being analysed, and
         // naming it would report a gap this run does not have.
-        Process::fake([
+        $this->fakeGit([
             '*merge-base*' => Process::result("abc123\n"),
             // Two different rev-parse calls: the prefix lookup that re-roots `git status` paths
             // must stay EMPTY, or untracked detection breaks and the guard under test never fires.
@@ -275,7 +277,7 @@ final class CommandsTest extends TestCase
         // Same guard, and here it cost the whole feature: the untracked short-circuit returned exit
         // 2 before the head was even read, so `--head` forced the full suite in exactly the checkout
         // it was added to analyse around.
-        Process::fake([
+        $this->fakeGit([
             '*merge-base*' => Process::result("abc123\n"),
             // Two different rev-parse calls: the prefix lookup that re-roots `git status` paths
             // must stay EMPTY, or untracked detection breaks and the guard under test never fires.
@@ -308,7 +310,7 @@ final class CommandsTest extends TestCase
         $diff = "diff --git a/{$existing} b/{$existing}\n--- a/{$existing}\n+++ b/{$existing}\n@@ -0,0 +1,1 @@\n+// touched\n"
             . "diff --git a/tests/Feature/GoneTest.php b/tests/Feature/GoneTest.php\ndeleted file mode 100644\n--- a/tests/Feature/GoneTest.php\n+++ /dev/null\n@@ -1,1 +0,0 @@\n-// gone\n";
 
-        Process::fake([
+        $this->fakeGit([
             '*merge-base*' => Process::result("abc123\n"),
             '*show-prefix*' => Process::result(),
             '*show*' => Process::result(errorOutput: 'bad object', exitCode: 128),
@@ -567,7 +569,7 @@ final class CommandsTest extends TestCase
         // The exit code is the contract: 2 means "run the full suite", 1 means the command itself
         // broke. A ref that will not resolve is an expected failure and has to come out as the
         // former, or a CI job reading the code learns the wrong thing.
-        Process::fake([
+        $this->fakeGit([
             '*merge-base*' => Process::result("abc123\n"),
             '*show-prefix*' => Process::result(),
             '*^{commit}*' => Process::result(errorOutput: 'unknown revision', exitCode: 128),
@@ -588,7 +590,7 @@ final class CommandsTest extends TestCase
     #[Test]
     public function task_slice_emits_one_document_with_an_empty_diff(): void
     {
-        Process::fake([
+        $this->fakeGit([
             '*merge-base*' => Process::result("abc123\n"),
             '*show-prefix*' => Process::result(),
             '*^{commit}*' => Process::result("abc123\n"),
@@ -674,7 +676,7 @@ final class CommandsTest extends TestCase
         $this->assertIsInt($searchLine);
         ++$searchLine;
 
-        Process::fake([
+        $this->fakeGit([
             '*show-prefix*' => Process::result(),
             '*^{commit}*' => Process::result("abc123\n"),
             '*status*' => Process::result(''),
@@ -710,7 +712,7 @@ final class CommandsTest extends TestCase
     #[Test]
     public function task_slice_stays_one_document_when_the_ref_will_not_resolve(): void
     {
-        Process::fake([
+        $this->fakeGit([
             '*merge-base*' => Process::result("abc123\n"),
             '*show-prefix*' => Process::result(),
             '*^{commit}*' => Process::result(errorOutput: 'unknown revision', exitCode: 128),
@@ -734,7 +736,7 @@ final class CommandsTest extends TestCase
     {
         // --json owns stdout. An unresolvable ref must travel through the command's JSON error path,
         // not escape from a preflight before that path exists.
-        Process::fake([
+        $this->fakeGit([
             '*merge-base*' => Process::result("abc123\n"),
             '*show-prefix*' => Process::result(),
             '*^{commit}*' => Process::result(errorOutput: 'unknown revision', exitCode: 128),
@@ -760,7 +762,7 @@ final class CommandsTest extends TestCase
         // construction and the question had no answer.
         $diff = "diff --git a/app/Models/User.php b/app/Models/User.php\n--- a/app/Models/User.php\n+++ b/app/Models/User.php\n@@ -0,0 +1,1 @@\n+    public function added(): void {}\n";
 
-        Process::fake([
+        $this->fakeGit([
             '*merge-base*' => Process::result("abc123\n"),
             '*show*' => Process::result(errorOutput: 'bad object', exitCode: 128),
             '*diff*' => Process::result($diff),
@@ -782,7 +784,7 @@ final class CommandsTest extends TestCase
         // was has to reach the operator, since the process is the only place that knows.
         $diff = "diff --git a/app/Models/User.php b/app/Models/User.php\n--- a/app/Models/User.php\n+++ b/app/Models/User.php\n@@ -0,0 +1,1 @@\n+    public function added(): void {}\n";
 
-        Process::fake([
+        $this->fakeGit([
             '*merge-base*' => Process::result("abc123\n"),
             '*show*' => Process::result(errorOutput: 'bad object', exitCode: 128),
             '*diff*' => Process::result($diff),
@@ -808,7 +810,7 @@ final class CommandsTest extends TestCase
         // merge base at all, so the cold number stays available.
         $diff = "diff --git a/app/Models/User.php b/app/Models/User.php\n--- a/app/Models/User.php\n+++ b/app/Models/User.php\n@@ -0,0 +1,1 @@\n+    public function added(): void {}\n";
 
-        Process::fake([
+        $this->fakeGit([
             '*merge-base*' => Process::result("abc123\n"),
             '*show*' => Process::result(errorOutput: 'bad object', exitCode: 128),
             '*diff*' => Process::result($diff),
@@ -826,7 +828,7 @@ final class CommandsTest extends TestCase
     {
         $diff = "diff --git a/app/Models/User.php b/app/Models/User.php\n--- a/app/Models/User.php\n+++ b/app/Models/User.php\n@@ -0,0 +1,1 @@\n+    public function added(): void {}\n";
 
-        Process::fake([
+        $this->fakeGit([
             '*merge-base*' => Process::result("abc123\n"),
             '*show*' => Process::result(errorOutput: 'bad object', exitCode: 128),
             '*diff*' => Process::result($diff),
@@ -854,7 +856,7 @@ final class CommandsTest extends TestCase
         // app/ gets an honest stderr note. --json must still be a single parseable document on stdout.
         $diff = "diff --git a/app/Models/User.php b/app/Models/User.php\n--- a/app/Models/User.php\n+++ b/app/Models/User.php\n@@ -0,0 +1,1 @@\n+    public function added(): void {}\n";
 
-        Process::fake([
+        $this->fakeGit([
             '*merge-base*' => Process::result("abc123\n"),
             // base_path() is modelled as the git repo root here, so `git rev-parse --show-prefix`
             // returns an empty prefix and the `app/`-relative status paths below need no re-rooting.
@@ -893,7 +895,7 @@ final class CommandsTest extends TestCase
     {
         $diff = "diff --git a/app/Models/User.php b/app/Models/User.php\n--- a/app/Models/User.php\n+++ b/app/Models/User.php\n@@ -0,0 +1,1 @@\n+    public function added(): void {}\n";
 
-        Process::fake([
+        $this->fakeGit([
             '*merge-base*' => Process::result("abc123\n"),
             '*show*' => Process::result(errorOutput: 'bad object', exitCode: 128),
             '*diff*' => Process::result($diff),
@@ -913,7 +915,7 @@ final class CommandsTest extends TestCase
     {
         $diff = "diff --git a/app/Models/User.php b/app/Models/User.php\n--- a/app/Models/User.php\n+++ b/app/Models/User.php\n@@ -0,0 +1,1 @@\n+    public function added(): void {}\n";
 
-        Process::fake([
+        $this->fakeGit([
             '*merge-base*' => Process::result("abc123\n"),
             '*show*' => Process::result(errorOutput: 'bad object', exitCode: 128),
             '*diff*' => Process::result($diff),
@@ -937,7 +939,7 @@ final class CommandsTest extends TestCase
     {
         $diff = "diff --git a/app/Models/User.php b/app/Models/User.php\n--- a/app/Models/User.php\n+++ b/app/Models/User.php\n@@ -0,0 +1,1 @@\n+    public function added(): void {}\n";
 
-        Process::fake([
+        $this->fakeGit([
             '*merge-base*' => Process::result("abc123\n"),
             '*show*' => Process::result(errorOutput: 'bad object', exitCode: 128),
             '*diff*' => Process::result($diff),
@@ -975,7 +977,7 @@ final class CommandsTest extends TestCase
     {
         $diff = "diff --git a/app/Models/User.php b/app/Models/User.php\n--- a/app/Models/User.php\n+++ b/app/Models/User.php\n@@ -0,0 +1,1 @@\n+    public function added(): void {}\n";
 
-        Process::fake([
+        $this->fakeGit([
             '*merge-base*' => Process::result("abc123\n"),
             '*show*' => Process::result(errorOutput: 'bad object', exitCode: 128),
             '*diff*' => Process::result($diff),
@@ -1185,7 +1187,7 @@ final class CommandsTest extends TestCase
         $diff = "diff --git a/app/Models/User.php b/app/Models/User.php\n--- a/app/Models/User.php\n+++ b/app/Models/User.php\n@@ -0,0 +1,1 @@\n+    public function added(): void {}\n";
         $path = $this->reportPath();
 
-        Process::fake([
+        $this->fakeGit([
             '*merge-base*' => Process::result("abc123\n"),
             '*show*' => Process::result(errorOutput: 'bad object', exitCode: 128),
             '*diff*' => Process::result($diff),
@@ -1339,7 +1341,7 @@ final class CommandsTest extends TestCase
             . '@@ -' . ($line + 1) . ",1 +{$line},0 @@\n"
             . "-            'summary' => true,\n";
 
-        Process::fake([
+        $this->fakeGit([
             '*merge-base*' => Process::result("abc123\n"),
             '*rev-parse*' => Process::result(),
             '*status*' => Process::result(''),
@@ -1490,7 +1492,7 @@ final class CommandsTest extends TestCase
         // well-formed but unresolvable ref fails later, in ChangedSymbols::resolve(),
         // which the untracked short-circuit precedes. So with both present, the
         // untracked reason wins and the emitted base stays the requested ref.
-        Process::fake([
+        $this->fakeGit([
             '*rev-parse*' => Process::result(errorOutput: 'fatal: bad revision', exitCode: 128),
             '*merge-base*' => Process::result(errorOutput: 'fatal: bad revision', exitCode: 128),
             '*status*' => Process::result("?? app/Models/Report.php\n"),
@@ -1528,7 +1530,7 @@ final class CommandsTest extends TestCase
         // The one base failure that DOES precede the untracked check: baseRef() rejects
         // a "-"-prefixed ref at argument-validation time, so its reason wins and the
         // emitted base degrades to the requested string.
-        Process::fake([
+        $this->fakeGit([
             '*status*' => Process::result("?? app/Models/Report.php\n"),
         ]);
 
@@ -1559,7 +1561,7 @@ final class CommandsTest extends TestCase
         // An untracked file is invisible to every diff form, so the selection can never vouch for
         // completeness — this is the blocker finding: exit 2 (undetermined), not a silently narrowed
         // determinable selection. --plain stdout must still carry nothing (no test paths at all).
-        Process::fake([
+        $this->fakeGit([
             '*merge-base*' => Process::result("abc123\n"),
             // base_path() modelled as the repo root: empty prefix, so the `app/`-relative status path
             // below is matched as-is (no monorepo re-rooting). See GitProjectPaths.
@@ -1591,7 +1593,7 @@ final class CommandsTest extends TestCase
         // deploy config. The note is the difference between "nothing to review" and "not looked at".
         $file = static fn (string $path): string => "diff --git a/{$path} b/{$path}\n--- a/{$path}\n+++ b/{$path}\n@@ -0,0 +1,1 @@\n+x\n";
 
-        Process::fake([
+        $this->fakeGit([
             '*merge-base*' => Process::result("abc123\n"),
             '*rev-parse*' => Process::result(),
             '*diff*' => Process::result($file('resources/sass/app.scss') . $file('vapor.yml')),
@@ -1614,7 +1616,7 @@ final class CommandsTest extends TestCase
         // git status --porcelain double-quotes any path with a space, independent of
         // core.quotepath. If the quoting isn't undone, the root-prefix check misses the
         // file and the fail-closed silently doesn't fire — the exact under-selection bug.
-        Process::fake([
+        $this->fakeGit([
             '*merge-base*' => Process::result("abc123\n"),
             '*rev-parse*' => Process::result(),
             '*diff*' => Process::result(''),
@@ -1640,7 +1642,7 @@ final class CommandsTest extends TestCase
         // undetermined, not "determinable but partial".
         $diff = "diff --git a/app/Models/User.php b/app/Models/User.php\n--- a/app/Models/User.php\n+++ b/app/Models/User.php\n@@ -0,0 +1,1 @@\n+    public function added(): void {}\n";
 
-        Process::fake([
+        $this->fakeGit([
             '*merge-base*' => Process::result("abc123\n"),
             // base_path() modelled as the repo root: empty prefix, so the `app/`-relative status path
             // below is matched as-is (no monorepo re-rooting). See GitProjectPaths.
@@ -1709,7 +1711,7 @@ final class CommandsTest extends TestCase
             }
             PHP);
 
-        Process::fake([
+        $this->fakeGit([
             '*merge-base*' => Process::result("abc123\n"),
             '*rev-parse*' => Process::result(),
             '*show*' => Process::result(errorOutput: 'bad object', exitCode: 128),
@@ -1739,7 +1741,7 @@ final class CommandsTest extends TestCase
         // moment the migration is newest — the pre-commit check on the one just written.
         [$file, $absolute] = $this->writeUntrackedMigration();
 
-        Process::fake([
+        $this->fakeGit([
             '*merge-base*' => Process::result("abc123\n"),
             '*rev-parse*' => Process::result(),
             '*show*' => Process::result(errorOutput: 'bad object', exitCode: 128),
@@ -1772,7 +1774,7 @@ final class CommandsTest extends TestCase
         // `git show` RESOLVES here, returning the migration's own source. Without that, dropping the
         // HEAD-mode guard would still raise no hazard — the read would simply fail — and this test
         // would pass while proving nothing.
-        Process::fake([
+        $this->fakeGit([
             '*merge-base*' => Process::result("abc123\n"),
             // `--show-prefix` first and empty: a non-empty prefix would re-root the status path and
             // drop the file before the guard under test is ever consulted.
@@ -1800,7 +1802,7 @@ final class CommandsTest extends TestCase
     {
         $diff = "diff --git a/app/Models/User.php b/app/Models/User.php\n--- a/app/Models/User.php\n+++ b/app/Models/User.php\n@@ -0,0 +1,1 @@\n+    public function added(): void {}\n";
 
-        Process::fake([
+        $this->fakeGit([
             '*merge-base*' => Process::result("abc123\n"),
             // base_path() modelled as the repo root: empty prefix, so the `app/`-relative status path
             // below is matched as-is (no monorepo re-rooting). See GitProjectPaths.
@@ -1834,7 +1836,7 @@ final class CommandsTest extends TestCase
     {
         // Regression guard: a diff with no untracked relevant files must be unaffected by the new
         // undetermined path — the pre-existing determinable-empty-diff contract still holds.
-        Process::fake([
+        $this->fakeGit([
             '*merge-base*' => Process::result("abc123\n"),
             // base_path() modelled as the repo root: empty prefix. README.notes is filtered by the
             // root allowlist (not under app/), not by re-rooting. See GitProjectPaths.
@@ -1860,7 +1862,7 @@ final class CommandsTest extends TestCase
         // behaviour unchanged — only affected-tests forces undetermined on an untracked file.
         $diff = "diff --git a/app/Models/User.php b/app/Models/User.php\n--- a/app/Models/User.php\n+++ b/app/Models/User.php\n@@ -0,0 +1,1 @@\n+    public function added(): void {}\n";
 
-        Process::fake([
+        $this->fakeGit([
             '*merge-base*' => Process::result("abc123\n"),
             // base_path() modelled as the repo root: empty prefix, so the `app/`-relative status path
             // below is matched as-is (no monorepo re-rooting). See GitProjectPaths.
@@ -1889,7 +1891,7 @@ final class CommandsTest extends TestCase
         // to the full suite, and the exit code must say why nothing was printed.
         $diff = "diff --git a/app/Models/User.php b/app/Models/User.php\n--- a/app/Models/User.php\n+++ b/app/Models/User.php\n@@ -0,0 +1,1 @@\n+    public function added(): void {}\n";
 
-        Process::fake([
+        $this->fakeGit([
             '*merge-base*' => Process::result("abc123\n"),
             '*show*' => Process::result(errorOutput: 'bad object', exitCode: 128),
             '*diff*' => Process::result($diff),
@@ -1907,7 +1909,7 @@ final class CommandsTest extends TestCase
     {
         $diff = "diff --git a/app/Models/User.php b/app/Models/User.php\n--- a/app/Models/User.php\n+++ b/app/Models/User.php\n@@ -0,0 +1,1 @@\n+    public function added(): void {}\n";
 
-        Process::fake([
+        $this->fakeGit([
             '*merge-base*' => Process::result("abc123\n"),
             '*show*' => Process::result(errorOutput: 'bad object', exitCode: 128),
             '*diff*' => Process::result($diff),
@@ -1954,13 +1956,16 @@ final class CommandsTest extends TestCase
     {
         config()->set('richter.benchmark_cases', [self::benchmarkCase()]);
 
-        Process::fake([
+        // The merge base resolves, so the failure under test is the diff's. A merge base that fails
+        // prints the same `git diff against` prefix and would pass this test for the wrong reason.
+        $this->fakeGit([
             '*cat-file*' => Process::result(),
+            '*merge-base*' => Process::result("base123\n"),
             '*diff*' => Process::result(errorOutput: 'boom', exitCode: 1),
         ]);
 
         $this->runArtisan('richter:benchmark')
-            ->expectsOutputToContain('FAIL — git diff against')
+            ->expectsOutputToContain("FAIL — git diff against 'abc1234^' failed: boom")
             ->expectsOutputToContain('Score: 0 passed, 1 failed of 1 fixtures.')
             ->assertFailed();
     }
@@ -2042,7 +2047,7 @@ final class CommandsTest extends TestCase
     #[Test]
     public function benchmark_add_reports_an_unavailable_commit(): void
     {
-        Process::fake(['*cat-file*' => Process::result(exitCode: 1)]);
+        $this->fakeGit(['*cat-file*' => Process::result(exitCode: 1)]);
 
         $this->runArtisan('richter:benchmark:add', ['fix-commit' => 'abc1234'])
             ->expectsOutputToContain('is not available')
@@ -2185,7 +2190,7 @@ final class CommandsTest extends TestCase
     #[Test]
     public function benchmark_add_fails_when_the_commit_changes_no_app_php(): void
     {
-        Process::fake([
+        $this->fakeGit([
             '*cat-file*' => Process::result(),
             '*log*' => Process::result("subject\n"),
             '*merge-base*' => Process::result("base123\n"),
@@ -2323,7 +2328,7 @@ final class CommandsTest extends TestCase
         // --fail-on-unresolved that trips the gate and fails the build.
         $diff = "diff --git a/app/Models/User.php b/app/Models/User.php\n--- a/app/Models/User.php\n+++ b/app/Models/User.php\n@@ -0,0 +1,1 @@\n+    public function added(): void {}\n";
 
-        Process::fake([
+        $this->fakeGit([
             '*merge-base*' => Process::result("abc123\n"),
             '*show*' => Process::result(errorOutput: 'bad object', exitCode: 128),
             '*diff*' => Process::result($diff),
@@ -2430,7 +2435,7 @@ final class CommandsTest extends TestCase
             . "-\n"
             . "+        \$post->load([Post::REVIEWS]);\n";
 
-        Process::fake([
+        $this->fakeGit([
             '*cat-file*' => Process::result(),
             '*merge-base*' => Process::result("abc123\n"),
             '*diff*' => Process::result($diff),
@@ -2443,7 +2448,7 @@ final class CommandsTest extends TestCase
     {
         $diff = "diff --git a/app/Models/User.php b/app/Models/User.php\n--- a/app/Models/User.php\n+++ b/app/Models/User.php\n@@ -0,0 +1,1 @@\n+    public function added(): void {}\n";
 
-        Process::fake([
+        $this->fakeGit([
             '*merge-base*' => Process::result("abc123\n"),
             '*show*' => Process::result(errorOutput: 'bad object', exitCode: 128),
             '*diff*' => Process::result($diff),
@@ -2530,9 +2535,11 @@ final class CommandsTest extends TestCase
             . "@@ -0,0 +1,1 @@\n"
             . "+<?php declare(strict_types=1);\n";
 
-        Process::fake([
+        $this->fakeGit([
             '*cat-file*' => Process::result(),
             '*log*' => Process::result("Rework the post model\n"),
+            // The subject names no ticket, so the stanza key falls back to the short sha.
+            '*rev-parse*' => Process::result("abc1234\n"),
             '*merge-base*' => Process::result("base123\n"),
             '*diff*' => Process::result($diff),
             // Base and head must differ, or every hazard predicate — each of them a comparison —
@@ -2570,7 +2577,7 @@ final class CommandsTest extends TestCase
             . "-        return ReviewResource::make(\$post->withoutRelations());\n"
             . "+        return ReviewResource::make(\$post);\n";
 
-        Process::fake(array_merge($extraFakes, [
+        $this->fakeGit(array_merge($extraFakes, [
             '*cat-file*' => Process::result(),
             '*merge-base*' => Process::result("base123\n"),
             '*diff*' => Process::result($diff),

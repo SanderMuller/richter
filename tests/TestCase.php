@@ -4,6 +4,7 @@ namespace SanderMuller\Richter\Tests;
 
 use Illuminate\Contracts\Config\Repository;
 use Illuminate\Foundation\Application;
+use Illuminate\Support\Facades\Process;
 use Orchestra\Testbench\TestCase as OrchestraTestCase;
 use Override;
 use SanderMuller\Richter\RichterServiceProvider;
@@ -15,6 +16,17 @@ abstract class TestCase extends OrchestraTestCase
     public static function fixtureProjectPath(): string
     {
         return __DIR__ . '/Fixtures/project';
+    }
+
+    /**
+     * A faked command with no matching pattern otherwise runs for real, against whatever repository
+     * hosts the suite, and its answer mixes into the fake ones. The guard only acts while a test
+     * records fakes, so a test that runs real git on purpose still can.
+     */
+    protected function setUp(): void
+    {
+        parent::setUp();
+        Process::preventStrayProcesses();
     }
 
     /** @return list<class-string> */
