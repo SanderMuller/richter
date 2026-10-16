@@ -159,8 +159,10 @@ final readonly class HazardReach
     private function fromDeclaringClass(string $member): array
     {
         $class = explode('::', $member, 2)[0];
+        // The class's members come from its `declares` edges. `nodesContaining($class . '::')` cannot
+        // find them: its word-boundary lookahead rejects the member name after the separator.
         $seeds = array_values(array_filter(
-            [$class, ...$this->graph->nodesContaining($class . '::')],
+            [$class, ...$this->graph->outgoingTargetsOfType([$class], 'declares')],
             $this->graph->hasNode(...),
         ));
 

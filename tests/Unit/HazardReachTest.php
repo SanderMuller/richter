@@ -230,6 +230,24 @@ final class HazardReachTest extends TestCase
     }
 
     #[Test]
+    public function a_removed_member_takes_the_reach_of_its_classs_surviving_members(): void
+    {
+        // The route calls a MEMBER, not the class, so the class node itself has no caller. The members
+        // come from the class's `declares` edges; a substring search for `Publisher::` finds none,
+        // because the member name that follows the separator fails the word-boundary lookahead.
+        $graph = new CodeGraph([
+            ['source' => 'App\Services\Publisher', 'target' => 'App\Services\Publisher::publish', 'type' => 'declares'],
+            ['source' => self::ROUTE, 'target' => 'App\Services\Publisher::publish', 'type' => 'route-to-controller'],
+        ], hasUnparseableFiles: false);
+
+        $reach = new HazardReach($graph, [], [self::ROUTE => $this->security('admin')], [], [], [], 6)
+            ->attach([new Hazard('contract', 2, null, 'App\Services\Publisher::goneForGood', 'the public method is gone')]);
+
+        $this->assertSame(Hazard::REACH_GATED, $reach[0]->reach);
+        $this->assertTrue($reach[0]->reachViaDeclaringClass);
+    }
+
+    #[Test]
     public function a_public_write_found_through_the_declaring_class_keeps_its_provenance(): void
     {
         // The finding branches carry the flag too, not only the admissions: a grade the diff's counts
