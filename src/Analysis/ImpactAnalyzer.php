@@ -9,6 +9,7 @@ use SanderMuller\Richter\Graph\CodeGraph;
 use SanderMuller\Richter\Graph\NodeMetadata;
 use SanderMuller\Richter\Support\AppNamespace;
 use SanderMuller\Richter\Support\AssociationReasons;
+use SanderMuller\Richter\Support\DispatchTarget;
 use SanderMuller\Richter\Support\EntryPointKeepSet;
 use SanderMuller\Richter\Support\Fqcn;
 use SanderMuller\Richter\Support\ReachReasons;
@@ -742,7 +743,7 @@ final readonly class ImpactAnalyzer
             return false;
         }
 
-        if (! Str::contains($file->fqcn, '\\Jobs\\')) {
+        if (! DispatchTarget::isDeclaredDispatchable($file->fqcn)) {
             return false;
         }
 

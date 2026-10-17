@@ -82,6 +82,20 @@ final class DispatchTargetTest extends TestCase
     }
 
     #[Test]
+    public function is_declared_dispatchable_needs_a_declaration_and_reads_an_unloadable_class_by_name(): void
+    {
+        // The opposite failure direction to matches(): an unloadable class is NOT assumed to be one.
+        $this->assertTrue(DispatchTarget::isDeclaredDispatchable(PublishPostJob::class));         // \Jobs\
+        $this->assertTrue(DispatchTarget::isDeclaredDispatchable(PostDigestNotification::class));   // ShouldQueue
+        $this->assertTrue(DispatchTarget::isDeclaredDispatchable(GenerateReport::class));          // Dispatchable
+        $this->assertTrue(DispatchTarget::isDeclaredDispatchable('App\Jobs\Does\Not\Exist'));   // \Jobs\ by name
+
+        $this->assertFalse(DispatchTarget::isDeclaredDispatchable(ArchiveStalePosts::class));      // handle() only
+        $this->assertFalse(DispatchTarget::isDeclaredDispatchable(Post::class));
+        $this->assertFalse(DispatchTarget::isDeclaredDispatchable('App\Does\Not\Exist'));
+    }
+
+    #[Test]
     public function repeated_calls_for_the_same_class_agree(): void
     {
         // The predicate is memoised — pinning that repeated lookups don't drift.

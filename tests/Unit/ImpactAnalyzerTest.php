@@ -1089,6 +1089,28 @@ final class ImpactAnalyzerTest extends TestCase
     }
 
     #[Test]
+    public function a_dispatchable_class_outside_the_jobs_namespace_reads_as_unresolved_when_dispatches_are_unfollowable(): void
+    {
+        // A `Dispatchable` command under `App\Actions\` is a dispatch target as much as a job is. Asking
+        // only for `\Jobs\` in the name read it `analyzed` with no entry point, so an unresolved gate
+        // passed on a change an unfollowed dispatch could still reach.
+        $unresolved = [['file' => 'app/Services/Importer.php', 'line' => 12, 'dispatcher' => 'App\\Services\\Importer::run']];
+        $graph = new CodeGraph([
+            ['source' => 'App\Actions\GenerateReport::handle', 'target' => 'App\Services\X::run', 'type' => 'job'],
+            ['source' => 'App\Actions\Missing::handle', 'target' => 'App\Services\X::run', 'type' => 'job'],
+        ], hasUnparseableFiles: false, unresolvedDispatchSites: $unresolved);
+
+        $result = new ImpactAnalyzer($graph)->detectChanges([
+            $this->changedMethod('app/Actions/GenerateReport.php', 'App\Actions\GenerateReport', 'handle'),
+            // Cannot autoload: no declaration to read, so it keeps the name-only answer.
+            $this->changedMethod('app/Actions/Missing.php', 'App\Actions\Missing', 'handle'),
+        ]);
+
+        $this->assertSame('unresolved', $result['coverage']['app/Actions/GenerateReport.php']);
+        $this->assertSame('analyzed', $result['coverage']['app/Actions/Missing.php']);
+    }
+
+    #[Test]
     public function a_changed_job_with_all_dispatches_resolved_reads_as_genuinely_empty(): void
     {
         $graph = new CodeGraph([

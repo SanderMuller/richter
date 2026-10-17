@@ -5,6 +5,7 @@ namespace SanderMuller\Richter\Support;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use SanderMuller\Richter\Analysis\AffectedTests;
+use SanderMuller\Richter\Analysis\ImpactAnalyzer;
 use SanderMuller\Richter\Tracers\DispatchEdgeTracer;
 use Throwable;
 
@@ -109,6 +110,27 @@ final class DispatchTarget
             return ! class_exists($fqcn) || self::isIntrinsic($fqcn);
         } catch (Throwable) {
             return true;
+        }
+    }
+
+    /**
+     * Dispatchable by declaration, and KNOWN to be: `\Jobs\`-namespaced, or a class that loads and is
+     * `ShouldQueue` or uses `Dispatchable`. The opposite failure direction to {@see matches()}: a class
+     * that cannot be loaded answers by its name alone. {@see ImpactAnalyzer}'s job-coverage flip asks
+     * this, and a flip on every unloadable changed class would mark changes UNRESOLVED on no evidence.
+     *
+     * @internal
+     */
+    public static function isDeclaredDispatchable(string $fqcn): bool
+    {
+        if (str_contains($fqcn, '\\Jobs\\')) {
+            return true;
+        }
+
+        try {
+            return class_exists($fqcn) && self::isIntrinsic($fqcn);
+        } catch (Throwable) {
+            return false;
         }
     }
 
