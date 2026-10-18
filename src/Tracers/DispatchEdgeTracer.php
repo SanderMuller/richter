@@ -30,6 +30,7 @@ use PhpParser\NodeVisitorAbstract;
 use SanderMuller\Richter\Graph\CodeGraphBuilder;
 use SanderMuller\Richter\Support\AccumulatedArrayJobs;
 use SanderMuller\Richter\Support\AppFiles;
+use SanderMuller\Richter\Support\DispatchedElement;
 use SanderMuller\Richter\Support\DispatchTarget;
 use SanderMuller\Richter\Support\LocallyConstructedJobs;
 use SanderMuller\Richter\Support\MappedCollectionJobs;
@@ -550,19 +551,27 @@ final readonly class DispatchEdgeTracer
         $jobs = [];
 
         foreach ($value->items as $item) {
+            // The test an accumulated array's elements pass too. A closure item is the same case as a
+            // closure argument: it IS the queued work, and its body is in the source the tracers read.
+            $element = DispatchedElement::jobsIn($item);
+
+            if ($element !== null) {
+                $jobs = [...$jobs, ...$element];
+
+                continue;
+            }
+
+            // A spread brings contents in from elsewhere, whatever its value names. Even a bound local
+            // job is no reading of it: `...$job` inserts what the job yields.
+            if ($item->unpack) {
+                $unresolvedSites[] = $origin;
+
+                continue;
+            }
+
             if ($item->value instanceof New_) {
                 $jobs = [...$jobs, ...$this->jobFromNew($item->value, $origin, $unresolvedSites)];
 
-                continue;
-            }
-
-            // A closure item is the same case as a closure argument: it IS the queued work, and its
-            // body is in the source the tracers already read.
-            if ($item->value instanceof Closure) {
-                continue;
-            }
-
-            if ($item->value instanceof ArrowFunction) {
                 continue;
             }
 

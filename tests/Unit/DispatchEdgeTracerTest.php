@@ -888,6 +888,67 @@ final class DispatchEdgeTracerTest extends TestCase
     }
 
     /**
+     * One element, written inline in the dispatched literal and as the seed of a dispatched local. The
+     * two forms make the same claim about what the array holds, so they must give the same edges and
+     * the same unresolved sites.
+     *
+     * Two inline readings are left out on purpose, because the accumulator has no equivalent: a local
+     * bound to a job above the dispatch, and the target a factory call such as `ImportJob::for(1)`
+     * names. A `new` of a class that is no dispatch target is left out too: the inline form ignores it
+     * and the accumulator refuses it, and which one is right is still open.
+     *
+     * @return Iterator<string, array{string}>
+     */
+    public static function elementsInBothForms(): Iterator
+    {
+        yield 'a new of a job' => ['new ImportJob()'];
+        yield 'a keyed new of a job' => ['7 => new ImportJob()'];
+        yield 'an arrow function' => ['fn () => null'];
+        yield 'a closure' => ['function () {}'];
+        yield 'a new of a dynamic class' => ['new $class()'];
+        yield 'a variable' => ['$mystery'];
+        yield 'a spread of a variable' => ['...$others'];
+        // A Traversable job spreads what it YIELDS, so the array holds something else. The value is a
+        // `new` of a dispatch target, and a reader that tests only the value takes it as resolved and
+        // records no site. The `new` draws its edge either way.
+        yield 'a spread of a new' => ['...new ImportJob()'];
+        yield 'a job beside a spread of a new' => ['new ImportJob(), ...new ImportJob()'];
+    }
+
+    #[Test]
+    #[DataProvider('elementsInBothForms')]
+    public function an_element_reads_the_same_inline_and_as_a_seed(string $elements): void
+    {
+        $uses = "use App\Jobs\ImportJob;\nuse App\Jobs\ArchiveJob;\nuse Illuminate\Support\Facades\Bus;";
+        // The accumulator is read only once something appends to it, so both forms end on one more job.
+        $inline = "Bus::batch([{$elements}, new ArchiveJob()])->dispatch();";
+        $seeded = "\$c = [{$elements}];\n\$c[] = new ArchiveJob();\nBus::batch(\$c)->dispatch();";
+
+        $targets = function (string $body) use ($uses): array {
+            $found = array_column($this->edges($body, $uses), 'target');
+            sort($found);
+
+            return $found;
+        };
+
+        $this->assertSame(
+            [$targets($seeded), $this->unresolved($seeded, $uses)],
+            [$targets($inline), $this->unresolved($inline, $uses)],
+        );
+    }
+
+    #[Test]
+    public function a_spread_of_a_bound_local_is_not_the_local_job(): void
+    {
+        // `$job` holds a job, but `...$job` inserts what the job yields, not the job. The `new` above
+        // still draws its edge, so the site count is the whole difference.
+        $uses = "use App\Jobs\ImportJob;\nuse Illuminate\Support\Facades\Bus;";
+        $body = "\$job = new ImportJob();\nBus::batch([...\$job])->dispatch();";
+
+        $this->assertSame(1, $this->unresolved($body, $uses));
+    }
+
+    /**
      * An accumulator built and dispatched inside a closure is the shape `->then()` / `->finally()` makes
      * idiomatic, so it is where the accumulator most naturally ends up. The proof is stated per SCOPE:
      * a closure body's locals are its own.

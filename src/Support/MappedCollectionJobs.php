@@ -7,10 +7,8 @@ use PhpParser\Node\Expr;
 use PhpParser\Node\Expr\ArrowFunction;
 use PhpParser\Node\Expr\Closure;
 use PhpParser\Node\Expr\MethodCall;
-use PhpParser\Node\Expr\New_;
 use PhpParser\Node\Expr\Variable;
 use PhpParser\Node\Identifier;
-use PhpParser\Node\Name;
 use PhpParser\Node\Stmt\Return_;
 
 /**
@@ -120,13 +118,9 @@ final class MappedCollectionJobs
     {
         $returned = self::returnedExpression($callable);
 
-        if (! $returned instanceof New_ || ! $returned->class instanceof Name) {
-            return null;
-        }
+        $job = $returned instanceof Expr ? DispatchedElement::constructedTarget($returned) : null;
 
-        $job = AppFiles::resolveName($returned->class);
-
-        return DispatchTarget::matches($job) ? [$job] : null;
+        return $job === null ? null : [$job];
     }
 
     /**

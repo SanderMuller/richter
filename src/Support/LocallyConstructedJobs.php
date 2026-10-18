@@ -131,7 +131,7 @@ final class LocallyConstructedJobs
                 continue;
             }
 
-            $job = self::constructedTarget($expr);
+            $job = DispatchedElement::constructedTarget($expr);
 
             if ($job !== null) {
                 $jobs[$name] = ['pos' => $pos, 'jobs' => [$job]];
@@ -209,7 +209,7 @@ final class LocallyConstructedJobs
      */
     private static function hasCandidate(array $assignments): bool
     {
-        return array_any($assignments, static fn (array $assignment) => self::constructedTarget($assignment['expr']) !== null || MappedCollectionJobs::in($assignment['expr']) !== null);
+        return array_any($assignments, static fn (array $assignment) => DispatchedElement::constructedTarget($assignment['expr']) !== null || MappedCollectionJobs::in($assignment['expr']) !== null);
     }
 
     /**
@@ -224,18 +224,6 @@ final class LocallyConstructedJobs
                 && $node->var instanceof Variable
                 && $node->expr instanceof Array_,
         ) instanceof Node;
-    }
-
-    /** The dispatch target a `new SomeTarget(...)` right-hand side names, or null when it names none. */
-    private static function constructedTarget(Expr $expr): ?string
-    {
-        if (! $expr instanceof New_ || ! $expr->class instanceof Name) {
-            return null;
-        }
-
-        $job = AppFiles::resolveName($expr->class);
-
-        return DispatchTarget::matches($job) ? $job : null;
     }
 
     /**

@@ -6,13 +6,10 @@ use PhpParser\Node;
 use PhpParser\Node\Expr;
 use PhpParser\Node\Expr\Array_;
 use PhpParser\Node\Expr\ArrayDimFetch;
-use PhpParser\Node\Expr\ArrowFunction;
 use PhpParser\Node\Expr\Assign;
 use PhpParser\Node\Expr\Closure;
-use PhpParser\Node\Expr\New_;
 use PhpParser\Node\Expr\Variable;
 use PhpParser\Node\FunctionLike;
-use PhpParser\Node\Name;
 use PhpParser\Node\Stmt\ClassMethod;
 use PhpParser\Node\Stmt\Expression;
 use PhpParser\NodeFinder;
@@ -306,15 +303,15 @@ final class AccumulatedArrayJobs
      * The jobs a start literal already holds, or null when any element is not provable.
      *
      * An empty literal answers `[]` — the ordinary accumulator. A non-empty one is read when every element
-     * passes the same test an append passes, which composes two readings that already exist rather than
-     * adding a third: the inline form `Bus::chain([new FirstJob(), fn () => null])` resolves this way too,
+     * passes the same test an append passes ({@see DispatchedElement}), which composes two readings that
+     * already exist rather than adding a third: the inline form `Bus::chain([new FirstJob(), fn () => null])` resolves this way too,
      * and the two disagreeing would be the defect.
      *
      * A KEY does not disqualify an element. `$chain[] =` appends at the maximum integer key plus one, so it
      * cannot collide with a seeded key, and the inline form accepts a keyed element as well.
      *
      * A SPREAD does disqualify: `[...$others]` brings contents in from elsewhere, so nothing here can
-     * prove what they are.
+     * prove what they are. The inline form refuses it too.
      *
      * @return list<string>|null
      */
@@ -323,29 +320,18 @@ final class AccumulatedArrayJobs
         $jobs = [];
 
         foreach ($literal->items as $item) {
-            // Unconditionally, whatever the value is. `[...$others]` brings in contents from elsewhere,
-            // which the value test below would also reject — but `[...new SomeJob()]` is legal too, and
-            // there the value IS a `new` of a dispatch target while the array holds something else
-            // entirely: if the job is Traversable, PHP inserts what it yields, not the job. Accepting that
-            // would resolve the dispatch to a target it never sends and drop a `not determinable` reason,
-            // which is the under-selection direction.
-            //
-            // This guard was once deleted as unreachable, on the reasoning that a spread's value is always
-            // a variable or an array. A mutation of it survived and appeared to confirm that — because the
-            // test only covered `...$others`. The lesson is on the test, not the guard.
-            if ($item->unpack) {
+            // A spread is refused here, whatever its value is: {@see DispatchedElement::jobsIn()} says
+            // why `[...new SomeJob()]` is not the job. That guard was once deleted as unreachable, on the
+            // reasoning that a spread's value is always a variable or an array. A mutation of it survived
+            // and appeared to confirm that, because the test only covered `...$others`. The lesson is on
+            // the test, not the guard.
+            $element = DispatchedElement::jobsIn($item);
+
+            if ($element === null) {
                 return null;
             }
 
-            [$provable, $job] = self::provableValue($item->value);
-
-            if (! $provable) {
-                return null;
-            }
-
-            if ($job !== null) {
-                $jobs[] = $job;
-            }
+            $jobs = [...$jobs, ...$element];
         }
 
         return $jobs;
@@ -383,15 +369,13 @@ final class AccumulatedArrayJobs
             ++$count;
             $pos = max($pos, $assign->getStartFilePos());
 
-            [$provable, $job] = self::provableValue($assign->expr);
+            $appended = DispatchedElement::jobsOf($assign->expr);
 
-            if (! $provable) {
+            if ($appended === null) {
                 return null;
             }
 
-            if ($job !== null) {
-                $jobs[] = $job;
-            }
+            $jobs = [...$jobs, ...$appended];
         }
 
         return ['jobs' => array_values(array_unique($jobs)), 'count' => $count, 'pos' => $pos];
@@ -444,40 +428,5 @@ final class AccumulatedArrayJobs
         $traverser->traverse([$scope]);
 
         return $visitor->found;
-    }
-
-    /**
-     * What a seed element or an append may hold, as `[provable, job]`.
-     *
-     * One rule, read by both, deliberately: a seed element and an append make the same claim about the
-     * array's contents, and two copies of the test are two things that can drift apart. `provable` false
-     * disqualifies the whole accumulator; a true with a null job is the closure case, which contributes
-     * no target and hides nothing.
-     *
-     * @return array{0: bool, 1: string|null}
-     */
-    private static function provableValue(Expr $expr): array
-    {
-        // A closure IS the queued work and its body is already traced — the same exemption an inline
-        // chain item gets.
-        if ($expr instanceof Closure || $expr instanceof ArrowFunction) {
-            return [true, null];
-        }
-
-        $job = self::constructedTarget($expr);
-
-        return $job === null ? [false, null] : [true, $job];
-    }
-
-    /** The dispatch target a `new SomeJob(...)` names, or null when it is not one. */
-    private static function constructedTarget(Expr $expr): ?string
-    {
-        if (! $expr instanceof New_ || ! $expr->class instanceof Name) {
-            return null;
-        }
-
-        $job = AppFiles::resolveName($expr->class);
-
-        return DispatchTarget::matches($job) ? $job : null;
     }
 }

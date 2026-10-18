@@ -130,8 +130,11 @@ final class GraphCache
      * carries the old source and type, and a walk that matches on either reads the wrong answer in
      * both directions. The brain version in the fingerprint already invalidates every entry for THIS
      * change; the bump is for the general case, as the 9 → 10 note explains.
+     * 27 → 28: a spread element in a dispatched array literal (`[...new SomeJob()]`, `[...$job]`) is an
+     * unresolved-dispatch site, as it already was in an accumulated array. A 27 entry lacks those sites,
+     * so it reads such a dispatch as resolved.
      */
-    private const int FORMAT_VERSION = 27;
+    private const int FORMAT_VERSION = 28;
 
     private ?CodeGraph $memoized = null;
 
