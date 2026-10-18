@@ -3,6 +3,8 @@
 namespace SanderMuller\Richter\Tests\Feature;
 
 use Illuminate\Filesystem\Filesystem;
+use Iterator;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use SanderMuller\Richter\Graph\CodeGraphBuilder;
 use SanderMuller\Richter\Graph\GraphCache;
@@ -226,11 +228,11 @@ final class GraphCacheTest extends TestCase
     #[Test]
     public function inspect_names_which_part_of_a_corrupt_payload_was_rejected(): void
     {
-        // Three separate whole-entry conditions, and the third is the one that matters most: a
-        // malformed dispatch-site list must never coalesce to "no sites", which reads as no
-        // unfollowable dispatch and lets a selection report determinable when it is not. A reporter
-        // that collapsed these into one reason would hide which of them the file actually failed.
-        foreach (['nodeMetadata' => 'metadata-rejected', 'unresolvedDispatchSites' => 'dispatch-sites-rejected'] as $key => $expected) {
+        // Separate whole-entry conditions. A malformed dispatch-site list must never coalesce to "no
+        // sites", and a malformed unparseable-files flag must never coalesce to "every file parsed":
+        // either one lets a selection report determinable when it is not. A reporter that collapsed
+        // these into one reason would hide which of them the file actually failed.
+        foreach (['nodeMetadata' => 'metadata-rejected', 'unresolvedDispatchSites' => 'dispatch-sites-rejected', 'hasUnparseableFiles' => 'unparseable-flag-rejected'] as $key => $expected) {
             $this->cache()->warm($this->projectRoot);
 
             $entry = $this->storedEntry();
@@ -586,6 +588,39 @@ final class GraphCacheTest extends TestCase
 
         // The marker edges must not be served — the whole entry is a miss, rebuilt from source.
         $this->assertNotContains($this->markerEdges()[0], $graph->toArray()['edges']);
+    }
+
+    /** @return Iterator<string, array{mixed}> */
+    public static function untrustedUnparseableFlags(): Iterator
+    {
+        // Absent is the fail-open case: defaulting it to `false` serves the entry as "every file
+        // parsed", which drops the S1 taint and narrows a selection that should stay undeterminable.
+        yield 'absent' => [null];
+        yield 'a string' => ['1'];
+        yield 'an integer' => [1];
+    }
+
+    #[Test]
+    #[DataProvider('untrustedUnparseableFlags')]
+    public function a_cache_entry_with_an_untrusted_unparseable_flag_reads_as_a_miss(mixed $flag): void
+    {
+        $cache = $this->cache();
+        $this->writeCacheFile($cache->fingerprint($this->projectRoot), $this->markerEdges());
+
+        $stored = $this->storedEntry();
+
+        if ($flag === null) {
+            unset($stored['hasUnparseableFiles']);
+        } else {
+            $stored['hasUnparseableFiles'] = $flag;
+        }
+
+        file_put_contents($this->cacheFile(), json_encode($stored, JSON_THROW_ON_ERROR));
+
+        $graph = $cache->graph($this->projectRoot);
+
+        $this->assertNotContains($this->markerEdges()[0], $graph->toArray()['edges']);
+        $this->assertFalse($this->storedEntry()['hasUnparseableFiles']);
     }
 
     #[Test]

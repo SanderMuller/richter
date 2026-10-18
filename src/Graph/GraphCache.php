@@ -22,8 +22,6 @@ use Throwable;
  * failed write is ignored: the cache is an optimisation and must never break or pollute a report
  * (JSON mode owns stdout). Registered as a singleton so one MCP session also reuses the parsed
  * graph in memory across tool calls.
- *
- * @phpstan-import-type MetadataShape from NodeMetadata
  */
 final class GraphCache
 {
@@ -564,13 +562,10 @@ final class GraphCache
     }
 
     /**
-     * The same read, saying which of the six ways it failed ({@see ReadOutcome}).
+     * The same read, saying which of the seven ways it failed ({@see ReadOutcome}).
      *
-     * All three payload conditions are whole-entry: a malformed site list must not coalesce to "no
-     * sites", which reads as no unfollowable dispatch, drops the S2 taint, and lets a selection
-     * report determinable when it is not — under-selection, from a file this code chose to trust.
-     * The fingerprint is no defence there, since it lives in the same entry and can match while a
-     * later key is corrupt.
+     * The payload is {@see CodeGraphCodec}'s to judge, key by key. The fingerprint is no defence
+     * there, since it lives in the same entry and can match while a later key is corrupt.
      */
     private function readDetailed(string $fingerprint, CacheEntry $entry): ReadOutcome
     {
@@ -584,23 +579,7 @@ final class GraphCache
             return ReadOutcome::refused('fingerprint-mismatch', "the entry in {$file} was built from different inputs");
         }
 
-        $edges = $this->validEdges($entry->data['edges'] ?? null);
-        $metadata = $this->validNodeMetadata($entry->data['nodeMetadata'] ?? null);
-        $dispatchSites = $this->validDispatchSites($entry->data['unresolvedDispatchSites'] ?? null);
-
-        if ($edges === null) {
-            return ReadOutcome::refused('edges-rejected', "the edge list in {$file} is not one this version can revive");
-        }
-
-        if ($metadata === null) {
-            return ReadOutcome::refused('metadata-rejected', "the node metadata in {$file} is not one this version can revive");
-        }
-
-        if ($dispatchSites === null) {
-            return ReadOutcome::refused('dispatch-sites-rejected', "the unresolved-dispatch list in {$file} is not one this version can revive");
-        }
-
-        return ReadOutcome::of(new CodeGraph($edges, ($entry->data['hasUnparseableFiles'] ?? false) === true, $dispatchSites, $metadata));
+        return CodeGraphCodec::decode($entry->data, $file);
     }
 
     /**
@@ -723,102 +702,6 @@ final class GraphCache
     private function cacheFile(): string
     {
         return RichterConfig::cacheDirectory() . '/graph.json';
-    }
-
-    /**
-     * A revived unresolved-dispatch site list, or null when the stored value is not one.
-     *
-     * Null and `[]` mean different things and the caller must keep them apart: `[]` is "the build
-     * found none", null is "this file cannot be trusted". Null therefore fails the whole read, the
-     * same as a malformed edge list.
-     *
-     * @return list<array{file: string, line: int, dispatcher: string}>|null
-     */
-    private function validDispatchSites(mixed $sites): ?array
-    {
-        if (! is_array($sites) || ! array_is_list($sites)) {
-            return null;
-        }
-
-        $valid = [];
-
-        foreach ($sites as $site) {
-            if (! is_array($site)
-                || ! is_string($site['file'] ?? null)
-                || ! is_string($site['dispatcher'] ?? null)
-                || ! is_int($site['line'] ?? null)) {
-                return null;
-            }
-
-            $valid[] = ['file' => $site['file'], 'line' => $site['line'], 'dispatcher' => $site['dispatcher']];
-        }
-
-        return $valid;
-    }
-
-    /**
-     * A cache entry whose edges don't parse as edge shapes is corrupt — the whole read is a miss,
-     * never a partially-loaded graph (which would report falsely-small impact).
-     *
-     * @return list<array{source: string, target: string, type: string}>|null
-     */
-    private function validEdges(mixed $edges): ?array
-    {
-        if (! is_array($edges)) {
-            return null;
-        }
-
-        $valid = [];
-
-        foreach ($edges as $edge) {
-            if (! is_array($edge) || ! is_string($edge['source'] ?? null) || ! is_string($edge['target'] ?? null) || ! is_string($edge['type'] ?? null)) {
-                return null;
-            }
-
-            $valid[] = ['source' => $edge['source'], 'target' => $edge['target'], 'type' => $edge['type']];
-        }
-
-        return $valid;
-    }
-
-    /**
-     * The node-metadata map from a cache entry, re-shaped through {@see NodeMetadata} so a tampered
-     * or drifted entry degrades to the same conservative shapes a fresh build would produce. Only a
-     * non-map value is corrupt (→ miss, like {@see validEdges}); an individual record that doesn't
-     * shape-check simply loses its unusable fields — metadata annotates reports, it never feeds the
-     * impact walk, so partial loss here cannot under-report impact.
-     *
-     * @return array<string, MetadataShape>|null
-     */
-    private function validNodeMetadata(mixed $metadata): ?array
-    {
-        if ($metadata === null) {
-            // Pre-metadata entries can't reach here (FORMAT_VERSION is fingerprinted), but an
-            // absent map is still a valid empty annotation set, not corruption.
-            return [];
-        }
-
-        if (! is_array($metadata)) {
-            return null;
-        }
-
-        $valid = [];
-
-        foreach ($metadata as $node => $record) {
-            if (! is_string($node) || ! is_array($record)) {
-                return null;
-            }
-
-            // Re-extract through the same shape gate the builder uses: '' as root means "keep
-            // stored paths verbatim" — they were made project-relative at build time.
-            $shaped = NodeMetadata::fromBrainNodeData($record, '');
-
-            if ($shaped !== null) {
-                $valid[$node] = $shaped;
-            }
-        }
-
-        return $valid;
     }
 
     /**

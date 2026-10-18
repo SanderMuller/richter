@@ -13,7 +13,7 @@ use LaraMint\LaravelBrain\Graph\Node;
  * it kept: `ProjectAnalyzer::scopedTo()` merges a scoped pass into a *previous* graph, so without one
  * on disk there is nothing to merge into.
  *
- * Decoding is fail-closed in the same way {@see GraphCache::validEdges()} is — one mis-shaped node or
+ * Decoding is fail-closed in the same way {@see CodeGraphCodec::fromArray()} is — one mis-shaped node or
  * edge discards the whole graph rather than reviving a partial one. A half-loaded merge base is worse
  * than none: none costs a full build, a partial one produces a graph missing edges nobody can see are
  * missing.

@@ -3,7 +3,7 @@
 namespace SanderMuller\Richter\Graph;
 
 /**
- * The graph a cache entry revives to, or which of the six ways reading it failed.
+ * The graph a cache entry revives to, or which of the seven ways reading it failed.
  *
  * A boolean was not enough, and the way it was not enough is the point. {@see GraphCache::read()}
  * returns null for an absent file, an undecodable one, a fingerprint that differs, and three
@@ -33,7 +33,7 @@ final readonly class ReadOutcome
 
     /**
      * One of `no-cache-entry`, `cache-unreadable`, `fingerprint-mismatch`, `edges-rejected`,
-     * `metadata-rejected`, `dispatch-sites-rejected`.
+     * `metadata-rejected`, `dispatch-sites-rejected`, `unparseable-flag-rejected`.
      */
     public static function refused(string $reason, string $detail): self
     {
