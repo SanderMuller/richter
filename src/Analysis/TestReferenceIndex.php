@@ -69,6 +69,20 @@ final class TestReferenceIndex
         $this->graph = $graph;
     }
 
+    /**
+     * The index a command or tool needs: every file under the project's `tests/`, recorded relative to
+     * the project root as a test runner names it, and bound to the graph before anything reads it.
+     * Building the index and attaching the graph as two steps let a caller forget the second, which
+     * graded a class-driven surface unreferenced.
+     */
+    public static function forProject(CodeGraph $graph): self
+    {
+        $index = self::fromTests(base_path('tests'), base_path());
+        $index->useGraph($graph);
+
+        return $index;
+    }
+
     public static function fromTests(string $testsDir, ?string $projectRoot = null): self
     {
         $index = new self();

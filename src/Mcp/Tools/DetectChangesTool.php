@@ -76,8 +76,7 @@ final class DetectChangesTool extends Tool
         // as though no test existed, and a cause line that named surfaces as unreferenced while the
         // row beside it called them referenced.
         $graph = $this->graphs->graph();
-        $tests = TestReferenceIndex::fromTests(base_path('tests'));
-        $tests->useGraph($graph);
+        $tests = TestReferenceIndex::forProject($graph);
 
         $result = new ImpactAnalyzer($graph)->detectChanges($changed, tests: $tests, runtimeEvidenceRoot: RichterConfig::runtimeEvidenceRoot($head));
 

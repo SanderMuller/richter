@@ -50,8 +50,7 @@ final class BenchmarkCommand extends Command
 
         $graph = $graphs->graph(fresh: (bool) $this->option('no-cache'));
         $analyzer = new ImpactAnalyzer($graph);
-        $tests = TestReferenceIndex::fromTests(base_path('tests'));
-        $tests->useGraph($graph);
+        $tests = TestReferenceIndex::forProject($graph);
 
         $passed = 0;
         $failed = 0;

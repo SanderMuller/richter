@@ -139,11 +139,9 @@ final class AffectedTests
         }
 
         $graph = $graphs->graph(fresh: $fresh);
-        // One index, bound before anything reads it. Built twice before — and only the second copy got
-        // the graph — so the analysis graded a class-driven surface unreferenced while the selection
-        // read it referenced, and one report gave two answers to "is this surface proven".
-        $testsUsed = TestReferenceIndex::fromTests(base_path('tests'), base_path());
-        $testsUsed->useGraph($graph);
+        // One index for the analysis and the selection. Built twice before — and only the second copy
+        // got the graph — so one report gave two answers to "is this surface proven".
+        $testsUsed = TestReferenceIndex::forProject($graph);
         // Parity lanes off: they only produce findings, which the selection never reads —
         // and the consumer lane would otherwise pay a whole frontend-tree scan on a CI
         // hot path for output this command discards. Entry-point attribution is off for the same

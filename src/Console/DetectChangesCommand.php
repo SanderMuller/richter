@@ -221,8 +221,7 @@ final class DetectChangesCommand extends Command
         // Built before the analysis, not after: the level now depends on what a test references, and
         // the index needs the graph to follow a route to the class that handles it — a Filament page
         // driven by `livewire(SomePage::class)` matches neither a route name nor a literal URI.
-        $tests = TestReferenceIndex::fromTests(base_path('tests'));
-        $tests->useGraph($graph);
+        $tests = TestReferenceIndex::forProject($graph);
 
         $result = new ImpactAnalyzer($graph)->detectChanges($changed, payloadParityEnabled: $this->payloadParityEnabled(), tests: $tests, hazardsEnabled: $this->hazardsEnabled(), runtimeEvidenceRoot: RichterConfig::runtimeEvidenceRoot($head));
 
@@ -315,8 +314,7 @@ final class DetectChangesCommand extends Command
         }
 
         $graph = $this->graph($graphs);
-        $tests = TestReferenceIndex::fromTests(base_path('tests'));
-        $tests->useGraph($graph);
+        $tests = TestReferenceIndex::forProject($graph);
 
         $result = new ImpactAnalyzer($graph)->detectChanges($changed, payloadParityEnabled: $this->payloadParityEnabled(), tests: $tests, hazardsEnabled: $this->hazardsEnabled(), runtimeEvidenceRoot: $runtimeEvidenceRoot);
         $payload = JsonPresenter::detectChanges($result, $base, $tests);

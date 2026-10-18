@@ -59,9 +59,7 @@ final class ImpactTool extends Tool
         $graph = $this->graphs->graph();
         $result = new ImpactAnalyzer($graph)->impact($symbol, runtimeEvidenceRoot: base_path());
         // Lazy: the tests/ scan only runs when the walk actually reached an entry surface.
-        $tests = $result['entryPoints'] === [] ? null : TestReferenceIndex::fromTests(base_path('tests'), base_path());
-        // Reused, not re-fetched: without it a class-driven route reads unreferenced.
-        $tests?->useGraph($graph);
+        $tests = $result['entryPoints'] === [] ? null : TestReferenceIndex::forProject($graph);
 
         // Bounded by default: the full document on a hub symbol displaces an agent's context. The
         // CLI --json path never runs this step — a script has a disk, not a context window.

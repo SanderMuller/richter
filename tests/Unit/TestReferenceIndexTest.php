@@ -3,6 +3,7 @@
 namespace SanderMuller\Richter\Tests\Unit;
 
 use App\Console\Commands\CodeDetectChangesCommand;
+use Illuminate\Foundation\Application;
 use Illuminate\Routing\Router;
 use Illuminate\Support\Facades\Artisan;
 use Override;
@@ -47,6 +48,30 @@ final class TestReferenceIndexTest extends TestCase
         $index->useGraph(new CodeGraph([
             ['source' => 'route::GET::/admin/reports', 'target' => 'App\Filament\Pages\ReportsPage', 'type' => 'filament-route-to-page'],
         ], hasUnparseableFiles: false));
+
+        $this->assertTrue($index->hasReference('route::GET::/admin/reports'));
+        $this->assertSame(['tests/Feature/ReportsPageTest.php'], $index->testsReferencing('route::GET::/admin/reports'));
+    }
+
+    #[Test]
+    public function the_project_index_is_bound_to_the_graph_and_records_project_relative_paths(): void
+    {
+        // The one production constructor: scan `tests/`, record each file as a test runner names it,
+        // and attach the graph before anything reads the index.
+        $root = sys_get_temp_dir() . '/richter-index-' . bin2hex(random_bytes(6));
+        mkdir($root . '/tests/Feature', 0o777, true);
+        file_put_contents($root . '/tests/Feature/ReportsPageTest.php', "<?php\nuse App\\Filament\\Pages\\ReportsPage;\nclass ReportsPageTest { public function test_it(): void { livewire(ReportsPage::class); } }\n");
+        $app = $this->app;
+        $this->assertInstanceOf(Application::class, $app);
+        $app->setBasePath($root);
+
+        try {
+            $index = TestReferenceIndex::forProject(new CodeGraph([
+                ['source' => 'route::GET::/admin/reports', 'target' => 'App\Filament\Pages\ReportsPage', 'type' => 'filament-route-to-page'],
+            ], hasUnparseableFiles: false));
+        } finally {
+            $this->deleteTree($root);
+        }
 
         $this->assertTrue($index->hasReference('route::GET::/admin/reports'));
         $this->assertSame(['tests/Feature/ReportsPageTest.php'], $index->testsReferencing('route::GET::/admin/reports'));

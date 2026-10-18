@@ -88,10 +88,7 @@ final class ImpactCommand extends Command
             return null;
         }
 
-        $tests = TestReferenceIndex::fromTests(base_path('tests'), base_path());
-        $tests->useGraph($graph);
-
-        return $tests;
+        return TestReferenceIndex::forProject($graph);
     }
 
     /**

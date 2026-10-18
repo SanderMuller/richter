@@ -70,8 +70,7 @@ final class BenchmarkAddCommand extends Command
 
         $graph = $graphs->graph(fresh: (bool) $this->option('no-cache'));
         $analyzer = new ImpactAnalyzer($graph);
-        $tests = TestReferenceIndex::fromTests(base_path('tests'));
-        $tests->useGraph($graph);
+        $tests = TestReferenceIndex::forProject($graph);
         // A control's cap is captured from this level, so an analysis without the test index would
         // bake a MEDIUM into the corpus for a change that is actually LOW.
         $result = $analyzer->detectChanges($changed, tests: $tests);
