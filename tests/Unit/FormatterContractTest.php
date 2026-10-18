@@ -5,6 +5,7 @@ namespace SanderMuller\Richter\Tests\Unit;
 use PHPUnit\Framework\Attributes\Test;
 use SanderMuller\Richter\Analysis\Hazard;
 use SanderMuller\Richter\Analysis\HtmlFormatter;
+use SanderMuller\Richter\Analysis\ImpactAnalyzer;
 use SanderMuller\Richter\Analysis\ImpactFormatter;
 use SanderMuller\Richter\Analysis\JsonPresenter;
 use SanderMuller\Richter\Analysis\MarkdownFormatter;
@@ -12,6 +13,7 @@ use SanderMuller\Richter\Analysis\RiskLevel;
 use SanderMuller\Richter\Analysis\TestReferenceIndex;
 use SanderMuller\Richter\Changes\ChangedFileSymbols;
 use SanderMuller\Richter\Changes\MemberChange;
+use SanderMuller\Richter\Tests\Support\DetectChangesFixture;
 use SanderMuller\Richter\Tests\TestCase;
 
 /**
@@ -21,6 +23,8 @@ use SanderMuller\Richter\Tests\TestCase;
  * every renderable field at once, so a field one format forgets shows up here as a missing
  * substring rather than as a silent gap noticed only in production. These are presence assertions,
  * not golden strings: they catch "field dropped in one format", not styling drift.
+ *
+ * @phpstan-import-type CompleteDetectChangesResult from ImpactAnalyzer
  */
 final class FormatterContractTest extends TestCase
 {
@@ -33,7 +37,7 @@ final class FormatterContractTest extends TestCase
      * unresolved changed file, related models, source findings, and a coarse-capped low-confidence
      * risk — every field either formatter can render, on at once.
      *
-     * @return array{seeds: list<string>, reach: array<string, array<string, true>>, edges: list<array{source: string, target: string, via: string, depth: int}>, changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, array{exposure: string, riskLevel: string, issues: list<array{type: string, severity: string, message: string, file?: string, line?: int}>}>, entryPointGates: array<string, list<string>>, entryPointAuthMiddleware: array<string, list<string>>, impacted: int, associationEntryPoints: list<string>, associationEntryPointsVia: array<string, list<string>>, relatedModels: list<string>, traitAndOverrideReach: list<string>, traitAndOverrideReachVia: array<string, list<string>>, risk: RiskLevel, riskCause: string, hazards: list<Hazard>, verification: array<string, bool>, lowConfidence: bool, findings: list<string>}
+     * @return CompleteDetectChangesResult
      */
     private function richFixture(): array
     {
@@ -45,7 +49,7 @@ final class FormatterContractTest extends TestCase
             $entryPoints[] = sprintf('route::GET::/r%02d', $i);
         }
 
-        return [
+        return DetectChangesFixture::with([
             'changed' => ['app/Models/Post.php' => 3, 'app/Services/Lost.php' => 1],
             'coverage' => ['app/Models/Post.php' => 'analyzed', 'app/Services/Lost.php' => 'unresolved'],
             'entryPoints' => $entryPoints,
@@ -109,7 +113,7 @@ final class FormatterContractTest extends TestCase
             'hazards' => [new Hazard('auth', 3, 'CWE-862', 'App\Http\Controllers\PostController::update', 'the authorization check `ability:update` is gone from the body', ['ability:update'], Hazard::REACH_PUBLIC_WRITE)],
             'verification' => ['route::GET::/r01' => true, 'route::GET::/r02' => false],
             'findings' => ["app/Exports/X.php: eager-load string 'commentsreviews' matches no relation"],
-        ];
+        ]);
     }
 
     /** A test index that references the annotated entry's URI directly — exercises the
@@ -480,6 +484,29 @@ final class FormatterContractTest extends TestCase
             array_values(array_unique($reasons)),
             'the formatters disagree on why Brain missed the middleware: ' . json_encode($reasons, JSON_THROW_ON_ERROR),
         );
+    }
+
+    #[Test]
+    public function every_surface_reads_the_keep_set_the_analyzer_computed(): void
+    {
+        // A keep set that differs from the entry-point list, as it does whenever a hub list folds a
+        // surface away. Every fixture used to omit the key, so each surface ran its fallback — the
+        // whole list — and nothing checked that the computed set is the one rendered.
+        $kept = array_values(array_filter($this->richFixture()['entryPoints'], static fn (string $node): bool => $node !== 'route::GET::/r18'));
+        $fixture = array_replace($this->richFixture(), [
+            'entryPointAttribution' => ['route::GET::/r18' => ['via' => 'app/Models/Hub.php', 'ownReach' => 40]],
+            'entryPointKeepSet' => ['kept' => $kept, 'droppedHub' => 1],
+        ]);
+
+        $this->assertSame(['kept' => $kept, 'droppedHub' => 1], JsonPresenter::detectChanges($fixture, 'origin/main')['entryPointKeepSet']);
+
+        foreach ([
+            'text' => ImpactFormatter::detectChanges($fixture, $this->richTestIndex()),
+            'markdown' => MarkdownFormatter::detectChanges($fixture, $this->richTestIndex()),
+            'html' => HtmlFormatter::detectChanges($fixture, [], 'origin/main', $this->richTestIndex()),
+        ] as $format => $output) {
+            $this->assertStringContainsString('1 surface reached only through app/Models/Hub.php', $output, $format);
+        }
     }
 
     #[Test]

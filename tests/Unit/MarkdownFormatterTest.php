@@ -4,11 +4,16 @@ namespace SanderMuller\Richter\Tests\Unit;
 
 use PHPUnit\Framework\Attributes\Test;
 use SanderMuller\Richter\Analysis\Hazard;
+use SanderMuller\Richter\Analysis\ImpactAnalyzer;
 use SanderMuller\Richter\Analysis\MarkdownFormatter;
 use SanderMuller\Richter\Analysis\RiskLevel;
 use SanderMuller\Richter\Analysis\TestReferenceIndex;
+use SanderMuller\Richter\Tests\Support\DetectChangesFixture;
 use SanderMuller\Richter\Tests\TestCase;
 
+/**
+ * @phpstan-import-type CompleteDetectChangesResult from ImpactAnalyzer
+ */
 final class MarkdownFormatterTest extends TestCase
 {
     /**
@@ -16,7 +21,7 @@ final class MarkdownFormatterTest extends TestCase
      * @param  array<string, 'analyzed'|'unresolved'>  $coverage
      * @param  list<string>  $relatedModels
      * @param  list<Hazard>  $hazards
-     * @return array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, newFiles?: list<string>, entryPoints: list<string>, impacted: int, relatedModels: list<string>, risk: RiskLevel, riskCause: string, hazards: list<Hazard>, lowConfidence: bool}
+     * @return CompleteDetectChangesResult
      */
     private function summary(
         array $entryPoints,
@@ -26,7 +31,7 @@ final class MarkdownFormatterTest extends TestCase
         RiskLevel $risk = RiskLevel::Low,
         array $hazards = [],
     ): array {
-        return [
+        return DetectChangesFixture::with([
             'changed' => array_map(static fn (): int => 1, $coverage),
             'coverage' => $coverage,
             'entryPoints' => $entryPoints,
@@ -36,7 +41,7 @@ final class MarkdownFormatterTest extends TestCase
             'lowConfidence' => $lowConfidence,
             'riskCause' => 'no hazard; every reached surface is referenced by a test',
             'hazards' => $hazards,
-        ];
+        ]);
     }
 
     #[Test]
@@ -188,12 +193,12 @@ final class MarkdownFormatterTest extends TestCase
     #[Test]
     public function checklist_entries_render_location_and_exposure_with_issue_sub_bullets(): void
     {
-        $result = $this->summary(['route::POST::/checkout']) + [
+        $result = array_replace($this->summary(['route::POST::/checkout']), [
             'entryPointLocations' => ['route::POST::/checkout' => ['file' => 'routes/web.php', 'line' => 21]],
             'entryPointSecurity' => ['route::POST::/checkout' => ['exposure' => 'public', 'riskLevel' => 'high', 'issues' => [
                 ['type' => 'PUBLIC_WRITE', 'severity' => 'high', 'message' => 'POST route with no auth middleware', 'file' => 'app/Http/Controllers/CheckoutController.php', 'line' => 31],
             ]]],
-        ];
+        ]);
 
         $output = MarkdownFormatter::detectChanges($result);
 
@@ -207,12 +212,12 @@ final class MarkdownFormatterTest extends TestCase
     #[Test]
     public function a_public_write_route_with_a_policy_gate_in_reach_renders_a_contradiction_note(): void
     {
-        $result = $this->summary(['route::POST::/checkout']) + [
+        $result = array_replace($this->summary(['route::POST::/checkout']), [
             'entryPointSecurity' => ['route::POST::/checkout' => ['exposure' => 'public', 'riskLevel' => 'high', 'issues' => [
                 ['type' => 'PUBLIC_WRITE', 'severity' => 'high', 'message' => 'POST route with no auth middleware'],
             ]]],
             'entryPointAuthGates' => ['route::POST::/checkout' => ['App\Policies\OrderPolicy']],
-        ];
+        ]);
 
         $output = MarkdownFormatter::detectChanges($result);
 
@@ -227,11 +232,11 @@ final class MarkdownFormatterTest extends TestCase
     #[Test]
     public function a_public_write_route_with_no_gate_renders_no_contradiction_note(): void
     {
-        $result = $this->summary(['route::POST::/checkout']) + [
+        $result = array_replace($this->summary(['route::POST::/checkout']), [
             'entryPointSecurity' => ['route::POST::/checkout' => ['exposure' => 'public', 'riskLevel' => 'high', 'issues' => [
                 ['type' => 'PUBLIC_WRITE', 'severity' => 'high', 'message' => 'POST route with no auth middleware'],
             ]]],
-        ];
+        ]);
 
         $this->assertStringNotContainsString('richter: an authorization policy', MarkdownFormatter::detectChanges($result));
     }
@@ -239,9 +244,9 @@ final class MarkdownFormatterTest extends TestCase
     #[Test]
     public function a_gated_route_renders_a_flag_badge(): void
     {
-        $result = $this->summary(['route::POST::/checkout']) + [
+        $result = array_replace($this->summary(['route::POST::/checkout']), [
             'entryPointGates' => ['route::POST::/checkout' => ['ai-coach']],
-        ];
+        ]);
 
         $this->assertStringContainsString('- [ ] `route::POST::/checkout` — 🚩 ai-coach', MarkdownFormatter::detectChanges($result));
     }
@@ -249,9 +254,9 @@ final class MarkdownFormatterTest extends TestCase
     #[Test]
     public function an_unrecognised_exposure_renders_bare_instead_of_guessing_an_icon(): void
     {
-        $result = $this->summary(['route::GET::/x']) + [
+        $result = array_replace($this->summary(['route::GET::/x']), [
             'entryPointSecurity' => ['route::GET::/x' => ['exposure' => 'internal', 'riskLevel' => 'low', 'issues' => []]],
-        ];
+        ]);
 
         $this->assertStringContainsString('- [ ] `route::GET::/x` — internal', MarkdownFormatter::detectChanges($result));
     }
@@ -271,12 +276,12 @@ final class MarkdownFormatterTest extends TestCase
     #[Test]
     public function explain_nests_the_call_chain_in_code_spans_under_its_entry_point(): void
     {
-        $result = $this->summary(['route::GET::/posts']) + ['entryPointPaths' => [
+        $result = array_replace($this->summary(['route::GET::/posts']), ['entryPointPaths' => [
             'route::GET::/posts' => [
                 ['node' => 'route::GET::/posts', 'via' => 'route-to-controller'],
                 ['node' => 'App\Services\PostPublisher::publish', 'via' => ''],
             ],
-        ]];
+        ]]);
 
         $output = MarkdownFormatter::detectChanges($result, explain: true);
 
@@ -286,12 +291,12 @@ final class MarkdownFormatterTest extends TestCase
     #[Test]
     public function no_call_chain_renders_without_explain(): void
     {
-        $result = $this->summary(['route::GET::/posts']) + ['entryPointPaths' => [
+        $result = array_replace($this->summary(['route::GET::/posts']), ['entryPointPaths' => [
             'route::GET::/posts' => [
                 ['node' => 'route::GET::/posts', 'via' => 'route-to-controller'],
                 ['node' => 'App\Services\PostPublisher::publish', 'via' => ''],
             ],
-        ]];
+        ]]);
 
         $this->assertStringNotContainsString('↳', MarkdownFormatter::detectChanges($result));
     }
@@ -309,7 +314,7 @@ final class MarkdownFormatterTest extends TestCase
     #[Test]
     public function findings_render_as_a_warning_list(): void
     {
-        $result = $this->summary([]) + ['findings' => ["app/Exports/X.php: eager-load string 'commentsreviews' matches no relation"]];
+        $result = array_replace($this->summary([]), ['findings' => ["app/Exports/X.php: eager-load string 'commentsreviews' matches no relation"]]);
 
         $output = MarkdownFormatter::detectChanges($result);
 

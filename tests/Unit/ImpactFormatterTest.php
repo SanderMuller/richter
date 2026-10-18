@@ -16,8 +16,12 @@ use SanderMuller\Richter\Analysis\TestReferenceIndex;
 use SanderMuller\Richter\Changes\ChangedFileSymbols;
 use SanderMuller\Richter\Changes\MemberChange;
 use SanderMuller\Richter\Graph\CodeGraph;
+use SanderMuller\Richter\Tests\Support\DetectChangesFixture;
 use SanderMuller\Richter\Tests\TestCase;
 
+/**
+ * @phpstan-import-type CompleteDetectChangesResult from ImpactAnalyzer
+ */
 final class ImpactFormatterTest extends TestCase
 {
     private function method(string $file, string $fqcn, string $name): ChangedFileSymbols
@@ -31,11 +35,11 @@ final class ImpactFormatterTest extends TestCase
      * @param  list<string>  $entryPoints
      * @param  list<string>  $relatedModels
      * @param  list<Hazard>  $hazards
-     * @return array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, newFiles?: list<string>, fqcns?: array<string, string>, entryPoints: list<string>, impacted: int, relatedModels: list<string>, risk: RiskLevel, riskCause: string, hazards: list<Hazard>, lowConfidence: bool}
+     * @return CompleteDetectChangesResult
      */
     private function summary(array $entryPoints, array $relatedModels = [], bool $lowConfidence = false, RiskLevel $risk = RiskLevel::Low, array $hazards = []): array
     {
-        return [
+        return DetectChangesFixture::with([
             'changed' => ['app/Models/Post.php' => 1],
             'coverage' => ['app/Models/Post.php' => 'analyzed'],
             'entryPoints' => $entryPoints,
@@ -45,7 +49,7 @@ final class ImpactFormatterTest extends TestCase
             'lowConfidence' => $lowConfidence,
             'riskCause' => 'no hazard; every reached surface is referenced by a test',
             'hazards' => $hazards,
-        ];
+        ]);
     }
 
     /**
@@ -99,7 +103,7 @@ final class ImpactFormatterTest extends TestCase
     #[Test]
     public function it_renders_source_findings_between_the_reach_and_the_risk(): void
     {
-        $result = $this->summary(['route::GET /posts']) + ['findings' => ["app/Exports/X.php: eager-load string 'commentsreviews' matches no relation"]];
+        $result = array_replace($this->summary(['route::GET /posts']), ['findings' => ["app/Exports/X.php: eager-load string 'commentsreviews' matches no relation"]]);
 
         $output = ImpactFormatter::detectChanges($result);
 
@@ -141,12 +145,12 @@ final class ImpactFormatterTest extends TestCase
     #[Test]
     public function a_public_write_route_with_a_policy_gate_in_reach_renders_a_contradiction_note(): void
     {
-        $result = $this->summary(['route::POST::/checkout']) + [
+        $result = array_replace($this->summary(['route::POST::/checkout']), [
             'entryPointSecurity' => ['route::POST::/checkout' => ['exposure' => 'public', 'riskLevel' => 'high', 'issues' => [
                 ['type' => 'PUBLIC_WRITE', 'severity' => 'high', 'message' => 'POST route with no auth middleware'],
             ]]],
             'entryPointAuthGates' => ['route::POST::/checkout' => ['App\Policies\OrderPolicy']],
-        ];
+        ]);
 
         $output = ImpactFormatter::detectChanges($result);
 
@@ -215,9 +219,9 @@ final class ImpactFormatterTest extends TestCase
     #[Test]
     public function entry_points_render_their_defining_location(): void
     {
-        $result = $this->summary(['route::GET::/posts']) + [
+        $result = array_replace($this->summary(['route::GET::/posts']), [
             'entryPointLocations' => ['route::GET::/posts' => ['file' => 'routes/web.php', 'line' => 14]],
-        ];
+        ]);
 
         $this->assertStringContainsString('- route::GET::/posts  (routes/web.php:14)', ImpactFormatter::detectChanges($result));
     }
@@ -225,11 +229,11 @@ final class ImpactFormatterTest extends TestCase
     #[Test]
     public function a_route_with_a_security_surface_renders_its_exposure_and_issues(): void
     {
-        $result = $this->summary(['route::POST::/checkout']) + [
+        $result = array_replace($this->summary(['route::POST::/checkout']), [
             'entryPointSecurity' => ['route::POST::/checkout' => ['exposure' => 'public', 'riskLevel' => 'high', 'issues' => [
                 ['type' => 'PUBLIC_WRITE', 'severity' => 'high', 'message' => 'POST route with no auth middleware', 'file' => 'app/Http/Controllers/CheckoutController.php', 'line' => 31],
             ]]],
-        ];
+        ]);
 
         $output = ImpactFormatter::detectChanges($result);
 
@@ -243,9 +247,9 @@ final class ImpactFormatterTest extends TestCase
     #[Test]
     public function a_gated_route_renders_its_flags_after_the_other_tags(): void
     {
-        $result = $this->summary(['route::POST::/posts/ai-coach']) + [
+        $result = array_replace($this->summary(['route::POST::/posts/ai-coach']), [
             'entryPointGates' => ['route::POST::/posts/ai-coach' => ['ai-coach', 'beta']],
-        ];
+        ]);
 
         $this->assertStringContainsString(
             '- route::POST::/posts/ai-coach  [gated: ai-coach, beta]',
@@ -377,13 +381,13 @@ final class ImpactFormatterTest extends TestCase
     #[Test]
     public function explain_renders_the_call_chain_under_each_reached_entry_point(): void
     {
-        $result = $this->summary(['route::GET::/posts']) + ['entryPointPaths' => [
+        $result = array_replace($this->summary(['route::GET::/posts']), ['entryPointPaths' => [
             'route::GET::/posts' => [
                 ['node' => 'route::GET::/posts', 'via' => 'route-to-controller'],
                 ['node' => 'App\Http\Controllers\PostController::index', 'via' => 'action-to-service'],
                 ['node' => 'App\Services\PostPublisher::publish', 'via' => ''],
             ],
-        ]];
+        ]]);
 
         $output = ImpactFormatter::detectChanges($result, explain: true);
 
@@ -396,12 +400,12 @@ final class ImpactFormatterTest extends TestCase
     #[Test]
     public function no_call_chain_renders_without_explain(): void
     {
-        $result = $this->summary(['route::GET::/posts']) + ['entryPointPaths' => [
+        $result = array_replace($this->summary(['route::GET::/posts']), ['entryPointPaths' => [
             'route::GET::/posts' => [
                 ['node' => 'route::GET::/posts', 'via' => 'route-to-controller'],
                 ['node' => 'App\Services\PostPublisher::publish', 'via' => ''],
             ],
-        ]];
+        ]]);
 
         $this->assertStringNotContainsString('↳', ImpactFormatter::detectChanges($result));
     }
@@ -410,7 +414,7 @@ final class ImpactFormatterTest extends TestCase
     public function explain_leaves_a_self_listed_entry_class_without_a_chain(): void
     {
         // A self-listed entry class has no path (it IS the entry surface) — its bullet renders alone.
-        $result = $this->summary(['App\Jobs\ImportJob']) + ['entryPointPaths' => []];
+        $result = array_replace($this->summary(['App\Jobs\ImportJob']), ['entryPointPaths' => []]);
 
         $output = ImpactFormatter::detectChanges($result, explain: true);
 
@@ -529,7 +533,7 @@ final class ImpactFormatterTest extends TestCase
         // The shape a production bug fix produced: one changed file, no node for it, and a bottom line
         // reading LOW. The UNRESOLVED marker was printed — beside the file, several lines up — while
         // the level is what a reviewer reads.
-        $output = ImpactFormatter::detectChanges([
+        $output = ImpactFormatter::detectChanges(DetectChangesFixture::with([
             'changed' => ['app/View/Elements/Widget.php' => 1],
             'coverage' => ['app/View/Elements/Widget.php' => 'unresolved'],
             'entryPoints' => [],
@@ -542,7 +546,7 @@ final class ImpactFormatterTest extends TestCase
             'risk' => RiskLevel::Low,
             'lowConfidence' => false,
             'findings' => [],
-        ], new TestReferenceIndex(), false, false);
+        ]), new TestReferenceIndex(), false, false);
 
         $this->assertStringContainsString('none of the changed files could be placed', $output);
     }
@@ -550,7 +554,7 @@ final class ImpactFormatterTest extends TestCase
     #[Test]
     public function a_report_with_one_placed_file_does_not_claim_nothing_was_placed(): void
     {
-        $output = ImpactFormatter::detectChanges([
+        $output = ImpactFormatter::detectChanges(DetectChangesFixture::with([
             'changed' => ['app/Models/Post.php' => 1, 'app/View/Elements/Widget.php' => 1],
             'coverage' => ['app/Models/Post.php' => 'analyzed', 'app/View/Elements/Widget.php' => 'unresolved'],
             'entryPoints' => [],
@@ -563,7 +567,7 @@ final class ImpactFormatterTest extends TestCase
             'risk' => RiskLevel::Low,
             'lowConfidence' => false,
             'findings' => [],
-        ], new TestReferenceIndex(), false, false);
+        ]), new TestReferenceIndex(), false, false);
 
         $this->assertStringNotContainsString('none of the changed files could be placed', $output);
     }

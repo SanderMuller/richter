@@ -10,6 +10,7 @@ use SanderMuller\Richter\Analysis\JsonPresenter;
 use SanderMuller\Richter\Analysis\MarkdownFormatter;
 use SanderMuller\Richter\Analysis\RiskLevel;
 use SanderMuller\Richter\Analysis\TestReferenceIndex;
+use SanderMuller\Richter\Tests\Support\DetectChangesFixture;
 use SanderMuller\Richter\Tests\TestCase;
 
 /**
@@ -94,7 +95,7 @@ final class EntryPointOrderingTest extends TestCase
     #[Test]
     public function the_text_and_markdown_reports_agree_on_the_order(): void
     {
-        $result = [
+        $result = DetectChangesFixture::with([
             'changed' => ['app/Http/Controllers/StatsController.php' => 1],
             'coverage' => ['app/Http/Controllers/StatsController.php' => 'analyzed'],
             'entryPoints' => [self::ADMIN, self::FEATURE_ROUTE],
@@ -108,7 +109,7 @@ final class EntryPointOrderingTest extends TestCase
             'risk' => RiskLevel::Low,
             'lowConfidence' => false,
             'findings' => [],
-        ];
+        ]);
 
         $text = ImpactFormatter::detectChanges($result);
         $markdown = MarkdownFormatter::detectChanges($result);
@@ -179,7 +180,7 @@ final class EntryPointOrderingTest extends TestCase
         $attribution = [...$this->attribution(), $command => ['via' => 'app/Console/Commands/Sync.php', 'ownReach' => 9]];
 
         foreach ([$entryPoints, array_reverse($entryPoints)] as $order) {
-            $document = JsonPresenter::detectChanges([
+            $document = JsonPresenter::detectChanges(DetectChangesFixture::with([
                 'changed' => [],
                 'coverage' => [],
                 'entryPoints' => $order,
@@ -193,7 +194,7 @@ final class EntryPointOrderingTest extends TestCase
                 'risk' => RiskLevel::Low,
                 'lowConfidence' => false,
                 'findings' => [],
-            ], 'HEAD~1', $this->indexReferencing(self::SELF_LISTED));
+            ]), 'HEAD~1', $this->indexReferencing(self::SELF_LISTED));
 
             $this->assertSame($this->rows($order, $attribution), $document['entryPoints']);
 
@@ -212,7 +213,7 @@ final class EntryPointOrderingTest extends TestCase
     #[Test]
     public function the_json_payload_leads_with_the_specifically_explained_surface(): void
     {
-        $document = JsonPresenter::detectChanges([
+        $document = JsonPresenter::detectChanges(DetectChangesFixture::with([
             'changed' => [],
             'coverage' => [],
             'entryPoints' => [self::ADMIN, self::FEATURE_ROUTE],
@@ -226,7 +227,7 @@ final class EntryPointOrderingTest extends TestCase
             'risk' => RiskLevel::Low,
             'lowConfidence' => false,
             'findings' => [],
-        ], 'HEAD~1');
+        ]), 'HEAD~1');
 
         $this->assertSame([self::FEATURE_ROUTE, self::ADMIN], $document['entryPoints']);
     }

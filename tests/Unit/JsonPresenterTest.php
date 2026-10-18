@@ -3,12 +3,16 @@
 namespace SanderMuller\Richter\Tests\Unit;
 
 use PHPUnit\Framework\Attributes\Test;
-use SanderMuller\Richter\Analysis\Hazard;
+use SanderMuller\Richter\Analysis\ImpactAnalyzer;
 use SanderMuller\Richter\Analysis\JsonPresenter;
 use SanderMuller\Richter\Analysis\RiskLevel;
 use SanderMuller\Richter\Analysis\TestReferenceIndex;
+use SanderMuller\Richter\Tests\Support\DetectChangesFixture;
 use SanderMuller\Richter\Tests\TestCase;
 
+/**
+ * @phpstan-import-type CompleteDetectChangesResult from ImpactAnalyzer
+ */
 final class JsonPresenterTest extends TestCase
 {
     #[Test]
@@ -242,11 +246,12 @@ final class JsonPresenterTest extends TestCase
         // the HTML report. The machine contract must not notice them: adding a field to --json is a
         // semver event, and the graph payload was deliberately kept out of it.
         $result = $this->detectChangesResult();
-        $withGraph = $result + [
+        $withGraph = array_replace($result, [
             'seeds' => ['App\\Jobs\\ProcessPostJob::handle'],
             'reach' => ['route::GET /a' => ['route-to-controller' => true]],
             'edges' => [['source' => 'route::GET /a', 'target' => 'App\\Jobs\\ProcessPostJob::handle', 'via' => 'route-to-controller', 'depth' => 1]],
-        ];
+        ]);
+        $this->assertNotSame($result, $withGraph);
 
         $json = JsonPresenter::detectChanges($result, 'origin/main');
         $jsonWithGraph = JsonPresenter::detectChanges($withGraph, 'origin/main');
@@ -260,11 +265,11 @@ final class JsonPresenterTest extends TestCase
 
     /**
      * @param  list<string>  $entryPoints
-     * @return array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, array{exposure: string, riskLevel: string, issues: list<array{type: string, severity: string, message: string, file?: string, line?: int}>}>, entryPointGates: array<string, list<string>>, impacted: int, relatedModels: list<string>, risk: RiskLevel, riskCause: string, hazards: list<Hazard>, verification: array<string, bool>, lowConfidence: bool, findings: list<string>}
+     * @return CompleteDetectChangesResult
      */
     private function detectChangesResult(RiskLevel $risk = RiskLevel::Low, bool $coverageUnresolved = false, array $entryPoints = ['route::GET /a', 'route::GET /b', 'route::GET /c']): array
     {
-        return [
+        return DetectChangesFixture::with([
             'changed' => ['app/Jobs/ProcessPostJob.php' => 3],
             'coverage' => ['app/Jobs/ProcessPostJob.php' => $coverageUnresolved ? 'unresolved' : 'analyzed'],
             'entryPoints' => $entryPoints,
@@ -291,6 +296,6 @@ final class JsonPresenterTest extends TestCase
             'hazards' => [],
             'verification' => [],
             'findings' => ['app/Jobs/ProcessPostJob.php: touches a queue job'],
-        ];
+        ]);
     }
 }

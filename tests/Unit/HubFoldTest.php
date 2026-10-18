@@ -3,15 +3,19 @@
 namespace SanderMuller\Richter\Tests\Unit;
 
 use PHPUnit\Framework\Attributes\Test;
+use SanderMuller\Richter\Analysis\ImpactAnalyzer;
 use SanderMuller\Richter\Analysis\ImpactFormatter;
 use SanderMuller\Richter\Analysis\MarkdownFormatter;
 use SanderMuller\Richter\Analysis\RiskLevel;
 use SanderMuller\Richter\Support\HubFold;
+use SanderMuller\Richter\Tests\Support\DetectChangesFixture;
 use SanderMuller\Richter\Tests\TestCase;
 
 /**
  * The presentation half of `specs/task-slice.md`: hub-reached surfaces fold under their shared cause,
  * and the report never shortens its own count to match.
+ *
+ * @phpstan-import-type CompleteDetectChangesResult from ImpactAnalyzer
  */
 final class HubFoldTest extends TestCase
 {
@@ -19,10 +23,10 @@ final class HubFoldTest extends TestCase
 
     private const string OWN_ROUTE = 'route::GET::/stats/{article}';
 
-    /** @return array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, array{exposure: string, riskLevel: string, issues: list<array{type: string, severity: string, message: string, file?: string, line?: int}>}>, entryPointGates: array<string, list<string>>, entryPointAttribution: array<string, array{via: string, ownReach: int}>, entryPointKeepSet: array{kept: list<string>, droppedHub: int}, impacted: int, relatedModels: list<string>, risk: RiskLevel, lowConfidence: bool, findings: list<string>} */
+    /** @return CompleteDetectChangesResult */
     private function detectChangesResult(): array
     {
-        return [
+        return DetectChangesFixture::with([
             'changed' => ['app/Models/Article.php' => 1],
             'coverage' => ['app/Models/Article.php' => 'analyzed'],
             'entryPoints' => [self::OWN_ROUTE, self::HUB_REACHED],
@@ -40,7 +44,7 @@ final class HubFoldTest extends TestCase
             'risk' => RiskLevel::Low,
             'lowConfidence' => false,
             'findings' => [],
-        ];
+        ]);
     }
 
     #[Test]

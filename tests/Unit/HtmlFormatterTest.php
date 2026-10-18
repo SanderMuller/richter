@@ -11,6 +11,7 @@ use SanderMuller\Richter\Analysis\TestReferenceIndex;
 use SanderMuller\Richter\Changes\ChangedFileSymbols;
 use SanderMuller\Richter\Changes\MemberChange;
 use SanderMuller\Richter\Graph\CodeGraph;
+use SanderMuller\Richter\Tests\Support\DetectChangesFixture;
 use SanderMuller\Richter\Tests\TestCase;
 
 /**
@@ -28,14 +29,14 @@ final class HtmlFormatterTest extends TestCase
      */
     private function minimalResult(): array
     {
-        return [
+        return DetectChangesFixture::with([
             'changed' => [],
             'coverage' => [], 'entryPoints' => [], 'entryPointPaths' => [],
             'entryPointLocations' => [], 'entryPointSecurity' => [], 'entryPointGates' => [],
             'seeds' => [], 'reach' => [], 'edges' => [], 'impacted' => 0, 'relatedModels' => [],
             'risk' => RiskLevel::Low, 'riskCause' => 'no hazard; every reached surface is referenced by a test', 'hazards' => [], 'lowConfidence' => false,
             'verification' => [], 'findings' => [],
-        ];
+        ]);
     }
 
     /**
@@ -48,7 +49,7 @@ final class HtmlFormatterTest extends TestCase
      */
     private function fixture(?array $edges = null, ?array $reach = null, ?array $seeds = null, bool $withLocations = true): array
     {
-        return [
+        return DetectChangesFixture::with([
             'changed' => ['app/Models/Post.php' => 3, 'app/Services/Lost.php' => 0],
             'coverage' => ['app/Models/Post.php' => 'analyzed', 'app/Services/Lost.php' => 'unresolved'],
             'entryPoints' => [self::ENTRY],
@@ -85,7 +86,7 @@ final class HtmlFormatterTest extends TestCase
             'hazards' => [],
             'verification' => [],
             'findings' => ['app/Exports/X.php: eager-load string matches no relation'],
-        ];
+        ]);
     }
 
     #[Test]
@@ -285,14 +286,14 @@ final class HtmlFormatterTest extends TestCase
     #[Test]
     public function the_empty_diff_case_renders_a_valid_document(): void
     {
-        $html = HtmlFormatter::detectChanges([
+        $html = HtmlFormatter::detectChanges(DetectChangesFixture::with([
             'changed' => [],
             'coverage' => [], 'entryPoints' => [], 'entryPointPaths' => [],
             'entryPointLocations' => [], 'entryPointSecurity' => [], 'entryPointGates' => [],
             'seeds' => [], 'reach' => [], 'edges' => [], 'impacted' => 0, 'relatedModels' => [],
             'risk' => RiskLevel::Low, 'riskCause' => 'no hazard; every reached surface is referenced by a test', 'hazards' => [], 'lowConfidence' => false,
             'verification' => [], 'findings' => [],
-        ], [], 'origin/main');
+        ]), [], 'origin/main');
 
         $this->assertStringContainsString('<strong>0</strong>', $html);
         $this->assertStringContainsString('>LOW</strong>', $html);
@@ -308,7 +309,7 @@ final class HtmlFormatterTest extends TestCase
         // URIs, and messages carrying arbitrary source text.
         $hostileEntry = 'route::GET::/search?q=<script>alert(1)</script>';
 
-        $html = HtmlFormatter::detectChanges([
+        $html = HtmlFormatter::detectChanges(DetectChangesFixture::with([
             'changed' => ['app/Weird<name>&"x".php' => 1],
             'coverage' => ['app/Weird<name>&"x".php' => 'analyzed'],
             'entryPoints' => [$hostileEntry],
@@ -332,7 +333,7 @@ final class HtmlFormatterTest extends TestCase
             'hazards' => [],
             'verification' => [],
             'findings' => ['app/X.php: <b>bad</b> & worse'],
-        ], [
+        ]), [
             new ChangedFileSymbols('app/Weird<name>&"x".php', 'App\Weird<T>', [
                 new MemberChange('run<T>', MemberChange::KIND_METHOD, MemberChange::CHANGE_MODIFIED, resolvable: true),
             ], cosmeticOnly: false),
@@ -361,7 +362,7 @@ final class HtmlFormatterTest extends TestCase
         $editor = EditorLink::fromConfig('phpstorm', '/base');
         $this->assertInstanceOf(EditorLink::class, $editor);
 
-        $html = HtmlFormatter::detectChanges([
+        $html = HtmlFormatter::detectChanges(DetectChangesFixture::with([
             'changed' => ['app/We"ird<x>&.php' => 1],
             'coverage' => ['app/We"ird<x>&.php' => 'analyzed'],
             'entryPoints' => [],
@@ -380,7 +381,7 @@ final class HtmlFormatterTest extends TestCase
             'hazards' => [],
             'verification' => [],
             'findings' => [],
-        ], [
+        ]), [
             new ChangedFileSymbols('app/We"ird<x>&.php', 'App\Weird', [
                 new MemberChange('run', MemberChange::KIND_METHOD, MemberChange::CHANGE_MODIFIED, resolvable: true),
             ], cosmeticOnly: false),
