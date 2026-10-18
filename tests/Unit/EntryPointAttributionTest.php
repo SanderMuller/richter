@@ -36,10 +36,10 @@ final class EntryPointAttributionTest extends TestCase
     {
         $graph ??= $this->graph();
 
-        return new EntryPointAttribution($graph, static function (array $callers): array {
+        return new EntryPointAttribution(static function (array $seeds, int $maxDepth) use ($graph): array {
             $nodes = [];
 
-            foreach ($callers as $hop) {
+            foreach ($graph->callersOf($seeds, $maxDepth, ImpactAnalyzer::ASSOCIATION_EDGE_TYPES) as $hop) {
                 if (str_starts_with($hop['node'], 'route::')) {
                     $nodes[] = $hop['node'];
                 }

@@ -1128,7 +1128,7 @@ final class ImpactAnalyzerTest extends TestCase
     public function two_changed_job_files_with_identical_per_file_seeds_each_flip_independently(): void
     {
         // Both files change the same job member, so their per-file seed sets are identical
-        // (`App\Jobs\ImportJob::handle`) — a memoized riskInputs() must still evaluate each
+        // (`App\Jobs\ImportJob::handle`) — the memoized call-reached query must still evaluate each
         // file's own coverage on its own key, never collapse the two.
         $graph = new CodeGraph([
             ['source' => 'App\Jobs\ImportJob::handle', 'target' => 'App\Services\X::run', 'type' => 'job'],
@@ -1145,34 +1145,62 @@ final class ImpactAnalyzerTest extends TestCase
     }
 
     #[Test]
-    public function riskinputs_returns_identical_tuples_for_identical_seed_sets(): void
+    public function the_call_reached_query_answers_the_same_from_its_memo_as_from_a_fresh_walk(): void
     {
-        // White-box check on the memoized method itself: the same seed set (same order, same
-        // maxDepth) must yield the exact same tuple both times — the safety net the full suite
-        // above already exercises through detectChanges().
+        // White-box check on the memoized method itself: the same seed set (in another order, same
+        // maxDepth) must yield the same list from the memo as from a fresh walk, so a stale or
+        // corrupted entry cannot hide behind comparing the memo with itself.
         $analyzer = new ImpactAnalyzer(new CodeGraph([
             ['source' => self::ROUTE, 'target' => 'App\Http\Controllers\PostController::publish', 'type' => 'route-to-controller'],
+            ['source' => 'App\Http\Controllers\PostController::publish', 'target' => 'App\Models\Post::save', 'type' => 'action-to-service'],
+            ['source' => 'App\Http\Controllers\PostController::publish', 'target' => 'App\Models\Post::touch', 'type' => 'action-to-service'],
         ], hasUnparseableFiles: false));
 
-        $riskInputs = new ReflectionMethod($analyzer, 'riskInputs');
+        $query = new ReflectionMethod($analyzer, 'callReachedEntryPoints');
         $memo = [];
         $freshMemo = [];
 
-        $first = $riskInputs->invokeArgs($analyzer, [['App\Http\Controllers\PostController::publish'], 6, &$memo]);
-        // Cache hit on the shared memo…
-        $memoized = $riskInputs->invokeArgs($analyzer, [['App\Http\Controllers\PostController::publish'], 6, &$memo]);
-        // …compared against a genuinely fresh walk (separate empty memo), so a stale or corrupted
-        // cached tuple cannot hide behind comparing the memo with itself.
-        $fresh = $riskInputs->invokeArgs($analyzer, [['App\Http\Controllers\PostController::publish'], 6, &$freshMemo]);
+        $first = $query->invokeArgs($analyzer, [['App\Models\Post::save', 'App\Models\Post::touch'], 6, &$memo]);
+        $memoized = $query->invokeArgs($analyzer, [['App\Models\Post::touch', 'App\Models\Post::save'], 6, &$memo]);
+        $fresh = $query->invokeArgs($analyzer, [['App\Models\Post::touch', 'App\Models\Post::save'], 6, &$freshMemo]);
+        $this->assertCount(1, $memo, 'the reordered seed set must reuse the first entry');
 
-        // Reflection erases riskInputs()'s real return type, so narrow it back explicitly rather
-        // than indexing into `mixed`.
-        $this->assertIsArray($first);
-        $this->assertIsArray($memoized);
+        // The route is two hops up. At depth 1 the same seeds reach no entry point, so a key without
+        // the depth would answer this from the depth-6 entry.
+        $shallow = $query->invokeArgs($analyzer, [['App\Models\Post::save', 'App\Models\Post::touch'], 1, &$memo]);
+
+        // Reflection erases the real return type, so narrow it back rather than compare `mixed`.
         $this->assertIsArray($fresh);
+        $this->assertIsArray($memoized);
+        $this->assertSame([self::ROUTE], $first);
         $this->assertSame($fresh, $memoized);
-        $this->assertSame($first, $memoized);
-        $this->assertSame(1, $first[0]);
+        $this->assertIsArray($shallow);
+        $this->assertCount(0, $shallow);
+    }
+
+    #[Test]
+    public function the_attribution_walks_the_same_call_only_reach_as_the_list(): void
+    {
+        // The attribution and the reported list read one query. `Author::name` reaches the publish
+        // route only through a model relation, so the list does not count it. A per-file walk that
+        // crossed that relation would give the route to `Author.php` (own reach 1) instead of to
+        // `Publisher.php` (own reach 2), through a path the report refuses to count.
+        $graph = new CodeGraph([
+            ['source' => self::ROUTE, 'target' => 'App\Http\Controllers\PostController::publish', 'type' => 'route-to-controller'],
+            ['source' => 'route::GET::/posts', 'target' => 'App\Http\Controllers\PostController::index', 'type' => 'route-to-controller'],
+            ['source' => 'App\Http\Controllers\PostController::publish', 'target' => 'App\Services\Publisher::run', 'type' => 'action-to-service'],
+            ['source' => 'App\Http\Controllers\PostController::index', 'target' => 'App\Services\Publisher::run', 'type' => 'action-to-service'],
+            ['source' => 'App\Http\Controllers\PostController::publish', 'target' => 'App\Models\Post', 'type' => 'action-to-service'],
+            ['source' => 'App\Models\Post', 'target' => 'App\Models\Author::name', 'type' => 'model-relationship'],
+        ], hasUnparseableFiles: false);
+
+        $result = new ImpactAnalyzer($graph)->detectChanges([
+            $this->changedMethod('app/Services/Publisher.php', 'App\Services\Publisher', 'run'),
+            $this->changedMethod('app/Models/Author.php', 'App\Models\Author', 'name'),
+        ]);
+
+        $this->assertEqualsCanonicalizing([self::ROUTE, 'route::GET::/posts'], $result['entryPoints']);
+        $this->assertSame('app/Services/Publisher.php', $result['entryPointAttribution'][self::ROUTE]['via'] ?? null);
     }
 
     #[Test]

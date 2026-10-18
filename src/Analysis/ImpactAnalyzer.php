@@ -90,7 +90,15 @@ final readonly class ImpactAnalyzer
      *
      * @var list<string>
      */
-    public const array ASSOCIATION_EDGE_TYPES = ['model-relationship', 'model-to-policy', 'config-registry-fanout'];
+    public const array ASSOCIATION_EDGE_TYPES = [...self::MODEL_ASSOCIATION_EDGE_TYPES, 'config-registry-fanout'];
+
+    /**
+     * The association edges a model relation draws. A walk that excludes only these still crosses a
+     * registry fan-out, which is how `registryEntryPoints` is found.
+     *
+     * @var list<string>
+     */
+    private const array MODEL_ASSOCIATION_EDGE_TYPES = ['model-relationship', 'model-to-policy'];
 
     public function __construct(private CodeGraph $graph) {}
 
@@ -124,7 +132,8 @@ final readonly class ImpactAnalyzer
 
         // Same split as detectChanges(): a surface reached only through a model relation is context,
         // not something that calls the symbol, and mixing the two makes a long list unreadable.
-        $entryPoints = $this->entryPointsAmong($this->graph->callersOf($seeds, $maxDepth, self::ASSOCIATION_EDGE_TYPES));
+        $noMemo = [];
+        $entryPoints = $this->callReachedEntryPoints($seeds, $maxDepth, $noMemo);
         $associationEntryPoints = array_values(array_diff($this->entryPointsAmong($callers), $entryPoints));
         [$entryPointLocations, $entryPointSecurity, $entryPointGates] = $this->entryPointAnnotations($entryPoints);
         $crossCheck = new PublicWriteAuthCrossCheck($this->graph);
@@ -246,8 +255,8 @@ final readonly class ImpactAnalyzer
         $coverage = [];
         /** @var list<string> $newFileFindings */
         $newFileFindings = [];
-        // Scoped to this single detectChanges() run — see riskInputs()'s docblock.
-        $riskInputsMemo = [];
+        // Scoped to this single detectChanges() run — see callReachedEntryPoints()'s docblock.
+        $reachMemo = [];
 
         // Derived up front, not accumulated in the loop below: the loop returns early for the additive
         // and frontend lanes, which would silently drop those files from both maps.
@@ -329,7 +338,7 @@ final readonly class ImpactAnalyzer
         // admin resource named as a reached surface while the routes that actually run the changed
         // code report no path at all. The impacted count already draws this distinction (see
         // `relatedModels` below); the entry-point list now draws it too.
-        $entryPoints = $this->entryPointsAmong($this->graph->callersOf($seeds, $maxDepth, self::ASSOCIATION_EDGE_TYPES));
+        $entryPoints = $this->callReachedEntryPoints($seeds, $maxDepth, $reachMemo);
         $associationEntryPoints = array_values(array_diff($this->entryPointsAmong($callers), $entryPoints));
         // A registry fan-out is context in the REPORT — it names every class its config file lists,
         // so it cannot tell one of them from another — but the dispatch behind it is real, and a
@@ -337,7 +346,7 @@ final readonly class ImpactAnalyzer
         // {@see AffectedTests} can select over it without the entry-point list claiming it as a
         // caller. Internal, like the walk lists above: no output format reads it.
         $registryEntryPoints = array_values(array_diff(
-            $this->entryPointsAmong($this->graph->callersOf($seeds, $maxDepth, ['model-relationship', 'model-to-policy'])),
+            $this->entryPointsAmong($this->graph->callersOf($seeds, $maxDepth, self::MODEL_ASSOCIATION_EDGE_TYPES)),
             $entryPoints,
         ));
         // The set the LEVEL grades, frozen before the two joins below. A frontend file's routes and a
@@ -351,10 +360,10 @@ final readonly class ImpactAnalyzer
         // deliberately carries no chain.
         $entryPointPaths = $this->entryPointPathsFor($entryPoints, $callers, $seeds, $maxDepth);
 
-        $entryPoints = $this->withSelfListedEntryClasses($entryPoints, $changed, $perFileSeeds, $maxDepth, $riskInputsMemo);
+        $entryPoints = $this->withSelfListedEntryClasses($entryPoints, $changed, $perFileSeeds, $maxDepth, $reachMemo);
         $entryPoints = $this->withFrontendEntryPoints($entryPoints, $frontendSeeds);
 
-        $coverage = $this->withUnresolvedJobFlips($coverage, $changed, $perFileSeeds, $maxDepth, $riskInputsMemo);
+        $coverage = $this->withUnresolvedJobFlips($coverage, $changed, $perFileSeeds, $maxDepth, $reachMemo);
 
         // A node only reachable through `model-relationship` is context, not risk — counting it lets touching a hub model saturate to HIGH on relation breadth alone. Any behavioural edge still counts.
         $reach = $this->graph->reachedViaTypes($seeds, $maxDepth, $dependencySeeds);
@@ -430,7 +439,9 @@ final readonly class ImpactAnalyzer
         // selection reads the entry-point SET rather than the order, so on that hot path it would be
         // paid for output nobody looks at. Same bargain `payloadParityEnabled: false` already strikes.
         $entryPointAttribution = $attributionEnabled
-            ? new EntryPointAttribution($this->graph, $this->entryPointsAmong(...))->for($perFileSeeds, $entryPoints, $maxDepth)
+            ? new EntryPointAttribution(function (array $seeds, int $depth) use (&$reachMemo): array {
+                return $this->callReachedEntryPoints($seeds, $depth, $reachMemo);
+            })->for($perFileSeeds, $entryPoints, $maxDepth)
             : [];
 
         // Computed HERE, once, and carried — never re-derived by a formatter or by the presenter. The
@@ -447,7 +458,9 @@ final readonly class ImpactAnalyzer
         );
 
         $graded = new VerificationSet($reachedEntryPoints, $changed, $perFileSeeds);
-        $members = $graded->members(fn (array $seeds): int => $this->riskInputs($seeds, $maxDepth, $riskInputsMemo)[0]);
+        $members = $graded->members(function (array $seeds) use (&$reachMemo, $maxDepth): int {
+            return count($this->callReachedEntryPoints($seeds, $maxDepth, $reachMemo));
+        });
         [$risk, $riskCause, $verification] = RiskLadder::decide($hazards, $graded->analysesExistingCode(), $members, $tests);
 
         return [
@@ -648,10 +661,10 @@ final readonly class ImpactAnalyzer
      * @param  list<string>  $entryPoints
      * @param  list<ChangedFileSymbols>  $changed
      * @param  array<string, list<string>>  $perFileSeeds
-     * @param  array<string, array{0: int, 1: int}>  $riskInputsMemo
+     * @param  array<string, list<string>>  $reachMemo
      * @return list<string>
      */
-    private function withSelfListedEntryClasses(array $entryPoints, array $changed, array $perFileSeeds, int $maxDepth, array &$riskInputsMemo): array
+    private function withSelfListedEntryClasses(array $entryPoints, array $changed, array $perFileSeeds, int $maxDepth, array &$reachMemo): array
     {
         foreach ($changed as $file) {
             if ($file->hasOnlyAdditiveOrCosmeticChanges()) {
@@ -668,9 +681,7 @@ final readonly class ImpactAnalyzer
                 continue;
             }
 
-            [$ownEntryPoints] = $this->riskInputs($perFileSeeds[$file->file] ?? [], $maxDepth, $riskInputsMemo);
-
-            if ($ownEntryPoints === 0) {
+            if ($this->callReachedEntryPoints($perFileSeeds[$file->file] ?? [], $maxDepth, $reachMemo) === []) {
                 $entryPoints[] = $file->fqcn;
             }
         }
@@ -709,10 +720,10 @@ final readonly class ImpactAnalyzer
      * @param  array<string, 'analyzed'|'unresolved'>  $coverage
      * @param  list<ChangedFileSymbols>  $changed
      * @param  array<string, list<string>>  $perFileSeeds
-     * @param  array<string, array{0: int, 1: int}>  $riskInputsMemo
+     * @param  array<string, list<string>>  $reachMemo
      * @return array<string, 'analyzed'|'unresolved'>
      */
-    private function withUnresolvedJobFlips(array $coverage, array $changed, array $perFileSeeds, int $maxDepth, array &$riskInputsMemo): array
+    private function withUnresolvedJobFlips(array $coverage, array $changed, array $perFileSeeds, int $maxDepth, array &$reachMemo): array
     {
         // Preserve this flip's original trigger across plan 036's S1/S2 split: a changed job's
         // dispatcher could live in an unparseable file (S1) just as easily as in an unfollowable
@@ -722,7 +733,7 @@ final readonly class ImpactAnalyzer
         }
 
         foreach ($changed as $file) {
-            if ($this->jobCoverageIsUnresolvable($file, $coverage[$file->file] ?? null, $perFileSeeds[$file->file] ?? [], $maxDepth, $riskInputsMemo)) {
+            if ($this->jobCoverageIsUnresolvable($file, $coverage[$file->file] ?? null, $perFileSeeds[$file->file] ?? [], $maxDepth, $reachMemo)) {
                 $coverage[$file->file] = 'unresolved';
             }
         }
@@ -737,9 +748,9 @@ final readonly class ImpactAnalyzer
      *
      * @param  'analyzed'|'unresolved'|null  $coverage
      * @param  list<string>  $fileSeeds
-     * @param  array<string, array{0: int, 1: int}>  $riskInputsMemo
+     * @param  array<string, list<string>>  $reachMemo
      */
-    private function jobCoverageIsUnresolvable(ChangedFileSymbols $file, ?string $coverage, array $fileSeeds, int $maxDepth, array &$riskInputsMemo): bool
+    private function jobCoverageIsUnresolvable(ChangedFileSymbols $file, ?string $coverage, array $fileSeeds, int $maxDepth, array &$reachMemo): bool
     {
         if ($file->hasOnlyAdditiveOrCosmeticChanges() || $coverage !== 'analyzed') {
             return false;
@@ -749,9 +760,7 @@ final readonly class ImpactAnalyzer
             return false;
         }
 
-        [$jobEntryPoints] = $this->riskInputs($fileSeeds, $maxDepth, $riskInputsMemo);
-
-        return $jobEntryPoints === 0;
+        return $this->callReachedEntryPoints($fileSeeds, $maxDepth, $reachMemo) === [];
     }
 
     /**
@@ -786,76 +795,37 @@ final readonly class ImpactAnalyzer
     }
 
     /**
-     * Two graph walks (`callersOf` + `reachedViaTypes`) over one seed set — called once per
-     * changed entry-point-class file and once per changed job file, so the same seed set (an
-     * identical member change, or two files resolving to the same node) recurs often within one
-     * {@see detectChanges()} run. `$memo` is a plain local array threaded by reference from
-     * `detectChanges()` for that single run's lifetime (never an instance property: this class is
-     * `readonly`, so an instance property could not be reassigned after construction — the memo has
-     * to live in the call stack instead), keyed on maxDepth + the seed set sorted on a COPY so the
-     * caller's array order is never disturbed.
+     * The entry points that CALL one seed set: one upward walk with {@see ASSOCIATION_EDGE_TYPES}
+     * excluded, the same exclusion the reported list uses. Every caller asks a question about callers,
+     * and a surface reached only through a model relation answers none of them: counting it once let
+     * association reach hold a coarse change at HIGH.
      *
-     * The entry-point walk excludes {@see ASSOCIATION_EDGE_TYPES}, exactly as the reported list does.
-     * Every caller here asks a question about callers, and a surface reached only through a model
-     * relation answers none of them: counting it let association reach hold a coarse change at HIGH,
-     * on the one path the split that removed it elsewhere did not cover.
+     * One query for every reader in a run — the reported list, the self-listing and job-flip checks,
+     * the verification count, and the per-file attribution — so the same seed set (an identical member
+     * change, or two files resolving to the same node) is walked once. `$memo` is a plain local array
+     * threaded by reference from `detectChanges()` for that single run's lifetime (never an instance
+     * property: this class is `readonly`, so the memo has to live in the call stack instead).
      *
-     * The edge-type exclusion is fixed rather than a parameter — the memo is keyed on maxDepth and
-     * the seed set, so two callers asking with different exclusions would alias onto one entry.
-     * `$alsoChanged` is parameterised, so it is folded into that key for the same reason.
-     *
-     * One seed set, both directions — unlike {@see detectChanges()}, which walks a coarse class node
-     * upstream only. The single call site that consumes the impacted half is the coarse-cap rescore,
-     * and it walks PRECISE seeds, which are symmetric by construction: member nodes for an ordinary
-     * change, and a new file's class node that belongs in both walks. The other two call sites read
-     * the entry-point half and discard the count. So no asymmetric set reaches here, and a parameter
-     * for one would only add a memo-key branch nothing exercises.
-     *
-     * `$alsoChanged` is the rest of the change: nodes a caller scores a SUBSET of. A walk never
-     * reports its own seeds as reached ({@see CodeGraph::reachedViaTypes()} unsets them; the BFS
-     * marks them seen at depth 0), so without this the dropped nodes stop being seeds and read as
-     * reached — an artifact of scoring, not reach, and how a scored count exceeded a printed one.
+     * The key is maxDepth plus the seed set, sorted on a COPY so the caller's array order is never
+     * disturbed. The edge-type exclusion is fixed rather than a parameter, because two callers asking
+     * with different exclusions would alias onto one entry.
      *
      * @param  list<string>  $seeds
-     * @param  array<string, array{0: int, 1: int}>  $memo
-     * @param  list<string>  $alsoChanged  changed nodes outside `$seeds`, never counted as reached
-     * @return array{0: int, 1: int} [entryPointCount, impactedCount]
+     * @param  array<string, list<string>>  $memo
+     * @return list<string>
      */
-    private function riskInputs(array $seeds, int $maxDepth, array &$memo, array $alsoChanged = []): array
+    private function callReachedEntryPoints(array $seeds, int $maxDepth, array &$memo): array
     {
         if ($seeds === []) {
-            return [0, 0];
+            return [];
         }
 
         $sortedSeeds = $seeds;
         sort($sortedSeeds);
-        $sortedAlsoChanged = $alsoChanged;
-        sort($sortedAlsoChanged);
-        // NUL-joined: no node-id shape carries a NUL byte, so two distinct sets can never alias one
-        // key (a comma could, in principle, appear inside a future node id). The seed count pins
-        // where one set ends and the other begins — a delimiter alone would not, since an empty id
-        // in either set can shift the boundary and produce a colliding string.
-        $key = implode("\0", [$maxDepth, count($sortedSeeds), ...$sortedSeeds, ...$sortedAlsoChanged]);
+        // NUL-joined: no node-id shape carries a NUL byte, so two distinct sets can never alias one key.
+        $key = implode("\0", [$maxDepth, ...$sortedSeeds]);
 
-        if (isset($memo[$key])) {
-            return $memo[$key];
-        }
-
-        $changed = array_fill_keys($alsoChanged, true);
-
-        // Filtered on the hop, before the UI-component collapse, so this mirrors the full walk
-        // exactly: there too a suppressed class node still reaches the list when a MEMBER of it is
-        // walked, since the member is a node of its own and never a seed.
-        $reachedCallers = array_filter(
-            $this->graph->callersOf($seeds, $maxDepth, self::ASSOCIATION_EDGE_TYPES),
-            static fn (array $hop): bool => ! isset($changed[$hop['node']]),
-        );
-
-        $entryPoints = $this->entryPointsAmong(array_values($reachedCallers));
-        $reach = array_diff_key($this->graph->reachedViaTypes($seeds, $maxDepth), $changed);
-        $impacted = count(array_filter($reach, $this->isRiskBearing(...)));
-
-        return $memo[$key] = [count($entryPoints), $impacted];
+        return $memo[$key] ??= $this->entryPointsAmong($this->graph->callersOf($seeds, $maxDepth, self::ASSOCIATION_EDGE_TYPES));
     }
 
     /**

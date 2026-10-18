@@ -3,7 +3,6 @@
 namespace SanderMuller\Richter\Analysis;
 
 use Closure;
-use SanderMuller\Richter\Graph\CodeGraph;
 
 /**
  * Which changed file explains each reached entry point, and how far that file reaches on its own.
@@ -36,11 +35,12 @@ use SanderMuller\Richter\Graph\CodeGraph;
 final readonly class EntryPointAttribution
 {
     /**
-     * @param  Closure(list<array{depth: int, node: string, via: string, file?: string, line?: int}>): list<string>  $entryPointsAmong
-     *   the analyzer's own entry-point test, passed in rather than reimplemented — a second copy of
-     *   that prefix vocabulary would drift. {@see HazardReach} takes it the same way.
+     * @param  Closure(list<string>, int): list<string>  $callReachedEntryPoints  the entry points that
+     *   call one seed set within a depth: the analyzer's own memoized query, passed in rather than
+     *   walked again here. A second copy of the walk once ran beside it, and the same seed set was
+     *   walked twice per run.
      */
-    public function __construct(private CodeGraph $graph, private Closure $entryPointsAmong) {}
+    public function __construct(private Closure $callReachedEntryPoints) {}
 
     /**
      * @param  array<string, list<string>>  $perFileSeeds  changed file => the seeds it resolved to
@@ -132,21 +132,16 @@ final readonly class EntryPointAttribution
     }
 
     /**
-     * One upward walk per changed file, association edges excluded — the same exclusion
-     * {@see ImpactAnalyzer::detectChanges()} applies to the list it reports, so a surface can never be
-     * attributed through a path the report refuses to count.
-     *
-     * This is NEW work, not a walk the run already performs: `riskInputs()` memoizes two counts rather
-     * than the set, and it runs only for changed entry-point-class files and changed job files. Files
-     * resolving to an identical seed set share one walk, which is why the memo is keyed on the seeds
-     * and not on the path.
+     * The entry points each changed file's own seeds call, from the analyzer's call-only query. That
+     * query excludes association edges, the same exclusion {@see ImpactAnalyzer::detectChanges()}
+     * applies to the list it reports, so a surface can never be attributed through a path the report
+     * refuses to count. It is memoized per run, so files that resolve to one seed set share one walk.
      *
      * @param  array<string, list<string>>  $perFileSeeds
      * @return array<string, array<string, true>> file => reached entry points as a set
      */
     private function reachedByFile(array $perFileSeeds, int $maxDepth): array
     {
-        $memo = [];
         $reachedByFile = [];
 
         foreach ($perFileSeeds as $file => $seeds) {
@@ -154,16 +149,7 @@ final readonly class EntryPointAttribution
                 continue;
             }
 
-            $sorted = $seeds;
-            sort($sorted);
-            $key = implode("\0", $sorted);
-
-            $memo[$key] ??= array_fill_keys(
-                ($this->entryPointsAmong)($this->graph->callersOf($seeds, $maxDepth, ImpactAnalyzer::ASSOCIATION_EDGE_TYPES)),
-                true,
-            );
-
-            $reachedByFile[$file] = $memo[$key];
+            $reachedByFile[$file] = array_fill_keys(($this->callReachedEntryPoints)($seeds, $maxDepth), true);
         }
 
         return $reachedByFile;
