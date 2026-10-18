@@ -569,6 +569,7 @@ final readonly class DispatchEdgeTracer
                 continue;
             }
 
+            // What {@see DispatchedElement} leaves of a `new`: a dynamic class, which is unfollowable.
             if ($item->value instanceof New_) {
                 $jobs = [...$jobs, ...$this->jobFromNew($item->value, $origin, $unresolvedSites)];
 

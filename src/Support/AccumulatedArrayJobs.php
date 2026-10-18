@@ -42,11 +42,15 @@ use PhpParser\NodeVisitorAbstract;
  *
  * ## What an append may hold
  *
- * A `new` of a dispatch target, or an inline closure. The closure exemption is not new leniency: an inline
+ * A `new` of a named class, or an inline closure. The closure exemption is not new leniency: an inline
  * `Bus::chain([new A, fn () => …])` already skips its closure items, because a closure IS the queued work
  * and its body is in the source the tracers read. An accumulator built the same way deserves the same
  * reading, and a chain of closures alone therefore resolves to no jobs and no unfollowable site — which is
  * correct, not a gap.
+ *
+ * A `new` of a named class that is no dispatch target is allowed too, and contributes no job: Laravel
+ * cannot run it as a chain item, and the inline form reads it the same way. {@see DispatchedElement::jobsOf()}
+ * holds the rule and the one gap it leaves.
  *
  * A conditional append is allowed, and this is the one rule that differs from the single-local proof.
  * There, a conditional assignment is fatal because the claim is what the variable IS, and a branch not

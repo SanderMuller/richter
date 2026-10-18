@@ -130,7 +130,8 @@ final class GraphCache
      * change; the bump is for the general case, as the 9 → 10 note explains.
      * 27 → 28: a spread element in a dispatched array literal (`[...new SomeJob()]`, `[...$job]`) is an
      * unresolved-dispatch site, as it already was in an accumulated array. A 27 entry lacks those sites,
-     * so it reads such a dispatch as resolved.
+     * so it reads such a dispatch as resolved. In the same release, an accumulated array that appends a
+     * `new` of a class that is no dispatch target stops being a site, as the inline literal already was.
      */
     private const int FORMAT_VERSION = 28;
 

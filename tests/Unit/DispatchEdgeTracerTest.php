@@ -759,6 +759,20 @@ final class DispatchEdgeTracerTest extends TestCase
     }
 
     #[Test]
+    public function an_append_of_a_class_that_is_no_dispatch_target_resolves_to_no_job(): void
+    {
+        // A loadable class with no handle() or __invoke() that is not dispatchable by declaration.
+        // Laravel's chain calls `chain()` and `onConnection()` on every item, so such an object fails
+        // at runtime and runs no application code. The inline literal and `dispatch(new Foo())` already
+        // read it this way.
+        $body = "\$chain = [];\n\$chain[] = new ImportJob();\n\$chain[] = new \\DateTimeImmutable();\nBus::chain(\$chain)->dispatch();";
+        $uses = "use App\Jobs\ImportJob;\nuse Illuminate\Support\Facades\Bus;";
+
+        $this->assertSame(['App\Jobs\ImportJob::handle'], array_column($this->edges($body, $uses), 'target'));
+        $this->assertSame(0, $this->unresolved($body, $uses));
+    }
+
+    #[Test]
     public function an_accumulator_of_only_closures_resolves_to_no_jobs_and_no_site(): void
     {
         // Not a gap: a closure IS the queued work and its body is in the source the tracers read, which
@@ -781,10 +795,12 @@ final class DispatchEdgeTracerTest extends TestCase
     public static function unprovableAccumulators(): Iterator
     {
         yield 'an append of something this pass cannot see' => ["\$chain[] = new ImportJob();\n\$chain[] = \$mystery;"];
+        // The class is a variable, so this pass cannot tell whether it is a job. Only a NAMED class that
+        // is no dispatch target reads as no job.
+        yield 'an append of a new of a dynamic class' => ["\$chain[] = new ImportJob();\n\$chain[] = new \$class();"];
         yield 'a keyed write replaces rather than appends' => ["\$chain[] = new ImportJob();\n\$chain[0] = \$mystery;"];
         yield 'array_push mutates it without mentioning an append' => ["\$chain[] = new ImportJob();\narray_push(\$chain, \$mystery);"];
         yield 'reassigned wholesale after the appends' => ["\$chain[] = new ImportJob();\n\$chain = \$mystery;"];
-        yield 'an append that is not a dispatch target' => ["\$chain[] = new \DateTimeImmutable();"];
         yield 'started empty twice, so the appends span two arrays' => ["\$chain[] = new ImportJob();\n\$chain = [];\n\$chain[] = \$mystery;"];
         yield 'the scope handed out by name' => ["\$chain[] = new ImportJob();\n\$seen = compact('chain');"];
         yield 'a keyed write twice, so the last one wins and the first is not in it' => ["\$chain[0] = new ImportJob();\n\$chain[0] = new ArchiveJob();"];
@@ -894,8 +910,7 @@ final class DispatchEdgeTracerTest extends TestCase
      *
      * Two inline readings are left out on purpose, because the accumulator has no equivalent: a local
      * bound to a job above the dispatch, and the target a factory call such as `ImportJob::for(1)`
-     * names. A `new` of a class that is no dispatch target is left out too: the inline form ignores it
-     * and the accumulator refuses it, and which one is right is still open.
+     * names.
      *
      * @return Iterator<string, array{string}>
      */
@@ -906,6 +921,9 @@ final class DispatchEdgeTracerTest extends TestCase
         yield 'an arrow function' => ['fn () => null'];
         yield 'a closure' => ['function () {}'];
         yield 'a new of a dynamic class' => ['new $class()'];
+        // Loadable, not dispatchable by declaration, and with no handle() or __invoke(): Laravel cannot
+        // run it as a chain or batch item, so both forms read it as no job and no site.
+        yield 'a new of a class that is no dispatch target' => ['new \\DateTimeImmutable()'];
         yield 'a variable' => ['$mystery'];
         yield 'a spread of a variable' => ['...$others'];
         // A Traversable job spreads what it YIELDS, so the array holds something else. The value is a
