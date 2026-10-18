@@ -4,7 +4,9 @@ namespace SanderMuller\Richter\Tests\Unit;
 
 use Illuminate\Filesystem\Filesystem;
 use PHPUnit\Framework\Attributes\Test;
+use SanderMuller\Richter\Analysis\Hazards\GuardMiddleware;
 use SanderMuller\Richter\Analysis\MiddlewareGroupFindings;
+use SanderMuller\Richter\Analysis\MiddlewareGroups;
 use SanderMuller\Richter\Graph\CodeGraph;
 use SanderMuller\Richter\Tests\TestCase;
 
@@ -188,6 +190,115 @@ final class MiddlewareGroupFindingsTest extends TestCase
         ], hasUnparseableFiles: false);
 
         $this->assertStringContainsString('guards 1 route;', $this->lane($graph)->findingsFor(self::TENANT)[0]);
+    }
+
+    #[Test]
+    public function a_bootstrap_append_to_group_call_is_read(): void
+    {
+        $this->bootstrap("\$middleware->appendToGroup('api', [\\App\\Http\\Middleware\\EnsureTenant::class]);");
+
+        $this->assertCount(1, $this->lane($this->graphWithRoutes(2))->findingsFor(self::TENANT));
+    }
+
+    #[Test]
+    public function a_bootstrap_prepend_is_read_like_an_append(): void
+    {
+        $this->bootstrap('$middleware->api(prepend: [\\App\\Http\\Middleware\\EnsureTenant::class]);');
+
+        $this->assertCount(1, $this->lane($this->graphWithRoutes(2))->findingsFor(self::TENANT));
+    }
+
+    #[Test]
+    public function a_member_built_by_a_static_call_is_the_class_it_builds(): void
+    {
+        // `ThrottleRequests::with(30, 1)` is the shape: a builder that returns the class name with
+        // its parameters. The changed file is that class, so the member must resolve to it.
+        $this->bootstrap("\$middleware->api(append: [\\App\\Http\\Middleware\\EnsureTenant::with('strict')]);");
+
+        $this->assertCount(1, $this->lane($this->graphWithRoutes(2))->findingsFor(self::TENANT));
+    }
+
+    #[Test]
+    public function two_calls_on_one_group_are_merged(): void
+    {
+        // A second call adds to the group. Keeping only the last one drops the member the first one added.
+        $this->bootstrap(
+            "\$middleware->api(append: [\\App\\Http\\Middleware\\EnsureTenant::class]);\n"
+            . '        $middleware->api(append: [\\App\\Http\\Middleware\\Other::class]);',
+        );
+
+        $this->assertCount(1, $this->lane($this->graphWithRoutes(2))->findingsFor(self::TENANT));
+    }
+
+    #[Test]
+    public function a_member_removed_from_the_group_is_not_reported(): void
+    {
+        $this->bootstrap(
+            "\$middleware->appendToGroup('api', [\\App\\Http\\Middleware\\EnsureTenant::class]);\n"
+            . "        \$middleware->removeFromGroup('api', \\App\\Http\\Middleware\\EnsureTenant::class);",
+        );
+
+        $this->assertSame([], $this->lane($this->graphWithRoutes(2))->findingsFor(self::TENANT));
+    }
+
+    #[Test]
+    public function a_kernel_stub_beside_bootstrap_does_not_hide_the_bootstrap_groups(): void
+    {
+        // An upgraded app can keep an old Kernel. Laravel 11+ reads bootstrap/app.php, so a group
+        // declared there wins over the Kernel's stale copy of the same group.
+        $this->kernel("'api' => [\\App\\Http\\Middleware\\Other::class],");
+        $this->bootstrap('$middleware->api(append: [\\App\\Http\\Middleware\\EnsureTenant::class]);');
+
+        $this->assertCount(1, $this->lane($this->graphWithRoutes(2))->findingsFor(self::TENANT));
+    }
+
+    #[Test]
+    public function the_member_names_project_onto_the_guard_tokens_the_hazard_lane_reads(): void
+    {
+        // Both lanes read groups through one reader, so one source gives both lanes the same groups.
+        // Where no two names stand for one guard, the names projected onto guard tokens are exactly
+        // the tokens the hazard lane compares.
+        $source = <<<'PHP'
+            <?php
+
+            use Illuminate\Foundation\Configuration\Middleware;
+
+            return Application::configure()->withMiddleware(function (Middleware $middleware): void {
+                $middleware->web(append: ['auth', \App\Http\Middleware\EnsureTenant::class], remove: ['verified']);
+                $middleware->appendToGroup('admin', ['can:manage', 'throttle:10,1']);
+                $middleware->replaceInGroup('admin', 'throttle:10,1', 'throttle:20,1');
+            });
+            PHP;
+
+        $names = MiddlewareGroups::fromSource($source, MiddlewareGroups::namesIn(...));
+        $tokens = MiddlewareGroups::fromSource($source, GuardMiddleware::tokensIn(...));
+
+        $this->assertNotNull($names);
+        $this->assertNotNull($tokens);
+        $this->assertSame(['web', 'admin'], array_keys($names));
+        $this->assertSame(
+            $tokens,
+            array_map(static fn (array $group): array => [GuardMiddleware::tokensFor($group[0]), GuardMiddleware::tokensFor($group[1])], $names),
+        );
+        $this->assertSame(['middleware:auth'], $tokens['web'][0]);
+        $this->assertSame(['middleware:verified'], $tokens['web'][1]);
+    }
+
+    private function bootstrap(string $calls): void
+    {
+        mkdir("{$this->projectRoot}/bootstrap");
+        file_put_contents("{$this->projectRoot}/bootstrap/app.php", <<<PHP
+            <?php declare(strict_types=1);
+
+            use Illuminate\\Foundation\\Application;
+            use Illuminate\\Foundation\\Configuration\\Middleware;
+
+            return Application::configure(basePath: dirname(__DIR__))
+                ->withMiddleware(function (Middleware \$middleware): void {
+                    {$calls}
+                })
+                ->create();
+            PHP);
     }
 
     private function kernel(string $groups, string $aliases = ''): void

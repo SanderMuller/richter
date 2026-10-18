@@ -4,7 +4,6 @@ namespace SanderMuller\Richter\Analysis;
 
 use Illuminate\Routing\Route as RoutingRoute;
 use Illuminate\Support\Facades\Route;
-use LaraMint\LaravelBrain\Analysis\MiddlewareAnalyzer;
 use SanderMuller\Richter\Graph\CodeGraph;
 use SanderMuller\Richter\Graph\MiddlewareAliases;
 use SanderMuller\Richter\Support\RunningApplication;
@@ -30,12 +29,9 @@ use Throwable;
  * toward risk would raise the level of every middleware edit in every consuming app at once, which
  * is a decision that needs its own evidence, not a side effect of this note.
  *
- * Group membership comes from Brain's {@see MiddlewareAnalyzer}, which already reads
- * `$middlewareGroups` from a Laravel 10 Kernel and the `->web(append: [...])` form from a Laravel 11+
- * `bootstrap/app.php` — and then never uses it (`MiddlewareRegistry::resolveGroup()` has no callers
- * upstream). One caveat comes with it: that analyzer takes the Kernel when both files exist, where
- * richter's own alias reader prefers bootstrap. An upgraded app that kept an empty Kernel stub
- * therefore yields no groups and no note — a reach limit, never a wrong one.
+ * Group membership comes from {@see MiddlewareGroups}, the reader the group hazard lane uses too, so
+ * every Kernel and `bootstrap/app.php` form one lane reads the other reads. Only the middleware a
+ * group RUNS count; one named under `remove` does not run there.
  *
  * @internal
  */
@@ -150,10 +146,7 @@ final class MiddlewareGroupFindings
     private function groups(string $root): array
     {
         try {
-            /** @var array<string, list<string>> $groups */
-            $groups = new MiddlewareAnalyzer()->analyze($root)->groups;
-
-            return $groups;
+            return array_map(static fn (array $group): array => $group[0], MiddlewareGroups::forProject($root));
         } catch (Throwable) {
             // An unreadable or exotic Kernel is a missing note, never a failed report.
             return [];
