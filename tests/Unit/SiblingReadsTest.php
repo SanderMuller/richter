@@ -142,13 +142,11 @@ final class SiblingReadsTest extends TestCase
 
             // Both must be soft, not merely equal: asserting equality alone passes when a form is
             // wrongly hard on BOTH paths, which is the failure this test exists to catch.
-            //
-            // SOFT, not the same label. A guard reaching a read through a local cannot report which
-            // soft form it was, so `$id ?? 1` and `$id ?: 1` record emptiness where the direct forms
-            // record fallback. That difference never reaches a reader: a soft read produces no
-            // finding, so no label is printed for it.
             $this->assertTrue($this->isSoft($direct), "direct: {$form}");
             $this->assertTrue($this->isSoft($viaLocal), "via local: {$form}");
+            // And the same LABEL. A sibling's soft style is printed as the evidence of a finding, so a
+            // `?:` recorded as `fallback` one way and `emptiness` the other is a different sentence.
+            $this->assertSame(array_keys($this->stylesFor($direct)), array_keys($this->stylesFor($viaLocal)), "label: {$form}");
         }
     }
 
@@ -176,7 +174,32 @@ final class SiblingReadsTest extends TestCase
             // not recognised at all and the read stays bare.
             $this->assertContains('null-test', array_keys($this->stylesFor($direct)), "direct: {$form}");
             $this->assertContains('null-test', array_keys($this->stylesFor($viaLocal)), "via local: {$form}");
+            $this->assertSame(array_keys($this->stylesFor($direct)), array_keys($this->stylesFor($viaLocal)), "label: {$form}");
         }
+    }
+
+    #[Test]
+    public function a_local_tested_two_ways_keeps_both_styles_like_the_direct_reads_do(): void
+    {
+        // `! $id` tolerates absence and `$id === null` detects it. Written directly, those are two
+        // reads with one style each, and the tolerant one makes the property soft. Through a local
+        // they reached the read as ONE style, the "strongest", so the tolerance was dropped and the
+        // read reported.
+        $direct = '        if (! $order->external_id) { return; }' . "\n" . '        if ($order->external_id === null) { return; }';
+        $viaLocal = '        $id = $order->external_id;' . "\n" . '        if (! $id) { return; }' . "\n" . '        if ($id === null) { return; }';
+
+        $this->assertSame(['emptiness', 'null-test'], $this->sortedStyles($direct));
+        $this->assertSame(['emptiness', 'null-test'], $this->sortedStyles($viaLocal));
+        $this->assertTrue($this->isSoft($viaLocal));
+    }
+
+    /** @return list<string> */
+    private function sortedStyles(string $body): array
+    {
+        $styles = array_keys($this->stylesFor($body));
+        sort($styles);
+
+        return $styles;
     }
 
     #[Test]

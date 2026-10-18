@@ -5,6 +5,7 @@ namespace SanderMuller\Richter\Changes;
 use Closure;
 use PhpParser\Node;
 use PhpParser\Node\Arg;
+use PhpParser\Node\Expr;
 use PhpParser\Node\Expr\AssignOp\Coalesce as CoalesceAssign;
 use PhpParser\Node\Expr\BinaryOp\BooleanAnd;
 use PhpParser\Node\Expr\BinaryOp\BooleanOr;
@@ -81,8 +82,8 @@ use PhpParser\Node\Stmt\While_;
  * The table above is the authority. Do not read this history as a reason to put `isset()` back among
  * the soft forms.
  *
- * One table, read by both halves of {@see ReadStyles}: the half that judges a property fetch, and the
- * half that judges a local the fetch was assigned to. They were separate lists once, and they
+ * One table, read in one pass by {@see ReadStyles} for both a property fetch and a local the fetch was
+ * assigned to. They were separate lists once, and then separate reducers, and each time they
  * disagreed — `! $order->flag` graded bare while `$f = $order->flag; if (! $f)` graded guarded, so the
  * lane reported the direct form and stayed silent on the same tolerance written the other way round.
  *
@@ -184,8 +185,15 @@ final class AbsenceTests
             Isset_::class => [static fn (Node $n): array => $n instanceof Isset_ ? array_values($n->vars) : [], static fn (Node $n): string => SiblingReads::STYLE_NULL_TEST],
         ];
 
+        // `$x ?: 'd'` tests its condition for truth AND supplies a value, so it is a fallback, like
+        // `??`. Every other truth test only tests. Resolved per node, so a local and a direct read of
+        // the same `?:` carry the same label.
+        $truthStyle = static fn (Node $n): string => $n instanceof Ternary && ! $n->if instanceof Expr
+            ? SiblingReads::STYLE_FALLBACK
+            : SiblingReads::STYLE_EMPTINESS;
+
         foreach (self::truthiness() as $class => $subject) {
-            $tests[$class] = [$subject, static fn (Node $n): string => SiblingReads::STYLE_EMPTINESS];
+            $tests[$class] = [$subject, $truthStyle];
         }
 
         return $tests;
@@ -213,7 +221,7 @@ final class AbsenceTests
      *
      * @return list<Node>
      */
-    public static function nullComparedSides(Node $left, Node $right): array
+    private static function nullComparedSides(Node $left, Node $right): array
     {
         foreach ([[$left, $right], [$right, $left]] as [$side, $other]) {
             if ($other instanceof ConstFetch && strtolower($other->name->toString()) === 'null') {
@@ -247,7 +255,7 @@ final class AbsenceTests
     }
 
     /** The style a helper call implies: `is_null()` tests for null, it does not tolerate it. */
-    public static function helperStyle(FuncCall $call): ?string
+    private static function helperStyle(FuncCall $call): ?string
     {
         if (! $call->name instanceof Name) {
             return null;
@@ -258,23 +266,5 @@ final class AbsenceTests
             'is_null' => SiblingReads::STYLE_NULL_TEST,
             default => null,
         };
-    }
-
-    /**
-     * The arguments of any call, for the caller that already knows the style.
-     *
-     * @return list<Node>
-     */
-    public static function arguments(FuncCall $call): array
-    {
-        $arguments = [];
-
-        foreach ($call->args as $argument) {
-            if ($argument instanceof Arg) {
-                $arguments[] = $argument->value;
-            }
-        }
-
-        return $arguments;
     }
 }

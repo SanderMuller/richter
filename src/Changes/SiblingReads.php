@@ -116,8 +116,9 @@ final class SiblingReads
                 continue;
             }
 
-            $style = $styles[spl_object_id($fetch)] ?? self::STYLE_BARE;
-            $reads[$receiver . '->' . $fetch->name->toString()][$style][] = $where;
+            foreach ($styles[spl_object_id($fetch)] ?? [self::STYLE_BARE] as $style) {
+                $reads[$receiver . '->' . $fetch->name->toString()][$style][] = $where;
+            }
         }
     }
 
