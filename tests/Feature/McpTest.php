@@ -16,6 +16,8 @@ use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\Attributes\Test;
 use SanderMuller\Richter\Analysis\BoundedPresenter;
 use SanderMuller\Richter\Analysis\JsonPresenter;
+use SanderMuller\Richter\Analysis\RiskLevel;
+use SanderMuller\Richter\Analysis\TaskSlice;
 use SanderMuller\Richter\Mcp\Resources\ConfigResource;
 use SanderMuller\Richter\Mcp\Resources\EntryPointsResource;
 use SanderMuller\Richter\Mcp\Resources\GraphStatsResource;
@@ -662,6 +664,59 @@ final class McpTest extends TestCase
             'relatedModelsTotal',
             'traitAndOverrideReachTotal',
         ], array_keys($detectChangesProperties));
+    }
+
+    #[Test]
+    public function every_output_schema_lists_exactly_the_keys_its_presenter_emits(): void
+    {
+        // The test above pins each schema to a literal. This one pins it to the code that builds the
+        // document, so a key added to a presenter and forgotten in the schema (or the reverse) fails.
+        // Key SETS, not order: the detect-changes schema and presenter order their keys differently.
+        $detectChangesResult = [
+            'changed' => [], 'coverage' => [], 'entryPoints' => [], 'entryPointPaths' => [], 'entryPointLocations' => [],
+            'entryPointSecurity' => [], 'entryPointGates' => [], 'impacted' => 0, 'relatedModels' => [],
+            'risk' => RiskLevel::Low, 'lowConfidence' => false, 'findings' => [],
+        ];
+        $impactResult = [
+            'target' => 'App\\Models\\Post', 'callers' => [], 'dependencies' => [], 'entryPoints' => [],
+            'associationEntryPoints' => [], 'entryPointPaths' => [], 'entryPointLocations' => [], 'entryPointSecurity' => [],
+            'entryPointGates' => [], 'entryPointAuthGates' => [],
+        ];
+        $traceResult = [
+            'from' => 'a', 'to' => 'b', 'resolvedFrom' => [], 'resolvedTo' => [], 'found' => false, 'path' => [],
+            'furthestReached' => ['node' => 'a', 'depth' => 0],
+        ];
+        $selection = [
+            'base' => 'origin/main', 'determinable' => true, 'reasons' => [], 'tests' => [], 'testsTotal' => 0, 'testsShare' => 0.0, 'testsExcluded' => 0,
+            'frontendTests' => [],
+            'unreferencedEntryPoints' => 0, 'unresolvedDispatchSites' => [],
+        ];
+
+        $documents = [
+            // The documents the tools emit: detect-changes and impact go through the bounded presenter.
+            DetectChangesTool::class => [
+                BoundedPresenter::detectChanges(JsonPresenter::detectChanges($detectChangesResult, 'origin/main')),
+                BoundedPresenter::detectChanges(JsonPresenter::emptyDetectChanges('origin/main')),
+            ],
+            ImpactTool::class => [BoundedPresenter::impact(JsonPresenter::impact($impactResult))],
+            TraceTool::class => [JsonPresenter::trace($traceResult)],
+            TaskSliceTool::class => [TaskSlice::compose(JsonPresenter::emptyDetectChanges('origin/main'), $selection)],
+        ];
+
+        foreach ($documents as $tool => $emitted) {
+            $schema = resolve($tool)->toArray()['outputSchema'] ?? [];
+            $this->assertIsArray($schema);
+            $properties = $schema['properties'] ?? [];
+            $this->assertIsArray($properties);
+            $advertised = array_keys($properties);
+            sort($advertised);
+
+            foreach ($emitted as $document) {
+                $keys = array_keys($document);
+                sort($keys);
+                $this->assertSame($advertised, $keys, $tool);
+            }
+        }
     }
 
     #[Test]

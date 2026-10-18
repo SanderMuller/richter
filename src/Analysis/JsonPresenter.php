@@ -25,9 +25,10 @@ final class JsonPresenter
 
         // Picked key by key, not passed through: the analyzer result also carries the miss diagnostics
         // (`suggestions`, `graphNodeCount`) the text report renders, and this document is a declared
-        // contract — the MCP tool validates it against its own output schema, so an extra key here is
-        // a schema violation, not a bonus. Widening the contract is a deliberate change, not a
-        // side effect of adding a field for the human-readable report.
+        // contract. The MCP tool advertises it as its output schema, which a client may validate the
+        // structured content against; McpTest pins the schema's keys to this method's. Widening the
+        // contract is a deliberate change, not a side effect of adding a field for the human-readable
+        // report.
         return [
             'target' => $result['target'],
             'callers' => $result['callers'],
@@ -56,8 +57,8 @@ final class JsonPresenter
      */
     public static function trace(array $result): array
     {
-        // Picked key by key like impact(): the document is a declared contract the MCP
-        // tool validates against its output schema — widening it is a deliberate change.
+        // Picked key by key like impact(): the document is the MCP tool's advertised output schema,
+        // so widening it is a deliberate change.
         $document = [
             'from' => $result['from'],
             'to' => $result['to'],
