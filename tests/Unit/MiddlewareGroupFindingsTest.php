@@ -250,12 +250,24 @@ final class MiddlewareGroupFindingsTest extends TestCase
     }
 
     #[Test]
-    public function a_group_declaration_replaces_the_members_read_before_it(): void
+    public function a_member_appended_before_the_group_declaration_still_runs(): void
     {
-        // Laravel's `group()` assigns the whole list, so a member appended before it is gone.
+        // Laravel applies appends to the declared list wherever the file writes them, so `group()`
+        // written after the append does not drop it.
         $this->bootstrap(
             "\$middleware->appendToGroup('api', [\\App\\Http\\Middleware\\EnsureTenant::class]);\n"
             . "        \$middleware->group('api', [\\App\\Http\\Middleware\\Other::class]);",
+        );
+
+        $this->assertCount(1, $this->lane($this->graphWithRoutes(2))->findingsFor(self::TENANT));
+    }
+
+    #[Test]
+    public function a_member_removed_before_the_group_declaration_is_not_reported(): void
+    {
+        $this->bootstrap(
+            "\$middleware->removeFromGroup('api', \\App\\Http\\Middleware\\EnsureTenant::class);\n"
+            . "        \$middleware->group('api', [\\App\\Http\\Middleware\\EnsureTenant::class]);",
         );
 
         $this->assertSame([], $this->lane($this->graphWithRoutes(2))->findingsFor(self::TENANT));

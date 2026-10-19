@@ -81,6 +81,7 @@ final class MiddlewareGroups
         }
 
         $groups = self::fromKernelProperty($ast, $project);
+        $declared = [];
 
         foreach (new NodeFinder()->findInstanceOf(self::configuratorBodies($ast), MethodCall::class) as $call) {
             if (! $call instanceof MethodCall || ! $call->name instanceof Identifier) {
@@ -95,10 +96,36 @@ final class MiddlewareGroups
                 continue;
             }
 
+            // `group('admin', [...])` sets the declared list. Laravel applies every removal and
+            // addition to that list wherever the file writes them, so a modification read before it
+            // still counts.
+            if ($name === 'group') {
+                self::recordDeclaration($declared, $call->args, $project);
+
+                continue;
+            }
+
             self::applyNamedGroupCall($groups, $name, $call->args, $project);
         }
 
+        foreach ($declared as $group => $members) {
+            [$runs, $removed] = $groups[$group] ?? [[], []];
+            $groups[$group] = [array_values(array_unique([...array_diff($members, $removed), ...$runs])), $removed];
+        }
+
         return $groups;
+    }
+
+    /**
+     * @param  array<string, list<string>>  $declared
+     * @param  array<Node>  $args
+     * @param  Closure(?Expr): list<string>  $project
+     */
+    private static function recordDeclaration(array &$declared, array $args, Closure $project): void
+    {
+        if (($args[0] ?? null) instanceof Arg && $args[0]->value instanceof String_) {
+            $declared[$args[0]->value->value] = ($args[1] ?? null) instanceof Arg ? $project($args[1]->value) : [];
+        }
     }
 
     /**
@@ -155,8 +182,8 @@ final class MiddlewareGroups
     }
 
     /**
-     * The calls that name their group in the first argument: `appendToGroup`, `prependToGroup`,
-     * `removeFromGroup`, `replaceInGroup` and `group`. Any other call is not a group call.
+     * The calls that modify a group they name in the first argument: `appendToGroup`, `prependToGroup`,
+     * `removeFromGroup` and `replaceInGroup`. Any other call is not a group call.
      *
      * @param  array<string, array{0: list<string>, 1: list<string>}>  $groups
      * @param  array<Node>  $args
@@ -166,7 +193,7 @@ final class MiddlewareGroups
     {
         $removes = in_array($name, self::REMOVING_GROUP_METHODS, strict: true);
 
-        if (! $removes && ! in_array($name, self::NAMED_GROUP_METHODS, strict: true) && $name !== 'replaceInGroup' && $name !== 'group') {
+        if (! $removes && ! in_array($name, self::NAMED_GROUP_METHODS, strict: true) && $name !== 'replaceInGroup') {
             return;
         }
 
@@ -179,13 +206,6 @@ final class MiddlewareGroups
         }
 
         $first = ($args[1] ?? null) instanceof Arg ? $project($args[1]->value) : [];
-
-        // `group('admin', [...])` assigns the whole list, so what came before it is gone.
-        if ($name === 'group') {
-            $groups[$group] = [array_values(array_unique($first)), []];
-
-            return;
-        }
 
         // `replaceInGroup('web', $search, $replace)` swaps one for another: the searched middleware
         // leaves the group and the replacement joins it.
