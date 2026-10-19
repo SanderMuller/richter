@@ -1039,12 +1039,33 @@ final class HazardLanesTest extends TestCase
         // The guard is still named in the file, and no shape this reader knows accounts for it. That
         // is a refactor it cannot follow, not an authentication removal.
         $base = "<?php\nreturn Application::configure()->withMiddleware(function (\$middleware): void {\n    \$middleware->web(append: ['auth']);\n})->create();\n";
-        $head = "<?php\nreturn Application::configure()->withMiddleware(function (\$middleware): void {\n    \$middleware->group('web', ['auth']);\n})->create();\n";
+        $head = "<?php\nreturn Application::configure()->withMiddleware(function (\$middleware): void {\n    configureWeb(\$middleware, ['auth']);\n})->create();\n";
 
         [$hazards, , $findings] = MiddlewareGroupHazards::for('bootstrap/app.php', $head, $base);
 
         $this->assertSame([], $hazards);
         $this->assertCount(1, $findings);
+    }
+
+    #[Test]
+    public function a_group_rewritten_as_a_group_declaration_is_compared_and_unchanged(): void
+    {
+        // `group('web', [...])` assigns the members, so the reader compares it like any other shape.
+        $base = "<?php\nreturn Application::configure()->withMiddleware(function (\$middleware): void {\n    \$middleware->web(append: ['auth']);\n})->create();\n";
+        $head = "<?php\nreturn Application::configure()->withMiddleware(function (\$middleware): void {\n    \$middleware->group('web', ['auth']);\n})->create();\n";
+
+        $this->assertSame([[], [], []], MiddlewareGroupHazards::for('bootstrap/app.php', $head, $base));
+    }
+
+    #[Test]
+    public function a_group_declaration_that_drops_a_guard_is_a_removal(): void
+    {
+        $base = "<?php\nreturn Application::configure()->withMiddleware(function (\$middleware): void {\n    \$middleware->group('admin', ['auth', 'throttle:api']);\n})->create();\n";
+        $head = "<?php\nreturn Application::configure()->withMiddleware(function (\$middleware): void {\n    \$middleware->group('admin', ['throttle:api']);\n})->create();\n";
+
+        [$hazards] = MiddlewareGroupHazards::for('bootstrap/app.php', $head, $base);
+
+        $this->assertCount(1, $hazards);
     }
 
     #[Test]

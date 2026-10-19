@@ -242,6 +242,26 @@ final class MiddlewareGroupFindingsTest extends TestCase
     }
 
     #[Test]
+    public function a_group_declared_in_bootstrap_is_read(): void
+    {
+        $this->bootstrap("\$middleware->group('api', [\\App\\Http\\Middleware\\EnsureTenant::class]);");
+
+        $this->assertCount(1, $this->lane($this->graphWithRoutes(2))->findingsFor(self::TENANT));
+    }
+
+    #[Test]
+    public function a_group_declaration_replaces_the_members_read_before_it(): void
+    {
+        // Laravel's `group()` assigns the whole list, so a member appended before it is gone.
+        $this->bootstrap(
+            "\$middleware->appendToGroup('api', [\\App\\Http\\Middleware\\EnsureTenant::class]);\n"
+            . "        \$middleware->group('api', [\\App\\Http\\Middleware\\Other::class]);",
+        );
+
+        $this->assertSame([], $this->lane($this->graphWithRoutes(2))->findingsFor(self::TENANT));
+    }
+
+    #[Test]
     public function a_kernel_stub_beside_bootstrap_does_not_hide_the_bootstrap_groups(): void
     {
         // An upgraded app can keep an old Kernel. Laravel 11+ reads bootstrap/app.php, so a group

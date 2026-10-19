@@ -24,7 +24,8 @@ use SanderMuller\Richter\Support\AppFiles;
 /**
  * The middleware groups an app declares, read from the two places it can declare them: the Laravel 10
  * Kernel's `$middlewareGroups` array and the Laravel 11+ `withMiddleware` calls in `bootstrap/app.php`
- * (`web(append: [...])`, `api(remove: [...])`, `appendToGroup('name', [...])`, and the rest).
+ * (`web(append: [...])`, `api(remove: [...])`, `group('name', [...])`, `appendToGroup('name', [...])`,
+ * and the rest).
  *
  * One reader for both lanes that ask. {@see MiddlewareGroupHazards} compares the guards a group runs;
  * {@see MiddlewareGroupFindings} sizes the routes a member runs on. Each passes its own projection of
@@ -94,38 +95,7 @@ final class MiddlewareGroups
                 continue;
             }
 
-            $removes = in_array($name, self::REMOVING_GROUP_METHODS, strict: true);
-
-            if (! $removes && ! in_array($name, self::NAMED_GROUP_METHODS, strict: true) && $name !== 'replaceInGroup') {
-                continue;
-            }
-
-            $group = ($call->args[0] ?? null) instanceof Arg && $call->args[0]->value instanceof String_
-                ? $call->args[0]->value->value
-                : null;
-
-            if ($group === null) {
-                continue;
-            }
-
-            $first = ($call->args[1] ?? null) instanceof Arg ? $project($call->args[1]->value) : [];
-
-            // `replaceInGroup('web', $search, $replace)` swaps one for another: the searched middleware
-            // leaves the group and the replacement joins it.
-            $second = $name === 'replaceInGroup' && ($call->args[2] ?? null) instanceof Arg
-                ? $project($call->args[2]->value)
-                : [];
-
-            $gone = $removes || $name === 'replaceInGroup' ? array_diff($first, $second) : [];
-            $joined = $removes ? [] : ($name === 'replaceInGroup' ? $second : $first);
-
-            // A middleware that rejoins the group leaves the removal set with it. These calls are a
-            // SEQUENCE, and reading the final state as "removed and also present" would report a
-            // removal for a group that still runs it.
-            $groups[$group] = [
-                array_values(array_diff(array_unique([...$groups[$group][0] ?? [], ...$joined]), $gone)),
-                array_values(array_diff(array_unique([...$groups[$group][1] ?? [], ...$gone]), $joined)),
-            ];
+            self::applyNamedGroupCall($groups, $name, $call->args, $project);
         }
 
         return $groups;
@@ -182,6 +152,57 @@ final class MiddlewareGroups
         }
 
         return $bodies;
+    }
+
+    /**
+     * The calls that name their group in the first argument: `appendToGroup`, `prependToGroup`,
+     * `removeFromGroup`, `replaceInGroup` and `group`. Any other call is not a group call.
+     *
+     * @param  array<string, array{0: list<string>, 1: list<string>}>  $groups
+     * @param  array<Node>  $args
+     * @param  Closure(?Expr): list<string>  $project
+     */
+    private static function applyNamedGroupCall(array &$groups, string $name, array $args, Closure $project): void
+    {
+        $removes = in_array($name, self::REMOVING_GROUP_METHODS, strict: true);
+
+        if (! $removes && ! in_array($name, self::NAMED_GROUP_METHODS, strict: true) && $name !== 'replaceInGroup' && $name !== 'group') {
+            return;
+        }
+
+        $group = ($args[0] ?? null) instanceof Arg && $args[0]->value instanceof String_
+            ? $args[0]->value->value
+            : null;
+
+        if ($group === null) {
+            return;
+        }
+
+        $first = ($args[1] ?? null) instanceof Arg ? $project($args[1]->value) : [];
+
+        // `group('admin', [...])` assigns the whole list, so what came before it is gone.
+        if ($name === 'group') {
+            $groups[$group] = [array_values(array_unique($first)), []];
+
+            return;
+        }
+
+        // `replaceInGroup('web', $search, $replace)` swaps one for another: the searched middleware
+        // leaves the group and the replacement joins it.
+        $second = $name === 'replaceInGroup' && ($args[2] ?? null) instanceof Arg
+            ? $project($args[2]->value)
+            : [];
+
+        $gone = $removes || $name === 'replaceInGroup' ? array_diff($first, $second) : [];
+        $joined = $removes ? [] : ($name === 'replaceInGroup' ? $second : $first);
+
+        // A middleware that rejoins the group leaves the removal set with it. These calls are a
+        // SEQUENCE, and reading the final state as "removed and also present" would report a
+        // removal for a group that still runs it.
+        $groups[$group] = [
+            array_values(array_diff(array_unique([...$groups[$group][0] ?? [], ...$joined]), $gone)),
+            array_values(array_diff(array_unique([...$groups[$group][1] ?? [], ...$gone]), $joined)),
+        ];
     }
 
     /**
