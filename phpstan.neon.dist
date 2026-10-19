@@ -8,15 +8,18 @@ includes:
 parameters:
     tmpDir: .cache/phpstan
 
-    # symplify/phpstan-rules >= 14.17 auto-loads every rule set; this project uses none of them.
+    # symplify/phpstan-rules auto-loads every rule set; this project uses none of them. 14.19 added
+    # `modern` and `collections`, both on by default, so the floor is 14.19 and each set is listed.
     symplify:
         naming: false
         complexity: false
         configurable: false
         static: false
+        modern: false
         symfony: false
         symfonyConfig: false
         doctrine: false
+        collections: false
         phpunit: false
 
     # See the file's docblock: Larastan's own bootstrap leaves LARAVEL_VERSION undefined on CI, and
