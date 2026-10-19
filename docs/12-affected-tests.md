@@ -36,7 +36,11 @@ else php artisan test; fi   # exit 2: not determinable, run the full suite
 
 ## How tests are selected
 
-The command inverts the test-reference index into a selection: the test files that reference any entry point the diff reaches, plus the tests that import any changed class or any class that **reaches** the change (a unit test of an intermediate caller never touches an entry point). That axis runs upward only, and [not downward](#why-the-import-axis-runs-one-way). A test naming a Livewire component by string (`Livewire::test('admin.dashboard')`, the `livewire()` helper) counts as referencing `App\Livewire\Admin\Dashboard` via the default naming convention. A `schedule::` entry resolves through the command it runs, and a route matched by neither its name nor a literal URI resolves through the class handling it, so a test importing a Livewire component or a Filament page selects the route driven by it. Only conventionally-named `*Test.php` files are selected; helpers and fixtures under `tests/` never end up as runner arguments, and an entry point whose only references live in a support trait blocks determination rather than silently dropping the tests using that trait. Selection is reference-based recall, not proof of coverage: reached entry points nothing references contribute nothing, and the report says how many those are.
+The command inverts the test-reference index into a selection: the test files that reference any entry point the diff reaches, plus the tests that import any changed class or any class that **reaches** the change (a unit test of an intermediate caller never touches an entry point). That axis runs upward only, and [not downward](#why-the-import-axis-runs-one-way). A test naming a Livewire component by string (`Livewire::test('admin.dashboard')`, the `livewire()` helper) counts as referencing `App\Livewire\Admin\Dashboard` via the default naming convention.
+
+A `schedule::` entry resolves through the command it runs, and a route matched by neither its name nor a literal URI resolves through the class handling it, so a test importing a Livewire component or a Filament page selects the route driven by it.
+
+Only conventionally-named `*Test.php` files are selected; helpers and fixtures under `tests/` never end up as runner arguments, and an entry point whose only references live in a support trait blocks determination rather than silently dropping the tests using that trait. Selection is reference-based recall, not proof of coverage: reached entry points nothing references contribute nothing, and the report says how many those are.
 
 ## Why the import axis runs one way
 
@@ -86,11 +90,12 @@ genuinely needs a dynamic dispatch keeps running its full suite, correctly.
 **Some sites cannot be cleared from the application side, and it is worth knowing which before you
 start.** A named constructor on the job's own class, `dispatch(SendInvoice::forOrder($order))`, is
 listed even though the receiver names the job, because nothing in this pass proves that method returns
-an instance of its own class (the edge *is* drawn; only the site stays). Rewriting the call site does
-not help: any form that keeps the factory keeps the site. Since one site is enough to make every run
-report `not determinable`, a project whose remaining sites are all of that kind has a floor it cannot
-reach past, and restructuring the others buys nothing until the last one goes. Check the list for these
-before planning that work.
+an instance of its own class (the edge *is* drawn; only the site stays).
+
+Rewriting the call site does not help: any form that keeps the factory keeps the site. Since one site
+is enough to make every run report `not determinable`, a project whose remaining sites are all of that
+kind has a floor it cannot reach past, and restructuring the others buys nothing until the last one
+goes. Check the list for these before planning that work.
 
 Five shapes look unfollowable and are not counted, because none of them hides anything:
 
@@ -118,12 +123,14 @@ Five shapes look unfollowable and are not counted, because none of them hides an
   because the code between the map and the dispatch needs it. `$jobs = $items->map(...);` then
   `Bus::batch($jobs->all())` resolves. The bar is the locally-built job's, and one guard stricter. The
   method must write that name exactly once, at the top level, before the dispatch, so a binding under
-  an `if`, a rebinding, a `foreach` binding or a dynamic write anywhere keeps the site. It must also
-  mention the name nowhere else: a collection is an object, and `$jobs->push($other)` changes what the
-  batch holds without writing the name, so any other mention keeps the site as well: a mutator call, or
-  a pass to a helper that could keep the handle. A method that reaches its own locals by name rather
-  than by writing them proves nothing here either: `compact()` and `get_defined_vars()` hand the
-  collection out with no mention to count, and `extract()` and `eval()` can replace it outright.
+  an `if`, a rebinding, a `foreach` binding or a dynamic write anywhere keeps the site.
+
+  It must also mention the name nowhere else: a collection is an object, and `$jobs->push($other)`
+  changes what the batch holds without writing the name, so any other mention keeps the site as well: a
+  mutator call, or a pass to a helper that could keep the handle. A method that reaches its own locals
+  by name rather than by writing them proves nothing here either: `compact()` and `get_defined_vars()`
+  hand the collection out with no mention to count, and `extract()` and `eval()` can replace it
+  outright.
 
   The receiver is the one thing this does not check. It reads method names, not types, so a class of
   your own that spells `map()` and `all()` with different semantics is believed. Typing the receiver
@@ -145,20 +152,23 @@ Five shapes look unfollowable and are not counted, because none of them hides an
   `->finally()` is how queued work is normally sequenced, so the accumulator and its dispatch naturally
   end up in a closure together, and a closure body is read as its own scope. What it may NOT do is reach
   in from outside: a name arriving through `use ($chain)`, `use (&$chain)`, or a parameter keeps the site.
+
   A by-value capture is a second name for the array, so appends inside say nothing about what the outer
   name holds, and a by-reference capture is a mutation this proof cannot bound. For the same reason, a
   dispatch is only ever resolved against an accumulator its own immediate scope owns, never one from an
   enclosing scope, which the closure could not see without capturing it anyway.
 
-  The bar is otherwise absolute, and it has to be, because `$chain[] = …` assigns to an array element
-  rather than to the variable: the write counting that guards the shapes above cannot see an append at
-  all, so leaning on it would accept a method that also mutates the array some other way. Instead every
-  single mention of the name in the method must be one of three things. The `= []` that starts it, the
-  left side of an append whose value is a `new` dispatch target or an inline closure, or the read that
-  dispatches it. One mention that is none of those keeps the site, whatever it does. That is what makes
-  `array_push($chain, $x)`, a keyed write like `$chain[0] = $x`, starting from a non-empty literal,
-  starting inside a branch, a wholesale reassignment, a second read, and a scope handed out by
-  `compact()` all keep the site without needing to be listed as special cases.
+  The bar is otherwise absolute, and it has to be, because `$chain[] = …` assigns to an array element rather than to the
+  variable: the write counting that guards the shapes above cannot see an append at all, so leaning on it would accept a
+  method that also mutates the array some other way.
+
+  Instead every single mention of the name in the method must be one of three things. The `= []` that starts it, the left
+  side of an append whose value is a `new` of a named class or an inline closure, or the read that dispatches it.
+
+  A class that is no dispatch target adds no job, because Laravel fails it at dispatch before any application code runs.
+  One mention that is none of those keeps the site, whatever it does. That is what makes `array_push($chain, $x)`, a keyed
+  write like `$chain[0] = $x`, starting from a non-empty literal, starting inside a branch, a wholesale reassignment, a
+  second read, and a scope handed out by `compact()` all keep the site without needing to be listed as special cases.
 
 - A string argument. `$this->dispatch('some-event')` is not a job dispatch. `DispatchesJobs::dispatch()`
   takes a job *object*, so a string can never be one. The common case is a Livewire component emitting

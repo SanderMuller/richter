@@ -24,17 +24,27 @@ It exists for routes only (Brain classifies nothing else), and false positives a
 
 Brain classifies exposure from the route's static middleware surface, so it can flag a `PUBLIC_WRITE` on a route that is in fact gated by a policy-constant check (`Gate::authorize(PostPolicy::UPDATE, …)`) it cannot see. Richter cross-checks such a finding against its own `authorizes` edges: when the route's reach authorizes a policy, it adds a note pointing at that policy. The note is evidence for you to verify rather than a suppression, and Brain's finding stays shown.
 
-A third cross-check reads the **booted router** — the one surface that proves guards against the registered application itself: it sees runtime-registered groups and aliases, controller `HasMiddleware`, and `withoutMiddleware()` exclusions no static parse carries, and it corroborates everything the static side already classifies. When the analysis runs against the booted working tree (never under a named `--head`, never on a foreign checkout), richter resolves each `[public]`-classified route's fully expanded middleware stack and, where a recognized auth middleware survives it, notes the guard and the group it arrived through beside the finding (`the booted router shows Authenticate (via middleware group 'web') on this route`). Like the other two cross-checks it is evidence, never a suppression — Brain's finding stays shown — and it feeds a hazard's reach class through the same door. Recognition is fail-closed: every registered route sharing the node id must carry the guard, an excluded (`withoutMiddleware`) guard never counts, and any router failure is silence. The `--json` and MCP documents carry it as `entryPointRuntimeGuards`.
+A third cross-check reads the **booted router** — the one surface that proves guards against the registered application itself: it sees runtime-registered groups and aliases, controller `HasMiddleware`, and `withoutMiddleware()` exclusions no static parse carries, and it corroborates everything the static side already classifies.
 
-Brain reads auth middleware by name (the aliases `auth`, `auth.basic`, `sanctum`, `jwt` and the like, plus basenames), by walking a class's `extends` chain to all four framework auth bases, and — since Brain 2.6, below richter's floor — by expanding named middleware groups, so the classic group-applied and renamed-descendant shapes are recognised statically. Richter still walks the ancestry of all four bases itself and notes the applied auth middleware beside a finding as evidence rather than a suppression — corroboration on the shapes Brain covers, and the answer where an upstream regression reopens one. Middleware that authenticates without extending a framework class and without matching a name pattern is invisible to the static side; list it under `laravel-brain.security.auth_middleware` to teach Brain the name. A `MISSING_THROTTLE` is left to stand.
+When the analysis runs against the booted working tree (never under a named `--head`, never on a foreign checkout), richter resolves each `[public]`-classified route's fully expanded middleware stack and, where a recognized auth middleware survives it, notes the guard and the group it arrived through beside the finding (`the booted router shows Authenticate (via middleware group 'web') on this route`).
+
+Like the other two cross-checks it is evidence, never a suppression — Brain's finding stays shown — and it feeds a hazard's reach class through the same door. Recognition is fail-closed: every registered route sharing the node id must carry the guard, an excluded (`withoutMiddleware`) guard never counts, and any router failure is silence. The `--json` and MCP documents carry it as `entryPointRuntimeGuards`.
+
+Brain reads auth middleware by name (the aliases `auth`, `auth.basic`, `sanctum`, `jwt` and the like, plus basenames), by walking a class's `extends` chain to all four framework auth bases, and — since Brain 2.6, below richter's floor — by expanding named middleware groups, so the classic group-applied and renamed-descendant shapes are recognised statically.
+
+Richter still walks the ancestry of all four bases itself and notes the applied auth middleware beside a finding as evidence rather than a suppression — corroboration on the shapes Brain covers, and the answer where an upstream regression reopens one. Middleware that authenticates without extending a framework class and without matching a name pattern is invisible to the static side; list it under `laravel-brain.security.auth_middleware` to teach Brain the name. A `MISSING_THROTTLE` is left to stand.
 
 ## Feature-flag (Pennant) annotations
 
-Pennant feature gating is annotated the same way. A route guarded by `EnsureFeaturesAreActive` renders its flags inline (`[gated: ai-coach]`, a 🚩 badge in markdown, `entryPointGates` in JSON), and a changed member or Blade view that itself checks a flag (`Feature::active(...)`, `@feature`) notes it under Findings; a flag-gated change has a smaller live blast radius than the raw graph suggests, and the reviewer should know. Route detection reads statically visible middleware (a string alias like `'features:ai-coach'` or an FQCN-string form); the runtime-built `EnsureFeaturesAreActive::using(...)` expression is invisible to static route parsing. Only the `Feature` facade, `@feature`, and any `feature_gate_methods`-configured wrapper method are recognised; a project convention like `FeatureToggle::BETA_DASHBOARD->isActive()` needs an allowlist entry (see [Configuration](17-configuration.md)) before it is noted.
+Pennant feature gating is annotated the same way. A route guarded by `EnsureFeaturesAreActive` renders its flags inline (`[gated: ai-coach]`, a 🚩 badge in markdown, `entryPointGates` in JSON), and a changed member or Blade view that itself checks a flag (`Feature::active(...)`, `@feature`) notes it under Findings; a flag-gated change has a smaller live blast radius than the raw graph suggests, and the reviewer should know.
+
+Route detection reads statically visible middleware (a string alias like `'features:ai-coach'` or an FQCN-string form); the runtime-built `EnsureFeaturesAreActive::using(...)` expression is invisible to static route parsing. Only the `Feature` facade, `@feature`, and any `feature_gate_methods`-configured wrapper method are recognised; a project convention like `FeatureToggle::BETA_DASHBOARD->isActive()` needs an allowlist entry (see [Configuration](17-configuration.md)) before it is noted.
 
 ## Payload parity
 
-A model field added to `$fillable`/`$casts`/`casts()` but never added to a resource that otherwise mirrors the model's other fields is reported as a tier-2 hazard (`AppResource.php mirrors App\Models\X but does not expose <field> added to App\Models\X`), the exact shape behind a payload field silently going missing after an otherwise-correct edit. The lane makes no guesses: the default `mirror_threshold` requires an exact match against the candidate's pre-existing fields before it counts as a mirror, candidate resources are matched by graph wiring first and only by name when nothing is wired, and anything the checker can't statically enumerate (a dynamic `toArray()` key, a spread, an unparseable resource) is silently skipped rather than guessed at. On by default; disable it for one run with `--no-payload-parity` or globally via `payload_parity.enabled` (see [Configuration](17-configuration.md)).
+A model field added to `$fillable`/`$casts`/`casts()` but never added to a resource that otherwise mirrors the model's other fields is reported as a tier-2 hazard (`AppResource.php mirrors App\Models\X but does not expose <field> added to App\Models\X`), the exact shape behind a payload field silently going missing after an otherwise-correct edit.
+
+The lane makes no guesses: the default `mirror_threshold` requires an exact match against the candidate's pre-existing fields before it counts as a mirror, candidate resources are matched by graph wiring first and only by name when nothing is wired, and anything the checker can't statically enumerate (a dynamic `toArray()` key, a spread, an unparseable resource) is silently skipped rather than guessed at. On by default; disable it for one run with `--no-payload-parity` or globally via `payload_parity.enabled` (see [Configuration](17-configuration.md)).
 
 The same lane runs in the consumer direction: a `toArray()` key the diff removes from a resource is flagged when a frontend file that consumes one of the routes the resource reaches still reads it.
 
@@ -42,7 +52,9 @@ The same lane runs in the consumer direction: a `toArray()` key the diff removes
   ! resources/js/Pages/Posts/Show.vue references GET /posts/{post} and reads 'published_at', which this diff removes from App\Http\Resources\PostResource (renamed to 'publishedAt'?)
 ```
 
-The rename hint appears only when exactly one key was removed and one added, never from a similarity guess. Consumers are the configured `frontend.roots` JS/TS files plus every Blade view's inline `<script>` blocks; server-side Blade PHP never counts as a read. Matching is access-shaped only (`.key`, `['key']`, destructuring), so a translation key or an unrelated variable can't trigger it, though an object-literal write (`{ published_at: date }` in a request body) can, since the destructuring pattern cannot tell the two apart. Suppress a known false positive per key with an `ignore` entry (`App\Http\Resources\PostResource::published_at`). The key diff itself is stricter than the model→resource side: a conditional (`mergeWhen`) or constant-keyed entry makes the whole side unenumerable, and the lane stays silent rather than guess at a removal. The scan only runs on a diff that actually removed a key, and it shares the `payload_parity.enabled` switch and `--no-payload-parity` flag.
+The rename hint appears only when exactly one key was removed and one added, never from a similarity guess. Consumers are the configured `frontend.roots` JS/TS files plus every Blade view's inline `<script>` blocks; server-side Blade PHP never counts as a read. Matching is access-shaped only (`.key`, `['key']`, destructuring), so a translation key or an unrelated variable can't trigger it, though an object-literal write (`{ published_at: date }` in a request body) can, since the destructuring pattern cannot tell the two apart.
+
+Suppress a known false positive per key with an `ignore` entry (`App\Http\Resources\PostResource::published_at`). The key diff itself is stricter than the model→resource side: a conditional (`mergeWhen`) or constant-keyed entry makes the whole side unenumerable, and the lane stays silent rather than guess at a removal. The scan only runs on a diff that actually removed a key, and it shares the `payload_parity.enabled` switch and `--no-payload-parity` flag.
 
 A third lane covers the request side. A field removed from a form request's `rules()` stops being validated and stops appearing in `validated()`, so a frontend that still sends it now sends it into nothing, and nothing anywhere reports an error:
 
@@ -52,15 +64,17 @@ A third lane covers the request side. A field removed from a form request's `rul
 
 Matching here is send-shaped rather than access-shaped: an object-literal key, a `FormData` `append`/`set` with a literal name, or an assignment onto a payload by dot or bracket. The route's own verb is printed rather than assumed, because a sent field is not always a POST body: a query parameter on a `GET` route is matched the same way. The false positive mirrors the response lane's: a file that both posts to and reads from the endpoint can match on a field it only reads, and the same per-field `ignore` entry (`App\Http\Requests\StorePostRequest::subtitle`) suppresses it.
 
-Validation written inline is covered by the same lane. A form request is the documented
-convention, not the only place validation lives: an action that validates a handful of fields
-commonly does it in the controller, and those fields are just as removable. Both
-`$request->validate([...])` and the `ValidatesRequests` form `$this->validate($request, [...])` are
-read, the latter only where the class pulls that trait in itself, since `validate` is an ordinary
-method name and a class with its own would otherwise have its argument read as request rules. The
-finding is anchored on the method that holds the call rather than the file, so a controller's
-other actions are not implicated in a field one of them dropped. The per-field `ignore`
-entry takes the same shape against that member (`App\Http\Controllers\PostController::store`).
+Validation written inline is covered by the same lane. A form request is the documented convention,
+not the only place validation lives: an action that validates a handful of fields commonly does it
+in the controller, and those fields are just as removable.
+
+Both `$request->validate([...])` and the `ValidatesRequests` form `$this->validate($request,
+[...])` are read, the latter only where the class pulls that trait in itself, since `validate` is
+an ordinary method name and a class with its own would otherwise have its argument read as request
+rules. The finding is anchored on the method that holds the call rather than the file, so a
+controller's other actions are not implicated in a field one of them dropped. The per-field
+`ignore` entry takes the same shape against that member
+(`App\Http\Controllers\PostController::store`).
 
 The `rules()` parse is as strict as the resource one: a method that builds its array up (`$rules = […]; if (…) …; return $rules;`), a spread, or a constant key makes the side unenumerable and the lane stays silent. Inline rules are
 held to the same bar: a method that passes rules it cannot read (a variable, a merge) is skipped
@@ -101,13 +115,13 @@ What it compares:
   directories the diff touched. A fallback the same change introduces is not evidence about the code
   that was already there.
 
-Only a nullable SCALAR property is compared, proved from the head version of the declaring class: a
-`?string` declaration, or an `@property string|null` line. It is not restricted to Eloquent models. In
-practice the two sources split by where the property lives: a model's columns are described by a
-generated docblock, while a data object's promoted properties carry real declared types. That restriction was measured: read
-literally, a generated docblock marks relations, cast objects, primary keys and timestamps nullable
-too, and those were two thirds of the findings and none of the defect class. `id`, `created_at`,
-`updated_at` and `deleted_at` are never reported.
+Only a nullable SCALAR property is compared, proved from the head version of the declaring class: a `?string` declaration,
+or an `@property string|null` line. It is not restricted to Eloquent models.
+
+In practice the two sources split by where the property lives: a model's columns are described by a generated docblock,
+while a data object's promoted properties carry real declared types. That restriction was measured: read literally, a
+generated docblock marks relations, cast objects, primary keys and timestamps nullable too, and those were two thirds of the
+findings and none of the defect class. `id`, `created_at`, `updated_at` and `deleted_at` are never reported.
 
 The finding names which source proved nullability, and the two are not equal evidence. A `?string`
 declaration is an author saying the value can be absent. A generated `@property string|null` describes
@@ -132,7 +146,13 @@ The group is not expanded into edges: mapping a global group onto every route wo
   ! App\Http\Middleware\EnsureTenant runs in middleware group 'api', which guards 142 routes; group membership is not drawn as edges, so those routes are not in the reach above
 ```
 
-The count comes from the application's registered route table, because the graph cannot answer it: a `route:: → middleware::<group>` edge exists only where a route file applies the group in its own `->middleware('web')` call, and a provider that loops over route files and groups them there, the shape Laravel's own `RouteServiceProvider` ships, draws no such edge for any of them. The graph's subset can be an order of magnitude short of the real figure. Routes are what is counted, so a controller-level attachment of the same group does not inflate it, and a run pointed at a checkout other than the running application falls back to the graph's subset, which under-counts for exactly that reason. Membership comes from the same group reader the [group hazard](08-risk-levels.md#hazards) uses. A `bootstrap/app.php` that calls `withMiddleware` is read alone, because Laravel 11+ then ignores the app's own Kernel. Otherwise the `$middlewareGroups` of a legacy `app/Http/Kernel.php` is read. In `bootstrap/app.php` the reader takes `group('name', [...])`, `web(...)` and `api(...)`, and `appendToGroup`, `prependToGroup`, `removeFromGroup` and `replaceInGroup`, and applies them in the order Laravel applies them, not the order the file writes them. A member written as an alias resolves through the same alias map, and parameters are cut first (`tenant:strict` is one alias with an argument). Nesting is followed: a group may list another group by name and Laravel expands it, so a member of the inner group is also attributed to every group that includes it, and its routes count too. A name that is both a group and an alias is skipped rather than resolved one way (the wrong choice would point the note at the wrong routes), and cycles terminate on a seen-set.
+The count comes from the application's registered route table, because the graph cannot answer it: a `route:: → middleware::<group>` edge exists only where a route file applies the group in its own `->middleware('web')` call, and a provider that loops over route files and groups them there, the shape Laravel's own `RouteServiceProvider` ships, draws no such edge for any of them. The graph's subset can be an order of magnitude short of the real figure.
+
+Routes are what is counted, so a controller-level attachment of the same group does not inflate it, and a run pointed at a checkout other than the running application falls back to the graph's subset, which under-counts for exactly that reason. Membership comes from the same group reader the [group hazard](08-risk-levels.md#hazards) uses. A `bootstrap/app.php` that calls `withMiddleware` is read alone, because Laravel 11+ then ignores the app's own Kernel. Otherwise the `$middlewareGroups` of a legacy `app/Http/Kernel.php` is read.
+
+In `bootstrap/app.php` the reader takes `group('name', [...])`, `web(...)` and `api(...)`, and `appendToGroup`, `prependToGroup`, `removeFromGroup` and `replaceInGroup`, and applies them in the order Laravel applies them, not the order the file writes them. A member written as an alias resolves through the same alias map, and parameters are cut first (`tenant:strict` is one alias with an argument).
+
+Nesting is followed: a group may list another group by name and Laravel expands it, so a member of the inner group is also attributed to every group that includes it, and its routes count too. A name that is both a group and an alias is skipped rather than resolved one way (the wrong choice would point the note at the wrong routes), and cycles terminate on a seen-set.
 
 The note is left out whenever the size cannot be vouched for: a group no route references, a middleware in no group, or a Kernel or `bootstrap/app.php` that does not parse.
 

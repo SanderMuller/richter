@@ -108,7 +108,9 @@ Up to five names are listed, with a count of the rest. Stderr, like the untracke
 
 ## Unplaceable files and the defined-node fallback
 
-Before a file falls through to UNRESOLVED, Richter tries one last lane: the nodes the graph says that file defines. Not every entry surface has a class name to look up. A scheduled task is identified by what it runs and how often, not by a class name, so a change to a legacy `app/Console/Kernel.php` would otherwise be unplaceable despite defining surfaces the graph already knows. The lane reaches only files a lane above already picked up, so it applies within `app/`. A change to `routes/api.php` is read for its guard middleware (see above) and seeds nothing, so it never reaches this lane.
+Before a file falls through to UNRESOLVED, Richter tries one last lane: the nodes the graph says that file defines. Not every entry surface has a class name to look up.
+
+A scheduled task is identified by what it runs and how often, not by a class name, so a change to a legacy `app/Console/Kernel.php` would otherwise be unplaceable despite defining surfaces the graph already knows. The lane reaches only files a lane above already picked up, so it applies within `app/`. A change to `routes/api.php` is read for its guard middleware (see above) and seeds nothing, so it never reaches this lane.
 
 Those surfaces list as touched, but they are never walked and they are not among the surfaces the level grades. A file that declares a surface has not called into it: adding one line to a `$commands` array cannot break the ten commands registered beside it, so the report does not charge the edit with everything those ten reach. The lane runs only when every other lane came up empty, so member-level precision elsewhere is unaffected: a one-method change to a controller still seeds that method, not the class its file also defines.
 
@@ -182,7 +184,9 @@ Entry surfaces reached only by association (context, not callers): 6
 
 The distinction matters most on a model change, where an Eloquent chain can walk from the changed model to admin screens all over the application. Listing those beside real callers made the reached count read far higher than the change warranted and buried the routes that do run the code.
 
-The demoted set is narrow: `model-relationship` and `model-to-policy`, the two edges that associate rather than invoke, plus `config-registry-fanout`, a registry read whose key names no single class, so the surfaces behind it are the same for every class its file names. `override` and an enumerated `config-registry` read are over-approximated calls (the dispatch is real, only the target is uncertain), so a surface behind one stays in the main list. An `override` counts as a call only where a call reaches it: the walk refuses to follow one out of a node it arrived at through type structure alone, so a change to one class in a wide interface hierarchy does not report every sibling implementor. Association surfaces are not graded by the level either, which matches how the impacted total has always treated them.
+The demoted set is narrow: `model-relationship` and `model-to-policy`, the two edges that associate rather than invoke, plus `config-registry-fanout`, a registry read whose key names no single class, so the surfaces behind it are the same for every class its file names. `override` and an enumerated `config-registry` read are over-approximated calls (the dispatch is real, only the target is uncertain), so a surface behind one stays in the main list.
+
+An `override` counts as a call only where a call reaches it: the walk refuses to follow one out of a node it arrived at through type structure alone, so a change to one class in a wide interface hierarchy does not report every sibling implementor. Association surfaces are not graded by the level either, which matches how the impacted total has always treated them.
 
 ## More annotation
 

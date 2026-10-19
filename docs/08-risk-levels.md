@@ -93,12 +93,13 @@ authentication.
 
 Route files are read route by route. `routes/*.php` declares no class, so the lanes above cannot reach
 it. Its own reader compares each route's effective guard set on both sides: the middleware written on
-the route, plus every enclosing `Route::middleware(...)->group()` and
-`Route::group(['middleware' => ...], ...)` wrapper, minus its own `->withoutMiddleware()`. Wrapping
-existing routes in a guarded group is the commonest edit these files see, and a file-wide comparison
-would report every one of those routes as newly unguarded while the group above them says otherwise.
-A route the head no longer declares raises nothing. Deleting a route leaves nobody able to reach it
-unguarded.
+the route, plus every enclosing `Route::middleware(...)->group()` and `Route::group(['middleware' =>
+...], ...)` wrapper, minus its own `->withoutMiddleware()`.
+
+Wrapping existing routes in a guarded group is the commonest edit these files see, and a file-wide
+comparison would report every one of those routes as newly unguarded while the group above them says
+otherwise. A route the head no longer declares raises nothing. Deleting a route leaves nobody able to
+reach it unguarded.
 
 Routes are lined up by verb, URI and action together. Two endpoints mounted at `'/'` under their own
 `prefix()` groups are one key without the action, and their guards would then be read as one set: a
@@ -128,26 +129,26 @@ Deleting a migration raises nothing. Head minus base leaves an empty head with n
 rolling an unrun migration back out of a branch is routine. Whether it already ran against a real
 database is not something richter can see.
 
-The hazard is named for the model that owns the table, so the entry points reaching that model answer
-for it. The table comes from the model the way Eloquent derives it: an explicit `$table` wins, and
-otherwise the snake-cased plural of the class name. A `$table` on a project base model is inherited, so the nearest declaration in the parent chain
-answers. A property declared with no value sets nothing (Eloquent reads `$this->table ?? convention`) so a
-base declaring `protected $table;` as a placeholder leaves its subclasses on the convention, and a
-subclass declaring it that way falls to its own convention rather than inheriting the parent's table. An abstract base model claims no table of its own. Two models claiming one table resolve to
-neither, and a class this can prove is not an Eloquent model owns no table at all, so a
-helper parked under `app/Models` cannot claim one. A base class the scan cannot see is accepted rather
-than refused, since a base model outside `app/Models` is an ordinary layout.
-A table no model claims keeps its own name and grades `no-known-path`: richter cannot see what
-reaches it.
+The hazard is named for the model that owns the table, so the entry points reaching that model answer for it. The table comes from the model the way Eloquent derives it: an explicit `$table`
+wins, and otherwise the snake-cased plural of the class name. A `$table` on a project base model is inherited, so the nearest declaration in the parent chain answers.
+
+A property declared with no value sets nothing (Eloquent reads `$this->table ?? convention`) so a base declaring `protected $table;` as a placeholder leaves its subclasses on the convention,
+and a subclass declaring it that way falls to its own convention rather than inheriting the parent's table. An abstract base model claims no table of its own.
+
+Two models claiming one table resolve to neither, and a class this can prove is not an Eloquent model owns no table at all, so a helper parked under `app/Models` cannot claim one. A base class
+the scan cannot see is accepted rather than refused, since a base model outside `app/Models` is an ordinary layout. A table no model claims keeps its own name and grades `no-known-path`:
+richter cannot see what reaches it.
 
 A dropped or renamed column is then checked against what still names it, and the hazard says where.
 Two surfaces are read: the owning model's own `$fillable`/`$casts`, and the `toArray()` keys of the
 resources that belong to that model and mirror it. The mirror gate matters: one controller may touch
 several models and return several resources, so a resource carrying a key of that name is not evidence
-on its own. A resource match means the resource still carries a key of that
-name, not that it reads the column, and the evidence says so. This is evidence only. It never moves
-the tier or the reach, and a surface richter cannot read is skipped rather than guessed at, because
-the hazard has already fired and a missed reference only under-informs.
+on its own.
+
+A resource match means the resource still carries a key of that name, not that it reads the column,
+and the evidence says so. This is evidence only. It never moves the tier or the reach, and a surface
+richter cannot read is skipped rather than guessed at, because the hazard has already fired and a
+missed reference only under-informs.
 
 `hazards.ignore` silences a migration hazard by table and column (`posts.subtitle`), and the table on
 its own (`posts`) silences every hazard on it, column drops included. That is how a framework table, a queue table or a pivot is quietened, rather than
@@ -164,15 +165,17 @@ That comparison is shape-aware where the arrivals are not. Only two shapes are r
 `api(remove: [...])`, `appendToGroup('name', [...])`). The calls apply in the order Laravel applies
 them, not the order the file writes them: the declared list, then replacements, then removals, then
 additions. So a guard that is both removed and appended still runs. An unrecognised shape produces a
-finding instead of a hazard. A group
-lists its members as `::class` far more often than as an alias, so the framework guard classes map
-onto the aliases they stand for, and swapping one for the other reads as the refactor it is. An
+finding instead of a hazard.
+
+A group lists its members as `::class` far more often than as an alias, so the framework guard classes
+map onto the aliases they stand for, and swapping one for the other reads as the refactor it is. An
 application's own guard class resolves through the alias map the project registers: `$middlewareAliases`
-on a legacy Kernel, or `$middleware->alias([...])` in `bootstrap/app.php`. A project that writes
-`'auth' => Authenticate::class` has said which class is its `auth` guard, so a route naming that class
-and a route naming the string are the same guard. That is declared intent rather than an inference from
-an `extends` clause. A class two guard aliases both name is skipped rather than resolved one way, and a
-class the project registers under no guard alias still draws nothing.
+on a legacy Kernel, or `$middleware->alias([...])` in `bootstrap/app.php`.
+
+A project that writes `'auth' => Authenticate::class` has said which class is its `auth` guard, so a
+route naming that class and a route naming the string are the same guard. That is declared intent rather
+than an inference from an `extends` clause. A class two guard aliases both name is skipped rather than
+resolved one way, and a class the project registers under no guard alias still draws nothing.
 
 The guard vocabulary is the framework's own (`auth`, `verified`, `signed`, `password.confirm`, `can`
 and `throttle`) plus the guards the common packages ship: `role`, `permission` and
@@ -183,21 +186,22 @@ and `throttle`) plus the guards the common packages ship: `role`, `permission` a
 their parameters, because the parameter names what is being authorized: `can:view,post` is a different
 check and `role:editor` admits different people. `auth` is compared by its alias alone, because there
 the parameter picks a driver rather than deciding who gets through, so switching `auth` to
-`auth:sanctum` reports nothing. Where the parameter is a set rather than a position it is sorted
-first, so reordering `abilities:read,write` reports nothing either. The packages disagree on the
-separator, so each is read its own way: spatie's roles are pipe-separated and take an optional guard
-name after a comma, and only the pipes are sorted. `can` keeps its order entirely, because its
-parameters name an ability and then a model.
+`auth:sanctum` reports nothing.
 
-**A rate limit gets its own reading**, because its two directions are not the same thing. Dropping
-`throttle:` altogether is a removed guard at tier 3. Raising the limit is a weakened constraint at tier
-2, reported with both values (`the rate limit on the GET /search route rose from throttle:60,1 to
-throttle:120,1`). Tightening it reports nothing at all. So does a limit richter cannot compare: a
-named limiter such as `throttle:api` keeps its rate in a `RateLimiter::for()` closure that nothing here
-follows, so neither direction is reported. Where a surface carries several throttles, the strictest one is the limit, so a raised limit beside a tighter one reports nothing, and
-one unreadable rate makes the whole set unreadable. Two limits counting over different windows are not
-compared at all: `throttle:100,60` allows a burst of a hundred in one minute where `throttle:2,1`
-allows two, so the averages rank them the wrong way round.
+Where the parameter is a set rather than a position it is sorted first, so reordering
+`abilities:read,write` reports nothing either. The packages disagree on the separator, so each is read
+its own way: spatie's roles are pipe-separated and take an optional guard name after a comma, and only
+the pipes are sorted. `can` keeps its order entirely, because its parameters name an ability and then
+a model.
+
+**A rate limit gets its own reading**, because its two directions are not the same thing. Dropping `throttle:` altogether is a removed guard at tier 3. Raising the limit is a
+weakened constraint at tier 2, reported with both values (`the rate limit on the GET /search route rose from throttle:60,1 to throttle:120,1`). Tightening it reports nothing at
+all. So does a limit richter cannot compare: a named limiter such as `throttle:api` keeps its rate in a `RateLimiter::for()` closure that nothing here follows, so neither
+direction is reported.
+
+Where a surface carries several throttles, the strictest one is the limit, so a raised limit beside a tighter one reports nothing, and one unreadable rate makes the whole set
+unreadable. Two limits counting over different windows are not compared at all: `throttle:100,60` allows a burst of a hundred in one minute where `throttle:2,1` allows two, so
+the averages rank them the wrong way round.
 
 A guard can be written three ways and all three read the same: the alias (`'throttle:30,1'`), the class
 (`ThrottleRequests::class`), and the static call that builds one (`ThrottleRequests::with(30, 1)`). The
@@ -215,11 +219,12 @@ The lanes do not double-report, and a removal is reported once. A removed public
 `auth` lane's at tier 3, because it is a guard and not only a contract, and never also a tier-2
 contract break. A queued class's changed constructor is the `boundary` lane's at tier 2, never also a
 tier-1 signature change. A private member is no one's contract: its removal draws nothing, and a
-signature change is skipped while the member stays private on both sides. A class the diff deletes
-whole is reported once (`the class is gone`) rather than once per member, and a deleted policy class
-is the `auth` lane's, once at tier 3 with every ability it held. A guard can also be gutted without
-being removed: a policy method or form request `authorize()` whose body becomes exactly `return
-true;` is a tier-3 hazard even though the member survives.
+signature change is skipped while the member stays private on both sides.
+
+A class the diff deletes whole is reported once (`the class is gone`) rather than once per member,
+and a deleted policy class is the `auth` lane's, once at tier 3 with every ability it held. A guard
+can also be gutted without being removed: a policy method or form request `authorize()` whose body
+becomes exactly `return true;` is a tier-3 hazard even though the member survives.
 
 The ability is what is compared, not the call shape, so `Gate::denies('publish')` rewritten as
 `$user->cannot('publish')` draws nothing. A policy constant counts as an ability. A project following

@@ -47,33 +47,31 @@ UNRESOLVED; it simply reaches no entry surface.
 Since 0.40 that costs a level as well as reach. A changed class reaching no entry point is graded on
 whether a runnable test imports the class itself, and tests that exercise a throttled route import
 the route helpers rather than the provider, so a provider change with real behavioural tests behind
-it reads `medium`, "no test referencing them". The statement is true about what richter can see. The
-fix is coverage, not a cap: until an edge connects the two, a test that names the class is the only
-thing that changes the answer, and shaping tests to satisfy the tool is the wrong trade.
+it reads `medium`, "no test referencing them".
 
-A route file is compared for guards, not for exposure. `routes/*.php` is read route by route for the
-guard middleware a route lost, which is a hazard. What it does not do is grade the route's exposure at
-base against its exposure at head. Brain classifies the head graph only, and the base side would need
-a second graph build. So a route that was authenticated and is now public is caught by the middleware
-it lost, and not by the exposure it gained. A closure route in a prefixed group also grades
-`no-known-path`, because the URI written in the file is not the URI that was registered. Two registrations that share a verb, a URI and an
-action are read as one route written twice, so a guard dropped from one of them while the other keeps
-it is missed. And a guard lost in one route file while another route file gains one, `routes/web.php` and
-`routes/api.php` in the same diff, reads as the same guard moving and is suppressed. A middleware
-group written in a shape richter does not read reports a finding rather than a comparison, and an
-application subclass of a framework guard middleware matches no name in a group.
+The statement is true about what richter can see. The fix is coverage, not a cap: until an edge
+connects the two, a test that names the class is the only thing that changes the answer, and shaping
+tests to satisfy the tool is the wrong trade.
 
-A migration is read for what its `up()` destroys, not for the schema it describes. A dropped column, a
-dropped table and a renamed column are hazards. A column ADDED is not read at all, so a column added
-to the schema and never added to the model is invisible: today a column reaches richter only through
-the model's `$fillable` or `$casts`. A column name built at runtime still reports the drop, under a
-name richter could not read: on a destructive operation you want the noise rather than the silence. A table name built at runtime is refused instead, since the operation cannot be placed at all. Only operations written directly on the `Schema` facade are read, so a connection-scoped chain such as `Schema::connection('reporting')->drop('posts')` draws nothing. Form requests are not checked for a dropped column. The graph carries no model-to-request association,
-and matching them by name alone would produce hazards on requests that never touch the model. A
-squashed schema dump under `database/schema/` is not PHP and holds no `up()`, so a project that
-squashes has no migration file to read for the squashed range. The model owning a table is looked for
-under `app/Models` only, so an application that keeps its models elsewhere gets the table name as the
-hazard's member and `no-known-path` as its reach. The hazard still reports, with less reach than the
-graph could give it.
+A route file is compared for guards, not for exposure. `routes/*.php` is read route by route for the guard middleware a route lost, which
+is a hazard. What it does not do is grade the route's exposure at base against its exposure at head. Brain classifies the head graph only,
+and the base side would need a second graph build.
+
+So a route that was authenticated and is now public is caught by the middleware it lost, and not by the exposure it gained. A closure
+route in a prefixed group also grades `no-known-path`, because the URI written in the file is not the URI that was registered.
+
+Two registrations that share a verb, a URI and an action are read as one route written twice, so a guard dropped from one of them while
+the other keeps it is missed. And a guard lost in one route file while another route file gains one, `routes/web.php` and `routes/api.php`
+in the same diff, reads as the same guard moving and is suppressed. A middleware group written in a shape richter does not read reports a
+finding rather than a comparison, and an application subclass of a framework guard middleware matches no name in a group.
+
+A migration is read for what its `up()` destroys, not for the schema it describes. A dropped column, a dropped table and a renamed column are hazards. A column ADDED is not read at all, so a column added to the schema and never added to the model is invisible: today a column reaches richter only through the model's `$fillable` or `$casts`.
+
+A column name built at runtime still reports the drop, under a name richter could not read: on a destructive operation you want the noise rather than the silence. A table name built at runtime is refused instead, since the operation cannot be placed at all. Only operations written directly on the `Schema` facade are read, so a connection-scoped chain such as `Schema::connection('reporting')->drop('posts')` draws nothing. Form requests are not checked for a
+dropped column.
+
+The graph carries no model-to-request association, and matching them by name alone would produce hazards on requests that never touch the model. A squashed schema dump under `database/schema/` is not PHP and holds no `up()`, so a project that squashes has no migration file to read for the squashed range. The model owning a table is looked for under `app/Models` only, so an application that keeps its models elsewhere gets the table name as the hazard's member
+and `no-known-path` as its reach. The hazard still reports, with less reach than the graph could give it.
 
 An application that schedules through a legacy `app/Console/Kernel.php` gets no `schedule::` nodes at
 all. Brain models the schedule from the Laravel 11+ `routes/console.php` form; from a Console Kernel
