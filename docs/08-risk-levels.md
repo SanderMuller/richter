@@ -160,8 +160,11 @@ from one is a tier-3 hazard named for the group (`middleware group 'web'`), sile
 `hazards.ignore` under `middleware-group:web`.
 
 That comparison is shape-aware where the arrivals are not. Only two shapes are read: the Kernel's
-`$middlewareGroups` array, and the `withMiddleware` calls (`web(append: [...])`, `api(remove: [...])`,
-`appendToGroup('name', [...])`). An unrecognised shape produces a finding instead of a hazard. A group
+`$middlewareGroups` array, and the `withMiddleware` calls (`group('name', [...])`, `web(append: [...])`,
+`api(remove: [...])`, `appendToGroup('name', [...])`). The calls apply in the order Laravel applies
+them, not the order the file writes them: the declared list, then replacements, then removals, then
+additions. So a guard that is both removed and appended still runs. An unrecognised shape produces a
+finding instead of a hazard. A group
 lists its members as `::class` far more often than as an alias, so the framework guard classes map
 onto the aliases they stand for, and swapping one for the other reads as the refactor it is. An
 application's own guard class resolves through the alias map the project registers: `$middlewareAliases`
