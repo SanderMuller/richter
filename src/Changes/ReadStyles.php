@@ -27,11 +27,9 @@ final class ReadStyles
     /**
      * The guard styles per fetch, and the fetches that are not reads at all.
      *
-     * One pass over {@see AbsenceTests::all()}, for both kinds of subject. A tested PROPERTY FETCH takes
-     * the style directly. A tested LOCAL collects every style it is tested with, and the fetch assigned
-     * into it takes that whole set. Two reducers once judged the two paths, and the same tests gave two
-     * verdicts: a local tested with `! $id` and `$id === null` kept only the "strongest" style, so the
-     * tolerance was dropped, while the same two tests written on the fetch kept both.
+     * One pass over {@see AbsenceTests::all()}, for both kinds of subject, so the same tests give the
+     * same styles on both paths. A tested PROPERTY FETCH collects every style it is tested with. A
+     * tested LOCAL collects them too, and the fetch assigned into it takes that whole set.
      *
      * The tested expression must BE the fetch or the variable. A guard says something about the value
      * it tests, not about every value nested inside it: `if (accepts($order->external_id))` tests what

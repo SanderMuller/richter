@@ -6,9 +6,8 @@ namespace SanderMuller\Richter\Analysis;
  * The head of {@see HtmlFormatter}'s overview: the stat tiles, and the line under them that says why
  * the level is what it is.
  *
- * Its own class because {@see HtmlFormatter} has no headroom — adding the risk-cause line inline put
- * it at 81 against phpstan.neon's class cognitive-complexity ceiling of 80. The split is forced rather
- * than stylistic, the same reason {@see InheritanceCard} lives beside the formatter.
+ * Its own class for the same reason as {@see InheritanceCard}: {@see HtmlFormatter} is at the class
+ * cognitive-complexity limit in phpstan.neon.
  *
  * @phpstan-import-type DetectChangesResult from HtmlFormatter
  *

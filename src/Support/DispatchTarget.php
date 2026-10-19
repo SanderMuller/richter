@@ -106,31 +106,37 @@ final class DispatchTarget
      */
     public static function isIntrinsicOrUnresolvable(string $fqcn): bool
     {
-        try {
-            return ! class_exists($fqcn) || self::isIntrinsic($fqcn);
-        } catch (Throwable) {
-            return true;
-        }
+        return self::isDeclared($fqcn, whenUnknown: true);
     }
 
     /**
-     * Dispatchable by declaration, and KNOWN to be: `\Jobs\`-namespaced, or a class that loads and is
-     * `ShouldQueue` or uses `Dispatchable`. The opposite failure direction to {@see matches()}: a class
-     * that cannot be loaded answers by its name alone. {@see ImpactAnalyzer}'s job-coverage flip asks
-     * this, and a flip on every unloadable changed class would mark changes UNRESOLVED on no evidence.
+     * Dispatchable by declaration, and KNOWN to be. The same test as {@see isIntrinsicOrUnresolvable()},
+     * with the opposite answer for a class that cannot be loaded: {@see ImpactAnalyzer}'s job-coverage
+     * flip asks this, and a flip on every unloadable changed class would mark changes UNRESOLVED on no
+     * evidence.
      *
      * @internal
      */
     public static function isDeclaredDispatchable(string $fqcn): bool
+    {
+        return self::isDeclared($fqcn, whenUnknown: false);
+    }
+
+    /**
+     * {@see isIntrinsic()}, answered without loading a `\Jobs\`-namespaced class, and with `$whenUnknown`
+     * for a class that does not load or fails while it is inspected. The two callers above want
+     * opposite answers there, and only there.
+     */
+    private static function isDeclared(string $fqcn, bool $whenUnknown): bool
     {
         if (str_contains($fqcn, '\\Jobs\\')) {
             return true;
         }
 
         try {
-            return class_exists($fqcn) && self::isIntrinsic($fqcn);
+            return class_exists($fqcn) ? self::isIntrinsic($fqcn) : $whenUnknown;
         } catch (Throwable) {
-            return false;
+            return $whenUnknown;
         }
     }
 

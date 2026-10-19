@@ -16,7 +16,6 @@ use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\Attributes\Test;
 use SanderMuller\Richter\Analysis\BoundedPresenter;
 use SanderMuller\Richter\Analysis\JsonPresenter;
-use SanderMuller\Richter\Analysis\RiskLevel;
 use SanderMuller\Richter\Analysis\TaskSlice;
 use SanderMuller\Richter\Mcp\Resources\ConfigResource;
 use SanderMuller\Richter\Mcp\Resources\EntryPointsResource;
@@ -28,6 +27,7 @@ use SanderMuller\Richter\Mcp\Tools\ImpactTool;
 use SanderMuller\Richter\Mcp\Tools\LocateTool;
 use SanderMuller\Richter\Mcp\Tools\TaskSliceTool;
 use SanderMuller\Richter\Mcp\Tools\TraceTool;
+use SanderMuller\Richter\Tests\Support\DetectChangesFixture;
 use SanderMuller\Richter\Tests\Support\FakesGit;
 use SanderMuller\Richter\Tests\TestCase;
 
@@ -672,11 +672,7 @@ final class McpTest extends TestCase
         // The test above pins each schema to a literal. This one pins it to the code that builds the
         // document, so a key added to a presenter and forgotten in the schema (or the reverse) fails.
         // Key SETS, not order: the detect-changes schema and presenter order their keys differently.
-        $detectChangesResult = [
-            'changed' => [], 'coverage' => [], 'entryPoints' => [], 'entryPointPaths' => [], 'entryPointLocations' => [],
-            'entryPointSecurity' => [], 'entryPointGates' => [], 'impacted' => 0, 'relatedModels' => [],
-            'risk' => RiskLevel::Low, 'lowConfidence' => false, 'findings' => [],
-        ];
+        $detectChangesResult = DetectChangesFixture::with(['entryPoints' => ['route::GET::/posts']]);
         $impactResult = [
             'target' => 'App\\Models\\Post', 'callers' => [], 'dependencies' => [], 'entryPoints' => [],
             'associationEntryPoints' => [], 'entryPointPaths' => [], 'entryPointLocations' => [], 'entryPointSecurity' => [],

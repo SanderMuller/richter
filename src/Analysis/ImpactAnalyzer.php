@@ -24,6 +24,9 @@ use SanderMuller\Richter\Support\RichterConfig;
  *
  * @phpstan-import-type SecurityShape from NodeMetadata
  *
+ * `CompleteDetectChangesResult` is internal: it types richter's own empty result and test fixtures,
+ * and it can change in a minor release.
+ *
  * @phpstan-type CompleteDetectChangesResult array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, newFiles: list<string>, fqcns: array<string, string>, callers: list<array{depth: int, node: string, via: string}>, dependencies: list<array{depth: int, node: string, via: string}>, seeds: list<string>, reach: array<string, array<string, true>>, edges: list<array{source: string, target: string, via: string, depth: int}>, entryPoints: list<string>, associationEntryPoints: list<string>, associationEntryPointsVia: array<string, list<string>>, registryEntryPoints: list<string>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, SecurityShape>, entryPointGates: array<string, list<string>>, entryPointAuthGates: array<string, list<string>>, entryPointAuthMiddleware: array<string, list<string>>, entryPointRuntimeGuards: array<string, list<array{middleware: string, group: string|null}>>, entryPointAttribution: array<string, array{via: string, ownReach: int}>, entryPointKeepSet: array{kept: list<string>, droppedHub: int}, impacted: int, relatedModels: list<string>, traitAndOverrideReach: list<string>, traitAndOverrideReachVia: array<string, list<string>>, risk: RiskLevel, riskCause: string, hazards: list<Hazard>, verification: array<string, bool|null>, lowConfidence: bool, findings: list<string>}
  */
 final readonly class ImpactAnalyzer
@@ -132,8 +135,7 @@ final readonly class ImpactAnalyzer
 
         // Same split as detectChanges(): a surface reached only through a model relation is context,
         // not something that calls the symbol, and mixing the two makes a long list unreadable.
-        $noMemo = [];
-        $entryPoints = $this->callReachedEntryPoints($seeds, $maxDepth, $noMemo);
+        $entryPoints = $this->callReachedEntryPoints($seeds, $maxDepth);
         $associationEntryPoints = array_values(array_diff($this->entryPointsAmong($callers), $entryPoints));
         [$entryPointLocations, $entryPointSecurity, $entryPointGates] = $this->entryPointAnnotations($entryPoints);
         $crossCheck = new PublicWriteAuthCrossCheck($this->graph);
@@ -447,7 +449,7 @@ final readonly class ImpactAnalyzer
         // Computed HERE, once, and carried — never re-derived by a formatter or by the presenter. The
         // ordering shipped as two implementations of one rule and they diverged; ownership gets one.
         // Fed the READING order: the keep set preserves the order it is given, and `$entryPoints` is
-        // still in walk order here, so without the sort `kept` disagreed with `entryPoints`.
+        // still in walk order here.
         $keepSet = EntryPointKeepSet::for(
             EntryPointAttribution::order($entryPoints, $entryPointAttribution),
             $entryPointAttribution,
@@ -814,7 +816,7 @@ final readonly class ImpactAnalyzer
      * @param  array<string, list<string>>  $memo
      * @return list<string>
      */
-    private function callReachedEntryPoints(array $seeds, int $maxDepth, array &$memo): array
+    private function callReachedEntryPoints(array $seeds, int $maxDepth, array &$memo = []): array
     {
         if ($seeds === []) {
             return [];

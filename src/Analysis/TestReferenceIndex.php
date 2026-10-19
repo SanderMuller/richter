@@ -72,8 +72,10 @@ final class TestReferenceIndex
     /**
      * The index a command or tool needs: every file under the project's `tests/`, recorded relative to
      * the project root as a test runner names it, and bound to the graph before anything reads it.
-     * Building the index and attaching the graph as two steps let a caller forget the second, which
-     * graded a class-driven surface unreferenced.
+     * One call, so no caller can build the index and forget to bind it: an unbound index grades a
+     * class-driven surface unreferenced.
+     *
+     * @internal richter's own commands and tools call it; it can change in a minor release
      */
     public static function forProject(CodeGraph $graph): self
     {

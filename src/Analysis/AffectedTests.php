@@ -57,7 +57,8 @@ final class AffectedTests
      * @param-out SelectionProvenance $provenance
      * @param  TestReferenceIndex|null  $testsUsed  set to the graph-bound test index both the analysis and
      *   the selection read, so a caller presenting the analysis grades test references with the same
-     *   index; stays null exactly when `$analysisUsed` does
+     *   index; stays null exactly when `$analysisUsed` does. Internal: richter's own task-slice
+     *   command and tool pass it, and it can change in a minor release
      * @param-out TestReferenceIndex|null $testsUsed
      *
      * @return array{base: string, determinable: bool, reasons: list<string>, tests: list<string>, testsTotal: int, testsShare: float, testsExcluded: int, frontendTests: list<string>, unreferencedEntryPoints: int, unresolvedDispatchSites: list<array{file: string, line: int, dispatcher: string}>, untrackedFiles: list<string>}
@@ -139,8 +140,8 @@ final class AffectedTests
         }
 
         $graph = $graphs->graph(fresh: $fresh);
-        // One index for the analysis and the selection. Built twice before — and only the second copy
-        // got the graph — so one report gave two answers to "is this surface proven".
+        // One index for the analysis and the selection, so one report gives one answer to "is this
+        // surface proven".
         $testsUsed = TestReferenceIndex::forProject($graph);
         // Parity lanes off: they only produce findings, which the selection never reads —
         // and the consumer lane would otherwise pay a whole frontend-tree scan on a CI

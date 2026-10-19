@@ -36,9 +36,8 @@ final readonly class EntryPointAttribution
 {
     /**
      * @param  Closure(list<string>, int): list<string>  $callReachedEntryPoints  the entry points that
-     *   call one seed set within a depth: the analyzer's own memoized query, passed in rather than
-     *   walked again here. A second copy of the walk once ran beside it, and the same seed set was
-     *   walked twice per run.
+     *   call one seed set within a depth: the analyzer's own memoized query, passed in so a seed set
+     *   the run already walked is not walked again here.
      */
     public function __construct(private Closure $callReachedEntryPoints) {}
 
