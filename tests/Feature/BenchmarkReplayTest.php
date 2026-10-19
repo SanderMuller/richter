@@ -25,6 +25,9 @@ use SanderMuller\Richter\Tests\TestCase;
  */
 final class BenchmarkReplayTest extends TestCase
 {
+    /** Each case replays against a git repository the test creates in a temporary directory. */
+    protected bool $runsRealProcesses = true;
+
     /** @var list<string> throwaway repo roots to remove after each test */
     private array $tempRepos = [];
 

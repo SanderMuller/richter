@@ -19,13 +19,26 @@ abstract class TestCase extends OrchestraTestCase
     }
 
     /**
-     * A faked command with no matching pattern otherwise runs for real, against whatever repository
-     * hosts the suite, and its answer mixes into the fake ones. The guard only acts while a test
-     * records fakes, so a test that runs real git on purpose still can.
+     * Whether this test class runs real processes on purpose: php workers, or git in a temporary
+     * repository it creates. Every other test runs no process it did not fake.
+     */
+    protected bool $runsRealProcesses = false;
+
+    /**
+     * A command no fake answers would otherwise run for real, against whatever repository hosts the
+     * suite: `git status` reads that checkout's untracked files, and a default base such as
+     * `origin/main` exists on a branch checkout but not on a tag ref. Laravel blocks a stray process
+     * only while it records fakes, so recording starts here with no fake at all, and every command a
+     * test does not answer fails that test.
      */
     protected function setUp(): void
     {
         parent::setUp();
+
+        if (! $this->runsRealProcesses) {
+            Process::fake([]);
+        }
+
         Process::preventStrayProcesses();
     }
 

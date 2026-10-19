@@ -44,7 +44,9 @@ final class ChangedSymbolsTest extends TestCase
     #[Test]
     public function an_empty_but_successful_diff_returns_no_changed_symbols(): void
     {
-        // HEAD...HEAD is a valid, empty diff — distinct from the failure case above.
+        // A valid, empty diff — distinct from the failure case above.
+        $this->fakeEmptyDiff();
+
         $this->assertSame([], ChangedSymbols::resolve('HEAD'));
     }
 

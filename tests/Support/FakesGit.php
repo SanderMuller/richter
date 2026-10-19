@@ -42,4 +42,23 @@ trait FakesGit
 
         Process::fake($defaults + $patterns);
     }
+
+    /**
+     * A diff that is valid and empty: the base resolves, and nothing changed.
+     *
+     * @param  array<string, ProcessResult|string|array<array-key, mixed>|callable>  $patterns
+     */
+    protected function fakeEmptyDiff(array $patterns = []): void
+    {
+        $this->fakeGit($patterns + [
+            '*merge-base*' => Process::result(str_repeat('0', 40) . "\n"),
+            '*diff*' => Process::result(''),
+        ]);
+    }
+
+    /** A base ref git does not know, answered the way `git merge-base` answers it. */
+    protected function fakeUnknownBase(string $ref): void
+    {
+        $this->fakeGit(['*merge-base*' => Process::result('', "fatal: Not a valid object name {$ref}\n", 128)]);
+    }
 }

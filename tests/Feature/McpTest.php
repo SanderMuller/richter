@@ -269,7 +269,7 @@ final class McpTest extends TestCase
     {
         // The unit tests prove the presenter's full/entries semantics; this proves the tools
         // actually thread the arguments through — a swapped parameter would fail here at runtime.
-        Process::fake([
+        $this->fakeGit([
             '*merge-base*' => Process::result("abc123\n"),
             '*diff*' => Process::result(''),
         ]);

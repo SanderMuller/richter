@@ -58,7 +58,9 @@ final class CommandsTest extends TestCase
     #[Test]
     public function detect_changes_reports_an_empty_diff(): void
     {
-        // HEAD...HEAD is a valid, always-empty diff — the command reports it without building the graph.
+        // A valid, empty diff — the command reports it without building the graph.
+        $this->fakeEmptyDiff();
+
         $this->runArtisan('richter:detect-changes', ['--base' => 'HEAD'])
             ->expectsOutputToContain('No changed PHP files under app/ against HEAD.')
             ->assertSuccessful();
@@ -67,6 +69,7 @@ final class CommandsTest extends TestCase
     #[Test]
     public function detect_changes_profile_says_so_when_there_was_nothing_to_build(): void
     {
+        $this->fakeEmptyDiff();
         // An empty diff returns before the graph is built, so --profile has no table to print. Silence
         // there reads as a broken flag: reported from a real run as two attempts that produced no output
         // at all, on a diff that happened to hold no PHP under app/.
@@ -79,6 +82,7 @@ final class CommandsTest extends TestCase
     #[Test]
     public function detect_changes_profile_json_says_so_too_and_stays_one_document(): void
     {
+        $this->fakeEmptyDiff();
         $this->withoutMockingConsoleOutput();
         Artisan::call('richter:detect-changes', ['--base' => 'HEAD', '--profile' => true, '--json' => true]);
         $output = Artisan::output();
@@ -94,6 +98,7 @@ final class CommandsTest extends TestCase
     #[Test]
     public function detect_changes_falls_back_to_the_configured_base_ref(): void
     {
+        $this->fakeEmptyDiff();
         config()->set('richter.default_base', 'HEAD');
 
         $this->runArtisan('richter:detect-changes')
@@ -104,6 +109,7 @@ final class CommandsTest extends TestCase
     #[Test]
     public function detect_changes_notes_a_root_namespace_composer_json_does_not_corroborate(): void
     {
+        $this->fakeEmptyDiff();
         // The skeleton maps `App\` to app/, so a configured `Wrong\` root can only under-report —
         // every app class sits outside it. That is the one check that explains an empty report.
         config()->set('richter.root_namespace', 'Wrong\\');
@@ -159,6 +165,7 @@ final class CommandsTest extends TestCase
     #[Test]
     public function detect_changes_warns_on_a_broken_base_ref(): void
     {
+        $this->fakeUnknownBase('this-ref-does-not-exist-zzz');
         $this->runArtisan('richter:detect-changes', ['--base' => 'this-ref-does-not-exist-zzz'])
             ->expectsOutputToContain("git diff against 'this-ref-does-not-exist-zzz' failed")
             ->assertSuccessful();
@@ -167,6 +174,7 @@ final class CommandsTest extends TestCase
     #[Test]
     public function detect_changes_rejects_an_option_injection_shaped_base_ref(): void
     {
+        $this->fakeGit([]);
         $this->expectException(InvalidArgumentException::class);
 
         $this->runArtisan('richter:detect-changes', ['--base' => '--upload-pack=evil'])->run();
@@ -885,6 +893,7 @@ final class CommandsTest extends TestCase
     #[Test]
     public function detect_changes_accepts_the_explain_flag(): void
     {
+        $this->fakeEmptyDiff();
         $this->runArtisan('richter:detect-changes', ['--base' => 'HEAD', '--explain' => true])
             ->expectsOutputToContain('No changed PHP files under app/ against HEAD.')
             ->assertSuccessful();
@@ -1054,6 +1063,7 @@ final class CommandsTest extends TestCase
     #[Test]
     public function detect_changes_html_writes_a_report_even_for_an_empty_diff(): void
     {
+        $this->fakeEmptyDiff();
         // Asking for a file and getting none reads as a failure, and CI would link a missing artifact.
         $path = $this->reportPath();
 
@@ -1073,6 +1083,7 @@ final class CommandsTest extends TestCase
     #[Test]
     public function detect_changes_html_on_an_empty_diff_still_reflects_a_gated_run(): void
     {
+        $this->fakeEmptyDiff();
         // An empty diff always passes, but a report from a gated run must not claim it was advisory.
         $path = $this->reportPath();
 
@@ -1241,6 +1252,7 @@ final class CommandsTest extends TestCase
     #[Test]
     public function affected_tests_reports_an_empty_diff_as_a_determinable_empty_selection(): void
     {
+        $this->fakeEmptyDiff();
         $this->withoutMockingConsoleOutput();
         $exitCode = Artisan::call('richter:affected-tests', ['--base' => 'HEAD', '--plain' => true]);
 
@@ -1251,6 +1263,7 @@ final class CommandsTest extends TestCase
     #[Test]
     public function affected_tests_text_mode_reports_a_determinable_empty_selection(): void
     {
+        $this->fakeEmptyDiff();
         $this->runArtisan('richter:affected-tests', ['--base' => 'HEAD'])
             ->expectsOutputToContain('Affected tests: 0')
             ->assertSuccessful();
@@ -1259,6 +1272,7 @@ final class CommandsTest extends TestCase
     #[Test]
     public function affected_tests_accepts_the_no_cache_flag(): void
     {
+        $this->fakeEmptyDiff();
         $this->withoutMockingConsoleOutput();
         $exitCode = Artisan::call('richter:affected-tests', ['--base' => 'HEAD', '--plain' => true, '--no-cache' => true]);
 
@@ -1268,6 +1282,7 @@ final class CommandsTest extends TestCase
     #[Test]
     public function affected_tests_json_empty_diff_is_determinable(): void
     {
+        $this->fakeEmptyDiff();
         $this->withoutMockingConsoleOutput();
         $exitCode = Artisan::call('richter:affected-tests', ['--base' => 'HEAD', '--json' => true]);
         $decoded = json_decode(Artisan::output(), associative: true);
@@ -1929,6 +1944,7 @@ final class CommandsTest extends TestCase
     #[Test]
     public function affected_tests_text_mode_names_the_reasons_and_exits_2(): void
     {
+        $this->fakeUnknownBase('this-ref-does-not-exist-zzz');
         $this->withoutMockingConsoleOutput();
         $exitCode = Artisan::call('richter:affected-tests', ['--base' => 'this-ref-does-not-exist-zzz']);
         $output = Artisan::output();
@@ -2220,6 +2236,7 @@ final class CommandsTest extends TestCase
     #[Test]
     public function detect_changes_json_emits_the_canonical_empty_object_on_an_empty_diff(): void
     {
+        $this->fakeEmptyDiff();
         $this->withoutMockingConsoleOutput();
         $exitCode = Artisan::call('richter:detect-changes', ['--base' => 'HEAD', '--json' => true]);
         $decoded = json_decode(Artisan::output(), associative: true);
@@ -2237,6 +2254,7 @@ final class CommandsTest extends TestCase
     #[Test]
     public function detect_changes_json_reports_an_option_injection_ref_as_json_not_a_stack_trace(): void
     {
+        $this->fakeGit([]);
         // baseRef() throws before the command's happy path; JSON mode must still emit one parseable
         // document (advisory exit 0 with no gate flag), never a leaked framework exception.
         $this->withoutMockingConsoleOutput();
@@ -2292,6 +2310,7 @@ final class CommandsTest extends TestCase
     #[Test]
     public function detect_changes_fails_on_a_broken_base_ref_under_a_gate(): void
     {
+        $this->fakeUnknownBase('this-ref-does-not-exist-zzz');
         // Advisory would exit 0 (see detect_changes_warns_on_a_broken_base_ref); a gate flips it: a
         // diff that can't be assessed must not read as "pass".
         $this->runArtisan('richter:detect-changes', ['--base' => 'this-ref-does-not-exist-zzz', '--fail-on' => 'low'])
@@ -2302,6 +2321,7 @@ final class CommandsTest extends TestCase
     #[Test]
     public function detect_changes_passes_the_gate_on_an_empty_diff(): void
     {
+        $this->fakeEmptyDiff();
         // An empty diff always passes: --fail-on=low must not trip on zero changes (low >= low).
         $this->runArtisan('richter:detect-changes', ['--base' => 'HEAD', '--fail-on' => 'low'])
             ->assertSuccessful();
@@ -2310,6 +2330,7 @@ final class CommandsTest extends TestCase
     #[Test]
     public function detect_changes_json_empty_diff_gate_reports_not_tripped(): void
     {
+        $this->fakeEmptyDiff();
         $this->withoutMockingConsoleOutput();
         $exitCode = Artisan::call('richter:detect-changes', ['--base' => 'HEAD', '--json' => true, '--fail-on' => 'high']);
         $decoded = json_decode(Artisan::output(), associative: true);

@@ -5,6 +5,7 @@ namespace SanderMuller\Richter\Tests\Feature;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Process;
 use PHPUnit\Framework\Attributes\Test;
+use SanderMuller\Richter\Tests\Support\FakesGit;
 use SanderMuller\Richter\Tests\Support\RebindsConsoleOutput;
 use SanderMuller\Richter\Tests\TestCase;
 
@@ -22,6 +23,7 @@ use SanderMuller\Richter\Tests\TestCase;
  */
 final class DocumentOutputIsByteSafeTest extends TestCase
 {
+    use FakesGit;
     use RebindsConsoleOutput;
 
     #[Test]
@@ -106,6 +108,7 @@ final class DocumentOutputIsByteSafeTest extends TestCase
         // as the rest and reviewed by eye, and reverting it breaks no test. The protection is free, which
         // is why it is there.
         $this->installPaoLikeCleaner();
+        $this->fakeEmptyDiff();
 
         $exitCode = Artisan::call('richter:affected-tests', ['--base' => 'HEAD', '--plain' => true]);
 

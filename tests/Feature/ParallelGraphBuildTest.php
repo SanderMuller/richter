@@ -17,6 +17,9 @@ use SanderMuller\Richter\Tests\TestCase;
  */
 final class ParallelGraphBuildTest extends TestCase
 {
+    /** The parallel build starts php worker processes; that is what these tests exercise. */
+    protected bool $runsRealProcesses = true;
+
     #[Test]
     public function the_parallel_build_produces_a_graph_identical_to_the_serial_build(): void
     {
