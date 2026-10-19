@@ -878,7 +878,7 @@ final class HazardLanesTest extends TestCase
         // Dropping the `remove` entry puts the guard back. Nothing in the file's literals changed, so
         // only the group comparison can see it — and the arrival is what stops the reverse edit
         // elsewhere in the diff reading as a removal.
-        $bootstrap = "<?php\nreturn Application::configure()->withMiddleware(function (\$middleware): void {\n    \$middleware->appendToGroup('web', ['auth']);%s\n})->create();\n";
+        $bootstrap = "<?php\nreturn Application::configure()->withMiddleware(function (\$middleware): void {\n    \$middleware->group('web', ['auth']);%s\n})->create();\n";
 
         [$hazards, $added] = MiddlewareGroupHazards::for('bootstrap/app.php',
             sprintf($bootstrap, ''), sprintf($bootstrap, "\n    \$middleware->web(remove: ['auth']);"));
@@ -891,15 +891,15 @@ final class HazardLanesTest extends TestCase
     public function removefromgroup_and_replaceingroup_are_removals(): void
     {
         $bootstrap = "<?php\nreturn Application::configure()->withMiddleware(function (\$middleware): void {\n    %s\n})->create();\n";
-        $base = sprintf($bootstrap, "\$middleware->appendToGroup('web', ['auth']);");
+        $base = sprintf($bootstrap, "\$middleware->group('web', ['auth']);");
 
         [$removed] = MiddlewareGroupHazards::for('bootstrap/app.php',
-            sprintf($bootstrap, "\$middleware->appendToGroup('web', ['auth']);\n    \$middleware->removeFromGroup('web', ['auth']);"), $base);
+            sprintf($bootstrap, "\$middleware->group('web', ['auth']);\n    \$middleware->removeFromGroup('web', ['auth']);"), $base);
 
         $this->assertSame(['middleware:auth'], $removed[0]->removedTokens);
 
         [$replaced] = MiddlewareGroupHazards::for('bootstrap/app.php',
-            sprintf($bootstrap, "\$middleware->appendToGroup('web', ['auth']);\n    \$middleware->replaceInGroup('web', 'auth', 'verified');"), $base);
+            sprintf($bootstrap, "\$middleware->group('web', ['auth']);\n    \$middleware->replaceInGroup('web', 'auth', 'verified');"), $base);
 
         $this->assertSame(['middleware:auth'], $replaced[0]->removedTokens);
     }
@@ -909,7 +909,7 @@ final class HazardLanesTest extends TestCase
     {
         // `remove` subtracts from a default set richter does not model, so it counts only for a guard
         // the base group actually ran. Here it did, and the removal unguards every route in the group.
-        $bootstrap = "<?php\nreturn Application::configure()->withMiddleware(function (\$middleware): void {\n    \$middleware->appendToGroup('web', ['auth']);%s\n})->create();\n";
+        $bootstrap = "<?php\nreturn Application::configure()->withMiddleware(function (\$middleware): void {\n    \$middleware->group('web', ['auth']);%s\n})->create();\n";
 
         [$hazards] = MiddlewareGroupHazards::for('bootstrap/app.php',
             sprintf($bootstrap, "\n    \$middleware->web(remove: ['auth']);"), sprintf($bootstrap, ''));
@@ -934,6 +934,19 @@ final class HazardLanesTest extends TestCase
     }
 
     #[Test]
+    public function a_guard_appended_and_then_removed_still_runs(): void
+    {
+        // Laravel applies removals before appends, whatever the order in the file, so the guard runs.
+        $bootstrap = "<?php\nreturn Application::configure()->withMiddleware(function (\$middleware): void {\n%s\n})->create();\n";
+
+        [$hazards] = MiddlewareGroupHazards::for('bootstrap/app.php',
+            sprintf($bootstrap, "    \$middleware->appendToGroup('web', ['auth']);\n    \$middleware->web(remove: ['auth']);"),
+            sprintf($bootstrap, "    \$middleware->appendToGroup('web', ['auth']);"));
+
+        $this->assertSame([], $hazards);
+    }
+
+    #[Test]
     public function a_newly_added_middleware_kernel_still_contributes_arrivals(): void
     {
         $kernel = "<?php\nnamespace App\\Http;\nclass Kernel\n{\n    protected \$middlewareGroups = ['web' => ['auth']];\n}\n";
@@ -949,7 +962,7 @@ final class HazardLanesTest extends TestCase
     {
         // `replace` is a map, and reading only its values would leave the replaced guard in the
         // running set — the removal it just made would report nothing.
-        $bootstrap = "<?php\nnamespace Boot;\nuse Illuminate\\Auth\\Middleware\\Authenticate;\nuse App\\Http\\Middleware\\Custom;\nreturn Application::configure()->withMiddleware(function (\$middleware): void {\n    \$middleware->appendToGroup('web', [Authenticate::class]);%s\n})->create();\n";
+        $bootstrap = "<?php\nnamespace Boot;\nuse Illuminate\\Auth\\Middleware\\Authenticate;\nuse App\\Http\\Middleware\\Custom;\nreturn Application::configure()->withMiddleware(function (\$middleware): void {\n    \$middleware->group('web', [Authenticate::class]);%s\n})->create();\n";
 
         [$hazards] = MiddlewareGroupHazards::for('bootstrap/app.php',
             sprintf($bootstrap, "\n    \$middleware->web(replace: [Authenticate::class => Custom::class]);"), sprintf($bootstrap, ''));

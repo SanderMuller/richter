@@ -18,7 +18,6 @@ use PhpParser\Node\Scalar\String_;
 use PhpParser\Node\Stmt\Property;
 use PhpParser\NodeFinder;
 use SanderMuller\Richter\Analysis\Hazards\MiddlewareGroupHazards;
-use SanderMuller\Richter\Graph\MiddlewareAliases;
 use SanderMuller\Richter\Support\AppFiles;
 
 /**
@@ -31,6 +30,8 @@ use SanderMuller\Richter\Support\AppFiles;
  * {@see MiddlewareGroupFindings} sizes the routes a member runs on. Each passes its own projection of
  * one middleware argument — guard tokens for the first, the names as written for the second — and the
  * shape walk is shared, so a form one lane reads the other reads too.
+ *
+ * @phpstan-type GroupCalls array{declared: list<string>|null, replacements: list<array{0: list<string>, 1: list<string>}>, removals: list<string>, additions: list<string>}
  *
  * @internal
  */
@@ -46,19 +47,20 @@ final class MiddlewareGroups
     private const array REMOVING_GROUP_METHODS = ['removeFromGroup'];
 
     /**
-     * Every group the project declares, as the names its entries are written with. The Kernel is read
-     * first and `bootstrap/app.php` after it, so bootstrap wins for a group both declare — the order
-     * {@see MiddlewareAliases::forProject()} uses, because Laravel 11+ reads
-     * bootstrap even where an old Kernel is still around. A file that does not parse adds nothing.
+     * Every group the project declares, as the names its entries are written with. A `bootstrap/app.php`
+     * that calls `withMiddleware` is the only source: Laravel 11+ then ignores the app's own Kernel, so
+     * an old Kernel left beside it declares groups that no route runs. Without that call the Kernel is
+     * the source. A file that does not parse adds nothing.
      *
      * @return array<string, array{0: list<string>, 1: list<string>}>
      */
     public static function forProject(string $projectRoot): array
     {
-        return [
-            ...self::fromSource(self::sourceOf($projectRoot . '/app/Http/Kernel.php'), self::namesIn(...)) ?? [],
-            ...self::fromSource(self::sourceOf($projectRoot . '/bootstrap/app.php'), self::namesIn(...)) ?? [],
-        ];
+        $bootstrap = self::sourceOf($projectRoot . '/bootstrap/app.php');
+        $ast = AppFiles::parseResolved($bootstrap);
+        $source = $ast !== null && self::configuresMiddleware($ast) ? $bootstrap : self::sourceOf($projectRoot . '/app/Http/Kernel.php');
+
+        return self::fromSource($source, self::namesIn(...)) ?? [];
     }
 
     /**
@@ -80,8 +82,7 @@ final class MiddlewareGroups
             return null;
         }
 
-        $groups = self::fromKernelProperty($ast, $project);
-        $declared = [];
+        $calls = self::fromKernelProperty($ast, $project);
 
         foreach (new NodeFinder()->findInstanceOf(self::configuratorBodies($ast), MethodCall::class) as $call) {
             if (! $call instanceof MethodCall || ! $call->name instanceof Identifier) {
@@ -91,41 +92,42 @@ final class MiddlewareGroups
             $name = $call->name->toString();
 
             if (in_array($name, self::GROUP_METHODS, strict: true)) {
-                self::mergeConfigurator($groups, $name, $call->args, $project);
+                self::recordConfigurator($calls, $name, $call->args, $project);
 
                 continue;
             }
 
-            // `group('admin', [...])` sets the declared list. Laravel applies every removal and
-            // addition to that list wherever the file writes them, so a modification read before it
-            // still counts.
-            if ($name === 'group') {
-                self::recordDeclaration($declared, $call->args, $project);
-
-                continue;
-            }
-
-            self::applyNamedGroupCall($groups, $name, $call->args, $project);
+            self::recordNamedGroupCall($calls, $name, $call->args, $project);
         }
 
-        foreach ($declared as $group => $members) {
-            [$runs, $removed] = $groups[$group] ?? [[], []];
-            $groups[$group] = [array_values(array_unique([...array_diff($members, $removed), ...$runs])), $removed];
-        }
-
-        return $groups;
+        return array_map(self::resolve(...), $calls);
     }
 
     /**
-     * @param  array<string, list<string>>  $declared
-     * @param  array<Node>  $args
-     * @param  Closure(?Expr): list<string>  $project
+     * One group's recorded calls, applied in the order Laravel's `getMiddlewareGroups()` applies them
+     * and not in the order the file writes them: the declared list, then each replacement, then the
+     * removals, then the prepends and appends. So a middleware appended before `group()` still runs,
+     * and so does one that is both removed and appended.
+     *
+     * The removed set is every middleware a removal or replacement names that the group does not run
+     * in the end.
+     *
+     * @param  GroupCalls  $calls
+     * @return array{0: list<string>, 1: list<string>}
      */
-    private static function recordDeclaration(array &$declared, array $args, Closure $project): void
+    private static function resolve(array $calls): array
     {
-        if (($args[0] ?? null) instanceof Arg && $args[0]->value instanceof String_) {
-            $declared[$args[0]->value->value] = ($args[1] ?? null) instanceof Arg ? $project($args[1]->value) : [];
+        $runs = $calls['declared'] ?? [];
+        $replaced = [];
+
+        foreach ($calls['replacements'] as [$out, $in]) {
+            $runs = [...array_diff($runs, $out), ...$in];
+            $replaced = [...$replaced, ...$out];
         }
+
+        $runs = array_values(array_unique([...array_diff($runs, $calls['removals']), ...$calls['additions']]));
+
+        return [$runs, array_values(array_diff(array_unique([...$calls['removals'], ...$replaced]), $runs))];
     }
 
     /**
@@ -181,19 +183,27 @@ final class MiddlewareGroups
         return $bodies;
     }
 
+    /** @param  array<Node>  $ast */
+    private static function configuresMiddleware(array $ast): bool
+    {
+        return array_any(
+            new NodeFinder()->findInstanceOf($ast, MethodCall::class),
+            static fn (Node $call): bool => $call instanceof MethodCall && $call->name instanceof Identifier && $call->name->toString() === 'withMiddleware',
+        );
+    }
+
     /**
-     * The calls that modify a group they name in the first argument: `appendToGroup`, `prependToGroup`,
-     * `removeFromGroup` and `replaceInGroup`. Any other call is not a group call.
+     * The calls that name their group in the first argument: `group`, which sets the declared list,
+     * and `appendToGroup`, `prependToGroup`, `removeFromGroup` and `replaceInGroup`, which modify it.
+     * Any other call is not a group call.
      *
-     * @param  array<string, array{0: list<string>, 1: list<string>}>  $groups
+     * @param  array<string, GroupCalls>  $calls
      * @param  array<Node>  $args
      * @param  Closure(?Expr): list<string>  $project
      */
-    private static function applyNamedGroupCall(array &$groups, string $name, array $args, Closure $project): void
+    private static function recordNamedGroupCall(array &$calls, string $name, array $args, Closure $project): void
     {
-        $removes = in_array($name, self::REMOVING_GROUP_METHODS, strict: true);
-
-        if (! $removes && ! in_array($name, self::NAMED_GROUP_METHODS, strict: true) && $name !== 'replaceInGroup') {
+        if (! in_array($name, [...self::NAMED_GROUP_METHODS, ...self::REMOVING_GROUP_METHODS, 'replaceInGroup', 'group'], strict: true)) {
             return;
         }
 
@@ -206,43 +216,36 @@ final class MiddlewareGroups
         }
 
         $first = ($args[1] ?? null) instanceof Arg ? $project($args[1]->value) : [];
+        $calls[$group] ??= self::noCalls();
 
-        // `replaceInGroup('web', $search, $replace)` swaps one for another: the searched middleware
-        // leaves the group and the replacement joins it.
-        $second = $name === 'replaceInGroup' && ($args[2] ?? null) instanceof Arg
-            ? $project($args[2]->value)
-            : [];
-
-        $gone = $removes || $name === 'replaceInGroup' ? array_diff($first, $second) : [];
-        $joined = $removes ? [] : ($name === 'replaceInGroup' ? $second : $first);
-
-        // A middleware that rejoins the group leaves the removal set with it. These calls are a
-        // SEQUENCE, and reading the final state as "removed and also present" would report a
-        // removal for a group that still runs it.
-        $groups[$group] = [
-            array_values(array_diff(array_unique([...$groups[$group][0] ?? [], ...$joined]), $gone)),
-            array_values(array_diff(array_unique([...$groups[$group][1] ?? [], ...$gone]), $joined)),
-        ];
+        match ($name) {
+            'group' => $calls[$group]['declared'] = $first,
+            'removeFromGroup' => $calls[$group]['removals'] = [...$calls[$group]['removals'], ...$first],
+            'replaceInGroup' => $calls[$group]['replacements'][] = [
+                $first,
+                ($args[2] ?? null) instanceof Arg ? $project($args[2]->value) : [],
+            ],
+            default => $calls[$group]['additions'] = [...$calls[$group]['additions'], ...$first],
+        };
     }
 
     /**
      * `$middleware->web(append: [...], remove: [...])`. A middleware named under `remove` is one the
      * group does not run, so adding it there removes it as surely as deleting the entry would.
      *
-     * @param  array<string, array{0: list<string>, 1: list<string>}>  $groups
+     * @param  array<string, GroupCalls>  $calls
      * @param  array<Node>  $args
      * @param  Closure(?Expr): list<string>  $project
      */
-    private static function mergeConfigurator(array &$groups, string $group, array $args, Closure $project): void
+    private static function recordConfigurator(array &$calls, string $group, array $args, Closure $project): void
     {
-        [$current, $removed] = $groups[$group] ?? [[], []];
+        $calls[$group] ??= self::noCalls();
 
         foreach ($args as $arg) {
             if (! $arg instanceof Arg) {
                 continue;
             }
 
-            $tokens = $project($arg->value);
             $keyword = $arg->name?->toString() ?? 'append';
 
             // `replace: [Old::class => New::class]` is a MAP: the key leaves the group and the value
@@ -250,28 +253,26 @@ final class MiddlewareGroups
             // and miss the removal.
             if ($keyword === 'replace' && $arg->value instanceof Array_) {
                 foreach ($arg->value->items as $item) {
-                    $out = $item->key instanceof Expr ? $project($item->key) : [];
-                    $in = $project($item->value);
-
-                    $current = [...array_diff($current, $out), ...$in];
-                    $removed = [...array_diff($removed, $in), ...array_diff($out, $in)];
+                    $calls[$group]['replacements'][] = [$item->key instanceof Expr ? $project($item->key) : [], $project($item->value)];
                 }
 
                 continue;
             }
 
             if ($keyword === 'remove') {
-                $current = array_diff($current, $tokens);
-                $removed = [...$removed, ...$tokens];
+                $calls[$group]['removals'] = [...$calls[$group]['removals'], ...$project($arg->value)];
 
                 continue;
             }
 
-            $current = [...$current, ...$tokens];
-            $removed = array_diff($removed, $tokens);
+            $calls[$group]['additions'] = [...$calls[$group]['additions'], ...$project($arg->value)];
         }
+    }
 
-        $groups[$group] = [array_values(array_unique($current)), array_values(array_unique($removed))];
+    /** @return GroupCalls */
+    private static function noCalls(): array
+    {
+        return ['declared' => null, 'replacements' => [], 'removals' => [], 'additions' => []];
     }
 
     /**
@@ -279,7 +280,7 @@ final class MiddlewareGroups
      *
      * @param  array<Node>  $ast
      * @param  Closure(?Expr): list<string>  $project
-     * @return array<string, array{0: list<string>, 1: list<string>}>
+     * @return array<string, GroupCalls>
      */
     private static function fromKernelProperty(array $ast, Closure $project): array
     {
@@ -297,7 +298,7 @@ final class MiddlewareGroups
 
                 foreach ($prop->default->items as $item) {
                     if ($item->key instanceof String_) {
-                        $groups[$item->key->value] = [$project($item->value), []];
+                        $groups[$item->key->value] = ['declared' => $project($item->value)] + self::noCalls();
                     }
                 }
             }

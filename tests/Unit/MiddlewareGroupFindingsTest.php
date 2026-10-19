@@ -234,9 +234,32 @@ final class MiddlewareGroupFindingsTest extends TestCase
     public function a_member_removed_from_the_group_is_not_reported(): void
     {
         $this->bootstrap(
+            "\$middleware->group('api', [\\App\\Http\\Middleware\\EnsureTenant::class]);\n"
+            . "        \$middleware->removeFromGroup('api', \\App\\Http\\Middleware\\EnsureTenant::class);",
+        );
+
+        $this->assertSame([], $this->lane($this->graphWithRoutes(2))->findingsFor(self::TENANT));
+    }
+
+    #[Test]
+    public function a_member_appended_and_then_removed_still_runs(): void
+    {
+        // Laravel applies removals before appends, whatever the order in the file.
+        $this->bootstrap(
             "\$middleware->appendToGroup('api', [\\App\\Http\\Middleware\\EnsureTenant::class]);\n"
             . "        \$middleware->removeFromGroup('api', \\App\\Http\\Middleware\\EnsureTenant::class);",
         );
+
+        $this->assertCount(1, $this->lane($this->graphWithRoutes(2))->findingsFor(self::TENANT));
+    }
+
+    #[Test]
+    public function a_kernel_beside_a_bootstrap_that_configures_middleware_is_ignored(): void
+    {
+        // Laravel 11+ ignores the app's Kernel once bootstrap/app.php calls withMiddleware, so a group
+        // only the Kernel declares runs nowhere.
+        $this->kernel("'api' => [\\App\\Http\\Middleware\\EnsureTenant::class],");
+        $this->bootstrap('$middleware->web(append: [\\App\\Http\\Middleware\\Other::class]);');
 
         $this->assertSame([], $this->lane($this->graphWithRoutes(2))->findingsFor(self::TENANT));
     }
