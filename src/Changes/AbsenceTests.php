@@ -135,7 +135,7 @@ final class AbsenceTests
     }
 
     /**
-     * Every shape that says "this may be absent", for judging a LOCAL, WITH the style each one
+     * Every shape that says "this may be absent", for judging a local or a property fetch, WITH the style each one
      * implies. Wider than {@see truthiness()}, and the style matters: a `=== null` on a local is a
      * null test, exactly as it is on the fetch itself, and grading it as emptiness would make it soft.
      * That shipped once — a read assigned to a local and then compared to null suppressed a finding

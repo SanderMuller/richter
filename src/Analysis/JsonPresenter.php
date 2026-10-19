@@ -57,7 +57,7 @@ final class JsonPresenter
      */
     public static function trace(array $result): array
     {
-        // Picked key by key like impact(): the document is the MCP tool's advertised output schema,
+        // Picked key by key like impact(): the document matches the MCP tool's advertised output schema,
         // so widening it is a deliberate change.
         $document = [
             'from' => $result['from'],

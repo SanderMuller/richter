@@ -307,10 +307,13 @@ final class McpTest extends TestCase
     #[Test]
     public function the_detect_changes_tool_reports_a_broken_ref_as_an_error(): void
     {
+        $this->fakeUnknownBase('this-ref-does-not-exist-zzz');
+
         $response = resolve(DetectChangesTool::class)->handle(new Request(['base' => 'this-ref-does-not-exist-zzz']));
 
         $this->assertInstanceOf(Response::class, $response);
         $this->assertTrue($response->isError());
+        $this->assertStringContainsString('Not a valid object name this-ref-does-not-exist-zzz', (string) $response->content());
     }
 
     #[Test]
@@ -343,11 +346,13 @@ final class McpTest extends TestCase
         $this->assertArrayHasKey('full', $impactInputProperties);
         $this->assertArrayHasKey('entries', $impactInputProperties);
 
+        $this->fakeGit(['*^{commit}*' => Process::result('', "fatal: Needed a single revision\n", 128)]);
+
         $response = resolve(DetectChangesTool::class)->handle(new Request(['head' => 'this-ref-does-not-exist-zzz']));
 
         $this->assertInstanceOf(Response::class, $response);
         $this->assertTrue($response->isError());
-        $this->assertStringContainsString('this-ref-does-not-exist-zzz', (string) $response->content());
+        $this->assertStringContainsString('"this-ref-does-not-exist-zzz" could not be resolved to a commit', (string) $response->content());
     }
 
     #[Test]
@@ -672,6 +677,8 @@ final class McpTest extends TestCase
         // The test above pins each schema to a literal. This one pins it to the code that builds the
         // document, so a key added to a presenter and forgotten in the schema (or the reverse) fails.
         // Key SETS, not order: the detect-changes schema and presenter order their keys differently.
+        // affected-tests and locate are left out: the first has no presenter, and the second emits
+        // optional keys on a miss. The literal test above pins both schemas.
         $detectChangesResult = DetectChangesFixture::with(['entryPoints' => ['route::GET::/posts']]);
         $impactResult = [
             'target' => 'App\\Models\\Post', 'callers' => [], 'dependencies' => [], 'entryPoints' => [],

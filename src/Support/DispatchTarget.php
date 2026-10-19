@@ -110,8 +110,9 @@ final class DispatchTarget
     }
 
     /**
-     * Dispatchable by declaration, and KNOWN to be. The same test as {@see isIntrinsicOrUnresolvable()},
-     * with the opposite answer for a class that cannot be loaded: {@see ImpactAnalyzer}'s job-coverage
+     * Dispatchable by declaration: a `\Jobs\` name, or a loaded `ShouldQueue` or `Dispatchable` class.
+     * The same test as {@see isIntrinsicOrUnresolvable()}, with the opposite answer for a class outside
+     * `\Jobs\` that cannot be loaded: {@see ImpactAnalyzer}'s job-coverage
      * flip asks this, and a flip on every unloadable changed class would mark changes UNRESOLVED on no
      * evidence.
      *

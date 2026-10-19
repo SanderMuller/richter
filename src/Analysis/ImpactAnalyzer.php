@@ -257,7 +257,6 @@ final readonly class ImpactAnalyzer
         $coverage = [];
         /** @var list<string> $newFileFindings */
         $newFileFindings = [];
-        // Scoped to this single detectChanges() run — see callReachedEntryPoints()'s docblock.
         $reachMemo = [];
 
         // Derived up front, not accumulated in the loop below: the loop returns early for the additive

@@ -213,7 +213,7 @@ final class JsonPresenterTest extends TestCase
     #[Test]
     public function the_empty_detect_changes_document_carries_the_attribution_key(): void
     {
-        // The MCP schema validates this document too, so a key the schema declares has to be here.
+        // The MCP tool advertises a schema that declares this key, so the empty document has to carry it too.
         $this->assertSame([], JsonPresenter::emptyDetectChanges('origin/main')['entryPointAttribution']);
     }
 

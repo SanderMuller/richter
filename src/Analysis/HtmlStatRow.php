@@ -31,11 +31,7 @@ final class HtmlStatRow
         return "<div class=\"stats\">{$tiles}</div>" . self::riskCause($result);
     }
 
-    /**
-     * Why the level is what it is — the line the text and markdown reports print next to the level.
-     *
-     * @param  DetectChangesResult  $result
-     */
+    /** @param  DetectChangesResult  $result */
     private static function riskCause(array $result): string
     {
         $cause = $result['riskCause'] ?? '';

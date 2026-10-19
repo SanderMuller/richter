@@ -48,9 +48,6 @@ final class DispatchedElement
      * fails at runtime and runs no application code. The one gap is the `Bus::map` handler that
      * {@see DispatchTarget} documents for `dispatch(new SomeCommand())`.
      *
-     * Only the array literal and its appends read this. {@see MappedCollectionJobs} and
-     * {@see LocallyConstructedJobs} ask {@see constructedTarget()} and keep the site.
-     *
      * @return list<string>|null
      */
     public static function jobsOf(Expr $value): ?array
@@ -68,7 +65,6 @@ final class DispatchedElement
         return $job === null ? [] : [$job];
     }
 
-    /** The dispatch target a `new SomeJob(...)` names, or null when it names none. */
     public static function constructedTarget(Expr $expr): ?string
     {
         if (! $expr instanceof New_ || ! $expr->class instanceof Name) {

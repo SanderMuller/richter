@@ -8,8 +8,8 @@ includes:
 parameters:
     tmpDir: .cache/phpstan
 
-    # symplify/phpstan-rules auto-loads every rule set; this project uses none of them. 14.19 added
-    # `modern` and `collections`, both on by default, so the floor is 14.19 and each set is listed.
+    # symplify/phpstan-rules turns several rule sets on by default; this project uses none of them.
+    # 14.19 added `modern` and `collections`, both on by default, so the floor is 14.19 and each set is listed.
     symplify:
         naming: false
         complexity: false

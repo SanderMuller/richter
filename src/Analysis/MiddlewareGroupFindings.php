@@ -148,7 +148,7 @@ final class MiddlewareGroupFindings
         try {
             return array_map(static fn (array $group): array => $group[0], MiddlewareGroups::forProject($root));
         } catch (Throwable) {
-            // An unreadable or exotic Kernel is a missing note, never a failed report.
+            // An unreadable or exotic Kernel or bootstrap/app.php is a missing note, never a failed report.
             return [];
         }
     }

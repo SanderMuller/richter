@@ -6,7 +6,7 @@ namespace SanderMuller\Richter\Graph;
  * The graph a cache entry revives to, or which of the seven ways reading it failed.
  *
  * A boolean was not enough, and the way it was not enough is the point. {@see GraphCache::read()}
- * returns null for an absent file, an undecodable one, a fingerprint that differs, and three
+ * returns null for an absent file, an undecodable one, a fingerprint that differs, and four
  * separate payload rejections — while {@see GraphCache::mergeBase()} validates a smaller set, only
  * `brainGraph` and `inputs`. So an entry whose inputs are current but whose EDGE LIST is corrupt
  * fails the read, satisfies the merge base, and compares equal on inputs.

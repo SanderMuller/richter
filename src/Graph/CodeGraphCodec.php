@@ -15,9 +15,10 @@ namespace SanderMuller\Richter\Graph;
  * - `unresolvedDispatchSites` coalesced to `[]` reads as "no unfollowable dispatch" and drops the S2
  *   taint. Either one lets a test selection report determinable when it is not.
  *
- * `nodeMetadata` is the one named exception, per record and not per key. A record that does not
- * shape-check loses its unusable fields: metadata annotates reports and never feeds the impact walk,
- * so partial loss there cannot under-report impact. The map itself is still required.
+ * `nodeMetadata` is the one named exception, and only inside a record. A record that is a map keeps
+ * the fields that shape-check and loses the rest: metadata annotates reports and never feeds the
+ * impact walk, so that loss cannot under-report impact. A missing map, a non-string node key or a
+ * record that is not a map still refuses the entry.
  *
  * @phpstan-import-type MetadataShape from NodeMetadata
  *
@@ -25,12 +26,6 @@ namespace SanderMuller\Richter\Graph;
  */
 final class CodeGraphCodec
 {
-    /** The graph a stored payload describes, or null when the payload is not one. */
-    public static function fromArray(mixed $data): ?CodeGraph
-    {
-        return is_array($data) ? self::decode($data, 'the cache entry')->graph : null;
-    }
-
     /**
      * The graph a stored payload describes, or the first key that refuses it — so a reader can say
      * which part of the entry is broken. `$file` names the entry in that message.
@@ -98,9 +93,6 @@ final class CodeGraphCodec
     }
 
     /**
-     * An edge list that does not parse as edge shapes is corrupt — the whole read is a miss, never a
-     * partially-loaded graph (which would report falsely-small impact).
-     *
      * @return list<array{source: string, target: string, type: string}>|null
      */
     private static function validEdges(mixed $edges): ?array
@@ -123,11 +115,7 @@ final class CodeGraphCodec
     }
 
     /**
-     * The node-metadata map from a cache entry, re-shaped through {@see NodeMetadata} so a tampered
-     * or drifted entry degrades to the same conservative shapes a fresh build would produce. A
-     * missing or non-map value is corrupt (→ miss, like {@see validEdges}); an individual record that
-     * doesn't shape-check simply loses its unusable fields — metadata annotates reports, it never
-     * feeds the impact walk, so partial loss here cannot under-report impact.
+     * Each record goes through {@see NodeMetadata}, the same shape gate a fresh build uses.
      *
      * @return array<string, MetadataShape>|null
      */

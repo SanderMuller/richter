@@ -25,31 +25,34 @@ final class CodeGraphCodecTest extends TestCase
             nodeMetadata: ['route::GET::/posts' => ['file' => 'routes/web.php', 'line' => 3]],
         );
 
-        $revived = CodeGraphCodec::fromArray(json_decode(json_encode($graph->toArray(), JSON_THROW_ON_ERROR), associative: true));
+        $stored = json_decode(json_encode($graph->toArray(), JSON_THROW_ON_ERROR), associative: true);
+        $this->assertIsArray($stored);
+
+        $revived = CodeGraphCodec::decode($stored, 'graph.json')->graph;
 
         $this->assertInstanceOf(CodeGraph::class, $revived);
         $this->assertSame($graph->toArray(), $revived->toArray());
     }
 
-    /** @return Iterator<string, array{string, mixed}> */
+    /** @return Iterator<string, array{string, mixed, string}> */
     public static function untrustedKeys(): Iterator
     {
-        yield 'edges absent' => ['edges', null];
-        yield 'an edge without a type' => ['edges', [['source' => 'a', 'target' => 'b']]];
-        yield 'the unparseable flag absent' => ['hasUnparseableFiles', null];
-        yield 'the unparseable flag as a string' => ['hasUnparseableFiles', '1'];
-        yield 'the unparseable flag as an integer' => ['hasUnparseableFiles', 0];
-        yield 'dispatch sites absent' => ['unresolvedDispatchSites', null];
-        yield 'a dispatch site with a string line' => ['unresolvedDispatchSites', [['file' => 'app/A.php', 'line' => 'twelve', 'dispatcher' => 'App\A::run']]];
-        yield 'dispatch sites keyed as a map' => ['unresolvedDispatchSites', ['first' => ['file' => 'app/A.php', 'line' => 1, 'dispatcher' => 'App\A::run']]];
-        yield 'node metadata absent' => ['nodeMetadata', null];
-        yield 'node metadata as a string' => ['nodeMetadata', 'corrupt'];
-        yield 'a node metadata record that is not a map' => ['nodeMetadata', ['route::GET::/posts' => 'routes/web.php']];
+        yield 'edges absent' => ['edges', null, 'edges-rejected'];
+        yield 'an edge without a type' => ['edges', [['source' => 'a', 'target' => 'b']], 'edges-rejected'];
+        yield 'the unparseable flag absent' => ['hasUnparseableFiles', null, 'unparseable-flag-rejected'];
+        yield 'the unparseable flag as a string' => ['hasUnparseableFiles', '1', 'unparseable-flag-rejected'];
+        yield 'the unparseable flag as an integer' => ['hasUnparseableFiles', 0, 'unparseable-flag-rejected'];
+        yield 'dispatch sites absent' => ['unresolvedDispatchSites', null, 'dispatch-sites-rejected'];
+        yield 'a dispatch site with a string line' => ['unresolvedDispatchSites', [['file' => 'app/A.php', 'line' => 'twelve', 'dispatcher' => 'App\A::run']], 'dispatch-sites-rejected'];
+        yield 'dispatch sites keyed as a map' => ['unresolvedDispatchSites', ['first' => ['file' => 'app/A.php', 'line' => 1, 'dispatcher' => 'App\A::run']], 'dispatch-sites-rejected'];
+        yield 'node metadata absent' => ['nodeMetadata', null, 'metadata-rejected'];
+        yield 'node metadata as a string' => ['nodeMetadata', 'corrupt', 'metadata-rejected'];
+        yield 'a node metadata record that is not a map' => ['nodeMetadata', ['route::GET::/posts' => 'routes/web.php'], 'metadata-rejected'];
     }
 
     #[Test]
     #[DataProvider('untrustedKeys')]
-    public function one_untrusted_key_refuses_the_whole_entry(string $key, mixed $value): void
+    public function one_untrusted_key_refuses_the_whole_entry(string $key, mixed $value, string $reason): void
     {
         $data = $this->validEntry();
 
@@ -59,7 +62,10 @@ final class CodeGraphCodecTest extends TestCase
             $data[$key] = $value;
         }
 
-        $this->assertNotInstanceOf(CodeGraph::class, CodeGraphCodec::fromArray($data));
+        $outcome = CodeGraphCodec::decode($data, 'graph.json');
+
+        $this->assertNotInstanceOf(CodeGraph::class, $outcome->graph);
+        $this->assertSame($reason, $outcome->refusal);
     }
 
     #[Test]
@@ -70,16 +76,10 @@ final class CodeGraphCodecTest extends TestCase
         $data = $this->validEntry();
         $data['nodeMetadata'] = ['route::GET::/posts' => ['file' => 'routes/web.php', 'line' => 'three']];
 
-        $revived = CodeGraphCodec::fromArray($data);
+        $revived = CodeGraphCodec::decode($data, 'graph.json')->graph;
 
         $this->assertInstanceOf(CodeGraph::class, $revived);
         $this->assertSame(['file' => 'routes/web.php'], $revived->locationOf('route::GET::/posts'));
-    }
-
-    #[Test]
-    public function a_payload_that_is_not_an_array_is_refused(): void
-    {
-        $this->assertNotInstanceOf(CodeGraph::class, CodeGraphCodec::fromArray('graph'));
     }
 
     /** @return array<string, mixed> */

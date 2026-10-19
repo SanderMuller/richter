@@ -35,9 +35,12 @@ final class ChangedSymbolsTest extends TestCase
     #[Test]
     public function a_failed_git_diff_throws_rather_than_reporting_no_changes(): void
     {
-        $this->expectException(RuntimeException::class);
+        $this->fakeUnknownBase('this-base-ref-does-not-exist-zzz');
 
-        // A base ref that cannot exist makes `git diff` fail; that must not look like an empty diff.
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('Not a valid object name this-base-ref-does-not-exist-zzz');
+
+        // A base ref git does not know makes the diff fail; that must not look like an empty diff.
         ChangedSymbols::resolve('this-base-ref-does-not-exist-zzz');
     }
 

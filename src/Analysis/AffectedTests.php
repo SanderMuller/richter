@@ -55,9 +55,9 @@ final class AffectedTests
      *   document field reaches MCP structured content wholesale, so one that rode along would have
      *   to be stripped by each consumer.
      * @param-out SelectionProvenance $provenance
-     * @param  TestReferenceIndex|null  $testsUsed  set to the graph-bound test index both the analysis and
-     *   the selection read, so a caller presenting the analysis grades test references with the same
-     *   index; stays null exactly when `$analysisUsed` does. Internal: richter's own task-slice
+     * @param  TestReferenceIndex|null  $testsUsed  set to the graph-bound test index the selection reads,
+     *   and the analysis too when `$fullAnalysis` is on, so a caller presenting the analysis grades test
+     *   references with the same index; stays null exactly when `$analysisUsed` does. Internal: richter's own task-slice
      *   command and tool pass it, and it can change in a minor release
      * @param-out TestReferenceIndex|null $testsUsed
      *
@@ -140,8 +140,8 @@ final class AffectedTests
         }
 
         $graph = $graphs->graph(fresh: $fresh);
-        // One index for the analysis and the selection, so one report gives one answer to "is this
-        // surface proven".
+        // One index for the selection and, under `$fullAnalysis`, the analysis, so one report gives one
+        // answer to "is this surface proven".
         $testsUsed = TestReferenceIndex::forProject($graph);
         // Parity lanes off: they only produce findings, which the selection never reads —
         // and the consumer lane would otherwise pay a whole frontend-tree scan on a CI
@@ -149,7 +149,7 @@ final class AffectedTests
         // reason: it walks once per changed file to decide row ORDER, and this command reads the set.
         // `$fullAnalysis` is for a caller that needs the DOCUMENT as well as the selection —
         // `richter:task-slice` composes both — and would otherwise walk the graph a second time to get
-        // it. It only turns the two off-by-default lanes back on; the selection reads the entry-point
+        // it. It turns the two off-by-default lanes and the test index back on; the selection reads the entry-point
         // SET, which neither lane moves, so it is identical either way and `TaskSliceTest` pins that.
         // `$analysisUsed` hands the caller exactly the analysis this selection was computed from, so
         // the two halves of one report can never describe different runs.

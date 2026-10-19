@@ -84,7 +84,7 @@ final class DispatchTargetTest extends TestCase
     #[Test]
     public function is_declared_dispatchable_needs_a_declaration_and_reads_an_unloadable_class_by_name(): void
     {
-        // The opposite failure direction to matches(): an unloadable class is NOT assumed to be one.
+        // The opposite failure direction to matches(): an unloadable class outside \Jobs\ is NOT assumed to be one.
         $this->assertTrue(DispatchTarget::isDeclaredDispatchable(PublishPostJob::class));         // \Jobs\
         $this->assertTrue(DispatchTarget::isDeclaredDispatchable(PostDigestNotification::class));   // ShouldQueue
         $this->assertTrue(DispatchTarget::isDeclaredDispatchable(GenerateReport::class));          // Dispatchable

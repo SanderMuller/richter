@@ -325,10 +325,7 @@ final class AccumulatedArrayJobs
 
         foreach ($literal->items as $item) {
             // A spread is refused here, whatever its value is: {@see DispatchedElement::jobsIn()} says
-            // why `[...new SomeJob()]` is not the job. That guard was once deleted as unreachable, on the
-            // reasoning that a spread's value is always a variable or an array. A mutation of it survived
-            // and appeared to confirm that, because the test only covered `...$others`. The lesson is on
-            // the test, not the guard.
+            // why `[...new SomeJob()]` is not the job.
             $element = DispatchedElement::jobsIn($item);
 
             if ($element === null) {
