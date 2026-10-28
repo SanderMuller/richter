@@ -76,25 +76,36 @@ final class ValidationRules
      */
     public static function requiredFields(string $source, string $method, bool $requestDataOnly): array
     {
-        $matches = array_values(array_filter(
-            HazardSource::methods($source),
-            static fn (string $member): bool => str_ends_with($member, "::{$method}"),
-            ARRAY_FILTER_USE_KEY,
-        ));
+        $methods = HazardSource::methods($source);
+        $member = self::memberNamed($source, $method);
 
-        if (count($matches) !== 1) {
+        if ($member === null) {
             return [];
         }
 
         $required = [];
 
-        foreach (self::fieldsOf($matches[0], $requestDataOnly) as $field => $rules) {
+        foreach (self::fieldsOf($methods[$member], $requestDataOnly) as $field => $rules) {
             if (! str_contains($field, '.')) {
                 $required[$field] = self::isRequired($rules);
             }
         }
 
         return $required;
+    }
+
+    /**
+     * The one member id a source declares for a method name — `App\Foo::bar`, keyed on the class that
+     * declares it. Null when no class, or more than one, declares it.
+     */
+    public static function memberNamed(string $source, string $method): ?string
+    {
+        $matches = array_values(array_filter(
+            array_keys(HazardSource::methods($source)),
+            static fn (string $member): bool => str_ends_with($member, "::{$method}"),
+        ));
+
+        return count($matches) === 1 ? $matches[0] : null;
     }
 
     /**

@@ -384,6 +384,8 @@ final class RichterConfig
      * Whether a resolved head ref is the working tree: the literal 'HEAD' is, any resolved commit sha
      * is not. Every input read from the working tree rather than from git — the booted router,
      * `tests/` — describes the analyzed state only when this is true.
+     *
+     * @internal richter's own commands and tools call it; it can change in a minor release
      */
     public static function analysesWorkingTree(string $head): bool
     {

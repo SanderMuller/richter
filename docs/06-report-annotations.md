@@ -91,15 +91,17 @@ caused it touched no PHP:
 **A finding, never a hazard.** A frontend edit does not move `risk`, so this lane does not either. It
 runs on a changed `.ts`, `.tsx`, `.js`, `.jsx` or `.vue` file, not on a Blade view. It compares the
 fields the file sends at base and at head, with the same send-shaped matching as above. It reads only
-the routes the file itself calls. The booted router names each route's own action. The action's form
+the routes the file still calls at head: a call the diff deleted sends nothing. The booted router names each route's own action. The action's form
 request, through the type hint, and its own inline validation are the sites read.
 
 A field counts as required when a missing value fails it: `required`, `present`, `accepted` or
 `declined`, and no `sometimes`. A conditional rule (`required_if`, `present_with` and so on), an
 `exclude`, `missing` or `prohibited` rule, a rule object and a FluentRule chain cannot be read that way,
-and the lane stays silent on the field. It is also silent when the head spreads its payload
-(`{ ...form }`) or builds `new FormData(el)`, and when the request declares `prepareForValidation()` or
-`validationData()`. Each of those can supply the field some other way.
+and the lane stays silent on the field. It is also silent on a file whose head spreads anything
+inside braces (`{ ...form }`, and a spread inside a function body too) or builds `new FormData(el)`,
+and on a request that declares `prepareForValidation()` or `validationData()`. Each of those can supply
+the field some other way. An inline `$request->merge([...])` before `validate()` can too, and the lane
+does not see it.
 
 The comparison is per file, not per call, and that has a cost in both directions:
 
@@ -117,7 +119,8 @@ The comparison is per file, not per call, and that has a cost in both directions
 
 The `ignore` entries are the request lane's, so one entry silences both directions for that field:
 `App\Http\Requests\StorePostRequest::subtitle`, `App\Http\Controllers\PostController::store::subtitle`
-for inline validation, or a whole request or action member. `--no-payload-parity` turns this lane off
+for inline validation, or a whole request or action member. Inline validation is keyed on the class
+that declares the method, so an inherited action takes its parent's member. `--no-payload-parity` turns this lane off
 with the rest of the family. Under a named `--head` the frontend side is read at that commit and the
 validation side from today's code, the same split the graph already has.
 

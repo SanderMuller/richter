@@ -57,7 +57,7 @@ final class AffectedTests
      * @param-out SelectionProvenance $provenance
      * @param  TestReferenceIndex|null  $testsUsed  set to the index the analysis graded test references
      *   with, so a caller presenting the analysis grades with the same one. Null when there is no
-     *   analysis, and under a named head, where `tests/` is not the analyzed state
+     *   analysis or no `$fullAnalysis`, and under a named head, where `tests/` is not the analyzed state
      *   ({@see TestReferenceIndex::forHead()}). Internal: richter's own task-slice command and tool
      *   pass it, and it can change in a minor release
      * @param-out TestReferenceIndex|null $testsUsed
@@ -80,7 +80,7 @@ final class AffectedTests
             // COMMITTED tree, which a file that was never `git add`-ed cannot be part of, so
             // applying the guard there would force the full suite for exactly the dirty checkout
             // `--head` exists to analyse around.
-            $untracked = $head === 'HEAD' ? ChangedSymbols::untrackedRelevantFiles() : [];
+            $untracked = RichterConfig::analysesWorkingTree($head) ? ChangedSymbols::untrackedRelevantFiles() : [];
 
             if ($untracked !== []) {
                 // An untracked (never `git add`-ed) file is invisible to every diff form — the

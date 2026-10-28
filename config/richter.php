@@ -176,10 +176,11 @@ return [
     'risk_thresholds' => [],
 
     /*
-     * Payload-parity checks: a model field ($fillable/$casts/
-     * casts()) added but never added to a resource that mirrors its other fields, and a resource
-     * toArray() key REMOVED while a frontend consumer of the routes it reaches still reads it —
-     * the two shapes behind a payload field silently going missing.
+     * Payload-parity checks: a model field ($fillable/$casts/casts()) added but never added to a
+     * resource that mirrors its other fields, a resource toArray() key REMOVED while a frontend
+     * consumer of the routes it reaches still reads it, and a form-request rules() field REMOVED
+     * while a frontend consumer still sends it — the shapes behind a payload field silently going
+     * missing.
      *
      * These are HAZARDS, not findings: a payload key a consumer still reads is a break, so it is
      * reported beside the other tier-2 hazards and it does move the risk level. `enabled` and

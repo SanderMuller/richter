@@ -53,6 +53,8 @@ final class SentFieldsTest extends TestCase
         yield 'leading spread after a key' => ['post(url, { id, ...rest })', true];
         yield 'form data from an element' => ['fetch(url, { body: new FormData(el) })', true];
         yield 'empty form data' => ["const d = new FormData(); d.append('title', t)", false];
+        yield 'rest parameter' => ['function save(id, ...fields) { post(url, { id }) }', false];
+        yield 'array spread' => ['const ids = [a, ...rest]', false];
         yield 'literal keys only' => ['axios.post(url, { id, title })', false];
     }
 

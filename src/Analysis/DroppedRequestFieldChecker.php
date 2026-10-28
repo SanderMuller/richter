@@ -63,10 +63,10 @@ final class DroppedRequestFieldChecker
 
         $findings = [];
 
-        foreach ($file->directSeeds as $route) {
+        foreach ($file->droppedSentFields as $route => $dropped) {
             foreach ($this->routes()->actionsFor($route) as $action) {
                 foreach ($this->sitesFor($action) as $site => $required) {
-                    foreach ($this->droppedAndRequired($file->droppedSentFields, $site, $required) as $field) {
+                    foreach ($this->droppedAndRequired($dropped, $site, $required) as $field) {
                         $findings[] = sprintf(
                             "no longer sends '%s' to %s, which %s still requires",
                             $field,
@@ -84,7 +84,8 @@ final class DroppedRequestFieldChecker
     /**
      * Every validation site behind one action, each with its fields' required state: the form
      * requests the action type-hints (keyed on the request class), and the action's own inline
-     * validation (keyed on the action member — the ignore-key forms the request lane already uses).
+     * validation (keyed on the member that declares it, a parent's for an inherited action). Both
+     * are the keys the request lane already uses, so one ignore entry covers both directions.
      *
      * @return array<string, array<string, bool|null>>
      */
@@ -105,9 +106,11 @@ final class DroppedRequestFieldChecker
         }
 
         $source = $this->sourceOf($action);
+        $method = explode('::', $action, 2)[1] ?? '';
+        $declaring = $source === null ? null : ValidationRules::memberNamed($source, $method);
 
-        if ($source !== null) {
-            $sites[$action] = $this->required($action, $source, explode('::', $action, 2)[1] ?? '');
+        if ($source !== null && $declaring !== null) {
+            $sites[$declaring] = $this->required($declaring, $source, $method);
         }
 
         return $sites;

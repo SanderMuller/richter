@@ -92,7 +92,7 @@ final class TaskSliceTool extends Tool
         return [
             'base' => $schema->string()->description('The git ref the diff was taken against.'),
             'kept' => $schema->array()->items($schema->string())->description('The entry surfaces this task owns, in reading order — the ones whose own file is in the diff, or whose most specific explaining file is not a configured hub. A surface nothing explains is kept.'),
-            'unreferencedKept' => $schema->array()->items($schema->string())->description('The subset of kept that no test PROVES: unreferenced, or referenced only by a test with no behavioural assertion the scan recognises. Act on these.'),
+            'unreferencedKept' => $schema->array()->items($schema->string())->description('The subset of kept that no test PROVES: unreferenced, or referenced only by a test with no behavioural assertion the scan recognises. Under a named head test references are not checked, so every kept surface is listed. Act on these.'),
             'hazards' => $schema->array()->items($schema->object())->description("The diff's change hazards, worst tier first — same shape as detect-changes."),
             'findings' => $schema->array()->items($schema->string())->description('Advisory notes about the changed source itself.'),
             'verificationFalse' => $schema->array()->items($schema->string())->description('What the risk level graded and did NOT find verified, including states that could not be checked.'),

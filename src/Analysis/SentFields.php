@@ -68,7 +68,9 @@ final class SentFields
      */
     public static function opaque(string $source): bool
     {
-        return preg_match('/[{,]\s*\.\.\.\s*[A-Za-z_$(]/', $source) === 1
+        // A spread with an opening brace before it and no closing one between: an object literal's.
+        // A rest parameter or an array spread sends nothing on its own.
+        return preg_match('/\{[^{}]*\.\.\.\s*[A-Za-z_$(]/', $source) === 1
             || preg_match('/new\s+FormData\(\s*[^)\s]/', $source) === 1;
     }
 }

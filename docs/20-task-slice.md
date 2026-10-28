@@ -17,7 +17,7 @@ The slice answers all three at once, from a single graph walk.
 | Field | Act on it |
 |---|---|
 | `kept` | The entry surfaces this task owns |
-| `unreferencedKept` | The kept surfaces no test PROVES — unreferenced, or referenced only by a test with no behavioural assertion the scan recognises |
+| `unreferencedKept` | The kept surfaces no test PROVES — unreferenced, or referenced only by a test with no behavioural assertion the scan recognises. Under a named `--head` test references are not checked, so every kept surface is listed |
 | `hazards` | Contract changes on this diff — worst tier first |
 | `findings` | Advisory notes about the changed source itself |
 | `verificationFalse` | What the risk level graded and did not find verified, including what it could not check |

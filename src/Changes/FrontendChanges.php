@@ -149,14 +149,21 @@ final class FrontendChanges
         return new ChangedFileSymbols($file, '', [], cosmeticOnly: false, directSeeds: array_values(array_unique($seeds)), findings: $findings, unresolvedFrontendReferences: $unresolved, droppedSentFields: $this->droppedSentFields($headSrc, $baseSrc));
     }
 
-    /** @return list<string> */
+    /**
+     * Keyed on the routes the HEAD still calls: a call the diff deleted sends nothing, so nothing it
+     * used to send can fail validation.
+     *
+     * @return array<string, list<string>>
+     */
     private function droppedSentFields(?string $headSrc, ?string $baseSrc): array
     {
         if ($headSrc === null || $baseSrc === null || SentFields::opaque($headSrc)) {
             return [];
         }
 
-        return array_values(array_diff(SentFields::in($baseSrc), SentFields::in($headSrc)));
+        $dropped = array_values(array_diff(SentFields::in($baseSrc), SentFields::in($headSrc)));
+
+        return $dropped === [] ? [] : array_fill_keys($this->routeNodesIn($headSrc), $dropped);
     }
 
     /**

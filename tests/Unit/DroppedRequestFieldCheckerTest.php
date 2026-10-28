@@ -97,7 +97,8 @@ final class DroppedRequestFieldCheckerTest extends TestCase
     {
         $findings = $this->checker()->findingsFor($this->changed('route::PUT::/drafts/{draft}', ['slug']));
 
-        $this->assertSame(["no longer sends 'slug' to PUT /drafts/{draft}, which " . self::CHILD_UPDATE . ' still requires'], $findings);
+        // Named on the declaring member, the key the backend request lane uses for the same rule.
+        $this->assertSame(["no longer sends 'slug' to PUT /drafts/{draft}, which App\\Http\\Controllers\\BasePostController::update still requires"], $findings);
     }
 
     #[Test]
@@ -118,7 +119,7 @@ final class DroppedRequestFieldCheckerTest extends TestCase
     {
         // File-level: the lane cannot tell which call the field was dropped from. The accepted
         // false-positive class the docs name.
-        $changed = new ChangedFileSymbols('resources/js/post.ts', '', [], cosmeticOnly: false, directSeeds: ['route::POST::/posts', 'route::PUT::/posts/{post}'], droppedSentFields: ['title']);
+        $changed = new ChangedFileSymbols('resources/js/post.ts', '', [], cosmeticOnly: false, directSeeds: ['route::POST::/posts', 'route::PUT::/posts/{post}'], droppedSentFields: ['route::POST::/posts' => ['title'], 'route::PUT::/posts/{post}' => ['title']]);
 
         $this->assertCount(2, $this->checker()->findingsFor($changed));
     }
@@ -181,7 +182,7 @@ final class DroppedRequestFieldCheckerTest extends TestCase
     /** @param  list<string>  $dropped */
     private function changed(string $route, array $dropped): ChangedFileSymbols
     {
-        return new ChangedFileSymbols('resources/js/post.ts', '', [], cosmeticOnly: false, directSeeds: [$route], droppedSentFields: $dropped);
+        return new ChangedFileSymbols('resources/js/post.ts', '', [], cosmeticOnly: false, directSeeds: [$route], droppedSentFields: $dropped === [] ? [] : [$route => $dropped]);
     }
 
     /**

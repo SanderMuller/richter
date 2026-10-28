@@ -77,7 +77,7 @@ final readonly class ChangedFileSymbols
         public array $addedHazardTokens = [],
         /** @var array<string, array<string, list<string>>> `Fqcn->property` => style => site, for the members this diff changed */
         public array $siblingReads = [],
-        /** @var list<string> a changed frontend file's send-shaped field names present at base and absent at head ({@see SentFields}); empty when either side is missing, the head sends opaquely, or the file references no route */
+        /** @var array<string, list<string>> route node the head still calls => send-shaped field names a changed frontend file sent at base and no longer sends ({@see SentFields}); empty when either side is missing or the head sends opaquely */
         public array $droppedSentFields = [],
     ) {}
 

@@ -375,7 +375,21 @@ final class FrontendChangesTest extends TestCase
         );
 
         $this->assertSame(['route::POST::/posts'], $symbols->directSeeds);
-        $this->assertSame(['title'], $symbols->droppedSentFields);
+        $this->assertSame(['route::POST::/posts' => ['title']], $symbols->droppedSentFields);
+    }
+
+    #[Test]
+    public function a_call_the_head_deleted_drops_nothing_for_its_route(): void
+    {
+        // A deleted call sends nothing, so nothing it sent can fail validation.
+        $symbols = $this->frontend()->resolve(
+            'resources/js/Pages/Posts.vue',
+            "axios.post('/posts', { id })",
+            "axios.post('/posts', { id }); axios.get('/posts/1', { params: { title } })",
+        );
+
+        $this->assertContains('route::GET::/posts/{post}', $symbols->directSeeds);
+        $this->assertSame(['route::POST::/posts' => ['params', 'title']], $symbols->droppedSentFields);
     }
 
     #[Test]

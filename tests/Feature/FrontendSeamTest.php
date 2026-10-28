@@ -60,8 +60,12 @@ final class FrontendSeamTest extends TestCase
         return "diff --git a/{$path} b/{$path}\n--- a/{$path}\n+++ b/{$path}\n@@ -0,0 +1,1 @@\n+{$addedLine}\n";
     }
 
-    /** Fakes the git plumbing for one diff, runs richter:detect-changes --json, asserts success, and returns the decoded report. A null base source reads as a file new in this diff. */
-    /** @param  array<string, bool>  $options */
+    /**
+     * Fakes the git plumbing for one diff, runs richter:detect-changes --json, asserts success, and
+     * returns the decoded report. A null base source reads as a file new in this diff.
+     *
+     * @param  array<string, bool>  $options
+     */
     private function detectChangesFor(string $diff, ?string $baseSource = null, array $options = []): mixed
     {
         $this->fakeGit([
@@ -116,10 +120,11 @@ final class FrontendSeamTest extends TestCase
     #[Test]
     public function inline_validation_in_the_routes_action_is_read_on_the_built_graph(): void
     {
-        // The base also updated a post. The fixture's `PostController::update` requires `summary`
-        // inline; `excerpt` is `sometimes|required`, so dropping it is not a break.
+        // The base also sent `summary` and `excerpt` with the update. The fixture's
+        // `PostController::update` requires `summary` inline; `excerpt` is `sometimes|required`, so
+        // dropping it is not a break.
         $file = 'resources/js/components/PostForm.ts';
-        $base = $this->postFormBase($file) . "\nexport function updatePost(id: number) {\n    return axios.put(route('posts.update', id), { summary, excerpt });\n}\n";
+        $base = str_replace('{ id }', '{ id, summary, excerpt }', $this->postFormBase($file));
 
         $decoded = $this->detectChangesFor($this->postFormDiff($file), $base);
 
