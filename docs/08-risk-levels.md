@@ -91,6 +91,17 @@ and `password.confirm` are CWE-306, `signed` is CWE-345, `throttle` is CWE-770, 
 authorization guard is CWE-862. A lost rate limit therefore reads as CWE-770, never as missing
 authentication.
 
+A dropped validation constraint is read from a pipe string, an array of string rules, or a
+[`laravel-fluent-validation`](https://github.com/SanderMuller/laravel-fluent-validation) chain such as
+`FluentRule::string()->required()->max(255)`, as the rule names the chain compiles to. A field richter
+cannot read in full, on either side, raises nothing: a `Rule::` object, a chain inside an array, a
+macro, `when()`, a `RuleSet` return, or a request's `schema()` method. Rules inside `each()` and
+`children()` are not compared.
+
+Two cases read as a loss although nothing weakened: `min` and `max` replaced by `between`, and a
+string rule replaced by an equivalent one under another name. A builder-family change the other way
+is missed: `string()->max(10)` changed to `numeric()->max(10)` keeps `max` on both sides.
+
 Route files are read route by route. `routes/*.php` declares no class, so the lanes above cannot reach
 it. Its own reader compares each route's effective guard set on both sides: the middleware written on
 the route, plus every enclosing `Route::middleware(...)->group()` and `Route::group(['middleware' =>

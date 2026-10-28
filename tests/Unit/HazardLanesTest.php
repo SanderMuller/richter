@@ -548,6 +548,70 @@ final class HazardLanesTest extends TestCase
         return "<?php\nnamespace App\\Http\\Requests;\nclass StorePostRequest\n{\n    public function rules(): array\n    {\n        return {$rules};\n    }\n}\n";
     }
 
+    private function fluentRequest(string $rules): string
+    {
+        return "<?php\nnamespace App\\Http\\Requests;\nuse SanderMuller\\FluentValidation\\FluentRule;\nclass StorePostRequest\n{\n    public function rules(): array\n    {\n        return {$rules};\n    }\n}\n";
+    }
+
+    /** @return list<string> */
+    private function boundaryEvidence(string $head, string $base): array
+    {
+        $hazards = $this->lanes('app/Http/Requests/StorePostRequest.php', $this->fluentRequest($head), $this->fluentRequest($base));
+
+        return array_column(array_filter($hazards, static fn (Hazard $hazard): bool => $hazard->lane === 'boundary'), 'evidence');
+    }
+
+    #[Test]
+    public function a_constraint_dropped_from_a_fluent_chain_is_a_boundary_hazard(): void
+    {
+        $this->assertSame(
+            ['`title` no longer validates max'],
+            $this->boundaryEvidence("['title' => FluentRule::string()->required()]", "['title' => FluentRule::string()->required()->max(255)]"),
+        );
+        $this->assertSame(
+            ['`title` no longer validates required'],
+            $this->boundaryEvidence("['title' => FluentRule::string()->max(255)]", "['title' => FluentRule::string()->required()->max(255)]"),
+        );
+    }
+
+    #[Test]
+    public function a_reordered_or_equivalent_chain_is_not_a_boundary_hazard(): void
+    {
+        $this->assertSame([], $this->boundaryEvidence("['title' => FluentRule::string()->max(255)->required()]", "['title' => FluentRule::string()->required()->max(255)]"));
+        $this->assertSame([], $this->boundaryEvidence("['title' => FluentRule::string()->requiredIf(true)]", "['title' => FluentRule::string()->required()]"));
+        // The rector's migration: the chain reads every guarding rule the string had.
+        $this->assertSame([], $this->boundaryEvidence("['title' => FluentRule::string()->required()->max(255)]", "['title' => 'required|string|max:255']"));
+    }
+
+    #[Test]
+    public function min_and_max_replaced_by_between_reads_as_lost_as_for_string_rules(): void
+    {
+        // Accepted and documented: the reader emits only what the package emits.
+        $this->assertSame(
+            ['`title` no longer validates max, min'],
+            $this->boundaryEvidence("['title' => FluentRule::string()->between(2, 10)]", "['title' => FluentRule::string()->min(2)->max(10)]"),
+        );
+    }
+
+    #[Test]
+    public function a_wildcard_key_migrated_into_each_raises_no_boundary_hazard(): void
+    {
+        // The dotted key leaves the head side, which the lane reads as a removed field.
+        $this->assertSame([], $this->boundaryEvidence(
+            "['items' => FluentRule::array()->required()->each(FluentRule::string()->required())]",
+            "['items' => 'required|array', 'items.*.title' => 'required|string']",
+        ));
+    }
+
+    #[Test]
+    public function a_chain_the_reader_cannot_vouch_for_draws_nothing(): void
+    {
+        // A chain inside an array, an unlisted method, and a RuleSet return all read as unknown.
+        $this->assertSame([], $this->boundaryEvidence("['title' => [FluentRule::string(), 'required']]", "['title' => [FluentRule::string(), 'required', 'max:10']]"));
+        $this->assertSame([], $this->boundaryEvidence("['title' => FluentRule::string()->someMacro()]", "['title' => FluentRule::string()->required()]"));
+        $this->assertSame([], $this->boundaryEvidence("RuleSet::from(['title' => FluentRule::string()])", "RuleSet::from(['title' => FluentRule::string()->required()])"));
+    }
+
     #[Test]
     public function a_dropped_constraint_on_a_surviving_field_is_tier_two(): void
     {

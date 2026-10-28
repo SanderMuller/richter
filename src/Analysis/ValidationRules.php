@@ -232,7 +232,8 @@ final class ValidationRules
 
     /**
      * A field's rule NAMES — `max:255` reduces to `max`, because the lane asks whether the constraint
-     * is still there, not what its bound is. Null when any element cannot be read as a literal: a
+     * is still there, not what its bound is. A FluentRule chain is read through
+     * {@see FluentRuleChain}. Null when any element cannot be read as a literal: a
      * `Rule::unique(…)` object or a spread makes the list unknowable, and comparing a partial list
      * against a full one would invent removals.
      *
@@ -244,6 +245,15 @@ final class ValidationRules
             return self::normalise(explode('|', $value->value));
         }
 
+        if (FluentRuleChain::isChain($value)) {
+            $names = FluentRuleChain::ruleNames($value);
+
+            return $names === null ? null : self::normalise($names);
+        }
+
+        // A chain inside an array is null like any other non-string item: there the builder runs as
+        // its own rule object, so its `sometimes()` governs only itself, and one flat name set would
+        // misread the field.
         if (! $value instanceof Array_) {
             return null;
         }

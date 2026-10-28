@@ -69,6 +69,17 @@ final class DroppedRequestFieldCheckerTest extends TestCase
     }
 
     #[Test]
+    public function a_field_a_fluent_chain_requires_is_reported(): void
+    {
+        $this->write('app/StorePostRequest.php', "<?php\nnamespace App\\Http\\Requests;\nuse SanderMuller\\FluentValidation\\FluentRule;\nclass StorePostRequest\n{\n    public function rules(): array\n    {\n        return ['subtitle' => FluentRule::string()->present()->nullable(), 'body' => FluentRule::string()->nullable()];\n    }\n}\n");
+
+        $this->assertSame(
+            ["no longer sends 'subtitle' to POST /posts, which App\\Http\\Requests\\StorePostRequest::rules() still requires"],
+            $this->checker()->findingsFor($this->changed('route::POST::/posts', ['subtitle', 'body'])),
+        );
+    }
+
+    #[Test]
     public function a_field_the_request_does_not_require_is_silent(): void
     {
         $this->assertSame([], $this->checker()->findingsFor($this->changed('route::POST::/posts', ['body', 'unknown'])));
