@@ -100,15 +100,23 @@ macro, or `when()`. Rules inside `each()` and `children()` are not compared.
 The rules can be returned as an array, as `RuleSet::from([...])`, `RuleSet::define(fn (FluentSchema $r)
 => [...])`, or `RuleSet::make()->field(...)`, and they can come from a `schema(FluentSchema $rules)`
 method whose chains start from `$rules`. Keys can be string constants of the class, through `self::`,
-or through `static::` when the class or the constant is final. Each of these forms is read whole or
-not at all: a `RuleSet` changed with `merge()`, `only()` or `modify()`, an unresolved key or a spread
-makes the method count as unread.
+or through `static::` when the class or the constant is final.
 
-A `schema()` is read unless the class extends `FormRequest` directly and uses no trait, because only
-the package's `HasFluentRules` calls it. A field both `rules()` and `schema()` declare is never
-compared: the package keeps one of the two by where each is declared, and one file does not always
-show which. When either of them cannot be read, the other's fields are not compared either. A field
-moved from `rules()` to `schema()` in the same diff that drops a constraint is missed.
+A `RuleSet` form and a `schema()` are
+read whole or not at all: a `RuleSet` changed with `merge()`, `only()` or `modify()`, an unresolved
+key or a spread makes the method count as unread. A plain array returned from `rules()` skips a key
+it cannot resolve and reads the rest.
+
+Only the package's `HasFluentRules` calls `schema()`, so a `schema()` is not read on a class that
+extends `FormRequest` directly, or nothing, and uses no trait. When the class itself uses
+`HasFluentRules`, the package keeps `schema()` for a field both methods declare, and `rules()`' copy
+is not compared. When the trait comes from a parent class or another trait, which one file does not
+show, a field both declare is not compared on either side, and an unreadable method keeps the
+other's fields from being compared.
+
+A `rules()` or `schema()` inherited from a parent class or a trait, and a `RuleSet::define()` closure
+with more than one statement, are not read. A field moved from `rules()` to `schema()` in the same
+diff that drops a constraint is missed.
 
 Two cases read as a loss although nothing weakened: `min` and `max` replaced by `between`, and a
 string rule replaced by an equivalent one under another name. A builder-family change the other way

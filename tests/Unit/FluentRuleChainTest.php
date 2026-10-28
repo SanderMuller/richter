@@ -276,7 +276,7 @@ final class FluentRuleChainTest extends TestCase
     {
         $this->assertSame(['string', 'required', 'max'], FluentRuleChain::ruleNames($this->expression('$rules->string()->required()->max(255)'), ['rules']));
         $this->assertSame(['numeric', 'integer'], FluentRuleChain::ruleNames($this->expression('$rules->integer()'), ['rules']));
-        // Not a listed variable, a forwarded macro, and a first-class callable factory.
+        // Not a listed variable, a forwarded macro, a first-class callable factory, and no variables listed.
         $this->assertNull(FluentRuleChain::ruleNames($this->expression('$other->string()'), ['rules']));
         $this->assertNull(FluentRuleChain::ruleNames($this->expression('$rules->slug()'), ['rules']));
         $this->assertNull(FluentRuleChain::ruleNames($this->expression('$rules->string(...)'), ['rules']));

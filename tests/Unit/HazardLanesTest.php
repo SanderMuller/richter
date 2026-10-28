@@ -621,11 +621,20 @@ final class HazardLanesTest extends TestCase
             "    public const string HEADING = 'title';\n" . self::rules('RuleSet::from([self::HEADING => FluentRule::string()->required()->max(255)])'),
         ] as $head) {
             $this->assertSame([], $this->ruleSetEvidence($head, $base), $head);
+            // Not merely skipped: the head reads the same guarding rules as the base.
+            $this->assertSame(['required', 'max'], array_values(array_intersect(ValidationRules::rulesByMember($this->ruleSetRequest($head))['App\\Http\\Requests\\StorePostRequest::rules']['title'] ?? [], ['required', 'max'])), $head);
         }
 
         $this->assertSame([], $this->ruleSetEvidence(
             self::schema("['title' => \$rules->string()->required()->max(255)]"),
             self::schema("['title' => FluentRule::string()->required()->max(255)]"),
+        ));
+        $this->assertSame(['string', 'required', 'max'], ValidationRules::rulesByMember($this->ruleSetRequest(self::schema("['title' => \$rules->string()->required()->max(255)]")))['App\\Http\\Requests\\StorePostRequest::schema']['title'] ?? null);
+
+        // A constant renamed with the same value.
+        $this->assertSame([], $this->ruleSetEvidence(
+            "    public const string HEADING = 'title';\n" . self::rules("[self::HEADING => 'required|max:255']"),
+            "    public const string TITLE = 'title';\n" . self::rules("[self::TITLE => 'required|max:255']"),
         ));
     }
 

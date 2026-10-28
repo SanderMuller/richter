@@ -2,6 +2,7 @@
 
 namespace SanderMuller\Richter\Analysis;
 
+use PhpParser\Node;
 use PhpParser\Node\Expr;
 use PhpParser\Node\Expr\Array_;
 use PhpParser\Node\Expr\ArrowFunction;
@@ -12,6 +13,7 @@ use PhpParser\Node\Expr\StaticCall;
 use PhpParser\Node\Expr\Variable;
 use PhpParser\Node\Identifier;
 use PhpParser\Node\Name;
+use PhpParser\Node\NullableType;
 use PhpParser\Node\Param;
 use PhpParser\Node\Scalar\String_;
 use PhpParser\Node\Stmt\Class_;
@@ -20,6 +22,7 @@ use PhpParser\Node\Stmt\ClassLike;
 use PhpParser\Node\Stmt\ClassMethod;
 use PhpParser\Node\Stmt\Return_;
 use PhpParser\Node\Stmt\TraitUse;
+use PhpParser\Node\UnionType;
 use SanderMuller\Richter\Analysis\Hazards\HazardSource;
 use SanderMuller\Richter\Support\AppFiles;
 
@@ -29,8 +32,9 @@ use SanderMuller\Richter\Support\AppFiles;
  *
  * Reads the `laravel-fluent-validation` forms besides a plain array literal: `RuleSet::from([...])`,
  * `RuleSet::define(fn (FluentSchema $r) => [...])`, `RuleSet::make()->field()/put()`, and a
- * `schema(FluentSchema $rules)` method. Each new form is read whole or not at all — a field the reader
- * skipped could be the one that overrides another, so a partly read form reads as unreadable.
+ * `schema(FluentSchema $rules)` method. Each `RuleSet` or `schema()` form is read whole or not at all —
+ * a field the reader skipped could be the one that overrides another, so a partly read form reads as
+ * unreadable. An array-literal `rules()` is the exception: it skips an unresolved key and reads the rest.
  *
  * @internal
  */
@@ -41,6 +45,8 @@ final readonly class RulesDeclaration
     private const string FLUENT_SCHEMA = 'SanderMuller\FluentValidation\FluentSchema';
 
     private const string FORM_REQUEST = 'Illuminate\Foundation\Http\FormRequest';
+
+    private const string HAS_FLUENT_RULES = 'SanderMuller\FluentValidation\HasFluentRules';
 
     /** @param  array<string, array{string, bool}>  $constants  name => [string value, declared final] */
     private function __construct(private ClassLike $class, private array $constants) {}
@@ -73,7 +79,7 @@ final readonly class RulesDeclaration
      */
     public function isHook(ClassMethod $method): bool
     {
-        $name = $method->name->toString();
+        $name = $method->name->toLowerString();
 
         if ($name === 'rules') {
             return true;
@@ -85,7 +91,8 @@ final readonly class RulesDeclaration
     /**
      * The hook's field items as [key, value] pairs, with the schema variables chains may start from.
      * Null when the hook is present but cannot be read in full: a body that is not one `return`, a
-     * form this reader does not know, or, inside a new form, a key it cannot resolve.
+     * form this reader does not know, or, inside a `RuleSet` or `schema()` form, a key it cannot
+     * resolve.
      *
      * @return array{list<array{string, Expr}>, list<string>}|null
      */
@@ -98,14 +105,12 @@ final readonly class RulesDeclaration
             return null;
         }
 
-        $variables = $method->name->toString() === 'schema'
-            ? [$this->schemaVariable($method->params[0] ?? null)]
-            : [];
-        $variables = array_values(array_filter($variables, is_string(...)));
+        $variable = $method->name->toLowerString() === 'schema' ? $this->schemaVariable($method->params[0] ?? null) : null;
+        $variables = $variable === null ? [] : [$variable];
 
-        // The array-literal `rules()` is the shape read before the new forms existed, and keeps its
-        // lenient reading: an item with a key it cannot resolve is skipped, the rest still read.
-        if ($return->expr instanceof Array_ && $method->name->toString() === 'rules') {
+        // An array-literal `rules()` reads leniently, so its output stays what it was before the
+        // `RuleSet` and `schema()` forms were read: an item with a key it cannot resolve is skipped.
+        if ($return->expr instanceof Array_ && $method->name->toLowerString() === 'rules') {
             return [$this->lenientItems($return->expr), $variables];
         }
 
@@ -113,8 +118,8 @@ final readonly class RulesDeclaration
     }
 
     /**
-     * The items of an array literal whose keys resolve, skipping the rest — the reading the
-     * `validate([...])` arrays and the array-literal `rules()` have always had.
+     * The items of an array literal whose keys resolve, skipping the rest: the reading of
+     * `validate([...])` arrays and of an array-literal `rules()`.
      *
      * @return list<array{string, Expr}>
      */
@@ -200,7 +205,7 @@ final readonly class RulesDeclaration
                 return null;
             }
 
-            $items = $this->assign($items, $key, $arguments[1]);
+            $items[] = [$key, $arguments[1]];
         }
 
         return [$items, $variables];
@@ -225,20 +230,25 @@ final readonly class RulesDeclaration
             return null;
         }
 
+        // An arrow function sees the enclosing variables; a `function` closure sees only its own
+        // parameters without `use`, so the outer schema variable is not a root inside it.
         if ($callback instanceof ArrowFunction) {
             $body = $callback->expr;
+            $roots = [...$variables, $variable];
         } else {
             $return = $callback->stmts[0] ?? null;
             $body = count($callback->stmts) === 1 && $return instanceof Return_ ? $return->expr : null;
+            $roots = [$variable];
         }
 
         $items = $body instanceof Array_ ? $this->strictItems($body) : null;
 
-        return $items === null ? null : [$items, [...$variables, $variable]];
+        return $items === null ? null : [$items, $roots];
     }
 
     /**
-     * Every item of a new form's array, or null when one key cannot be resolved or an item is a spread.
+     * Every item of a `RuleSet` or `schema()` array, or null when one key cannot be resolved or an
+     * item is a spread. A repeated key keeps the last value; the reader assigns by key.
      *
      * @return list<array{string, Expr}>|null
      */
@@ -253,7 +263,7 @@ final readonly class RulesDeclaration
                 return null;
             }
 
-            $items = $this->assign($items, $key, $item->value);
+            $items[] = [$key, $item->value];
         }
 
         return $items;
@@ -317,43 +327,49 @@ final readonly class RulesDeclaration
         return count($arguments) === $count ? $arguments : null;
     }
 
-    /**
-     * Sets one key, as PHP and the package do: a repeated key keeps its first position and its last
-     * value.
-     *
-     * @param  list<array{string, Expr}>  $items
-     * @return list<array{string, Expr}>
-     */
-    private function assign(array $items, string $key, Expr $value): array
-    {
-        foreach ($items as $index => [$existing]) {
-            if ($existing === $key) {
-                $items[$index] = [$key, $value];
-
-                return $items;
-            }
-        }
-
-        $items[] = [$key, $value];
-
-        return $items;
-    }
-
     private function isRuleSet(StaticCall $call): bool
     {
         return $call->class instanceof Name && AppFiles::resolveName($call->class) === self::RULE_SET;
     }
 
-    /** The parameter's variable name when its type is `FluentSchema`, else null. */
+    /**
+     * The parameter's variable name when its type is `FluentSchema`, `?FluentSchema` or
+     * `FluentSchema|null`, else null. The package accepts all three: reflection names each of them
+     * `FluentSchema`.
+     */
     private function schemaVariable(?Param $param): ?string
     {
-        return $param instanceof Param
-            && $param->type instanceof Name
-            && AppFiles::resolveName($param->type) === self::FLUENT_SCHEMA
-            && $param->var instanceof Variable
+        $type = $param?->type;
+
+        if ($type instanceof NullableType) {
+            $type = $type->type;
+        } elseif ($type instanceof UnionType && count($type->types) === 2) {
+            $named = array_values(array_filter($type->types, static fn (Node $member): bool => ! ($member instanceof Identifier && $member->toLowerString() === 'null')));
+            $type = count($named) === 1 ? $named[0] : null;
+        }
+
+        return $type instanceof Name
+            && AppFiles::resolveName($type) === self::FLUENT_SCHEMA
+            && $param?->var instanceof Variable
             && is_string($param->var->name)
                 ? $param->var->name
                 : null;
+    }
+
+    /**
+     * Whether the class body itself uses `HasFluentRules`. Then both hooks run, and of a `rules()`
+     * and a `schema()` declared in the same body the package keeps `schema()` for a shared field
+     * (`HasFluentRules::resolveSchemaOutranksRules()`).
+     */
+    public function usesHasFluentRules(): bool
+    {
+        foreach ($this->class->stmts as $statement) {
+            if ($statement instanceof TraitUse && array_any($statement->traits, static fn (Name $trait): bool => AppFiles::resolveName($trait) === self::HAS_FLUENT_RULES)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function canRunSchema(): bool

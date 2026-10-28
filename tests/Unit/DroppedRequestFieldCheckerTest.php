@@ -92,9 +92,29 @@ final class DroppedRequestFieldCheckerTest extends TestCase
     }
 
     #[Test]
-    public function a_field_both_rules_and_schema_declare_is_silent(): void
+    public function a_field_both_rules_and_schema_declare_reports_against_the_winning_schema(): void
     {
+        // The body uses HasFluentRules, so the package keeps schema() for the shared field.
         $this->write('app/StorePostRequest.php', "<?php\nnamespace App\\Http\\Requests;\nuse Illuminate\\Foundation\\Http\\FormRequest;\nuse SanderMuller\\FluentValidation\\FluentSchema;\nuse SanderMuller\\FluentValidation\\HasFluentRules;\nfinal class StorePostRequest extends FormRequest\n{\n    use HasFluentRules;\n\n    public function rules(): array\n    {\n        return ['title' => 'required'];\n    }\n\n    public function schema(FluentSchema \$rules): array\n    {\n        return ['title' => \$rules->string()->required()];\n    }\n}\n");
+
+        $this->assertSame(
+            ["no longer sends 'title' to POST /posts, which App\\Http\\Requests\\StorePostRequest::schema() still requires"],
+            $this->checker()->findingsFor($this->changed('route::POST::/posts', ['title'])),
+        );
+    }
+
+    #[Test]
+    public function a_field_both_declare_is_silent_when_the_trait_is_out_of_view(): void
+    {
+        $this->write('app/StorePostRequest.php', "<?php\nnamespace App\\Http\\Requests;\nuse SanderMuller\\FluentValidation\\FluentSchema;\nfinal class StorePostRequest extends BaseRequest\n{\n    public function rules(): array\n    {\n        return ['title' => 'required'];\n    }\n\n    public function schema(FluentSchema \$rules): array\n    {\n        return ['title' => \$rules->string()->required()];\n    }\n}\n");
+
+        $this->assertSame([], $this->checker()->findingsFor($this->changed('route::POST::/posts', ['title'])));
+    }
+
+    #[Test]
+    public function a_schema_method_that_is_not_the_hook_is_not_a_site(): void
+    {
+        $this->write('app/StorePostRequest.php', "<?php\nnamespace App\\Http\\Requests;\nuse Illuminate\\Foundation\\Http\\FormRequest;\nfinal class StorePostRequest extends FormRequest\n{\n    public function schema(\$x)\n    {\n        request()->validate(['title' => 'required']);\n    }\n}\n");
 
         $this->assertSame([], $this->checker()->findingsFor($this->changed('route::POST::/posts', ['title'])));
     }

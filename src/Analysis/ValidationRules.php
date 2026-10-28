@@ -15,7 +15,7 @@ use SanderMuller\Richter\Analysis\Hazards\HazardSource;
 use SanderMuller\Richter\Support\AppFiles;
 
 /**
- * Reads validation arrays as field => rule names. Shared by the boundary and dropped-request-field
+ * Reads validation rules as field => rule names. Shared by the boundary and dropped-request-field
  * lanes; `$requestDataOnly` is the one place they differ.
  *
  * @internal
@@ -50,10 +50,12 @@ final class ValidationRules
 
     /**
      * Every method's fields, keyed by member id, with a class's two rules hooks settled against each
-     * other. The package merges `rules()` and a FluentSchema `schema()`, keeping one per shared field by
-     * where each is declared, trait imports included; one file does not always show which. So a field
-     * both declare reads null in both, and when either hook cannot be read in full, every field of the
-     * other reads null too: the unread one could override any of them.
+     * other. The package merges `rules()` and a FluentSchema `schema()` and keeps `schema()` for a
+     * shared field when both sit in one class body — but only `HasFluentRules` runs `schema()` at all.
+     * When the class body uses that trait, `schema()` wins: `rules()`' shared fields read null, and all
+     * of them when `schema()` cannot be read. Otherwise the trait may come from a parent or another
+     * trait, or not at all, so a field both declare reads null in both, and an unreadable hook makes
+     * every field of the other null too: the unread one could override any of them.
      *
      * @return array<string, array<string, list<string>|null>>
      */
@@ -72,12 +74,12 @@ final class ValidationRules
                 $byMember[$member] = $fields;
 
                 if ($declaration->isHook($method)) {
-                    $hooks[$method->name->toString()] = [$member, $complete];
+                    $hooks[$method->name->toLowerString()] = [$member, $complete];
                 }
             }
 
             if (count($hooks) === 2) {
-                $byMember = self::settleHooks($byMember, $hooks['rules'], $hooks['schema']);
+                $byMember = self::settleHooks($byMember, $hooks['rules'], $hooks['schema'], $declaration->usesHasFluentRules());
             }
         }
 
@@ -88,13 +90,22 @@ final class ValidationRules
      * @param  array<string, array<string, list<string>|null>>  $byMember
      * @param  array{string, bool}  $rules
      * @param  array{string, bool}  $schema
+     * @param  bool  $schemaWins  the class body uses `HasFluentRules`, so `schema()` overrides `rules()`
      * @return array<string, array<string, list<string>|null>>
      */
-    private static function settleHooks(array $byMember, array $rules, array $schema): array
+    private static function settleHooks(array $byMember, array $rules, array $schema, bool $schemaWins): array
     {
         [$rulesMember, $rulesComplete] = $rules;
         [$schemaMember, $schemaComplete] = $schema;
-        $unknown = static fn (array $fields): array => array_map(static fn (): null => null, $fields);
+        $unknown = static fn (array $fields): array => array_fill_keys(array_keys($fields), null);
+
+        if ($schemaWins) {
+            $byMember[$rulesMember] = $schemaComplete
+                ? array_merge($byMember[$rulesMember], array_fill_keys(array_keys(array_intersect_key($byMember[$rulesMember], $byMember[$schemaMember])), null))
+                : $unknown($byMember[$rulesMember]);
+
+            return $byMember;
+        }
 
         if (! $rulesComplete || ! $schemaComplete) {
             $byMember[$rulesMember] = $unknown($byMember[$rulesMember]);
@@ -143,6 +154,20 @@ final class ValidationRules
         }
 
         return $required;
+    }
+
+    /** Whether a method of that name in the source is a rules hook (`rules()`, or a FluentSchema `schema()` that can run). */
+    public static function isRulesHook(string $source, string $method): bool
+    {
+        foreach (HazardSource::classLikes($source) as $class) {
+            foreach ($class->getMethods() as $candidate) {
+                if ($candidate->name->toLowerString() === strtolower($method) && RulesDeclaration::of($class)->isHook($candidate)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     /**

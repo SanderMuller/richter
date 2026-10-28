@@ -70,7 +70,7 @@ final class RulesDeclarationTest extends TestCase
     #[Test]
     public function the_array_literal_rules_keep_their_lenient_reading(): void
     {
-        // The shape read before: an unresolved key is skipped, the rest still read.
+        // An array-literal rules() is lenient: an unresolved key is skipped, the rest still read.
         $source = $this->request($this->rulesMethod("['title' => 'required', Other::BODY => 'nullable']", 'array'));
 
         $this->assertSame(['title' => ['required']], $this->fields($source));
@@ -153,12 +153,65 @@ final class RulesDeclarationTest extends TestCase
     }
 
     #[Test]
-    public function a_field_both_hooks_declare_reads_unknown_in_both(): void
+    public function a_field_both_hooks_declare_goes_to_schema_when_the_body_uses_the_trait(): void
     {
+        // Both hooks sit in a body that uses HasFluentRules: the package keeps schema().
         $source = $this->request($this->rulesMethod("['title' => 'required|max:255', 'body' => 'required']", 'array') . $this->schemaMethod("['title' => \$rules->string()->nullable(), 'slug' => \$rules->string()->required()]"));
 
         $this->assertSame(['title' => null, 'body' => ['required']], $this->fields($source));
+        $this->assertSame(['title' => ['string', 'nullable'], 'slug' => ['string', 'required']], $this->fields($source, 'schema'));
+    }
+
+    #[Test]
+    public function a_field_both_hooks_declare_reads_unknown_in_both_when_the_trait_is_out_of_view(): void
+    {
+        // The trait may come from the base request, or not at all, so neither hook is known to win.
+        $source = $this->request($this->rulesMethod("['title' => 'required|max:255', 'body' => 'required']", 'array') . $this->schemaMethod("['title' => \$rules->string()->nullable(), 'slug' => \$rules->string()->required()]"), "final class StorePostRequest extends BaseRequest\n{\n");
+
+        $this->assertSame(['title' => null, 'body' => ['required']], $this->fields($source));
         $this->assertSame(['title' => null, 'slug' => ['string', 'required']], $this->fields($source, 'schema'));
+    }
+
+    #[Test]
+    public function an_unreadable_rules_makes_the_schema_unknown_when_the_trait_is_out_of_view(): void
+    {
+        $rules = "    public function rules(): array\n    {\n        \$fields = ['title' => 'nullable'];\n\n        return \$fields;\n    }\n";
+        $source = $this->request($rules . $this->schemaMethod("['title' => \$rules->string()->required()]"), "final class StorePostRequest extends BaseRequest\n{\n");
+
+        $this->assertSame(['title' => null], $this->fields($source, 'schema'));
+    }
+
+    #[Test]
+    public function a_nullable_or_differently_cased_schema_is_still_a_hook(): void
+    {
+        foreach (['public function schema(?FluentSchema $rules): array', 'public function schema(FluentSchema|null $rules): array', 'public function Schema(FluentSchema $rules): array'] as $signature) {
+            $schema = "    {$signature}\n    {\n        return ['title' => \$rules->string()];\n    }\n";
+            $source = $this->request($this->rulesMethod("['title' => 'required|max:255']", 'array') . $schema, "final class StorePostRequest extends BaseRequest\n{\n");
+
+            $this->assertSame(['title' => null], $this->fields($source), $signature);
+        }
+    }
+
+    #[Test]
+    public function a_function_closure_does_not_see_the_outer_schema_variable(): void
+    {
+        $source = $this->request($this->schemaMethod("RuleSet::define(function (FluentSchema \$r) { return ['title' => \$rules->string()]; })"));
+
+        $this->assertSame(['title' => null], $this->fields($source, 'schema'));
+    }
+
+    #[Test]
+    public function the_remaining_forms_and_hook_shapes_read_as_specified(): void
+    {
+        $this->assertNull($this->fields($this->request($this->rulesMethod('RuleSet::make()'))), 'make() alone is an empty declaration, filtered as no fields');
+        $this->assertNull($this->fields($this->request($this->rulesMethod("RuleSet::define(function (FluentSchema \$r) { \$x = 1; return ['title' => 'required']; })"))));
+        $this->assertNull($this->fields($this->request($this->schemaMethod("['title' => 'required']"), "final class StorePostRequest\n{\n"), 'schema'), 'no parent, no trait');
+        $this->assertSame(['title' => ['required']], $this->fields($this->request($this->schemaMethod("['title' => 'required']"), "final class StorePostRequest extends FluentFormRequest\n{\n"), 'schema'));
+        // The lenient array-literal path skips the keys it cannot resolve.
+        $this->assertSame(['body' => ['required']], $this->fields($this->request("    public const string TITLE = 'ti' . 'tle';\n" . $this->rulesMethod("[parent::TITLE => 'required', self::MISSING => 'required', self::TITLE => 'required', 'body' => 'required']", 'array'))));
+        // A constant key in an inline validate([...]) array resolves too.
+        $inline = "    public const string TITLE = 'title';\n\n    public function store(\$request)\n    {\n        \$request->validate([self::TITLE => 'required']);\n    }\n";
+        $this->assertSame(['title' => ['required']], $this->fields($this->request($inline), 'store'));
     }
 
     #[Test]

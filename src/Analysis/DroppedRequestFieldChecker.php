@@ -83,8 +83,8 @@ final class DroppedRequestFieldChecker
 
     /**
      * Every validation site behind one action, each with its fields' required state: the form
-     * requests the action type-hints (keyed on the request class), and the action's own inline
-     * validation (keyed on the member that declares it, a parent's for an inherited action). Both
+     * requests the action type-hints (anchored on the request class), and the action's own inline
+     * validation (anchored on the member that declares it, a parent's for an inherited action). Both
      * are the keys the request lane already uses, so one ignore entry covers both directions. A
      * request's `rules()` and FluentSchema `schema()` are two sites under the request's key; the shared
      * reader has already settled a field both declare to unknown.
@@ -105,7 +105,9 @@ final class DroppedRequestFieldChecker
             }
 
             $sites[] = [$request, "{$request}::rules()", $this->required($request, $source, 'rules')];
-            $sites[] = [$request, "{$request}::schema()", $this->required($request, $source, 'schema')];
+            if (ValidationRules::isRulesHook($source, 'schema')) {
+                $sites[] = [$request, "{$request}::schema()", $this->required($request, $source, 'schema')];
+            }
         }
 
         $source = $this->sourceOf($action);
@@ -116,7 +118,7 @@ final class DroppedRequestFieldChecker
             $sites[] = [$declaring, $declaring, $this->required($declaring, $source, $method)];
         }
 
-        return array_values(array_filter($sites, static fn (array $site): bool => $site[2] !== []));
+        return $sites;
     }
 
     /**
@@ -124,13 +126,13 @@ final class DroppedRequestFieldChecker
      * @param  array<string, bool|null>  $required
      * @return list<string>
      */
-    private function droppedAndRequired(array $dropped, string $site, array $required): array
+    private function droppedAndRequired(array $dropped, string $anchor, array $required): array
     {
-        if ($this->lane->isIgnored($site)) {
+        if ($this->lane->isIgnored($anchor)) {
             return [];
         }
 
-        $fields = FrontendConsumerLane::matchable($dropped, $this->lane->ignoredKeysFor($site));
+        $fields = FrontendConsumerLane::matchable($dropped, $this->lane->ignoredKeysFor($anchor));
 
         return array_values(array_filter($fields, static fn (string $field): bool => ($required[$field] ?? null) === true));
     }
