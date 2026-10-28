@@ -41,7 +41,7 @@ jobs:
       - name: Run zizmor
         uses: zizmorcore/zizmor-action@v0.6.0
         with:
-          # Gate via exit code + inline annotations. SARIF upload to code scanning
-          # needs GitHub Advanced Security — enable advanced-security once GHAS is on.
+          # Gate via exit code + inline annotations. With advanced-security: true the
+          # action uploads SARIF to code scanning instead and never fails the job.
           advanced-security: false
           persona: regular
