@@ -221,7 +221,7 @@ final class DetectChangesCommand extends Command
         // Built before the analysis, not after: the level now depends on what a test references, and
         // the index needs the graph to follow a route to the class that handles it — a Filament page
         // driven by `livewire(SomePage::class)` matches neither a route name nor a literal URI.
-        $tests = TestReferenceIndex::forProject($graph);
+        $tests = TestReferenceIndex::forHead($head, $graph);
 
         $result = new ImpactAnalyzer($graph)->detectChanges($changed, payloadParityEnabled: $this->payloadParityEnabled(), tests: $tests, hazardsEnabled: $this->hazardsEnabled(), runtimeEvidenceRoot: RichterConfig::runtimeEvidenceRoot($head));
 
@@ -283,7 +283,7 @@ final class DetectChangesCommand extends Command
 
             $this->noteOutOfScopeFiles($outOfScope);
 
-            return $this->emitJson($graphs, $base, $changed, $failOn, $failOnUnresolved, $gateActive, RichterConfig::runtimeEvidenceRoot($head));
+            return $this->emitJson($graphs, $base, $changed, $failOn, $failOnUnresolved, $gateActive, $head);
         } catch (Throwable $throwable) {
             // Backstop: an unexpected graph-build/analyze (or resolution) error is not "no impact" —
             // fail, but keep stdout a single JSON document instead of a leaked stack trace.
@@ -294,7 +294,7 @@ final class DetectChangesCommand extends Command
     /**
      * @param  list<ChangedFileSymbols>  $changed
      */
-    private function emitJson(GraphCache $graphs, string $base, array $changed, ?RiskLevel $failOn, bool $failOnUnresolved, bool $gateActive, ?string $runtimeEvidenceRoot): int
+    private function emitJson(GraphCache $graphs, string $base, array $changed, ?RiskLevel $failOn, bool $failOnUnresolved, bool $gateActive, string $head): int
     {
         if ($changed === []) {
             // Empty diff always passes: gate not evaluated, so a bare --fail-on=low can't trip on zero changes.
@@ -314,9 +314,9 @@ final class DetectChangesCommand extends Command
         }
 
         $graph = $this->graph($graphs);
-        $tests = TestReferenceIndex::forProject($graph);
+        $tests = TestReferenceIndex::forHead($head, $graph);
 
-        $result = new ImpactAnalyzer($graph)->detectChanges($changed, payloadParityEnabled: $this->payloadParityEnabled(), tests: $tests, hazardsEnabled: $this->hazardsEnabled(), runtimeEvidenceRoot: $runtimeEvidenceRoot);
+        $result = new ImpactAnalyzer($graph)->detectChanges($changed, payloadParityEnabled: $this->payloadParityEnabled(), tests: $tests, hazardsEnabled: $this->hazardsEnabled(), runtimeEvidenceRoot: RichterConfig::runtimeEvidenceRoot($head));
         $payload = JsonPresenter::detectChanges($result, $base, $tests);
 
         if (! $gateActive) {

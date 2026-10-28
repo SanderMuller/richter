@@ -3,6 +3,7 @@
 namespace SanderMuller\Richter\Tests\Feature;
 
 use Illuminate\Foundation\Application;
+use Illuminate\Process\PendingProcess;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Process;
 use Illuminate\Testing\Fluent\AssertableJson;
@@ -837,6 +838,52 @@ final class McpTest extends TestCase
         } finally {
             $this->deleteTree($testsDir);
         }
+    }
+
+    #[Test]
+    public function the_detect_changes_tool_does_not_check_test_references_under_a_named_head(): void
+    {
+        // The MCP half of `CommandsTest::detect_changes_does_not_check_test_references_under_a_named_head`.
+        // tests/ is the working tree, not the named commit, so its references would be the wrong era.
+        $this->useFixtureProject();
+
+        $file = 'app/Http/Controllers/Post/ReviewController.php';
+        $head = (string) file_get_contents(self::fixtureProjectPath() . '/' . $file);
+        $base = str_replace('$post->load([Post::REVIEWS]);', '$post->loadMissing([Post::REVIEWS]);', $head);
+        $line = array_search('        $post->load([Post::REVIEWS]);', explode("\n", $head), true);
+        $this->assertIsInt($line);
+        ++$line;
+
+        Process::fake([
+            '*cat-file*' => Process::result(),
+            '*merge-base*' => Process::result("abc123\n"),
+            '*rev-parse*' => Process::result("def456\n"),
+            '*diff*' => Process::result("diff --git a/{$file} b/{$file}\n--- a/{$file}\n+++ b/{$file}\n@@ -{$line},1 +{$line},1 @@\n-        \$post->loadMissing([Post::REVIEWS]);\n+        \$post->load([Post::REVIEWS]);\n"),
+            '*show*' => static fn (PendingProcess $process): mixed => Process::result(
+                in_array("def456:{$file}", (array) $process->command, true) ? $head : $base,
+            ),
+        ]);
+
+        $testsDir = self::fixtureProjectPath() . '/tests';
+        // The cleanup below removes this tree. Fail loudly rather than delete a real fixture dir if
+        // one is ever added.
+        $this->assertDirectoryDoesNotExist($testsDir);
+        $test = $testsDir . '/Feature/ReviewControllerTest.php';
+        @mkdir(dirname($test), 0777, true);
+        file_put_contents($test, "<?php\n\nuse App\\Http\\Controllers\\Post\\ReviewController;\n");
+
+        try {
+            $control = resolve(DetectChangesTool::class)->handle(new Request(['base' => 'some-base']));
+            $named = resolve(DetectChangesTool::class)->handle(new Request(['base' => 'some-base', 'head' => 'some-head']));
+        } finally {
+            $this->deleteTree($testsDir);
+        }
+
+        $this->assertInstanceOf(ResponseFactory::class, $control);
+        $this->assertInstanceOf(ResponseFactory::class, $named);
+        $this->assertNotSame([], $control->getStructuredContent()['entryPointTestReferences'] ?? null);
+        $this->assertNotSame([], $named->getStructuredContent()['entryPoints'] ?? []);
+        $this->assertSame([], $named->getStructuredContent()['entryPointTestReferences'] ?? null);
     }
 
     private function useFixtureProject(): void

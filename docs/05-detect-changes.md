@@ -24,6 +24,8 @@ An untracked **migration** is the exception: it is read from the working tree an
 
 `--head` is also how you replay history without losing your own configuration. Checking an old commit out reverts every tracked file, `config/richter.php` among them, so a replayed diff silently runs on package defaults instead of your own `hazards.ignore` and `payload_parity` settings: the same diff, a different report. Pointing `--head` at the commit leaves the working tree alone, and the config with it.
 
+A replay reads only the diff at the named commit. The code graph is still built from the working tree, so the entry points a replayed change reaches are the ones today's code reaches. `tests/` is the working tree too, and a test added after the commit, often the fix for the change being replayed, would read as a reference. A named `--head` therefore does not check test references: entry points carry no `[test-referenced]` or `[⚠ no test references this]` tag, and a change with no hazard reads MEDIUM with the cause `test references were not checked`.
+
 ## What the report contains
 
 - The entry points the change can reach, each tagged `[test-referenced]` or `[⚠ no test references this]`: routes, commands, jobs, listeners, middleware, and Livewire/Filament/Nova component classes. A Blade-mounted component, a Filament resource, page or widget, and a Nova resource are each a user-facing surface even without a `route::` node.

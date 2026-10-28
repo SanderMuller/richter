@@ -156,7 +156,10 @@ final class AffectedTests
         $analysisUsed = new ImpactAnalyzer($graph)->detectChanges(
             $changed,
             payloadParityEnabled: $fullAnalysis ? null : false,
-            tests: $fullAnalysis ? $testsUsed : null,
+            // Not under a named head: `tests/` is the working tree, not that commit
+            // ({@see TestReferenceIndex::forHead()}). The selection still reads it — those are the
+            // tests that will run.
+            tests: $fullAnalysis && RichterConfig::runtimeEvidenceRoot($head) !== null ? $testsUsed : null,
             attributionEnabled: $fullAnalysis,
             // Working-tree analyses only: a named head describes a commit the booted router does not.
             runtimeEvidenceRoot: RichterConfig::runtimeEvidenceRoot($head),

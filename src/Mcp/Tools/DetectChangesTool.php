@@ -76,7 +76,7 @@ final class DetectChangesTool extends Tool
         // as though no test existed, and a cause line that named surfaces as unreferenced while the
         // row beside it called them referenced.
         $graph = $this->graphs->graph();
-        $tests = TestReferenceIndex::forProject($graph);
+        $tests = TestReferenceIndex::forHead($head, $graph);
 
         $result = new ImpactAnalyzer($graph)->detectChanges($changed, tests: $tests, runtimeEvidenceRoot: RichterConfig::runtimeEvidenceRoot($head));
 
@@ -116,7 +116,7 @@ final class DetectChangesTool extends Tool
             'entryPointRuntimeGuards' => $schema->object()
                 ->description("Entry-point route => guards the BOOTED ROUTER proves on it, group expansion included: [{middleware, group}], group null when applied directly. The third cross-check: runtime evidence beside Brain's finding, never a suppression, and — through a hazard's reach class — an input to the level like the other two cross-check maps. Populated only when the analysis runs against the booted working tree (never under a named head). Empty map serializes as []."),
             'entryPointTestReferences' => $schema->object()
-                ->description('Entry-point node => "referenced" | "referenced-no-behavioural-assertion" | "unreferenced". A node whose reference state could not be determined is omitted here; the risk level reads that state as unverified. Where a change carries no hazard the level is decided on this, so it is not advisory-only — see `verification` for the exact set graded. Never an input to affected-tests selection. Empty map serializes as [].'),
+                ->description('Entry-point node => "referenced" | "referenced-no-behavioural-assertion" | "unreferenced". A node whose reference state could not be determined is omitted here; the risk level reads that state as unverified. Under a named head the map is empty: tests/ describes the working tree, not that commit. Where a change carries no hazard the level is decided on this, so it is not advisory-only — see `verification` for the exact set graded. Never an input to affected-tests selection. Empty map serializes as [].'),
             'entryPointAttribution' => $schema->object()
                 ->description('Entry-point node => {via, ownReach}: the changed FILE PATH that explains this surface most specifically, and how many entry points that file reaches on its own. Reading order: the smaller ownReach is, the more the surface is about this diff rather than about something the diff happens to touch. The report orders rows on it. A surface no per-file walk explains — a self-listed entry class, a frontend surface — is absent here rather than carrying a null: there is no reach number for it. `via` is a path and never a class name, because a route file or a file declaring two classes has no single FQCN. Advisory: never an input to risk, the gate, or affected-tests selection, and a consumer that narrows its own test run on it does so at its own risk. Empty map serializes as [].'),
             'entryPointKeepSet' => $schema->object()

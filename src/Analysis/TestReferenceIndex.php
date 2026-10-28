@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Str;
 use SanderMuller\Richter\Graph\CodeGraph;
 use SanderMuller\Richter\Support\AppNamespace;
+use SanderMuller\Richter\Support\RichterConfig;
 use Symfony\Component\Finder\Finder;
 use Throwable;
 
@@ -83,6 +84,20 @@ final class TestReferenceIndex
         $index->useGraph($graph);
 
         return $index;
+    }
+
+    /**
+     * {@see forProject()} for an analysis of `$head`, or null for a named commit. `tests/` and the
+     * booted router the route lookup reads both describe the working tree, not that commit, so a test
+     * added after it — often the fix for the very change being replayed — would read as a reference.
+     * Null is the "not checked" verdict, decided by the same seam as
+     * {@see RichterConfig::runtimeEvidenceRoot()}.
+     *
+     * @internal richter's own commands and tools call it; it can change in a minor release
+     */
+    public static function forHead(string $head, CodeGraph $graph): ?self
+    {
+        return RichterConfig::runtimeEvidenceRoot($head) === null ? null : self::forProject($graph);
     }
 
     public static function fromTests(string $testsDir, ?string $projectRoot = null): self

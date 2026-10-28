@@ -5,6 +5,7 @@ namespace SanderMuller\Richter\Support;
 use Illuminate\Support\Facades\Process;
 use InvalidArgumentException;
 use SanderMuller\Richter\Analysis\BenchmarkCase;
+use SanderMuller\Richter\Analysis\TestReferenceIndex;
 use SanderMuller\Richter\Graph\SecondHopWalk;
 use SanderMuller\Richter\Tracers\FeatureGateChecker;
 
@@ -373,7 +374,9 @@ final class RichterConfig
      * The analyzed root the runtime-guards lane may trust, derived from a resolved head ref: the
      * literal 'HEAD' is working-tree mode (the booted router describes exactly that tree), and any
      * resolved commit sha is a historical state the router does not describe — null, fail-closed.
-     * One seam for every detect-changes caller, so no call site re-derives the ternary.
+     * One seam for every detect-changes caller, so no call site re-derives the ternary. The test
+     * index asks the same question ({@see TestReferenceIndex::forHead()}): its route lookup reads
+     * this router, and `tests/` is the working tree too.
      */
     public static function runtimeEvidenceRoot(string $head): ?string
     {

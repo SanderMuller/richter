@@ -258,6 +258,115 @@ final class CommandsTest extends TestCase
     }
 
     #[Test]
+    public function detect_changes_reads_test_references_from_the_working_tree(): void
+    {
+        // The control for the named-head case below: same diff, same tests/, no --head.
+        $output = $this->runWithAHandlerTest([]);
+
+        $this->assertStringContainsString('route::GET::/posts/{post}/reviews', $output);
+        $this->assertStringContainsString('test-referenced', $output);
+    }
+
+    #[Test]
+    public function detect_changes_does_not_check_test_references_under_a_named_head(): void
+    {
+        // tests/ is the working tree, not the named commit. A test added after that commit — the fix
+        // for the very regression being replayed — would otherwise mark the route as covered.
+        $output = $this->runWithAHandlerTest(['--head' => 'some-head']);
+
+        $this->assertStringContainsString('route::GET::/posts/{post}/reviews', $output);
+        $this->assertStringNotContainsString('test-referenced', $output);
+        $this->assertStringNotContainsString('no test references this', $output);
+        $this->assertStringContainsString('test references were not checked', $output);
+    }
+
+    #[Test]
+    public function detect_changes_json_does_not_check_test_references_under_a_named_head(): void
+    {
+        // The JSON path builds its own index; the text path's fix must not be the only one.
+        $control = json_decode($this->runWithAHandlerTest(['--json' => true]), true, flags: JSON_THROW_ON_ERROR);
+        $named = json_decode($this->runWithAHandlerTest(['--json' => true, '--head' => 'some-head']), true, flags: JSON_THROW_ON_ERROR);
+
+        $this->assertIsArray($control);
+        $this->assertIsArray($named);
+        $this->assertNotSame([], $control['entryPointTestReferences']);
+        $this->assertNotSame([], $named['entryPoints']);
+        $this->assertSame([], $named['entryPointTestReferences']);
+    }
+
+    #[Test]
+    public function task_slice_does_not_check_test_references_under_a_named_head(): void
+    {
+        // Task-slice composes the detect-changes document through `AffectedTests`' full analysis,
+        // a third index. A surface left unchecked must still be reported as unproven.
+        $control = json_decode($this->runWithAHandlerTest(['--json' => true], 'richter:task-slice'), true, flags: JSON_THROW_ON_ERROR);
+        $named = json_decode($this->runWithAHandlerTest(['--json' => true, '--head' => 'some-head'], 'richter:task-slice'), true, flags: JSON_THROW_ON_ERROR);
+
+        $this->assertIsArray($control);
+        $this->assertIsArray($named);
+        $this->assertIsArray($control['verificationFalse']);
+        $this->assertIsArray($named['verificationFalse']);
+        $this->assertNotContains('route::GET::/posts/{post}/reviews', $control['verificationFalse']);
+        $this->assertContains('route::GET::/posts/{post}/reviews', $named['verificationFalse']);
+    }
+
+    /**
+     * A one-line body change in the fixture's review controller, plus a working-tree test that names
+     * the controller and requests the reviews URI, so both reached routes resolve as referenced: one
+     * through its handler, one through the literal URI, which needs no graph.
+     *
+     * @param  array<string, string|bool>  $options
+     */
+    private function runWithAHandlerTest(array $options, string $command = 'richter:detect-changes'): string
+    {
+        $this->useFixtureProject();
+
+        $file = 'app/Http/Controllers/Post/ReviewController.php';
+        $head = (string) file_get_contents(self::fixtureProjectPath() . '/' . $file);
+        $base = str_replace('$post->load([Post::REVIEWS]);', '$post->loadMissing([Post::REVIEWS]);', $head);
+        $this->assertNotSame($head, $base);
+
+        $line = array_search('        $post->load([Post::REVIEWS]);', explode("\n", $head), true);
+        $this->assertIsInt($line);
+        ++$line;
+
+        $diff = "diff --git a/{$file} b/{$file}\n--- a/{$file}\n+++ b/{$file}\n"
+            . "@@ -{$line},1 +{$line},1 @@\n"
+            . "-        \$post->loadMissing([Post::REVIEWS]);\n"
+            . "+        \$post->load([Post::REVIEWS]);\n";
+
+        Process::fake([
+            '*cat-file*' => Process::result(),
+            '*merge-base*' => Process::result("abc123\n"),
+            '*rev-parse*' => Process::result("def456\n"),
+            '*diff*' => Process::result($diff),
+            '*show*' => static fn (PendingProcess $process): mixed => Process::result(
+                in_array("def456:{$file}", (array) $process->command, true) ? $head : $base,
+            ),
+        ]);
+
+        $testsDir = self::fixtureProjectPath() . '/tests';
+        // The cleanup below removes this tree. Fail loudly rather than delete a real fixture dir if
+        // one is ever added.
+        $this->assertDirectoryDoesNotExist($testsDir);
+        $test = $testsDir . '/Feature/ReviewControllerTest.php';
+        @mkdir(dirname($test), 0777, true);
+        file_put_contents($test, "<?php\n\nuse App\\Http\\Controllers\\Post\\ReviewController;\n\n\$this->get('/posts/1/reviews');\n");
+
+        try {
+            $this->withoutMockingConsoleOutput();
+            $exitCode = Artisan::call($command, ['--base' => 'some-base', ...$options]);
+            $output = Artisan::output();
+        } finally {
+            $this->deleteTree($testsDir);
+        }
+
+        $this->assertSame(0, $exitCode);
+
+        return $output;
+    }
+
+    #[Test]
     public function detect_changes_head_stays_silent_about_untracked_files(): void
     {
         // The flag exists for a dirty checkout, so the guard it was added around must not fire in
