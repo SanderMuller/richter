@@ -827,8 +827,8 @@ final class McpTest extends TestCase
                 ->assertOk()
                 ->assertStructuredContent(static function (AssertableJson $json): bool {
                     $json->where('kept', static fn (Collection $kept): bool => $kept->contains('route::GET::/posts/{post}/reviews'))
-                        ->where('unreferencedKept', static fn (Collection $unreferenced): bool => ! $unreferenced->contains('route::GET::/posts/{post}/reviews'))
-                        ->where('verificationFalse', static fn (Collection $unverified): bool => ! $unverified->contains('route::GET::/posts/{post}/reviews'))
+                        ->where('unreferencedKept', static fn (Collection $unreferenced): bool => $unreferenced->doesntContain('route::GET::/posts/{post}/reviews'))
+                        ->where('verificationFalse', static fn (Collection $unverified): bool => $unverified->doesntContain('route::GET::/posts/{post}/reviews'))
                         ->where('risk', 'low')
                         ->etc();
 
