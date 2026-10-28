@@ -80,6 +80,26 @@ final class DroppedRequestFieldCheckerTest extends TestCase
     }
 
     #[Test]
+    public function a_field_a_schema_method_requires_is_reported_against_it(): void
+    {
+        $this->write('app/StorePostRequest.php', "<?php\nnamespace App\\Http\\Requests;\nuse Illuminate\\Foundation\\Http\\FormRequest;\nuse SanderMuller\\FluentValidation\\FluentSchema;\nuse SanderMuller\\FluentValidation\\HasFluentRules;\nuse SanderMuller\\FluentValidation\\RuleSet;\nfinal class StorePostRequest extends FormRequest\n{\n    use HasFluentRules;\n\n    final public const string SUBTITLE = 'subtitle';\n\n    public function schema(FluentSchema \$rules): RuleSet\n    {\n        return RuleSet::from([self::SUBTITLE => \$rules->string()->present()->nullable()]);\n    }\n}\n");
+
+        $this->assertSame(
+            ["no longer sends 'subtitle' to POST /posts, which App\\Http\\Requests\\StorePostRequest::schema() still requires"],
+            $this->checker()->findingsFor($this->changed('route::POST::/posts', ['subtitle'])),
+        );
+        $this->assertSame([], $this->checker([self::REQUEST . '::subtitle'])->findingsFor($this->changed('route::POST::/posts', ['subtitle'])));
+    }
+
+    #[Test]
+    public function a_field_both_rules_and_schema_declare_is_silent(): void
+    {
+        $this->write('app/StorePostRequest.php', "<?php\nnamespace App\\Http\\Requests;\nuse Illuminate\\Foundation\\Http\\FormRequest;\nuse SanderMuller\\FluentValidation\\FluentSchema;\nuse SanderMuller\\FluentValidation\\HasFluentRules;\nfinal class StorePostRequest extends FormRequest\n{\n    use HasFluentRules;\n\n    public function rules(): array\n    {\n        return ['title' => 'required'];\n    }\n\n    public function schema(FluentSchema \$rules): array\n    {\n        return ['title' => \$rules->string()->required()];\n    }\n}\n");
+
+        $this->assertSame([], $this->checker()->findingsFor($this->changed('route::POST::/posts', ['title'])));
+    }
+
+    #[Test]
     public function a_field_the_request_does_not_require_is_silent(): void
     {
         $this->assertSame([], $this->checker()->findingsFor($this->changed('route::POST::/posts', ['body', 'unknown'])));

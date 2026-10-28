@@ -100,7 +100,8 @@ A field counts as required when a missing value fails it: `required`, `present`,
 and the lane stays silent on the field.
 
 A `laravel-fluent-validation` chain is read as the rules it
-compiles to. A chain that holds `accepted` or `declined` without `required()` or `present()` stays
+compiles to, from a `rules()` or a `schema(FluentSchema $rules)` method, in the forms the boundary lane
+reads ([Risk levels](08-risk-levels.md)). A field both methods declare stays silent. A chain that holds `accepted` or `declined` without `required()` or `present()` stays
 silent, whatever else it holds: a missing field fails it when the request compiles its rules through
 `HasFluentRules` and can pass it when the builder runs as a rule object.
 

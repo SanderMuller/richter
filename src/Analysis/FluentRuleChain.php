@@ -8,6 +8,7 @@ use PhpParser\Node\Expr\Array_;
 use PhpParser\Node\Expr\ConstFetch;
 use PhpParser\Node\Expr\MethodCall;
 use PhpParser\Node\Expr\StaticCall;
+use PhpParser\Node\Expr\Variable;
 use PhpParser\Node\Identifier;
 use PhpParser\Node\Name;
 use PhpParser\Node\Scalar\String_;
@@ -199,12 +200,14 @@ final class FluentRuleChain
     private const array PRESENCE_PREFIXES = ['required_', 'present_', 'exclude', 'prohibited', 'missing'];
 
     /**
-     * The rule names the chain compiles to, without their parameters. Null when the value is no FluentRule chain,
+     * The rule names the chain compiles to, without their parameters. A chain starts from
+     * `FluentRule::` or from one of the given FluentSchema variables. Null when the value is no FluentRule chain,
      * or any link cannot be mapped.
      *
+     * @param  list<string>  $schemaVariables
      * @return list<string>|null
      */
-    public static function ruleNames(Node $value): ?array
+    public static function ruleNames(Node $value, array $schemaVariables = []): ?array
     {
         $calls = [];
 
@@ -213,15 +216,33 @@ final class FluentRuleChain
             $value = $value->var;
         }
 
-        if (! $value instanceof StaticCall
-            || ! $value->class instanceof Name
-            || AppFiles::resolveName($value->class) !== self::ROOT
-            || ! $value->name instanceof Identifier
-            || $value->isFirstClassCallable()) {
+        // `$rules->string()` on an injected FluentSchema: the innermost call is the factory. The
+        // package's FluentSchema declares the same factories as FluentRule and forwards anything else
+        // to FluentRule's macros, which the tables do not know.
+        if ($value instanceof Variable && is_string($value->name) && in_array($value->name, $schemaVariables, true)) {
+            $factory = array_pop($calls);
+
+            return $factory instanceof MethodCall ? self::read($factory->name, $factory->isFirstClassCallable(), $calls) : null;
+        }
+
+        if (! $value instanceof StaticCall || ! $value->class instanceof Name || AppFiles::resolveName($value->class) !== self::ROOT) {
             return null;
         }
 
-        $factory = self::FACTORIES[$value->name->toString()] ?? null;
+        return self::read($value->name, $value->isFirstClassCallable(), $calls);
+    }
+
+    /**
+     * @param  list<MethodCall>  $calls  the chain's links, outermost first
+     * @return list<string>|null
+     */
+    private static function read(Node $factoryName, bool $firstClassCallable, array $calls): ?array
+    {
+        if (! $factoryName instanceof Identifier || $firstClassCallable) {
+            return null;
+        }
+
+        $factory = self::FACTORIES[$factoryName->toString()] ?? null;
 
         if ($factory === null) {
             return null;

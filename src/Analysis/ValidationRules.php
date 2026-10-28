@@ -11,7 +11,6 @@ use PhpParser\Node\Identifier;
 use PhpParser\Node\Name;
 use PhpParser\Node\Scalar\String_;
 use PhpParser\Node\Stmt\ClassMethod;
-use PhpParser\Node\Stmt\Return_;
 use SanderMuller\Richter\Analysis\Hazards\HazardSource;
 use SanderMuller\Richter\Support\AppFiles;
 
@@ -46,14 +45,67 @@ final class ValidationRules
      */
     public static function rulesByMember(string $source): array
     {
+        return array_filter(self::settledMembers($source, requestDataOnly: false), static fn (array $fields): bool => $fields !== []);
+    }
+
+    /**
+     * Every method's fields, keyed by member id, with a class's two rules hooks settled against each
+     * other. The package merges `rules()` and a FluentSchema `schema()`, keeping one per shared field by
+     * where each is declared, trait imports included; one file does not always show which. So a field
+     * both declare reads null in both, and when either hook cannot be read in full, every field of the
+     * other reads null too: the unread one could override any of them.
+     *
+     * @return array<string, array<string, list<string>|null>>
+     */
+    private static function settledMembers(string $source, bool $requestDataOnly): array
+    {
         $byMember = [];
 
-        foreach (HazardSource::methods($source) as $member => $method) {
-            $fields = self::fieldsOf($method, requestDataOnly: false);
+        foreach (HazardSource::classLikes($source) as $fqcn => $class) {
+            $declaration = RulesDeclaration::of($class);
+            /** @var array<string, array{string, bool}> $hooks method name => [member, read in full] */
+            $hooks = [];
 
-            if ($fields !== []) {
+            foreach ($class->getMethods() as $method) {
+                $member = "{$fqcn}::{$method->name->toString()}";
+                [$fields, $complete] = self::fieldsOf($method, $requestDataOnly, $declaration);
                 $byMember[$member] = $fields;
+
+                if ($declaration->isHook($method)) {
+                    $hooks[$method->name->toString()] = [$member, $complete];
+                }
             }
+
+            if (count($hooks) === 2) {
+                $byMember = self::settleHooks($byMember, $hooks['rules'], $hooks['schema']);
+            }
+        }
+
+        return $byMember;
+    }
+
+    /**
+     * @param  array<string, array<string, list<string>|null>>  $byMember
+     * @param  array{string, bool}  $rules
+     * @param  array{string, bool}  $schema
+     * @return array<string, array<string, list<string>|null>>
+     */
+    private static function settleHooks(array $byMember, array $rules, array $schema): array
+    {
+        [$rulesMember, $rulesComplete] = $rules;
+        [$schemaMember, $schemaComplete] = $schema;
+        $unknown = static fn (array $fields): array => array_map(static fn (): null => null, $fields);
+
+        if (! $rulesComplete || ! $schemaComplete) {
+            $byMember[$rulesMember] = $unknown($byMember[$rulesMember]);
+            $byMember[$schemaMember] = $unknown($byMember[$schemaMember]);
+
+            return $byMember;
+        }
+
+        foreach (array_keys(array_intersect_key($byMember[$rulesMember], $byMember[$schemaMember])) as $field) {
+            $byMember[$rulesMember][$field] = null;
+            $byMember[$schemaMember][$field] = null;
         }
 
         return $byMember;
@@ -76,7 +128,6 @@ final class ValidationRules
      */
     public static function requiredFields(string $source, string $method, bool $requestDataOnly): array
     {
-        $methods = HazardSource::methods($source);
         $member = self::memberNamed($source, $method);
 
         if ($member === null) {
@@ -85,7 +136,7 @@ final class ValidationRules
 
         $required = [];
 
-        foreach (self::fieldsOf($methods[$member], $requestDataOnly) as $field => $rules) {
+        foreach (self::settledMembers($source, $requestDataOnly)[$member] ?? [] as $field => $rules) {
             if (! str_contains($field, '.')) {
                 $required[$field] = self::isRequired($rules);
             }
@@ -132,28 +183,38 @@ final class ValidationRules
         return array_intersect($rules, self::REQUIRING) !== [];
     }
 
-    /** @return array<string, list<string>|null> */
-    private static function fieldsOf(ClassMethod $method, bool $requestDataOnly): array
+    /**
+     * One method's fields, and whether its rules hook — when it is one — was read in full.
+     *
+     * @return array{array<string, list<string>|null>, bool}
+     */
+    private static function fieldsOf(ClassMethod $method, bool $requestDataOnly, RulesDeclaration $declaration): array
     {
         $fields = [];
+        $complete = true;
 
-        foreach (self::validationArrays($method, $requestDataOnly) as $array) {
-            foreach ($array->items as $item) {
-                if (! $item->key instanceof String_) {
-                    continue;
-                }
+        if ($declaration->isHook($method)) {
+            $hook = $declaration->hookItems($method);
+            $complete = $hook !== null;
 
-                $fields[$item->key->value] = self::ruleNames($item->value);
+            foreach ($hook[0] ?? [] as [$key, $value]) {
+                $fields[$key] = self::ruleNames($value, $hook[1] ?? []);
             }
         }
 
-        return $fields;
+        foreach (self::validationArrays($method, $requestDataOnly) as $array) {
+            foreach ($declaration->lenientItems($array) as [$key, $value]) {
+                $fields[$key] = self::ruleNames($value);
+            }
+        }
+
+        return [$fields, $complete];
     }
 
     /**
-     * The rules arrays inside one method: a `rules()` that returns an array literal, every
-     * `validate([...])` call written out at the call site, and — unless `$requestDataOnly` —
-     * `Validator::make($data, [...])`. A `validate($rules)` passing a variable
+     * The inline rules arrays inside one method: every `validate([...])` call written out at the call
+     * site, and — unless `$requestDataOnly` — `Validator::make($data, [...])`. A rules hook's return is
+     * read by {@see RulesDeclaration}. A `validate($rules)` passing a variable
      * contributes nothing — its fields are opaque, so the method's readable arrays stand alone.
      *
      * @return list<Array_>
@@ -161,14 +222,6 @@ final class ValidationRules
     private static function validationArrays(ClassMethod $method, bool $requestDataOnly): array
     {
         $arrays = [];
-
-        if ($method->name->toString() === 'rules') {
-            $return = ($method->stmts ?? [])[0] ?? null;
-
-            if (count($method->stmts ?? []) === 1 && $return instanceof Return_ && $return->expr instanceof Array_) {
-                $arrays[] = $return->expr;
-            }
-        }
 
         foreach (HazardSource::within($method, MethodCall::class) as $call) {
             if (! $call->name instanceof Identifier || $call->name->toString() !== 'validate' || $call->isFirstClassCallable()) {
@@ -237,16 +290,17 @@ final class ValidationRules
      * `Rule::unique(…)` object or a spread makes the list unknowable, and comparing a partial list
      * against a full one would invent removals.
      *
+     * @param  list<string>  $schemaVariables  the FluentSchema variables a chain may start from
      * @return list<string>|null
      */
-    private static function ruleNames(Node $value): ?array
+    private static function ruleNames(Node $value, array $schemaVariables = []): ?array
     {
         if ($value instanceof String_) {
             return self::normalise(explode('|', $value->value));
         }
 
         if (! $value instanceof Array_) {
-            $names = FluentRuleChain::ruleNames($value);
+            $names = FluentRuleChain::ruleNames($value, $schemaVariables);
 
             return $names === null ? null : self::normalise($names);
         }

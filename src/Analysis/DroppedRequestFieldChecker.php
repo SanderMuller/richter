@@ -65,13 +65,13 @@ final class DroppedRequestFieldChecker
 
         foreach ($file->droppedSentFields as $route => $dropped) {
             foreach ($this->routes()->actionsFor($route) as $action) {
-                foreach ($this->sitesFor($action) as $site => $required) {
-                    foreach ($this->droppedAndRequired($dropped, $site, $required) as $field) {
+                foreach ($this->sitesFor($action) as [$anchor, $label, $required]) {
+                    foreach ($this->droppedAndRequired($dropped, $anchor, $required) as $field) {
                         $findings[] = sprintf(
                             "no longer sends '%s' to %s, which %s still requires",
                             $field,
                             FrontendConsumerLane::routeLabel($route),
-                            str_contains($site, '::') ? $site : "{$site}::rules()",
+                            $label,
                         );
                     }
                 }
@@ -85,9 +85,11 @@ final class DroppedRequestFieldChecker
      * Every validation site behind one action, each with its fields' required state: the form
      * requests the action type-hints (keyed on the request class), and the action's own inline
      * validation (keyed on the member that declares it, a parent's for an inherited action). Both
-     * are the keys the request lane already uses, so one ignore entry covers both directions.
+     * are the keys the request lane already uses, so one ignore entry covers both directions. A
+     * request's `rules()` and FluentSchema `schema()` are two sites under the request's key; the shared
+     * reader has already settled a field both declare to unknown.
      *
-     * @return array<string, array<string, bool|null>>
+     * @return list<array{string, string, array<string, bool|null>}>  [ignore anchor, label, field => required]
      */
     private function sitesFor(string $action): array
     {
@@ -102,7 +104,8 @@ final class DroppedRequestFieldChecker
                 continue;
             }
 
-            $sites[$request] = $this->required($request, $source, 'rules');
+            $sites[] = [$request, "{$request}::rules()", $this->required($request, $source, 'rules')];
+            $sites[] = [$request, "{$request}::schema()", $this->required($request, $source, 'schema')];
         }
 
         $source = $this->sourceOf($action);
@@ -110,10 +113,10 @@ final class DroppedRequestFieldChecker
         $declaring = $source === null ? null : ValidationRules::memberNamed($source, $method);
 
         if ($source !== null && $declaring !== null) {
-            $sites[$declaring] = $this->required($declaring, $source, $method);
+            $sites[] = [$declaring, $declaring, $this->required($declaring, $source, $method)];
         }
 
-        return $sites;
+        return array_values(array_filter($sites, static fn (array $site): bool => $site[2] !== []));
     }
 
     /**

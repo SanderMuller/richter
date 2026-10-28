@@ -95,8 +95,20 @@ A dropped validation constraint is read from a pipe string, an array of string r
 [`laravel-fluent-validation`](https://github.com/SanderMuller/laravel-fluent-validation) chain such as
 `FluentRule::string()->required()->max(255)`, as the rule names the chain compiles to. A field richter
 cannot read in full, on either side, raises nothing: a `Rule::` object, a chain inside an array, a
-macro, `when()`, a `RuleSet` return, or a request's `schema()` method. Rules inside `each()` and
-`children()` are not compared.
+macro, or `when()`. Rules inside `each()` and `children()` are not compared.
+
+The rules can be returned as an array, as `RuleSet::from([...])`, `RuleSet::define(fn (FluentSchema $r)
+=> [...])`, or `RuleSet::make()->field(...)`, and they can come from a `schema(FluentSchema $rules)`
+method whose chains start from `$rules`. Keys can be string constants of the class, through `self::`,
+or through `static::` when the class or the constant is final. Each of these forms is read whole or
+not at all: a `RuleSet` changed with `merge()`, `only()` or `modify()`, an unresolved key or a spread
+makes the method count as unread.
+
+A `schema()` is read unless the class extends `FormRequest` directly and uses no trait, because only
+the package's `HasFluentRules` calls it. A field both `rules()` and `schema()` declare is never
+compared: the package keeps one of the two by where each is declared, and one file does not always
+show which. When either of them cannot be read, the other's fields are not compared either. A field
+moved from `rules()` to `schema()` in the same diff that drops a constraint is missed.
 
 Two cases read as a loss although nothing weakened: `min` and `max` replaced by `between`, and a
 string rule replaced by an equivalent one under another name. A builder-family change the other way

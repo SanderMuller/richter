@@ -562,6 +562,88 @@ final class HazardLanesTest extends TestCase
         return array_column(array_filter($hazards, static fn (Hazard $hazard): bool => $hazard->lane === 'boundary'), 'evidence');
     }
 
+    /** A request whose class body is given whole: constants, rules() and schema() as the test needs. */
+    private function ruleSetRequest(string $body): string
+    {
+        return "<?php\nnamespace App\\Http\\Requests;\nuse Illuminate\\Foundation\\Http\\FormRequest;\nuse SanderMuller\\FluentValidation\\FluentRule;\nuse SanderMuller\\FluentValidation\\FluentSchema;\nuse SanderMuller\\FluentValidation\\HasFluentRules;\nuse SanderMuller\\FluentValidation\\RuleSet;\nfinal class StorePostRequest extends FormRequest\n{\n    use HasFluentRules;\n{$body}\n}\n";
+    }
+
+    /** @return list<string> */
+    private function ruleSetEvidence(string $head, string $base): array
+    {
+        $hazards = $this->lanes('app/Http/Requests/StorePostRequest.php', $this->ruleSetRequest($head), $this->ruleSetRequest($base));
+
+        return array_column(array_filter($hazards, static fn (Hazard $hazard): bool => $hazard->lane === 'boundary'), 'evidence');
+    }
+
+    private static function rules(string $return): string
+    {
+        return "    public function rules(): RuleSet|array\n    {\n        return {$return};\n    }\n";
+    }
+
+    private static function schema(string $return): string
+    {
+        return "    public function schema(FluentSchema \$rules): RuleSet|array\n    {\n        return {$return};\n    }\n";
+    }
+
+    #[Test]
+    public function a_constraint_dropped_in_a_schema_method_is_a_boundary_hazard(): void
+    {
+        $this->assertSame(
+            ['`q` no longer validates max'],
+            $this->ruleSetEvidence(self::schema("RuleSet::from(['q' => \$rules->string()->nullable()])"), self::schema("RuleSet::from(['q' => \$rules->string()->nullable()->max(255)])")),
+        );
+    }
+
+    #[Test]
+    public function a_form_change_inside_one_method_still_reports_a_dropped_constraint(): void
+    {
+        // The member is the same, so the comparison survives the change of form.
+        $this->assertSame(
+            ['`title` no longer validates max'],
+            $this->ruleSetEvidence(self::rules("RuleSet::from(['title' => 'required'])"), self::rules("['title' => 'required|max:255']")),
+        );
+        $this->assertSame(
+            ['`title` no longer validates max'],
+            $this->ruleSetEvidence("    public const string TITLE = 'title';\n" . self::rules("[self::TITLE => 'required']"), "    public const string TITLE = 'title';\n" . self::rules("[self::TITLE => 'required|max:255']")),
+        );
+    }
+
+    #[Test]
+    public function an_equivalent_change_of_form_root_or_constant_is_not_a_boundary_hazard(): void
+    {
+        $base = self::rules("['title' => 'required|max:255']");
+
+        foreach ([
+            self::rules("RuleSet::from(['title' => 'required|max:255'])"),
+            self::rules("RuleSet::make()->field('title', 'required|max:255')"),
+            self::rules("RuleSet::define(fn (FluentSchema \$r) => ['title' => \$r->string()->required()->max(255)])"),
+            "    public const string HEADING = 'title';\n" . self::rules('RuleSet::from([self::HEADING => FluentRule::string()->required()->max(255)])'),
+        ] as $head) {
+            $this->assertSame([], $this->ruleSetEvidence($head, $base), $head);
+        }
+
+        $this->assertSame([], $this->ruleSetEvidence(
+            self::schema("['title' => \$rules->string()->required()->max(255)]"),
+            self::schema("['title' => FluentRule::string()->required()->max(255)]"),
+        ));
+    }
+
+    #[Test]
+    public function a_field_both_hooks_declare_is_never_compared(): void
+    {
+        // schema() may be the declaration that wins, and it still enforces `max`.
+        $schema = self::schema("['title' => \$rules->string()->max(255)]");
+
+        $this->assertSame([], $this->ruleSetEvidence(self::rules("['title' => 'required']") . $schema, self::rules("['title' => 'required|max:255']") . $schema));
+    }
+
+    #[Test]
+    public function moving_rules_from_rules_to_schema_is_not_a_boundary_hazard(): void
+    {
+        $this->assertSame([], $this->ruleSetEvidence(self::schema("['title' => \$rules->string()->required()->max(255)]"), self::rules("['title' => 'required|max:255']")));
+    }
+
     #[Test]
     public function a_constraint_dropped_from_a_fluent_chain_is_a_boundary_hazard(): void
     {
