@@ -2,6 +2,7 @@
 
 namespace SanderMuller\Richter\Graph;
 
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Process;
 use SanderMuller\Richter\Support\RichterConfig;
 use Throwable;
@@ -49,7 +50,7 @@ final class TracerBranchRunner
                 ->timeout(self::TIMEOUT_SECONDS)
                 ->start([PHP_BINARY, $artisan, self::COMMAND, "--project={$projectRoot}", "--out={$out}"]);
         } catch (Throwable) {
-            @unlink($out);
+            File::delete($out);
 
             return null;
         }
@@ -77,7 +78,7 @@ final class TracerBranchRunner
         } catch (Throwable) {
             return null;
         } finally {
-            @unlink($pending->outPath);
+            File::delete($pending->outPath);
         }
 
         return self::validate($decoded);

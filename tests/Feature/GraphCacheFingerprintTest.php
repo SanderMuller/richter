@@ -3,6 +3,7 @@
 namespace SanderMuller\Richter\Tests\Feature;
 
 use Illuminate\Support\Facades\Date;
+use Illuminate\Support\Facades\File;
 use PHPUnit\Framework\Attributes\Test;
 use SanderMuller\Richter\Graph\CodeGraphBuilder;
 use SanderMuller\Richter\Graph\GraphCache;
@@ -36,8 +37,8 @@ final class GraphCacheFingerprintTest extends TestCase
 
     protected function tearDown(): void
     {
-        @unlink($this->project . '/app/Alpha.php');
-        @unlink($this->project . '/app/Beta.php');
+        File::delete($this->project . '/app/Alpha.php');
+        File::delete($this->project . '/app/Beta.php');
         @rmdir($this->project . '/app');
         @rmdir($this->project);
         parent::tearDown();

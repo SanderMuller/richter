@@ -527,7 +527,7 @@ final class MarkdownFormatter
 
             if ($row->authGates !== []) {
                 $lines[] = '  - ℹ️ richter: an authorization policy (`' . implode('`, `', $row->authGates)
-                    . '`) is applied in this route\'s reach — verify whether it gates this write '
+                    . "`) is applied in this route's reach — verify whether it gates this write "
                     . "(Brain's route-surface analysis does not resolve middleware groups or in-controller gates).";
             }
         }

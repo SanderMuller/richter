@@ -3,6 +3,7 @@
 namespace SanderMuller\Richter\Graph;
 
 use Composer\InstalledVersions;
+use Illuminate\Support\Facades\File;
 use LaraMint\LaravelBrain\Graph\Graph as BrainGraph;
 use OutOfBoundsException;
 use SanderMuller\Richter\Support\AppNamespace;
@@ -694,7 +695,7 @@ final class GraphCache
 
             // Nothing usable was produced, so leave nothing behind: a `.tmp` from a failed write is
             // never read, never cleaned up by anything else, and accumulates one per failure.
-            @unlink($tmp);
+            File::delete($tmp);
         } catch (Throwable) {
             // Failing to warm the cache only costs the next run a rebuild.
         }

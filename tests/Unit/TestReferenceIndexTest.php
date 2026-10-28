@@ -6,6 +6,7 @@ use App\Console\Commands\CodeDetectChangesCommand;
 use Illuminate\Foundation\Application;
 use Illuminate\Routing\Router;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\File;
 use Override;
 use PHPUnit\Framework\Attributes\Test;
 use SanderMuller\Richter\Analysis\TestReferenceIndex;
@@ -568,7 +569,7 @@ final class TestReferenceIndexTest extends TestCase
 
         foreach ((array) glob($root . '/tests/*/*.php') as $leftover) {
             if (is_string($leftover)) {
-                unlink($leftover);
+                File::delete($leftover);
             }
         }
 

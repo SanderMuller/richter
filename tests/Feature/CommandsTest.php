@@ -7,6 +7,7 @@ use Illuminate\Filesystem\Filesystem;
 use Illuminate\Foundation\Application;
 use Illuminate\Process\PendingProcess;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Process;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Testing\PendingCommand;
@@ -115,7 +116,7 @@ final class CommandsTest extends TestCase
         config()->set('richter.root_namespace', 'Wrong\\');
 
         $this->runArtisan('richter:detect-changes', ['--base' => 'HEAD'])
-            ->expectsOutputToContain('richter traced the root namespace "Wrong\\", which composer.json does not map to app/')
+            ->expectsOutputToContain('richter traced the root namespace "Wrong\", which composer.json does not map to app/')
             ->assertSuccessful();
     }
 
@@ -333,7 +334,7 @@ final class CommandsTest extends TestCase
         $this->assertSame(0, $exitCode);
         $decoded = json_decode(substr($output, (int) strpos($output, '{')), associative: true);
         $this->assertIsArray($decoded);
-        @unlink(base_path($existing));
+        File::delete(base_path($existing));
 
         $this->assertSame([$existing], $decoded['tests']);
     }
@@ -368,8 +369,8 @@ final class CommandsTest extends TestCase
         $exitCode = Artisan::call('richter:affected-tests', ['--base' => 'some-base', '--json' => true]);
         $output = Artisan::output();
 
-        @unlink(base_path($browser));
-        @unlink(base_path($feature));
+        File::delete(base_path($browser));
+        File::delete(base_path($feature));
 
         $decoded = json_decode(substr($output, (int) strpos($output, '{')), associative: true);
         $this->assertIsArray($decoded);
@@ -405,7 +406,7 @@ final class CommandsTest extends TestCase
         $exitCode = Artisan::call('richter:affected-tests', ['--base' => 'some-base', '--json' => true]);
         $output = Artisan::output();
 
-        @unlink(base_path($spec));
+        File::delete(base_path($spec));
 
         $decoded = json_decode(substr($output, (int) strpos($output, '{')), associative: true);
         $this->assertIsArray($decoded);
@@ -439,7 +440,7 @@ final class CommandsTest extends TestCase
         Artisan::call('richter:affected-tests', ['--base' => 'some-base', '--plain' => true]);
         $plain = Artisan::output();
 
-        @unlink(base_path($existing));
+        File::delete(base_path($existing));
 
         $this->assertStringContainsString('runnable test files', $prose);
         $this->assertSame($existing, trim($plain));
@@ -468,7 +469,7 @@ final class CommandsTest extends TestCase
         $exitCode = Artisan::call('richter:affected-tests', ['--base' => 'some-base', '--explain' => $existing]);
         $output = Artisan::output();
 
-        @unlink(base_path($existing));
+        File::delete(base_path($existing));
 
         $this->assertSame(0, $exitCode);
         $this->assertStringContainsString("{$existing} IS in the selection.", $output);
@@ -1046,7 +1047,7 @@ final class CommandsTest extends TestCase
         $this->assertFileExists($path);
 
         $html = (string) file_get_contents($path);
-        unlink($path);
+        File::delete($path);
 
         $this->assertStringContainsString('<!DOCTYPE html>', $html);
         $this->assertStringNotContainsString('https://', $html);
@@ -1074,7 +1075,7 @@ final class CommandsTest extends TestCase
         $this->assertFileExists($path);
 
         $html = (string) file_get_contents($path);
-        unlink($path);
+        File::delete($path);
 
         $this->assertStringContainsString('>LOW</strong>', $html);
         $this->assertStringContainsString('Nothing reached — no graph to draw.', $html);
@@ -1093,7 +1094,7 @@ final class CommandsTest extends TestCase
         $this->assertSame(0, $exitCode);
 
         $html = (string) file_get_contents($path);
-        unlink($path);
+        File::delete($path);
 
         $this->assertStringNotContainsString('(advisory)', $html);
         $this->assertStringContainsString('not tripped', $html);
@@ -1155,7 +1156,7 @@ final class CommandsTest extends TestCase
         Artisan::call('richter:detect-changes', ['--base' => 'some-base', '--html' => $path]);
 
         $html = (string) file_get_contents($path);
-        unlink($path);
+        File::delete($path);
 
         $this->assertStringContainsString('<a class="ref" href="phpstorm://open?file=', $html);
     }
@@ -1171,7 +1172,7 @@ final class CommandsTest extends TestCase
         $exitCode = Artisan::call('richter:detect-changes', ['--base' => 'some-base', '--html' => $path, '--fail-on-unresolved' => true]);
         $output = Artisan::output();
 
-        @unlink($path);
+        File::delete($path);
 
         $this->assertSame(1, $exitCode);
         $this->assertStringContainsString('Gate: FAIL', $output);
@@ -1186,7 +1187,7 @@ final class CommandsTest extends TestCase
         $this->withoutMockingConsoleOutput();
         Artisan::call('richter:detect-changes', ['--base' => 'some-base', '--html' => $path, '--open' => true]);
 
-        @unlink($path);
+        File::delete($path);
 
         Process::assertRan(static fn (PendingProcess $process): bool => is_array($process->command)
             && in_array($path, $process->command, strict: true));
@@ -1210,7 +1211,7 @@ final class CommandsTest extends TestCase
         $exitCode = Artisan::call('richter:detect-changes', ['--base' => 'some-base', '--html' => $path, '--open' => true]);
         $output = Artisan::output();
 
-        @unlink($path);
+        File::delete($path);
 
         $this->assertSame(0, $exitCode);
         $this->assertStringContainsString('Could not open', $output);
@@ -1740,8 +1741,8 @@ final class CommandsTest extends TestCase
             Artisan::call('richter:detect-changes', ['--base' => 'some-base', '--no-cache' => true]);
             $output = Artisan::output();
         } finally {
-            @unlink($absolute);
-            @unlink($model);
+            File::delete($absolute);
+            File::delete($model);
         }
 
         $this->assertStringContainsString('still named by', $output);
@@ -1770,7 +1771,7 @@ final class CommandsTest extends TestCase
             Artisan::call('richter:detect-changes', ['--base' => 'some-base']);
             $output = Artisan::output();
         } finally {
-            @unlink($absolute);
+            File::delete($absolute);
         }
 
         $this->assertStringContainsString('tier 2 migration', $output);
@@ -1806,7 +1807,7 @@ final class CommandsTest extends TestCase
             Artisan::call('richter:detect-changes', ['--base' => 'some-base', '--head' => 'some-head']);
             $output = Artisan::output();
         } finally {
-            @unlink($absolute);
+            File::delete($absolute);
         }
 
         $this->assertStringNotContainsString('tier 2 migration', $output);

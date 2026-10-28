@@ -4,6 +4,7 @@ namespace SanderMuller\Richter\Tests\Feature;
 
 use Illuminate\Filesystem\Filesystem;
 use Illuminate\Foundation\Application;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Route;
 use PHPUnit\Framework\Attributes\Test;
 use SanderMuller\Richter\Analysis\ImpactAnalyzer;
@@ -83,7 +84,7 @@ final class MiddlewareGroupReportTest extends TestCase
         // draws no edge from the group to its members.
         $withKernel = new ImpactAnalyzer($this->graph())->detectChanges([$this->changedMiddleware()]);
 
-        unlink("{$this->projectRoot}/app/Http/Kernel.php");
+        File::delete("{$this->projectRoot}/app/Http/Kernel.php");
         $withoutKernel = new ImpactAnalyzer($this->graph())->detectChanges([$this->changedMiddleware()]);
 
         $this->assertNotSame($withKernel['findings'], $withoutKernel['findings']);

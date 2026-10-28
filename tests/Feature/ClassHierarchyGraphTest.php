@@ -2,6 +2,7 @@
 
 namespace SanderMuller\Richter\Tests\Feature;
 
+use Illuminate\Support\Facades\File;
 use PHPUnit\Framework\Attributes\Test;
 use SanderMuller\Richter\Graph\CodeGraph;
 use SanderMuller\Richter\Graph\CodeGraphBuilder;
@@ -110,7 +111,7 @@ final class ClassHierarchyGraphTest extends TestCase
 
         foreach (array_diff((array) scandir($path), ['.', '..']) as $entry) {
             $child = $path . '/' . $entry;
-            is_dir($child) ? $this->deleteRecursive($child) : @unlink($child);
+            is_dir($child) ? $this->deleteRecursive($child) : File::delete($child);
         }
 
         @rmdir($path);

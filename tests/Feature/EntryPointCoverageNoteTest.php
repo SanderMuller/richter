@@ -4,6 +4,7 @@ namespace SanderMuller\Richter\Tests\Feature;
 
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\File;
 use PHPUnit\Framework\Attributes\Test;
 use SanderMuller\Richter\Tests\TestCase;
 
@@ -69,7 +70,7 @@ final class EntryPointCoverageNoteTest extends TestCase
     private function projectWithUncoveredDirectory(): void
     {
         $this->root = (string) tempnam(sys_get_temp_dir(), 'richter-coverage-note-');
-        unlink($this->root);
+        File::delete($this->root);
         mkdir($this->root . '/app/Registry', 0o777, true);
 
         for ($i = 1; $i <= 5; ++$i) {

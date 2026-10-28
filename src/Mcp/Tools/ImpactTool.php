@@ -102,7 +102,7 @@ final class ImpactTool extends Tool
             'entryPointAuthGates' => $schema->object()
                 ->description('Entry-point route => policy gates in its reach that contradict a PUBLIC_WRITE finding — evidence to verify, never a suppression. Empty map serializes as [].'),
             'entryPointRuntimeGuards' => $schema->object()
-                ->description('Entry-point route => guards the BOOTED ROUTER proves on it, group expansion included: [{middleware, group}], group null when applied directly. The third cross-check — runtime evidence beside Brain\'s finding, never a suppression; populated only when the analysis runs against the booted working tree. Empty map serializes as [].'),
+                ->description("Entry-point route => guards the BOOTED ROUTER proves on it, group expansion included: [{middleware, group}], group null when applied directly. The third cross-check — runtime evidence beside Brain's finding, never a suppression; populated only when the analysis runs against the booted working tree. Empty map serializes as []."),
             'entryPointTestReferences' => $schema->object()
                 ->description('Entry-point node => "referenced" | "referenced-no-behavioural-assertion" | "unreferenced". Advisory annotation. Empty map serializes as [].'),
             'bounded' => $schema->boolean()

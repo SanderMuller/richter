@@ -3,6 +3,7 @@
 namespace SanderMuller\Richter\Tests\Feature;
 
 use Illuminate\Filesystem\Filesystem;
+use Illuminate\Support\Facades\File;
 use Iterator;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
@@ -130,7 +131,7 @@ final class GraphCacheTest extends TestCase
         // rebuilds. The memo below is what a report would have been served.
         $cache = $this->cache();
         $cache->graph($this->projectRoot);
-        unlink($this->cacheFile());
+        File::delete($this->cacheFile());
 
         $result = $cache->warm($this->projectRoot);
 
@@ -334,7 +335,7 @@ final class GraphCacheTest extends TestCase
         $intact = (string) file_get_contents($this->cacheFile());
 
         // A directory where the entry belongs: the temp file writes fine, the rename cannot land.
-        unlink($this->cacheFile());
+        File::delete($this->cacheFile());
         mkdir($this->cacheFile());
 
         // A changed input forces a miss, so the build runs and the write is attempted.

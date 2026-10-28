@@ -2,6 +2,7 @@
 
 namespace SanderMuller\Richter\Tests\Unit;
 
+use Illuminate\Support\Facades\File;
 use PHPUnit\Framework\Attributes\Test;
 use RuntimeException;
 use SanderMuller\Richter\Analysis\Hazards\ModelTables;
@@ -27,7 +28,7 @@ final class ModelTablesTest extends TestCase
         if ($this->temporaryRoot !== '') {
             $models = glob("{$this->temporaryRoot}/app/Models/*.php");
 
-            array_map(unlink(...), $models === false ? [] : $models);
+            array_map(File::delete(...), $models === false ? [] : $models);
             rmdir("{$this->temporaryRoot}/app/Models");
             rmdir("{$this->temporaryRoot}/app");
             rmdir($this->temporaryRoot);

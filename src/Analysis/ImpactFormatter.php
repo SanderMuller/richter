@@ -450,7 +450,7 @@ final class ImpactFormatter
 
             if ($row->authGates !== []) {
                 $lines[] = '      richter: an authorization policy (' . implode(', ', $row->authGates)
-                    . ') is applied in this route\'s reach — verify whether it gates this write '
+                    . ") is applied in this route's reach — verify whether it gates this write "
                     . '(Brain does not resolve middleware groups or in-controller gates).';
             }
         }

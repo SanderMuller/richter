@@ -4,6 +4,7 @@ namespace SanderMuller\Richter\Tests;
 
 use Illuminate\Contracts\Config\Repository;
 use Illuminate\Foundation\Application;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Process;
 use Orchestra\Testbench\TestCase as OrchestraTestCase;
 use Override;
@@ -81,7 +82,7 @@ abstract class TestCase extends OrchestraTestCase
             }
 
             $path = $dir . '/' . $entry;
-            is_dir($path) ? $this->deleteTree($path) : @unlink($path);
+            is_dir($path) ? $this->deleteTree($path) : File::delete($path);
         }
 
         @rmdir($dir);

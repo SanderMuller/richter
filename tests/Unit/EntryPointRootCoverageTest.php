@@ -2,6 +2,7 @@
 
 namespace SanderMuller\Richter\Tests\Unit;
 
+use Illuminate\Support\Facades\File;
 use PHPUnit\Framework\Attributes\Test;
 use SanderMuller\Richter\Analysis\EntryPointRootCoverage;
 use SanderMuller\Richter\Graph\CodeGraph;
@@ -117,7 +118,7 @@ final class EntryPointRootCoverageTest extends TestCase
     public function a_project_without_an_app_directory_is_silent(): void
     {
         $this->root = (string) tempnam(sys_get_temp_dir(), 'richter-coverage-');
-        unlink($this->root);
+        File::delete($this->root);
         mkdir($this->root, 0o777, true);
 
         $this->assertSame([], EntryPointRootCoverage::notes($this->root, $this->graphOf(['App\Models\Post'])));
@@ -132,7 +133,7 @@ final class EntryPointRootCoverageTest extends TestCase
     private function project(array $directories): void
     {
         $this->root = (string) tempnam(sys_get_temp_dir(), 'richter-coverage-');
-        unlink($this->root);
+        File::delete($this->root);
 
         foreach ($directories as $directory => $count) {
             mkdir($this->root . '/app/' . $directory, 0o777, true);

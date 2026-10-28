@@ -3,6 +3,7 @@
 namespace SanderMuller\Richter\Tests\Feature;
 
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Process;
 use PHPUnit\Framework\Attributes\Test;
 use SanderMuller\Richter\Graph\CodeGraphBuilder;
@@ -51,7 +52,7 @@ final class ParallelGraphBuildTest extends TestCase
 
             $decoded = json_decode((string) file_get_contents($out), true);
         } finally {
-            @unlink($out);
+            File::delete($out);
         }
 
         $this->assertEquals(new CodeGraphBuilder()->buildTracerBranch(self::fixtureProjectPath()), $decoded);

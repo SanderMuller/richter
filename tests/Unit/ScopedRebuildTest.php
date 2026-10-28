@@ -2,6 +2,7 @@
 
 namespace SanderMuller\Richter\Tests\Unit;
 
+use Illuminate\Support\Facades\File;
 use PHPUnit\Framework\Attributes\Test;
 use SanderMuller\Richter\Support\ScopedRebuild;
 use SanderMuller\Richter\Tests\TestCase;
@@ -20,7 +21,7 @@ final class ScopedRebuildTest extends TestCase
         parent::setUp();
 
         $this->root = (string) tempnam(sys_get_temp_dir(), 'richter-scope-');
-        unlink($this->root);
+        File::delete($this->root);
         mkdir($this->root . '/app', recursive: true);
         file_put_contents($this->root . '/app/A.php', '<?php');
         file_put_contents($this->root . '/app/B.php', '<?php');
@@ -31,7 +32,7 @@ final class ScopedRebuildTest extends TestCase
     protected function tearDown(): void
     {
         foreach (['app/A.php', 'app/B.php', 'routes/web.php'] as $file) {
-            @unlink("{$this->root}/{$file}");
+            File::delete("{$this->root}/{$file}");
         }
 
         @rmdir($this->root . '/app');

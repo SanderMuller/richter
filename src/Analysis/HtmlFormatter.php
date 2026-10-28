@@ -249,7 +249,7 @@ final class HtmlFormatter
     private static function authGatesNote(array $authGates): string
     {
         return self::evidenceNote($authGates, 'an authorization policy (', ') is applied '
-            . 'in this route\'s reach — verify whether it gates this write. Brain does not resolve middleware '
+            . "in this route's reach — verify whether it gates this write. Brain does not resolve middleware "
             . 'groups or in-controller gates.');
     }
 

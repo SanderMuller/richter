@@ -2,6 +2,7 @@
 
 namespace SanderMuller\Richter\Tests\Feature;
 
+use Illuminate\Support\Facades\File;
 use PHPUnit\Framework\Attributes\Test;
 use SanderMuller\Richter\Analysis\ImpactAnalyzer;
 use SanderMuller\Richter\Changes\ChangedFileSymbols;
@@ -249,7 +250,7 @@ final class HubInterfaceFanOutTest extends TestCase
 
         foreach (array_diff((array) scandir($path), ['.', '..']) as $entry) {
             $child = $path . '/' . $entry;
-            is_dir($child) ? $this->deleteRecursive($child) : @unlink($child);
+            is_dir($child) ? $this->deleteRecursive($child) : File::delete($child);
         }
 
         @rmdir($path);

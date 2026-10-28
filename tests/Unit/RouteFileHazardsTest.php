@@ -2,6 +2,7 @@
 
 namespace SanderMuller\Richter\Tests\Unit;
 
+use Illuminate\Support\Facades\File;
 use PHPUnit\Framework\Attributes\Test;
 use SanderMuller\Richter\Analysis\Hazard;
 use SanderMuller\Richter\Analysis\HazardFindings;
@@ -692,7 +693,7 @@ final class RouteFileHazardsTest extends TestCase
         } finally {
             app()->setBasePath($original);
             GuardMiddleware::flush();
-            unlink($root . '/app/Http/Kernel.php');
+            File::delete($root . '/app/Http/Kernel.php');
             rmdir($root . '/app/Http');
             rmdir($root . '/app');
             rmdir($root);
@@ -718,7 +719,7 @@ final class RouteFileHazardsTest extends TestCase
         } finally {
             app()->setBasePath($original);
             GuardMiddleware::flush();
-            unlink($root . '/app/Http/Kernel.php');
+            File::delete($root . '/app/Http/Kernel.php');
             rmdir($root . '/app/Http');
             rmdir($root . '/app');
             rmdir($root);
