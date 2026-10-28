@@ -31,8 +31,16 @@ final class SentFieldsTest extends TestCase
         $this->assertSame($expected, SentFields::in($source));
     }
 
+    /** @return iterable<string, array{string}> */
+    public static function sourcesOnly(): iterable
+    {
+        foreach (self::sources() as $name => [$source]) {
+            yield $name => [$source];
+        }
+    }
+
     #[Test]
-    #[DataProvider('sources')]
+    #[DataProvider('sourcesOnly')]
     public function the_list_and_the_single_field_check_agree_both_ways(string $source): void
     {
         $listed = SentFields::in($source);
