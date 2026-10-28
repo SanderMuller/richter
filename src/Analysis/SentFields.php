@@ -68,9 +68,46 @@ final class SentFields
      */
     public static function opaque(string $source): bool
     {
-        // A spread with an opening brace before it and no closing one between: an object literal's.
-        // A rest parameter or an array spread sends nothing on its own.
-        return preg_match('/\{[^{}]*\.\.\.\s*[A-Za-z_$(]/', $source) === 1
-            || preg_match('/new\s+FormData\(\s*[^)\s]/', $source) === 1;
+        if (preg_match('/new\s+FormData\(\s*[^)\s]/', $source) === 1) {
+            return true;
+        }
+
+        preg_match_all('/\.\.\.\s*[A-Za-z_$(]/', $source, $spreads, PREG_OFFSET_CAPTURE);
+
+        foreach ($spreads[0] as [, $offset]) {
+            if (self::innermostOpenBracket($source, $offset) === '{') {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * The bracket a position sits directly inside, found by walking back over balanced pairs. An
+     * object spread sits in `{`; a rest parameter in `(` and an array spread in `[`, and neither sends
+     * a field on its own. A brace that a nested value (`{ options: {}, ...form }`) closes again is
+     * stepped over, not mistaken for the spread's own.
+     */
+    private static function innermostOpenBracket(string $source, int $offset): ?string
+    {
+        $depth = ['{' => 0, '[' => 0, '(' => 0];
+        $closers = ['}' => '{', ']' => '[', ')' => '('];
+
+        for ($i = $offset - 1; $i >= 0; --$i) {
+            $char = $source[$i];
+
+            if (isset($closers[$char])) {
+                ++$depth[$closers[$char]];
+            } elseif (isset($depth[$char])) {
+                if ($depth[$char] === 0) {
+                    return $char;
+                }
+
+                --$depth[$char];
+            }
+        }
+
+        return null;
     }
 }

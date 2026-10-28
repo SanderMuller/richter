@@ -55,6 +55,8 @@ final class SentFieldsTest extends TestCase
         yield 'empty form data' => ["const d = new FormData(); d.append('title', t)", false];
         yield 'rest parameter' => ['function save(id, ...fields) { post(url, { id }) }', false];
         yield 'array spread' => ['const ids = [a, ...rest]', false];
+        yield 'spread after a nested object value' => ['post(url, { options: {}, ...form })', true];
+        yield 'call spread inside a function body' => ['function save(a) { post(url, ...args) }', false];
         yield 'literal keys only' => ['axios.post(url, { id, title })', false];
     }
 

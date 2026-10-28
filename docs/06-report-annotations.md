@@ -97,8 +97,8 @@ request, through the type hint, and its own inline validation are the sites read
 A field counts as required when a missing value fails it: `required`, `present`, `accepted` or
 `declined`, and no `sometimes`. A conditional rule (`required_if`, `present_with` and so on), an
 `exclude`, `missing` or `prohibited` rule, a rule object and a FluentRule chain cannot be read that way,
-and the lane stays silent on the field. It is also silent on a file whose head spreads anything
-inside braces (`{ ...form }`, and a spread inside a function body too) or builds `new FormData(el)`,
+and the lane stays silent on the field. It is also silent on a file whose head spreads into an
+object literal (`{ ...form }`) or builds `new FormData(el)`,
 and on a request that declares `prepareForValidation()` or `validationData()`. Each of those can supply
 the field some other way. An inline `$request->merge([...])` before `validate()` can too, and the lane
 does not see it.
