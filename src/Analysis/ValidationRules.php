@@ -178,7 +178,8 @@ final class ValidationRules
     {
         $matches = array_values(array_filter(
             array_keys(HazardSource::methods($source)),
-            static fn (string $member): bool => str_ends_with($member, "::{$method}"),
+            // PHP method names are case-insensitive, so `Schema()` is the `schema` hook.
+            static fn (string $member): bool => str_ends_with(strtolower($member), '::' . strtolower($method)),
         ));
 
         return count($matches) === 1 ? $matches[0] : null;

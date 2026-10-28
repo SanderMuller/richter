@@ -112,6 +112,14 @@ final class DroppedRequestFieldCheckerTest extends TestCase
     }
 
     #[Test]
+    public function a_differently_cased_schema_hook_is_read(): void
+    {
+        $this->write('app/StorePostRequest.php', "<?php\nnamespace App\\Http\\Requests;\nuse Illuminate\\Foundation\\Http\\FormRequest;\nuse SanderMuller\\FluentValidation\\FluentSchema;\nuse SanderMuller\\FluentValidation\\HasFluentRules;\nfinal class StorePostRequest extends FormRequest\n{\n    use HasFluentRules;\n\n    public function Schema(FluentSchema \$rules): array\n    {\n        return ['title' => \$rules->string()->required()];\n    }\n}\n");
+
+        $this->assertCount(1, $this->checker()->findingsFor($this->changed('route::POST::/posts', ['title'])));
+    }
+
+    #[Test]
     public function a_schema_method_that_is_not_the_hook_is_not_a_site(): void
     {
         $this->write('app/StorePostRequest.php', "<?php\nnamespace App\\Http\\Requests;\nuse Illuminate\\Foundation\\Http\\FormRequest;\nfinal class StorePostRequest extends FormRequest\n{\n    public function schema(\$x)\n    {\n        request()->validate(['title' => 'required']);\n    }\n}\n");
