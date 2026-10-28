@@ -255,7 +255,8 @@ This guideline governs **how a sentence is built**, and how much you write. It n
 
 **Write in ASD-STE100 Simplified Technical English.** Say the same thing in fewer, simpler words.
 
-- One idea per sentence. Keep procedural sentences to 20 words or less, descriptive sentences to 25 or less.
+- One idea per sentence. Keep procedural sentences to 20 words or less, descriptive sentences to 25 or less. These limits are a ceiling, not a target.
+- Vary sentence length. A run of short sentences of the same size reads as machine output, as a run of long ones does. Join two clauses that carry one idea with "because", "so", or "although" instead of splitting them into two short sentences.
 - Use the active voice. Name the actor. Use the passive only when the actor is unknown.
 - Use simple tenses only — simple present, simple past, simple future, infinitive, imperative. No complex constructions built from auxiliary verbs.
 - Use one word for one meaning. Use the same word for the same thing every time — do not vary it for style.
