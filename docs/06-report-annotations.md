@@ -80,6 +80,47 @@ The `rules()` parse is as strict as the resource one: a method that builds its a
 held to the same bar: a method that passes rules it cannot read (a variable, a merge) is skipped
 entirely rather than reported as having removed every field. A dotted rule key (`items.*.name`) matches nothing: its segments appear separately in a payload, and matching the last one would fire on every unrelated `name` in the file.
 
+The request side also runs the other way. A frontend diff can stop sending a field that the route's
+validation still requires. The request then fails validation for every user, and the diff that
+caused it touched no PHP:
+
+```text
+  ! resources/js/Pages/Posts/Create.vue: no longer sends 'subtitle' to POST /posts, which App\Http\Requests\StorePostRequest::rules() still requires
+```
+
+**A finding, never a hazard.** A frontend edit does not move `risk`, so this lane does not either. It
+runs on a changed `.ts`, `.tsx`, `.js`, `.jsx` or `.vue` file, not on a Blade view. It compares the
+fields the file sends at base and at head, with the same send-shaped matching as above. It reads only
+the routes the file itself calls. The booted router names each route's own action. The action's form
+request, through the type hint, and its own inline validation are the sites read.
+
+A field counts as required when a missing value fails it: `required`, `present`, `accepted` or
+`declined`, and no `sometimes`. A conditional rule (`required_if`, `present_with` and so on), an
+`exclude`, `missing` or `prohibited` rule, a rule object and a FluentRule chain cannot be read that way,
+and the lane stays silent on the field. It is also silent when the head spreads its payload
+(`{ ...form }`) or builds `new FormData(el)`, and when the request declares `prepareForValidation()` or
+`validationData()`. Each of those can supply the field some other way.
+
+The comparison is per file, not per call, and that has a cost in both directions:
+
+- A field moved to another file in the same diff reports. So does a field dropped from the call to
+  one route when another route the file calls requires it.
+- The object-literal pattern also matches an argument list, an import list, a TS type literal and a
+  Vue `{{ title }}` interpolation. Such a match at base can read as a dropped field; it reports only
+  when a site requires that exact name. The same match at head can hide a real drop.
+- A field that a `rules()` spread overrides is not seen, and two branch-specific `validate()` calls
+  merge, so a field one branch does not require can report.
+- The lane is silent where Laravel Brain draws no request edge: a form request in the controller's
+  namespace with no `use` statement, a request whose `rules()` is inherited, a legacy string action,
+  and a route the router has but the route files do not declare. A removal-only hunk whose head cannot
+  be read reads as a deleted file and is silent too.
+
+The `ignore` entries are the request lane's, so one entry silences both directions for that field:
+`App\Http\Requests\StorePostRequest::subtitle`, `App\Http\Controllers\PostController::store::subtitle`
+for inline validation, or a whole request or action member. `--no-payload-parity` turns this lane off
+with the rest of the family. Under a named `--head` the frontend side is read at that commit and the
+validation side from today's code, the same split the graph already has.
+
 ## Sibling-read parity
 
 A changed method that reads a nullable column raw, where the code that was already beside it resolves

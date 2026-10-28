@@ -184,6 +184,10 @@ return [
      * These are HAZARDS, not findings: a payload key a consumer still reads is a break, so it is
      * reported beside the other tier-2 hazards and it does move the risk level. `enabled` and
      * `ignore` keep working exactly as before; only the destination changed.
+     *
+     * The same `enabled` and `ignore` also govern one FINDING lane, the frontend-side direction: a
+     * field a changed frontend file stops sending that the route's validation still requires. It
+     * never moves the risk level, because a frontend edit does not.
      */
     'payload_parity' => [
         'enabled' => true,

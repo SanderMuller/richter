@@ -80,9 +80,7 @@ final readonly class RequestFieldParityChecker
     }
 
     /**
-     * Send-shaped only: an object-literal key (`{ title: … }`, `{ 'title': … }`, the `{ title }`
-     * shorthand), a `FormData`/`URLSearchParams` `append`/`set` with the name as a string literal,
-     * a bracket write (`payload['title'] = …`), and a dotted assignment (`form.title = …`).
+     * Send-shaped only, through {@see SentFields::sends()}.
      *
      * The object-literal pattern is the one the response-side lane names as its own false-positive
      * class — a destructure of a RESPONSE takes the same shape as an object literal being built.
@@ -93,12 +91,6 @@ final readonly class RequestFieldParityChecker
      */
     private function sendsField(string $file, string $field): bool
     {
-        $content = $this->lane->content($file);
-        $quoted = preg_quote($field, '/');
-
-        return preg_match('/[{,]\s*[\'"]?' . $quoted . '[\'"]?\s*[,}:]/', $content) === 1
-            || preg_match('/\.(?:append|set)\(\s*[\'"]' . $quoted . '[\'"]/', $content) === 1
-            || preg_match('/\[\s*[\'"]' . $quoted . '[\'"]\s*\]\s*=[^=]/', $content) === 1
-            || preg_match('/\.' . $quoted . '\s*=[^=]/', $content) === 1;
+        return SentFields::sends($this->lane->content($file), $field);
     }
 }

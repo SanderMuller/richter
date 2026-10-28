@@ -53,7 +53,7 @@ final class DetectChangesCommand extends Command
         {--fail-on= : Exit non-zero when risk is at least this level (low|medium|high); advisory by default}
         {--fail-on-unresolved : Exit non-zero when any changed PHP file is UNRESOLVED}
         {--no-cache : Build the code graph fresh, bypassing the graph cache}
-        {--no-payload-parity : Skip the payload-parity findings lanes (a model field never mirrored in a resource; a removed resource key a frontend consumer still reads)}
+        {--no-payload-parity : Skip the payload-parity lanes (a model field never mirrored in a resource; a removed resource key a frontend consumer still reads; a removed request field a frontend still sends; a field a frontend stops sending that the request still requires)}
         {--no-hazards : Skip the change-hazard lanes (a guard removed, a mass-assignment surface widened, a validation constraint dropped, a public member removed)}
         {--fail-on-hazard= : Exit non-zero when any hazard is at least this tier (1|2|3); gates hazards alone, where --fail-on gates the level}
         {--profile : Time each graph-build phase and print the split to stderr (forces a build, and names which analysis path it took; add --no-cache to time a cold one)}

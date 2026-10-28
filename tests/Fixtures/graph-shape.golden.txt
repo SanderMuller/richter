@@ -19,6 +19,12 @@ App\Http\Controllers\Auth\SocialAuthController	declares	App\Http\Controllers\Aut
 App\Http\Controllers\Post\DashboardSearchController	controller-to-action	App\Http\Controllers\Post\DashboardSearchController::index
 App\Http\Controllers\Post\DashboardSearchController	declares	App\Http\Controllers\Post\DashboardSearchController::index
 App\Http\Controllers\Post\DashboardSearchController::index	action-to-model	App\Models\Post::query
+App\Http\Controllers\Post\PostController	controller-to-action	App\Http\Controllers\Post\PostController::store
+App\Http\Controllers\Post\PostController	declares	App\Http\Controllers\Post\PostController::store
+App\Http\Controllers\Post\PostController	controller-to-action	App\Http\Controllers\Post\PostController::update
+App\Http\Controllers\Post\PostController	declares	App\Http\Controllers\Post\PostController::update
+App\Http\Controllers\Post\PostController::store	action-to-action	App\Http\Requests\Post\StorePostRequest::validated
+App\Http\Controllers\Post\PostController::store	action-to-form-request	App\Http\Requests\Post\StorePostRequest::validated
 App\Http\Controllers\Post\ReviewController	controller-to-action	App\Http\Controllers\Post\ReviewController::edit
 App\Http\Controllers\Post\ReviewController	declares	App\Http\Controllers\Post\ReviewController::edit
 App\Http\Controllers\Post\ReviewController	controller-to-action	App\Http\Controllers\Post\ReviewController::show
@@ -35,6 +41,7 @@ App\Http\Controllers\Post\ReviewController::show	references-constant	App\Models\
 App\Http\Controllers\Post\ReviewController::show	action-to-model	App\Models\Post::load
 App\Http\Controllers\Post\ReviewController::show	loads-relation	App\Models\Post::reviews
 App\Http\Middleware\Authenticate	declares	App\Http\Middleware\Authenticate::handle
+App\Http\Requests\Post\StorePostRequest	declares	App\Http\Requests\Post\StorePostRequest::validated
 App\Http\Resources\Api\v2\Post\ReviewPlayerResource	declares	App\Http\Resources\Api\v2\Post\ReviewPlayerResource::make
 App\Http\Resources\Api\v2\Post\ReviewPlayerResource	declares	App\Http\Resources\Api\v2\Post\ReviewPlayerResource::toArray
 App\Http\Resources\Api\v2\Post\ReviewResource	declares	App\Http\Resources\Api\v2\Post\ReviewResource::make
@@ -103,6 +110,8 @@ route::GET::/posts/{post}/edit	route-to-controller	App\Http\Controllers\Post\Rev
 route::GET::/posts/{post}/edit	route-to-middleware	App\Http\Middleware\Authenticate
 route::GET::/posts/{post}/interactive	route-to-middleware	Laravel\Pennant\Middleware\EnsureFeaturesAreActive
 route::GET::/posts/{post}/reviews	route-to-controller	App\Http\Controllers\Post\ReviewController
+route::POST::/posts	route-to-controller	App\Http\Controllers\Post\PostController
+route::PUT::/posts/{post}	route-to-controller	App\Http\Controllers\Post\PostController
 view::blade__posts.show	authorizes	App\Policies\PostPolicy
 view::blade__posts.show	view-to-view	view::blade__layouts.app
 view::blade__posts.show	view-to-view	view::blade__posts.partials.header

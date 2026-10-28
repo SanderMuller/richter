@@ -2,13 +2,11 @@
 
 namespace SanderMuller\Richter\Changes;
 
-use Illuminate\Routing\Route as RoutingRoute;
-use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Str;
+use SanderMuller\Richter\Analysis\SentFields;
 use SanderMuller\Richter\Analysis\TestReferenceIndex;
 use SanderMuller\Richter\Support\RichterConfig;
 use SanderMuller\Richter\Tracers\FrontendReferenceScanner;
-use Throwable;
 
 /**
  * Turns a changed frontend file into a {@see ChangedFileSymbols} whose direct seeds are the
@@ -26,10 +24,9 @@ final class FrontendChanges
 
     private readonly FrontendReferenceScanner $scanner;
 
-    /** @var array{byName: array<string, list<string>>, byAction: array<string, list<string>>, byClass: array<string, list<string>>, uriTemplates: list<array{regex: string, nodes: list<string>}>}|null */
-    private ?array $indexes = null;
+    private ?RouterRouteIndex $routerIndex = null;
 
-    private bool $routerUnavailable = false;
+    private bool $routerIndexBuilt = false;
 
     public function __construct()
     {
@@ -131,7 +128,7 @@ final class FrontendChanges
 
         foreach ($actions as $action) {
             $key = $action['method'] === null ? null : "{$action['class']}::{$action['method']}";
-            $nodes = $key === null ? ($indexes['byClass'][$action['class']] ?? null) : ($indexes['byAction'][$key] ?? null);
+            $nodes = $key === null ? ($indexes->byClass[$action['class']] ?? null) : ($indexes->byAction[$key] ?? null);
 
             if ($nodes === null) {
                 $unresolved = true;
@@ -144,12 +141,27 @@ final class FrontendChanges
         }
 
         foreach ($routeNames as $name) {
-            $seeds = [...$seeds, ...$indexes['byName'][$name] ?? []];
+            $seeds = [...$seeds, ...$indexes->byName[$name] ?? []];
         }
 
-        $seeds = [...$seeds, ...$this->seedsForUris(array_values($uris), $indexes['uriTemplates'])];
+        $seeds = [...$seeds, ...$this->seedsForUris(array_values($uris), $indexes->uriTemplates)];
 
-        return new ChangedFileSymbols($file, '', [], cosmeticOnly: false, directSeeds: array_values(array_unique($seeds)), findings: $findings, unresolvedFrontendReferences: $unresolved);
+        return new ChangedFileSymbols($file, '', [], cosmeticOnly: false, directSeeds: array_values(array_unique($seeds)), findings: $findings, unresolvedFrontendReferences: $unresolved, droppedSentFields: $this->droppedSentFields($headSrc, $baseSrc));
+    }
+
+    /**
+     * The fields the base side sends and the head side no longer does. Empty for a new or deleted
+     * file, which has one side only, and for a head that can send fields no literal key names.
+     *
+     * @return list<string>
+     */
+    private function droppedSentFields(?string $headSrc, ?string $baseSrc): array
+    {
+        if ($headSrc === null || $baseSrc === null || SentFields::opaque($headSrc)) {
+            return [];
+        }
+
+        return array_values(array_diff(SentFields::in($baseSrc), SentFields::in($headSrc)));
     }
 
     /**
@@ -179,7 +191,7 @@ final class FrontendChanges
             return [];
         }
 
-        return array_values(array_unique($this->seedsForUris($uris, $indexes['uriTemplates'])));
+        return array_values(array_unique($this->seedsForUris($uris, $indexes->uriTemplates)));
     }
 
     /**
@@ -221,87 +233,31 @@ final class FrontendChanges
             $seeds = [
                 ...$seeds,
                 ...$action['method'] === null
-                    ? $indexes['byClass'][$action['class']] ?? []
-                    : $indexes['byAction']["{$action['class']}::{$action['method']}"] ?? [],
+                    ? $indexes->byClass[$action['class']] ?? []
+                    : $indexes->byAction["{$action['class']}::{$action['method']}"] ?? [],
             ];
         }
 
         foreach ($scan['routeNames'] as $name) {
-            $seeds = [...$seeds, ...$indexes['byName'][$name] ?? []];
+            $seeds = [...$seeds, ...$indexes->byName[$name] ?? []];
         }
 
-        return array_values(array_unique([...$seeds, ...$this->seedsForUris($scan['uris'], $indexes['uriTemplates'])]));
+        return array_values(array_unique([...$seeds, ...$this->seedsForUris($scan['uris'], $indexes->uriTemplates)]));
     }
 
     /**
-     * Route-node ids per route name, per controller action, per controller class, and per URI
-     * template (each template as a regex with `{param}` segments wildcarded, the same matching
-     * {@see TestReferenceIndex} uses) — node ids in the `route::{METHOD}::/{uri}` shape the graph
-     * builder derives from Brain's route nodes. Null when no router is booted; the caller then
-     * degrades to "couldn't check", never to "touches nothing" ({@see TestReferenceIndex} makes
-     * the same tri-state call for the same reason).
-     *
-     * @return array{byName: array<string, list<string>>, byAction: array<string, list<string>>, byClass: array<string, list<string>>, uriTemplates: list<array{regex: string, nodes: list<string>}>}|null
+     * The booted router's route index, built once per instance. Null when no router is booted; the
+     * caller then degrades to "couldn't check", never to "touches nothing" ({@see TestReferenceIndex}
+     * makes the same tri-state call for the same reason).
      */
-    private function indexes(): ?array
+    private function indexes(): ?RouterRouteIndex
     {
-        if ($this->routerUnavailable) {
-            return null;
+        if (! $this->routerIndexBuilt) {
+            $this->routerIndex = RouterRouteIndex::fromRouter();
+            $this->routerIndexBuilt = true;
         }
 
-        if ($this->indexes !== null) {
-            return $this->indexes;
-        }
-
-        $byName = [];
-        $byAction = [];
-        $byClass = [];
-        $uriTemplates = [];
-
-        try {
-            /** @var RoutingRoute $route */
-            foreach (Route::getRoutes()->getRoutes() as $route) {
-                $nodes = [];
-
-                foreach ($route->methods() as $method) {
-                    if (is_string($method) && ! in_array($method, ['HEAD', 'OPTIONS'], strict: true)) {
-                        $nodes[] = "route::{$method}::/" . ltrim($route->uri(), '/');
-                    }
-                }
-
-                if ($nodes === []) {
-                    continue;
-                }
-
-                $uriTemplates[] = [
-                    'regex' => $this->uriTemplateRegex('/' . ltrim($route->uri(), '/')),
-                    'nodes' => $nodes,
-                ];
-
-                $name = $route->getName();
-
-                if (is_string($name) && $name !== '') {
-                    $byName[$name] = [...$byName[$name] ?? [], ...$nodes];
-                }
-
-                // Invokable controllers arrive as `Class@__invoke` too — the router normalises
-                // string actions at registration, so the `@` form is the only controller shape.
-                $action = $route->getActionName();
-
-                if (str_contains($action, '@')) {
-                    [$class, $method] = explode('@', $action, 2);
-                    $class = ltrim($class, '\\');
-                    $byAction["{$class}::{$method}"] = [...$byAction["{$class}::{$method}"] ?? [], ...$nodes];
-                    $byClass[$class] = [...$byClass[$class] ?? [], ...$nodes];
-                }
-            }
-        } catch (Throwable) {
-            $this->routerUnavailable = true;
-
-            return null;
-        }
-
-        return $this->indexes = ['byName' => $byName, 'byAction' => $byAction, 'byClass' => $byClass, 'uriTemplates' => $uriTemplates];
+        return $this->routerIndex;
     }
 
     /**
@@ -341,30 +297,5 @@ final class FrontendChanges
         }
 
         return $seeds;
-    }
-
-    /**
-     * A route URI as a regex over concrete request paths: `{param}` wildcards one segment, and
-     * `{param?}` is optional together with its leading slash — `/users/{user?}` serves `/users`,
-     * so a literal `/users` must match it. Split on the raw parameters first, then quote only the
-     * literal parts: quoting first would demand matching `\{`/`\?` escapes inside the pattern.
-     */
-    private function uriTemplateRegex(string $uri): string
-    {
-        $parts = preg_split('~(/\{[^}]+\}|\{[^}]+\})~', $uri, -1, PREG_SPLIT_DELIM_CAPTURE | PREG_SPLIT_NO_EMPTY);
-        $regex = '';
-
-        foreach ($parts === false ? [] : $parts as $part) {
-            $regex .= match (true) {
-                // `?` zero-or-more (not `+` one-or-more) inside the group so the whole optional
-                // group also matches a bare trailing slash (`/users/`) and, at the route root
-                // (`/{locale?}`), the bare `/` itself — both legitimately serve the route.
-                str_starts_with($part, '/{') => str_ends_with($part, '?}') ? '(?:/[^/]*)?' : '/[^/]+',
-                str_starts_with($part, '{') => str_ends_with($part, '?}') ? '[^/]*' : '[^/]+',
-                default => preg_quote($part, '#'),
-            };
-        }
-
-        return "#^{$regex}$#";
     }
 }

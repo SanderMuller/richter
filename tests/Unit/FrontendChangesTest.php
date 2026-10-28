@@ -5,6 +5,7 @@ namespace SanderMuller\Richter\Tests\Unit;
 use Illuminate\Support\Facades\Route;
 use PHPUnit\Framework\Attributes\Test;
 use SanderMuller\Richter\Changes\FrontendChanges;
+use SanderMuller\Richter\Changes\RouterRouteIndex;
 use SanderMuller\Richter\Tests\TestCase;
 
 final class FrontendChangesTest extends TestCase
@@ -238,10 +239,10 @@ final class FrontendChangesTest extends TestCase
     public function route_nodes_in_unions_all_three_reference_kinds(): void
     {
         $nodes = $this->frontend()->routeNodesIn(<<<'TS'
-            import { store } from "@/actions/App/Http/Controllers/PostController";
-            route('users.show');
-            fetch(`/posts/${id}`);
-            TS);
+        import { store } from "@/actions/App/Http/Controllers/PostController";
+        route('users.show');
+        fetch(`/posts/${id}`);
+        TS);
 
         $this->assertSame(
             ['route::POST::/posts', 'route::GET::/users/{user?}', 'route::GET::/posts/{post}'],
@@ -362,5 +363,62 @@ final class FrontendChangesTest extends TestCase
         $this->assertSame([], $symbols->directSeeds);
         $this->assertFalse($symbols->unresolvedFrontendReferences);
         $this->assertTrue($symbols->hasOnlyAdditiveOrCosmeticChanges());
+    }
+
+    #[Test]
+    public function a_field_the_head_stops_sending_is_recorded_as_dropped(): void
+    {
+        $symbols = $this->frontend()->resolve(
+            'resources/js/Pages/Posts.vue',
+            "axios.post('/posts', { id, body })",
+            "axios.post('/posts', { id, title, body })",
+        );
+
+        $this->assertSame(['route::POST::/posts'], $symbols->directSeeds);
+        $this->assertSame(['title'], $symbols->droppedSentFields);
+    }
+
+    #[Test]
+    public function a_new_or_deleted_file_drops_nothing(): void
+    {
+        $new = $this->frontend()->resolve('resources/js/Pages/Posts.vue', "axios.post('/posts', { title })", null);
+        $deleted = $this->frontend()->resolve('resources/js/Pages/Posts.vue', null, "axios.post('/posts', { title })");
+
+        $this->assertSame([], $new->droppedSentFields);
+        $this->assertSame([], $deleted->droppedSentFields);
+    }
+
+    #[Test]
+    public function a_head_that_spreads_its_payload_drops_nothing(): void
+    {
+        // `{ ...form }` can still send `title`, so its absence from the literal keys proves nothing.
+        $symbols = $this->frontend()->resolve(
+            'resources/js/Pages/Posts.vue',
+            "axios.post('/posts', { ...form, id })",
+            "axios.post('/posts', { id, title })",
+        );
+
+        $this->assertSame([], $symbols->droppedSentFields);
+    }
+
+    #[Test]
+    public function a_file_that_references_no_route_drops_nothing(): void
+    {
+        $symbols = $this->frontend()->resolve('resources/js/lib/util.ts', 'format({ id })', 'format({ id, title })');
+
+        $this->assertSame([], $symbols->droppedSentFields);
+    }
+
+    #[Test]
+    public function the_router_index_names_each_routes_own_action(): void
+    {
+        // The graph cannot: its route node points at the controller class, and the class at every
+        // action it handles.
+        $index = RouterRouteIndex::fromRouter();
+
+        $this->assertInstanceOf(RouterRouteIndex::class, $index);
+        $this->assertSame(['App\Http\Controllers\PostController::store'], $index->actionsFor('route::POST::/posts'));
+        $this->assertSame(['App\Http\Controllers\PostController::index'], $index->actionsFor('route::GET::/posts'));
+        $this->assertSame([], $index->actionsFor('route::DELETE::/posts'));
     }
 }

@@ -397,6 +397,9 @@ final readonly class ImpactAnalyzer
         // A FINDING lane, so it sits here and not in ParityFindings, which returns hazards. It reads
         // the two indexes ChangedSymbols built from the base and head trees and touches no file.
         $siblingReadLane = SiblingReadParity::fromConfig();
+        // Also a finding lane: a field a frontend diff stopped sending that a backend still requires.
+        // Gated with the parity family, which owns the request-field vocabulary and its ignore keys.
+        $droppedFieldLane = DroppedRequestFieldChecker::fromConfig($this->graph, $payloadParityEnabled);
         // The parity family's results are tier-2 hazards now, not findings. They join the lanes'
         // output before the reach class is attached, so every hazard is graded the same way.
         $parityHazards = [];
@@ -410,6 +413,10 @@ final readonly class ImpactAnalyzer
             $findings = [...$findings, ...$groupLane->findingsFor($file->fqcn)];
 
             foreach ($siblingReadLane?->findingsFor($file) ?? [] as $finding) {
+                $findings[] = "{$file->file}: {$finding}";
+            }
+
+            foreach ($droppedFieldLane?->findingsFor($file) ?? [] as $finding) {
                 $findings[] = "{$file->file}: {$finding}";
             }
         }

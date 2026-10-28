@@ -335,7 +335,7 @@ final class CommandsTest extends TestCase
             . "-        \$post->loadMissing([Post::REVIEWS]);\n"
             . "+        \$post->load([Post::REVIEWS]);\n";
 
-        Process::fake([
+        $this->fakeGit([
             '*cat-file*' => Process::result(),
             '*merge-base*' => Process::result("abc123\n"),
             '*rev-parse*' => Process::result("def456\n"),

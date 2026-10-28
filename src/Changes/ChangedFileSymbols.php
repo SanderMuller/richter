@@ -8,6 +8,7 @@ use SanderMuller\Richter\Analysis\Hazards\HazardLanes;
 use SanderMuller\Richter\Analysis\ImpactAnalyzer;
 use SanderMuller\Richter\Analysis\PayloadParityChecker;
 use SanderMuller\Richter\Analysis\ResourceKeyParser;
+use SanderMuller\Richter\Analysis\SentFields;
 
 /**
  * The member-level change set for one changed PHP file. `cosmeticOnly` files seed nothing; a file
@@ -76,6 +77,8 @@ final readonly class ChangedFileSymbols
         public array $addedHazardTokens = [],
         /** @var array<string, array<string, list<string>>> `Fqcn->property` => style => site, for the members this diff changed */
         public array $siblingReads = [],
+        /** @var list<string> a changed frontend file's send-shaped field names present at base and absent at head ({@see SentFields}); empty when either side is missing or the head sends opaquely */
+        public array $droppedSentFields = [],
     ) {}
 
     /** @return list<MemberChange> */

@@ -3,6 +3,7 @@
 namespace SanderMuller\Richter\Tests\Feature;
 
 use App\Http\Controllers\Post\DashboardSearchController;
+use App\Http\Controllers\Post\PostController;
 use App\Http\Controllers\Post\ReviewController;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Artisan;
@@ -13,6 +14,7 @@ use SanderMuller\Richter\Analysis\FrontendTestIndex;
 use SanderMuller\Richter\Analysis\JsonPresenter;
 use SanderMuller\Richter\Changes\ChangedSymbols;
 use SanderMuller\Richter\Changes\FrontendChanges;
+use SanderMuller\Richter\Graph\CodeGraphBuilder;
 use SanderMuller\Richter\Tests\Support\FakesGit;
 use SanderMuller\Richter\Tests\TestCase;
 
@@ -47,6 +49,8 @@ final class FrontendSeamTest extends TestCase
 
         Route::get('/posts/{post}/reviews', [ReviewController::class, 'show'])->name('posts.reviews.show');
         Route::get('/posts/{post}/edit', [ReviewController::class, 'edit'])->name('posts.edit');
+        Route::post('/posts', [PostController::class, 'store'])->name('posts.store');
+        Route::put('/posts/{post}', [PostController::class, 'update'])->name('posts.update');
         Route::get('/dashboard/search', [DashboardSearchController::class, 'index'])->name('dashboard.search');
     }
 
@@ -56,12 +60,12 @@ final class FrontendSeamTest extends TestCase
         return "diff --git a/{$path} b/{$path}\n--- a/{$path}\n+++ b/{$path}\n@@ -0,0 +1,1 @@\n+{$addedLine}\n";
     }
 
-    /** Fakes the git plumbing for one diff, runs richter:detect-changes --json, asserts success, and returns the decoded report. */
-    private function detectChangesFor(string $diff): mixed
+    /** Fakes the git plumbing for one diff, runs richter:detect-changes --json, asserts success, and returns the decoded report. A null base source reads as a file new in this diff. */
+    private function detectChangesFor(string $diff, ?string $baseSource = null): mixed
     {
         $this->fakeGit([
             '*merge-base*' => Process::result("abc123\n"),
-            '*show*' => Process::result(errorOutput: 'bad object', exitCode: 128),
+            '*show*' => $baseSource === null ? Process::result(errorOutput: 'bad object', exitCode: 128) : Process::result($baseSource),
             '*diff*' => Process::result($diff),
         ]);
 
@@ -70,6 +74,51 @@ final class FrontendSeamTest extends TestCase
         $this->assertSame(0, $exitCode);
 
         return json_decode(Artisan::output(), associative: true);
+    }
+
+    #[Test]
+    public function the_graph_links_the_routers_action_to_its_form_request(): void
+    {
+        // The dropped-request-field lane takes a route to its action through the router and from the
+        // action to its form request through the graph. Both halves must name the action the same way.
+        Route::getRoutes()->refreshNameLookups();
+        $route = Route::getRoutes()->getByName('posts.store');
+        $this->assertInstanceOf(\Illuminate\Routing\Route::class, $route);
+        [$class, $method] = explode('@', $route->getActionName(), 2);
+        $action = ltrim($class, '\\') . "::{$method}";
+
+        $graph = new CodeGraphBuilder()->build(self::fixtureProjectPath());
+
+        $this->assertSame('App\\Http\\Controllers\\Post\\PostController::store', $action);
+        $this->assertSame(['App\\Http\\Requests\\Post\\StorePostRequest::validated'], $graph->outgoingTargetsOfType([$action], 'action-to-form-request'));
+    }
+
+    #[Test]
+    public function a_field_the_frontend_stops_sending_is_a_finding_that_leaves_risk_alone(): void
+    {
+        // The fixture's head sends `{ title, body }`; the base also sent `subtitle`, which the
+        // route's form request still requires as `present`.
+        $file = 'resources/js/components/PostForm.ts';
+        $head = (string) file_get_contents(base_path($file));
+        $base = str_replace('{ title, body }', '{ title, subtitle, body }', $head);
+        $this->assertNotSame($head, $base);
+
+        $diff = "diff --git a/{$file} b/{$file}\n--- a/{$file}\n+++ b/{$file}\n@@ -2,1 +2,1 @@\n"
+            . "-    return axios.post('/posts', { title, subtitle, body });\n"
+            . "+    return axios.post('/posts', { title, body });\n";
+
+        $decoded = $this->detectChangesFor($diff, $base);
+
+        $this->assertIsArray($decoded);
+        $this->assertIsArray($decoded['entryPoints']);
+        $this->assertIsArray($decoded['findings']);
+        $this->assertContains('route::POST::/posts', $decoded['entryPoints']);
+        $this->assertContains(
+            "{$file}: no longer sends 'subtitle' to POST /posts, which App\\Http\\Requests\\Post\\StorePostRequest::rules() still requires",
+            $decoded['findings'],
+        );
+        $this->assertSame([], $decoded['hazards']);
+        $this->assertSame('low', $decoded['risk']);
     }
 
     #[Test]

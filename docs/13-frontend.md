@@ -8,7 +8,7 @@ Opt-in: point `frontend.roots` at your frontend source in `config/richter.php`:
 ],
 ```
 
-Changed `.ts`/`.tsx`/`.js`/`.jsx`/`.vue` files are then scanned for the backend endpoints they reference, and those routes are reported as touched entry points, with their location, exposure and gate annotations, feeding `richter:affected-tests`, while `risk` and `impacted` stay untouched: a frontend edit does not change backend behaviour, and the report says so explicitly. Detected references:
+Changed `.ts`/`.tsx`/`.js`/`.jsx`/`.vue` files are then scanned for the backend endpoints they reference, and those routes are reported as touched entry points, with their location, exposure and gate annotations, feeding `richter:affected-tests`, while `risk` and `impacted` stay untouched: a frontend edit does not change backend behaviour, and the report says so explicitly. One finding lane does run on a changed frontend file: a field it stops sending that the route's validation still requires ([Report annotations](06-report-annotations.md)). It leaves `risk` untouched too. Detected references:
 
 - **[Wayfinder](https://github.com/laravel/wayfinder) imports**: an action import
   (`@/actions/App/Http/Controllers/PostController`) resolves through the router's action index,

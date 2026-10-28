@@ -854,7 +854,7 @@ final class McpTest extends TestCase
         $this->assertIsInt($line);
         ++$line;
 
-        Process::fake([
+        $this->fakeGit([
             '*cat-file*' => Process::result(),
             '*merge-base*' => Process::result("abc123\n"),
             '*rev-parse*' => Process::result("def456\n"),
