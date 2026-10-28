@@ -245,7 +245,7 @@ This table decides which rule applies to a piece of text. Never apply both to th
 | Text an end user reads — in-app copy, translations, release notes, help text, seed content | The project's own tone-of-voice rules, not this guideline |
 | Suggested translation strings inside an issue or ticket | The project's own tone-of-voice rules — the prose around them stays Simplified Technical English |
 | Code and code comments | Neither — the language guidelines own those |
-| Prose the user asks for in a named style, or an artifact whose own skill defines its voice — `humanizer`, `readme`, `release-notes` | That instruction or skill wins. This guideline does not override it |
+| Prose the user asks for in a named style, or an artifact whose own skill defines its voice — `readme`, `release-notes`, or `humanizer` on an essay, post or opinion piece | That instruction or skill wins. This guideline does not override it. On the surfaces above, `humanizer` only removes AI tells and this guideline keeps the tone |
 
 A surface the table does not list gets Simplified Technical English, unless an end user reads it. Then it gets the project's tone-of-voice rules. A project without documented tone-of-voice rules gets Simplified Technical English everywhere.
 

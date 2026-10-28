@@ -5,6 +5,16 @@ on:
     paths:
       - '**.php'
       - 'pint.json'
+      - 'composer.lock'
+      - '.github/workflows/pint-check.yml'
+  # A push to main saves the cache that pull requests restore.
+  push:
+    branches:
+      - main
+    paths:
+      - '**.php'
+      - 'pint.json'
+      - 'composer.lock'
       - '.github/workflows/pint-check.yml'
 
 permissions:
@@ -22,6 +32,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
@@ -32,12 +44,26 @@ jobs:
       - name: Install composer dependencies
         uses: ramsey/composer-install@v4
 
-      - name: Cache Pint results
-        uses: actions/cache@v6
+      # The key carries the commit SHA because actions/cache never overwrites a key:
+      # without it, the first save is restored forever. Only a push to main saves,
+      # because a pull_request cache is visible to that pull request only.
+      # cache-prune.yml deletes superseded entries.
+      - name: Restore Pint cache
+        id: pint_cache
+        uses: actions/cache/restore@v6
         with:
           path: .cache/pint/
-          key: pint-cache-${{ hashFiles('pint.json') }}
-          restore-keys: pint-cache-
+          key: pint-cache-${{ hashFiles('composer.lock', 'pint.json') }}-${{ github.sha }}
+          restore-keys: |
+            pint-cache-${{ hashFiles('composer.lock', 'pint.json') }}-
+            pint-cache-
 
       - name: Run Pint (test)
         run: vendor/bin/pint --test
+
+      - name: Save Pint cache
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.pint_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: .cache/pint/
+          key: pint-cache-${{ hashFiles('composer.lock', 'pint.json') }}-${{ github.sha }}

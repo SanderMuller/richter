@@ -5,6 +5,16 @@ on:
     paths:
       - '**.php'
       - 'rector.php'
+      - 'composer.lock'
+      - '.github/workflows/rector-check.yml'
+  # A push to main saves the cache that pull requests restore.
+  push:
+    branches:
+      - main
+    paths:
+      - '**.php'
+      - 'rector.php'
+      - 'composer.lock'
       - '.github/workflows/rector-check.yml'
 
 permissions:
@@ -22,6 +32,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
@@ -32,17 +44,35 @@ jobs:
       - name: Install composer dependencies
         uses: ramsey/composer-install@v4
 
-      - name: Cache Rector results
-        uses: actions/cache@v6
+      # The key carries the commit SHA because actions/cache never overwrites a key:
+      # without it, the first save is restored forever. Only a push to main saves,
+      # because a pull_request cache is visible to that pull request only.
+      # cache-prune.yml deletes superseded entries.
+      # Rector writes PHPStan's reflection cache into .cache/phpstan (see rector.php).
+      # cache/nette.configurator is left out, as in phpstan.yml.
+      - name: Restore Rector cache
+        id: rector_cache
+        uses: actions/cache/restore@v6
         with:
           path: |
             .cache/rector/
-            .cache/rectorContainer/
-          key: rector-cache-${{ hashFiles('rector.php') }}
-          restore-keys: rector-cache-
+            .cache/phpstan/cache/PHPStan
+          key: rector-cache-${{ hashFiles('composer.lock', 'rector.php') }}-${{ github.sha }}
+          restore-keys: |
+            rector-cache-${{ hashFiles('composer.lock', 'rector.php') }}-
+            rector-cache-
 
       - name: Ensure Rector cache directories exist
-        run: mkdir -p .cache/rector .cache/rectorContainer
+        run: mkdir -p .cache/rector .cache/phpstan
 
       - name: Run Rector (dry-run)
         run: vendor/bin/rector process --dry-run
+
+      - name: Save Rector cache
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.rector_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            .cache/rector/
+            .cache/phpstan/cache/PHPStan
+          key: rector-cache-${{ hashFiles('composer.lock', 'rector.php') }}-${{ github.sha }}

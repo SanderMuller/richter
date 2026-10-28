@@ -5,10 +5,25 @@ includes:
     - vendor/spaze/phpstan-disallowed-calls/disallowed-execution-calls.neon
     - vendor/spaze/phpstan-disallowed-calls/disallowed-insecure-calls.neon
 
+rules:
+    # Hand-picked symplify/phpstan-rules rules (its rule sets are off, see
+    # parameters.symplify).
+    - Symplify\PHPStanRules\Rules\StringFileAbsolutePathExistsRule
+    - Symplify\PHPStanRules\Rules\Complexity\NoArrayMapWithArrayCallableRule
+    - Symplify\PHPStanRules\Rules\Complexity\ForbiddenArrayMethodCallRule
+    - Symplify\PHPStanRules\Rules\ForbiddenMultipleClassLikeInOneFileRule
+    - Symplify\PHPStanRules\Rules\NoDynamicNameRule
+    - Symplify\PHPStanRules\Rules\NoGlobalConstRule
+    - Symplify\PHPStanRules\Rules\PreventParentMethodVisibilityOverrideRule
+    - Symplify\PHPStanRules\Rules\Enum\RequireUniqueEnumConstantRule
+    - Symplify\PHPStanRules\Rules\UppercaseConstantRule
+    - Symplify\PHPStanRules\Rules\PHPUnit\PublicStaticDataProviderRule
+    - Symplify\PHPStanRules\Rules\Explicit\NoMissingVariableDimFetchRule
+
 parameters:
     tmpDir: .cache/phpstan
 
-    # symplify/phpstan-rules turns several rule sets on by default; this project uses none of them.
+    # symplify/phpstan-rules turns several rule sets on by default; this project uses none of them as a set (the `rules:` block picks single rules).
     # 14.19 added `modern` and `collections`, both on by default, so the floor is 14.19 and each set is listed.
     symplify:
         naming: false
@@ -48,11 +63,23 @@ parameters:
         return: 100
         param: 100
         property: 100
-        constant: 0
+        constant: 100
+
+    type_perfect:
+        null_over_false: true
+        narrow_return: true
+        narrow_param: true
 
     cognitive_complexity:
         class: 80
         function: 20
+
+    # Off at every level, and phpstan-strict-rules does not set them.
+    checkTooWideReturnTypesInProtectedAndPublicMethods: true
+    checkTooWideParameterOutInProtectedAndPublicMethods: true
+    checkTooWideThrowTypesInProtectedAndPublicMethods: true
+    reportAlwaysTrueInLastCondition: true
+    reportAnyTypeWideningInVarTag: true
 
     treatPhpDocTypesAsCertain: false
 

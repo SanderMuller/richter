@@ -1,2 +1,7 @@
 parameters:
-	ignoreErrors: []
+	ignoreErrors:
+		-
+			rawMessage: 'PHPDoc tag @var with type array{query: string, by: ''file''|''symbol'', total: int, limit?: int, bounded: bool, matches: list<array{node: string, kind?: string, file?: string, line?: int}>, suggestions?: list<string>, graphNodeCount?: int, ...} is not subtype of native type array{query: mixed, by: mixed, total: mixed, limit?: mixed, bounded: mixed, matches: mixed, graphFileCount?: mixed}|array{query: mixed, by: mixed, total: mixed, limit?: mixed, bounded: mixed, matches: mixed, graphNodeCount: mixed}|array{query: mixed, by: mixed, total: mixed, limit?: mixed, bounded: mixed, matches: mixed, suggestions: mixed}.'
+			identifier: varTag.nativeType
+			count: 1
+			path: src/Analysis/JsonPresenter.php
