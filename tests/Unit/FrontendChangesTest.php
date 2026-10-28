@@ -239,10 +239,10 @@ final class FrontendChangesTest extends TestCase
     public function route_nodes_in_unions_all_three_reference_kinds(): void
     {
         $nodes = $this->frontend()->routeNodesIn(<<<'TS'
-        import { store } from "@/actions/App/Http/Controllers/PostController";
-        route('users.show');
-        fetch(`/posts/${id}`);
-        TS);
+            import { store } from "@/actions/App/Http/Controllers/PostController";
+            route('users.show');
+            fetch(`/posts/${id}`);
+            TS);
 
         $this->assertSame(
             ['route::POST::/posts', 'route::GET::/users/{user?}', 'route::GET::/posts/{post}'],
@@ -391,7 +391,6 @@ final class FrontendChangesTest extends TestCase
     #[Test]
     public function a_head_that_spreads_its_payload_drops_nothing(): void
     {
-        // `{ ...form }` can still send `title`, so its absence from the literal keys proves nothing.
         $symbols = $this->frontend()->resolve(
             'resources/js/Pages/Posts.vue',
             "axios.post('/posts', { ...form, id })",
@@ -412,8 +411,6 @@ final class FrontendChangesTest extends TestCase
     #[Test]
     public function the_router_index_names_each_routes_own_action(): void
     {
-        // The graph cannot: its route node points at the controller class, and the class at every
-        // action it handles.
         $index = RouterRouteIndex::fromRouter();
 
         $this->assertInstanceOf(RouterRouteIndex::class, $index);

@@ -16,9 +16,8 @@ use SanderMuller\Richter\Analysis\Hazards\HazardSource;
 use SanderMuller\Richter\Support\AppFiles;
 
 /**
- * Reads a source's validation arrays as field => rule NAMES, for every lane that asks what a field is
- * validated with: the boundary lane (a constraint lost) and the dropped-request-field lane (a field
- * still required). One reader, so the two can never disagree on what a rules array says.
+ * Reads validation arrays as field => rule names. Shared by the boundary and dropped-request-field
+ * lanes; `$requestDataOnly` is the one place they differ.
  *
  * @internal
  */
@@ -28,8 +27,8 @@ final class ValidationRules
     private const array REQUIRING = ['required', 'present', 'accepted', 'declined'];
 
     /**
-     * Rules whose outcome on a missing field depends on other input, or that remove the field. A
-     * field carrying one cannot be called required or optional from the source alone.
+     * Rule families whose outcome on a missing field depends on other input, removes the field, or
+     * is not modelled here. A field carrying one cannot be called required or optional.
      */
     private const array CONDITIONAL_PREFIXES = ['required_', 'present_', 'accepted_', 'declined_', 'exclude', 'missing', 'prohibited'];
 
@@ -43,16 +42,14 @@ final class ValidationRules
      * A field whose rules cannot be read in full maps to null rather than to an empty list — "cannot
      * vouch" and "validates nothing" must not collapse into one another.
      *
-     * @param  bool  $requestDataOnly  leave out `Validator::make($data, [...])`, whose data need not be
-     *   the request
      * @return array<string, array<string, list<string>|null>>
      */
-    public static function rulesByMember(string $source, bool $requestDataOnly = false): array
+    public static function rulesByMember(string $source): array
     {
         $byMember = [];
 
         foreach (HazardSource::methods($source) as $member => $method) {
-            $fields = self::fieldsOf($method, $requestDataOnly);
+            $fields = self::fieldsOf($method, requestDataOnly: false);
 
             if ($fields !== []) {
                 $byMember[$member] = $fields;
@@ -73,6 +70,8 @@ final class ValidationRules
      * Top-level fields only. A dotted key (`items.*.name`) is skipped, because a frontend sends
      * top-level names.
      *
+     * @param  bool  $requestDataOnly  leave out `Validator::make($data, [...])`, whose data need not be
+     *   the request
      * @return array<string, bool|null>
      */
     public static function requiredFields(string $source, string $method, bool $requestDataOnly): array
@@ -141,8 +140,9 @@ final class ValidationRules
     }
 
     /**
-     * The rules arrays inside one method: a `rules()` that returns an array literal, and every
-     * `validate([...])` call written out at the call site. A `validate($rules)` passing a variable
+     * The rules arrays inside one method: a `rules()` that returns an array literal, every
+     * `validate([...])` call written out at the call site, and — unless `$requestDataOnly` —
+     * `Validator::make($data, [...])`. A `validate($rules)` passing a variable
      * contributes nothing — its fields are opaque, so the method's readable arrays stand alone.
      *
      * @return list<Array_>

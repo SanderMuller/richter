@@ -6,11 +6,9 @@ namespace SanderMuller\Richter\Analysis;
  * The fields a frontend source sends, read send-shaped only: an object-literal key (`{ title: … }`,
  * `{ 'title': … }`, the `{ title }` shorthand), a `FormData`/`URLSearchParams` `append`/`set` with the
  * name as a string literal, a bracket write (`payload['title'] = …`), and a dotted assignment
- * (`form.title = …`). One matcher for both request-side lanes: a field a backend diff stopped
- * validating that a frontend still sends, and a field a frontend diff stopped sending that a backend
- * still requires.
+ * (`form.title = …`). Shared by both request-side lanes.
  *
- * The object-literal pattern over-matches: an argument list (`save(id, title)`), an array literal, an
+ * The object-literal pattern over-matches: a middle argument (`save(id, title, body)`), an array literal, an
  * import list, a destructure, a TS type literal and a Vue `{{ title }}` interpolation all take its
  * shape. The lanes accept that, because a finding still needs a validation site naming the same
  * field, and the ignore entry is the escape hatch.
@@ -19,8 +17,17 @@ namespace SanderMuller\Richter\Analysis;
  */
 final class SentFields
 {
-    /** A JS identifier, or a quoted name — the two shapes a sent key takes. */
-    private const string NAME = '(?:\'([^\']+)\'|"([^"]+)"|([A-Za-z_$][\w$]*))';
+    /**
+     * The four {@see sends()} shapes, each capturing the name in group 1. The object-literal key is a
+     * quoted name or a JS identifier; `(?|` is a branch reset, so each alternative captures into the
+     * same group.
+     */
+    private const array LISTING_PATTERNS = [
+        '/[{,]\s*(?|\'([^\']+)\'|"([^"]+)"|([A-Za-z_$][\w$]*))(?=\s*[,}:])/',
+        '/\.(?:append|set)\(\s*[\'"]([^\'"]+)[\'"]/',
+        '/\[\s*[\'"]([^\'"]+)[\'"]\s*\]\s*=[^=]/',
+        '/\.([A-Za-z_$][\w$]*)\s*=[^=]/',
+    ];
 
     public static function sends(string $source, string $field): bool
     {
@@ -43,17 +50,10 @@ final class SentFields
     {
         $names = [];
 
-        preg_match_all('/[{,]\s*' . self::NAME . '(?=\s*[,}:])/', $source, $matches, PREG_SET_ORDER);
-        $names = [...$names, ...self::captured($matches)];
-
-        preg_match_all('/\.(?:append|set)\(\s*[\'"]([^\'"]+)[\'"]/', $source, $matches, PREG_SET_ORDER);
-        $names = [...$names, ...self::captured($matches)];
-
-        preg_match_all('/\[\s*[\'"]([^\'"]+)[\'"]\s*\]\s*=[^=]/', $source, $matches, PREG_SET_ORDER);
-        $names = [...$names, ...self::captured($matches)];
-
-        preg_match_all('/\.([A-Za-z_$][\w$]*)\s*=[^=]/', $source, $matches, PREG_SET_ORDER);
-        $names = [...$names, ...self::captured($matches)];
+        foreach (self::LISTING_PATTERNS as $pattern) {
+            preg_match_all($pattern, $source, $matches);
+            $names = [...$names, ...$matches[1]];
+        }
 
         $names = array_values(array_unique($names));
         sort($names);
@@ -70,29 +70,5 @@ final class SentFields
     {
         return preg_match('/[{,]\s*\.\.\.\s*[A-Za-z_$(]/', $source) === 1
             || preg_match('/new\s+FormData\(\s*[^)\s]/', $source) === 1;
-    }
-
-    /**
-     * The one non-empty capture of each match — the patterns hold alternative groups, and only the
-     * one that matched is set.
-     *
-     * @param  array<int, array<int, string>>  $matches
-     * @return list<string>
-     */
-    private static function captured(array $matches): array
-    {
-        $names = [];
-
-        foreach ($matches as $match) {
-            foreach (array_slice($match, 1) as $group) {
-                if ($group !== '') {
-                    $names[] = $group;
-
-                    break;
-                }
-            }
-        }
-
-        return $names;
     }
 }

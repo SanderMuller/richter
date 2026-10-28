@@ -270,8 +270,6 @@ final class CommandsTest extends TestCase
     #[Test]
     public function detect_changes_does_not_check_test_references_under_a_named_head(): void
     {
-        // tests/ is the working tree, not the named commit. A test added after that commit — the fix
-        // for the very regression being replayed — would otherwise mark the route as covered.
         $output = $this->runWithAHandlerTest(['--head' => 'some-head']);
 
         $this->assertStringContainsString('route::GET::/posts/{post}/reviews', $output);
@@ -283,22 +281,26 @@ final class CommandsTest extends TestCase
     #[Test]
     public function detect_changes_json_does_not_check_test_references_under_a_named_head(): void
     {
-        // The JSON path builds its own index; the text path's fix must not be the only one.
+        // The JSON path builds its own index.
         $control = json_decode($this->runWithAHandlerTest(['--json' => true]), true, flags: JSON_THROW_ON_ERROR);
         $named = json_decode($this->runWithAHandlerTest(['--json' => true, '--head' => 'some-head']), true, flags: JSON_THROW_ON_ERROR);
 
         $this->assertIsArray($control);
         $this->assertIsArray($named);
+        $this->assertIsArray($control['entryPointTestReferences']);
         $this->assertNotSame([], $control['entryPointTestReferences']);
         $this->assertNotSame([], $named['entryPoints']);
         $this->assertSame([], $named['entryPointTestReferences']);
+        // Unchecked is unverified: the same no-hazard change grades a level higher.
+        $this->assertSame('low', $control['risk']);
+        $this->assertSame('medium', $named['risk']);
     }
 
     #[Test]
     public function task_slice_does_not_check_test_references_under_a_named_head(): void
     {
         // Task-slice composes the detect-changes document through `AffectedTests`' full analysis,
-        // a third index. A surface left unchecked must still be reported as unproven.
+        // a third index. A surface left unchecked must read as unproven in every part of the slice.
         $control = json_decode($this->runWithAHandlerTest(['--json' => true], 'richter:task-slice'), true, flags: JSON_THROW_ON_ERROR);
         $named = json_decode($this->runWithAHandlerTest(['--json' => true, '--head' => 'some-head'], 'richter:task-slice'), true, flags: JSON_THROW_ON_ERROR);
 
@@ -308,6 +310,8 @@ final class CommandsTest extends TestCase
         $this->assertIsArray($named['verificationFalse']);
         $this->assertNotContains('route::GET::/posts/{post}/reviews', $control['verificationFalse']);
         $this->assertContains('route::GET::/posts/{post}/reviews', $named['verificationFalse']);
+        $this->assertIsArray($named['unreferencedKept']);
+        $this->assertContains('route::GET::/posts/{post}/reviews', $named['unreferencedKept']);
     }
 
     /**
@@ -351,7 +355,7 @@ final class CommandsTest extends TestCase
         $this->assertDirectoryDoesNotExist($testsDir);
         $test = $testsDir . '/Feature/ReviewControllerTest.php';
         @mkdir(dirname($test), 0777, true);
-        file_put_contents($test, "<?php\n\nuse App\\Http\\Controllers\\Post\\ReviewController;\n\n\$this->get('/posts/1/reviews');\n");
+        file_put_contents($test, "<?php\n\nuse App\\Http\\Controllers\\Post\\ReviewController;\n\n\$this->get('/posts/1/reviews')->assertJsonPath('data.id', 1);\n");
 
         try {
             $this->withoutMockingConsoleOutput();

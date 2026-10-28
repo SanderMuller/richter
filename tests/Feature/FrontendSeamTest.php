@@ -61,7 +61,8 @@ final class FrontendSeamTest extends TestCase
     }
 
     /** Fakes the git plumbing for one diff, runs richter:detect-changes --json, asserts success, and returns the decoded report. A null base source reads as a file new in this diff. */
-    private function detectChangesFor(string $diff, ?string $baseSource = null): mixed
+    /** @param  array<string, bool>  $options */
+    private function detectChangesFor(string $diff, ?string $baseSource = null, array $options = []): mixed
     {
         $this->fakeGit([
             '*merge-base*' => Process::result("abc123\n"),
@@ -70,7 +71,7 @@ final class FrontendSeamTest extends TestCase
         ]);
 
         $this->withoutMockingConsoleOutput();
-        $exitCode = Artisan::call('richter:detect-changes', ['--base' => 'some-base', '--json' => true]);
+        $exitCode = Artisan::call('richter:detect-changes', ['--base' => 'some-base', '--json' => true, ...$options]);
         $this->assertSame(0, $exitCode);
 
         return json_decode(Artisan::output(), associative: true);
@@ -96,18 +97,9 @@ final class FrontendSeamTest extends TestCase
     #[Test]
     public function a_field_the_frontend_stops_sending_is_a_finding_that_leaves_risk_alone(): void
     {
-        // The fixture's head sends `{ title, body }`; the base also sent `subtitle`, which the
-        // route's form request still requires as `present`.
+        // `subtitle` is `present` in the fixture's StorePostRequest, so dropping it reports.
         $file = 'resources/js/components/PostForm.ts';
-        $head = (string) file_get_contents(base_path($file));
-        $base = str_replace('{ title, body }', '{ title, subtitle, body }', $head);
-        $this->assertNotSame($head, $base);
-
-        $diff = "diff --git a/{$file} b/{$file}\n--- a/{$file}\n+++ b/{$file}\n@@ -2,1 +2,1 @@\n"
-            . "-    return axios.post('/posts', { title, subtitle, body });\n"
-            . "+    return axios.post('/posts', { title, body });\n";
-
-        $decoded = $this->detectChangesFor($diff, $base);
+        $decoded = $this->detectChangesFor($this->postFormDiff($file), $this->postFormBase($file));
 
         $this->assertIsArray($decoded);
         $this->assertIsArray($decoded['entryPoints']);
@@ -119,6 +111,49 @@ final class FrontendSeamTest extends TestCase
         );
         $this->assertSame([], $decoded['hazards']);
         $this->assertSame('low', $decoded['risk']);
+    }
+
+    #[Test]
+    public function inline_validation_in_the_routes_action_is_read_on_the_built_graph(): void
+    {
+        // The base also updated a post. The fixture's `PostController::update` requires `summary`
+        // inline; `excerpt` is `sometimes|required`, so dropping it is not a break.
+        $file = 'resources/js/components/PostForm.ts';
+        $base = $this->postFormBase($file) . "\nexport function updatePost(id: number) {\n    return axios.put(route('posts.update', id), { summary, excerpt });\n}\n";
+
+        $decoded = $this->detectChangesFor($this->postFormDiff($file), $base);
+
+        $this->assertIsArray($decoded);
+        $this->assertIsArray($decoded['findings']);
+        $this->assertContains("{$file}: no longer sends 'summary' to PUT /posts/{post}, which App\\Http\\Controllers\\Post\\PostController::update still requires", $decoded['findings']);
+        $this->assertSame([], array_values(array_filter($decoded['findings'], static fn (mixed $finding): bool => is_string($finding) && str_contains($finding, "'excerpt'"))));
+    }
+
+    #[Test]
+    public function the_payload_parity_switch_turns_the_dropped_field_lane_off(): void
+    {
+        $file = 'resources/js/components/PostForm.ts';
+        $decoded = $this->detectChangesFor($this->postFormDiff($file), $this->postFormBase($file), ['--no-payload-parity' => true]);
+
+        $this->assertIsArray($decoded);
+        $this->assertSame([], $decoded['findings']);
+    }
+
+    /** The fixture's head sends `{ title, body }`; this base also sent `subtitle`. */
+    private function postFormBase(string $file): string
+    {
+        $head = (string) file_get_contents(base_path($file));
+        $base = str_replace('{ title, body }', '{ title, subtitle, body }', $head);
+        $this->assertNotSame($head, $base);
+
+        return $base;
+    }
+
+    private function postFormDiff(string $file): string
+    {
+        return "diff --git a/{$file} b/{$file}\n--- a/{$file}\n+++ b/{$file}\n@@ -2,1 +2,1 @@\n"
+            . "-    return axios.post('/posts', { title, subtitle, body });\n"
+            . "+    return axios.post('/posts', { title, body });\n";
     }
 
     #[Test]

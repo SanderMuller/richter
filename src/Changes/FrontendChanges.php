@@ -149,12 +149,7 @@ final class FrontendChanges
         return new ChangedFileSymbols($file, '', [], cosmeticOnly: false, directSeeds: array_values(array_unique($seeds)), findings: $findings, unresolvedFrontendReferences: $unresolved, droppedSentFields: $this->droppedSentFields($headSrc, $baseSrc));
     }
 
-    /**
-     * The fields the base side sends and the head side no longer does. Empty for a new or deleted
-     * file, which has one side only, and for a head that can send fields no literal key names.
-     *
-     * @return list<string>
-     */
+    /** @return list<string> */
     private function droppedSentFields(?string $headSrc, ?string $baseSrc): array
     {
         if ($headSrc === null || $baseSrc === null || SentFields::opaque($headSrc)) {
@@ -246,7 +241,7 @@ final class FrontendChanges
     }
 
     /**
-     * The booted router's route index, built once per instance. Null when no router is booted; the
+     * The booted router's route index. Null when no router is booted; the
      * caller then degrades to "couldn't check", never to "touches nothing" ({@see TestReferenceIndex}
      * makes the same tri-state call for the same reason).
      */

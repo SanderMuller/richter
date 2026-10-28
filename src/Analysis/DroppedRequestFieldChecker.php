@@ -17,10 +17,9 @@ use SanderMuller\Richter\Support\RichterConfig;
  * join the report after the graded set is frozen. The same break read from the backend side is the
  * request lane's tier-2 hazard.
  *
- * A route reaches its own action through the booted router, not the graph: the graph's route node
- * points at the controller class, and the class at every action it handles, so a walk would read
- * another action's request. From the action, Brain's `action-to-form-request` edge names the form
- * request, and the action's own body holds any inline validation.
+ * Routes reach their own action through {@see RouterRouteIndex::actionsFor()}. From the action,
+ * Brain's `action-to-form-request` edge names the form request, and the action's own body holds any
+ * inline validation.
  *
  * Silent wherever either side cannot vouch: a head that spreads its payload ({@see SentFields::opaque()}),
  * a rule the source cannot read, a conditional rule, a request that rewrites its input before
@@ -30,14 +29,13 @@ use SanderMuller\Richter\Support\RichterConfig;
  */
 final class DroppedRequestFieldChecker
 {
-    /** Methods through which a form request can fill a field the client never sent. */
     private const array INPUT_REWRITING_METHODS = ['prepareForValidation', 'validationData'];
 
     private ?RouterRouteIndex $routes = null;
 
     private bool $routesBuilt = false;
 
-    /** @var array<string, array<string, bool|null>> "file\0method" => field => required */
+    /** @var array<string, array<string, bool|null>> "node\0method" => field => required */
     private array $requiredCache = [];
 
     public function __construct(
@@ -112,7 +110,7 @@ final class DroppedRequestFieldChecker
             $sites[$action] = $this->required($action, $source, explode('::', $action, 2)[1] ?? '');
         }
 
-        return array_filter($sites, static fn (array $fields): bool => $fields !== []);
+        return $sites;
     }
 
     /**
@@ -146,8 +144,8 @@ final class DroppedRequestFieldChecker
     }
 
     /**
-     * The working-tree source of the file the graph places a node in. The validation side is read as
-     * the graph sees it, so a named `--head` reads both at today's tree, the era the graph has.
+     * Today's tree, as the graph sees it: under a named `--head` the validation side is today's code,
+     * and the frontend side is that commit's.
      */
     private function sourceOf(string $node): ?string
     {

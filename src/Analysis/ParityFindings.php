@@ -8,8 +8,8 @@ use SanderMuller\Richter\Support\RichterConfig;
 
 /**
  * The payload-parity findings family's dispatch, beside {@see ImpactAnalyzer} (complexity
- * budget): one gate (`payload_parity.enabled` / `--no-payload-parity`) constructs every
- * checker, and one per-file call fans out to whichever lane the file triggers — added
+ * budget): one gate (`payload_parity.enabled` / `--no-payload-parity`) constructs every hazard
+ * checker (the frontend-side finding lane, {@see DroppedRequestFieldChecker}, reads the same gate), and one per-file call fans out to whichever lane the file triggers — added
  * model fields to the model→resource lane, removed resource keys to the frontend-consumer
  * lane, removed `rules()` fields to the request lane.
  *

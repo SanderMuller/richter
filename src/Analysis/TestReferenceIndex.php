@@ -87,17 +87,15 @@ final class TestReferenceIndex
     }
 
     /**
-     * {@see forProject()} for an analysis of `$head`, or null for a named commit. `tests/` and the
-     * booted router the route lookup reads both describe the working tree, not that commit, so a test
-     * added after it — often the fix for the very change being replayed — would read as a reference.
-     * Null is the "not checked" verdict, decided by the same seam as
-     * {@see RichterConfig::runtimeEvidenceRoot()}.
+     * {@see forProject()}, or null under a named head: `tests/` and the booted router describe the
+     * working tree, so a test added after that commit would read as a reference. Null reads as "not
+     * checked".
      *
      * @internal richter's own commands and tools call it; it can change in a minor release
      */
     public static function forHead(string $head, CodeGraph $graph): ?self
     {
-        return RichterConfig::runtimeEvidenceRoot($head) === null ? null : self::forProject($graph);
+        return RichterConfig::analysesWorkingTree($head) ? self::forProject($graph) : null;
     }
 
     public static function fromTests(string $testsDir, ?string $projectRoot = null): self

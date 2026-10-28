@@ -84,8 +84,8 @@ final readonly class RequestFieldParityChecker
      *
      * The object-literal pattern is the one the response-side lane names as its own false-positive
      * class — a destructure of a RESPONSE takes the same shape as an object literal being built.
-     * Here it is the primary signal rather than the accident, which is why the two lanes match
-     * separately instead of sharing one predicate. The residual cost is the mirror image: a file
+     * Here it is the primary signal rather than the accident, which is why the response-side and
+     * request-side lanes match separately instead of sharing one predicate. The residual cost is the mirror image: a file
      * that both posts to and reads from the endpoint can match on a field it only reads. The
      * advisory framing and the `Anchor::field` ignore entry carry it.
      */

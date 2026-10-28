@@ -881,7 +881,9 @@ final class McpTest extends TestCase
 
         $this->assertInstanceOf(ResponseFactory::class, $control);
         $this->assertInstanceOf(ResponseFactory::class, $named);
-        $this->assertNotSame([], $control->getStructuredContent()['entryPointTestReferences'] ?? null);
+        $controlReferences = $control->getStructuredContent()['entryPointTestReferences'] ?? null;
+        $this->assertIsArray($controlReferences);
+        $this->assertNotSame([], $controlReferences);
         $this->assertNotSame([], $named->getStructuredContent()['entryPoints'] ?? []);
         $this->assertSame([], $named->getStructuredContent()['entryPointTestReferences'] ?? null);
     }

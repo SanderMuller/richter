@@ -74,8 +74,6 @@ final class ValidationRulesTest extends TestCase
     #[Test]
     public function the_method_is_matched_by_name_in_a_parent_class_file(): void
     {
-        // An inherited action's node points at the declaring file, where the method is keyed on the
-        // parent class, not on the subclass the router names.
         $source = "<?php\nnamespace App\\Http\\Controllers;\nabstract class BasePostController\n{\n    public function store(\$request)\n    {\n        \$request->validate(['title' => 'required']);\n    }\n}\n";
 
         $this->assertSame(['title' => true], ValidationRules::requiredFields($source, 'store', requestDataOnly: true));
@@ -92,7 +90,6 @@ final class ValidationRulesTest extends TestCase
     #[Test]
     public function validator_make_is_left_out_when_only_request_data_counts(): void
     {
-        // Its data need not be the request, so a frontend lane must not read it as one.
         $source = "<?php\nnamespace App\\Http\\Controllers;\nuse Illuminate\\Support\\Facades\\Validator;\nclass PostController\n{\n    public function store(\$request)\n    {\n        Validator::make(\$payload, ['title' => 'required'])->validate();\n    }\n}\n";
 
         $this->assertSame([], ValidationRules::requiredFields($source, 'store', requestDataOnly: true));

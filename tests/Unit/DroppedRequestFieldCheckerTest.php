@@ -4,6 +4,7 @@ namespace SanderMuller\Richter\Tests\Unit;
 
 use Illuminate\Filesystem\Filesystem;
 use Illuminate\Support\Facades\Route;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use SanderMuller\Richter\Analysis\DroppedRequestFieldChecker;
 use SanderMuller\Richter\Analysis\FrontendConsumerLane;
@@ -128,11 +129,19 @@ final class DroppedRequestFieldCheckerTest extends TestCase
         $this->assertSame([], $this->checker()->findingsFor($this->changed('route::DELETE::/posts/{post}', ['title'])));
     }
 
-    #[Test]
-    public function a_request_that_rewrites_its_input_is_silent(): void
+    /** @return iterable<string, array{string}> */
+    public static function inputRewritingMethods(): iterable
     {
-        // `prepareForValidation()` can fill the missing field on the server.
-        $this->write('app/StorePostRequest.php', "<?php\nnamespace App\\Http\\Requests;\nclass StorePostRequest\n{\n    protected function prepareForValidation(): void {}\n\n    public function rules(): array\n    {\n        return ['title' => 'required'];\n    }\n}\n");
+        yield 'prepareForValidation' => ['protected function prepareForValidation(): void {}'];
+        yield 'validationData' => ['public function validationData(): array { return []; }'];
+    }
+
+    #[Test]
+    #[DataProvider('inputRewritingMethods')]
+    public function a_request_that_rewrites_its_input_is_silent(string $method): void
+    {
+        // Either method can fill the missing field on the server.
+        $this->write('app/StorePostRequest.php', "<?php\nnamespace App\\Http\\Requests;\nclass StorePostRequest\n{\n    {$method}\n\n    public function rules(): array\n    {\n        return ['title' => 'required'];\n    }\n}\n");
 
         $this->assertSame([], $this->checker()->findingsFor($this->changed('route::POST::/posts', ['title'])));
     }
@@ -142,9 +151,13 @@ final class DroppedRequestFieldCheckerTest extends TestCase
     {
         $changed = $this->changed('route::POST::/posts', ['title', 'subtitle']);
 
-        $this->assertCount(1, $this->checker([self::REQUEST . '::title'])->findingsFor($changed));
+        $this->assertSame(
+            ["no longer sends 'subtitle' to POST /posts, which App\\Http\\Requests\\StorePostRequest::rules() still requires"],
+            $this->checker([self::REQUEST . '::title'])->findingsFor($changed),
+        );
         $this->assertSame([], $this->checker([self::REQUEST])->findingsFor($changed));
         $this->assertSame([], $this->checker([self::UPDATE . '::title'])->findingsFor($this->changed('route::PUT::/posts/{post}', ['title'])));
+        $this->assertSame([], $this->checker([self::UPDATE])->findingsFor($this->changed('route::PUT::/posts/{post}', ['title'])));
     }
 
     #[Test]
@@ -154,10 +167,11 @@ final class DroppedRequestFieldCheckerTest extends TestCase
     }
 
     #[Test]
-    public function the_lane_is_off_when_payload_parity_is_off(): void
+    public function the_lane_follows_the_payload_parity_switch(): void
     {
         $graph = new CodeGraph([], hasUnparseableFiles: false);
 
+        $this->assertInstanceOf(DroppedRequestFieldChecker::class, DroppedRequestFieldChecker::fromConfig($graph));
         $this->assertNull(DroppedRequestFieldChecker::fromConfig($graph, false));
 
         config()->set('richter.payload_parity.enabled', false);
@@ -180,8 +194,6 @@ final class DroppedRequestFieldCheckerTest extends TestCase
             ...$extraEdges,
             ['source' => self::STORE, 'target' => self::REQUEST . '::validated', 'type' => 'action-to-form-request'],
             ['source' => self::ARCHIVE, 'target' => self::ARCHIVE_REQUEST . '::validated', 'type' => 'action-to-form-request'],
-            ['source' => 'App\Http\Controllers\PostController', 'target' => self::UPDATE, 'type' => 'controller-to-action'],
-            ['source' => 'App\Http\Controllers\BasePostController', 'target' => self::CHILD_UPDATE, 'type' => 'controller-to-action'],
         ], hasUnparseableFiles: false, nodeMetadata: [
             self::STORE => ['file' => 'app/PostController.php'],
             self::UPDATE => ['file' => 'app/PostController.php'],

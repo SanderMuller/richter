@@ -55,10 +55,11 @@ final class AffectedTests
      *   document field reaches MCP structured content wholesale, so one that rode along would have
      *   to be stripped by each consumer.
      * @param-out SelectionProvenance $provenance
-     * @param  TestReferenceIndex|null  $testsUsed  set to the graph-bound test index the selection reads,
-     *   and the analysis too when `$fullAnalysis` is on, so a caller presenting the analysis grades test
-     *   references with the same index; stays null exactly when `$analysisUsed` does. Internal: richter's own task-slice
-     *   command and tool pass it, and it can change in a minor release
+     * @param  TestReferenceIndex|null  $testsUsed  set to the index the analysis graded test references
+     *   with, so a caller presenting the analysis grades with the same one. Null when there is no
+     *   analysis, and under a named head, where `tests/` is not the analyzed state
+     *   ({@see TestReferenceIndex::forHead()}). Internal: richter's own task-slice command and tool
+     *   pass it, and it can change in a minor release
      * @param-out TestReferenceIndex|null $testsUsed
      *
      * @return array{base: string, determinable: bool, reasons: list<string>, tests: list<string>, testsTotal: int, testsShare: float, testsExcluded: int, frontendTests: list<string>, unreferencedEntryPoints: int, unresolvedDispatchSites: list<array{file: string, line: int, dispatcher: string}>, untrackedFiles: list<string>}
@@ -140,26 +141,25 @@ final class AffectedTests
         }
 
         $graph = $graphs->graph(fresh: $fresh);
-        // One index for the selection and, under `$fullAnalysis`, the analysis, so one report gives one
-        // answer to "is this surface proven".
-        $testsUsed = TestReferenceIndex::forProject($graph);
+        // One index for the selection and, under `$fullAnalysis` on the working tree, the analysis, so
+        // one report gives one answer to "is this surface proven". Under a named head the selection
+        // still reads it: those are the tests that will run.
+        $selectionTests = TestReferenceIndex::forProject($graph);
+        $testsUsed = $fullAnalysis && RichterConfig::analysesWorkingTree($head) ? $selectionTests : null;
         // Parity lanes off: they only produce findings, which the selection never reads —
         // and the consumer lane would otherwise pay a whole frontend-tree scan on a CI
         // hot path for output this command discards. Entry-point attribution is off for the same
         // reason: it walks once per changed file to decide row ORDER, and this command reads the set.
         // `$fullAnalysis` is for a caller that needs the DOCUMENT as well as the selection —
         // `richter:task-slice` composes both — and would otherwise walk the graph a second time to get
-        // it. It turns the two off-by-default lanes and the test index back on; the selection reads the entry-point
+        // it. It turns the two off-by-default lanes and, on the working tree, the test index back on; the selection reads the entry-point
         // SET, which neither lane moves, so it is identical either way and `TaskSliceTest` pins that.
         // `$analysisUsed` hands the caller exactly the analysis this selection was computed from, so
         // the two halves of one report can never describe different runs.
         $analysisUsed = new ImpactAnalyzer($graph)->detectChanges(
             $changed,
             payloadParityEnabled: $fullAnalysis ? null : false,
-            // Not under a named head: `tests/` is the working tree, not that commit
-            // ({@see TestReferenceIndex::forHead()}). The selection still reads it — those are the
-            // tests that will run.
-            tests: $fullAnalysis && RichterConfig::runtimeEvidenceRoot($head) !== null ? $testsUsed : null,
+            tests: $testsUsed,
             attributionEnabled: $fullAnalysis,
             // Working-tree analyses only: a named head describes a commit the booted router does not.
             runtimeEvidenceRoot: RichterConfig::runtimeEvidenceRoot($head),
@@ -168,7 +168,7 @@ final class AffectedTests
         $selection = self::select(
             $analysisUsed,
             $changed,
-            $testsUsed,
+            $selectionTests,
             $graph->unresolvedDispatchSites(),
             $graph,
             self::configuredFrontendTestIndex(),

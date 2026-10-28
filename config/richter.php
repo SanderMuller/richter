@@ -176,7 +176,7 @@ return [
     'risk_thresholds' => [],
 
     /*
-     * Advisory-only payload-parity checks, both directions: a model field ($fillable/$casts/
+     * Payload-parity checks: a model field ($fillable/$casts/
      * casts()) added but never added to a resource that mirrors its other fields, and a resource
      * toArray() key REMOVED while a frontend consumer of the routes it reaches still reads it —
      * the two shapes behind a payload field silently going missing.

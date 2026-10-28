@@ -16,7 +16,7 @@ final class PostController
     public function update(Request $request): JsonResponse
     {
         return new JsonResponse($request->validate([
-            'title' => 'required|string',
+            'summary' => 'required|string',
             'excerpt' => 'sometimes|required|string',
         ]));
     }

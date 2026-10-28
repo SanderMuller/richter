@@ -13,8 +13,8 @@ use Throwable;
  * wildcarded, the same matching {@see TestReferenceIndex} uses). Node ids are in the
  * `route::{METHOD}::/{uri}` shape the graph builder derives from Brain's route nodes.
  *
- * One owner of that id shape, so the frontend bridge and the lanes that take a route back to its
- * action can never drift apart.
+ * The frontend bridge and the dropped-request-field lane share it, so the two cannot disagree on a
+ * route's node id.
  *
  * @internal
  */
@@ -95,15 +95,7 @@ final readonly class RouterRouteIndex
      */
     public function actionsFor(string $routeNode): array
     {
-        $actions = [];
-
-        foreach ($this->byAction as $action => $nodes) {
-            if (in_array($routeNode, $nodes, true)) {
-                $actions[] = $action;
-            }
-        }
-
-        return $actions;
+        return array_keys(array_filter($this->byAction, static fn (array $nodes): bool => in_array($routeNode, $nodes, true)));
     }
 
     /**
@@ -119,7 +111,7 @@ final readonly class RouterRouteIndex
 
         foreach ($parts === false ? [] : $parts as $part) {
             $regex .= match (true) {
-                // `?` zero-or-more (not `+` one-or-more) inside the group so the whole optional
+                // `*` zero-or-more (not `+` one-or-more) inside the group so the whole optional
                 // group also matches a bare trailing slash (`/users/`) and, at the route root
                 // (`/{locale?}`), the bare `/` itself — both legitimately serve the route.
                 str_starts_with($part, '/{') => str_ends_with($part, '?}') ? '(?:/[^/]*)?' : '/[^/]+',
