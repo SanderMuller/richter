@@ -39,7 +39,7 @@ jobs:
           persist-credentials: false
 
       - name: Run zizmor
-        uses: zizmorcore/zizmor-action@v0.6.0
+        uses: zizmorcore/zizmor-action@v0.7.1
         with:
           # Gate via exit code + inline annotations. With advanced-security: true the
           # action uploads SARIF to code scanning instead and never fails the job.
