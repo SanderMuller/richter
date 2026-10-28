@@ -92,6 +92,17 @@ final class FluentRuleParityTest extends TestCase
             yield "conditional {$rule}" => ["string|{$rule}:terms", "FluentRule::string()->{$method}('terms')"];
         }
 
+        // TYPE_PROMOTING_MODIFIERS
+        yield 'promoted ipv4' => ['required|string|ipv4', 'FluentRule::ipv4()->required()'];
+        yield 'promoted list' => ['required|array|list', 'FluentRule::list()->required()'];
+
+        // SINGLE_STRING_ARG_RULES
+        foreach (['regex' => 'regex', 'not_regex' => 'notRegex', 'starts_with' => 'startsWith', 'ends_with' => 'endsWith', 'doesnt_start_with' => 'doesntStartWith', 'doesnt_end_with' => 'doesntEndWith'] as $rule => $method) {
+            yield "single string arg {$rule}" => ["required|string|{$rule}:x", "FluentRule::string()->required()->{$method}('x')"];
+        }
+
+        yield 'date_format' => ['required|date|date_format:Y-m-d', "FluentRule::date()->required()->format('Y-m-d')"];
+
         // The dedicated in / not_in / exists / unique branches
         yield 'in' => ['required|string|in:a,b', "FluentRule::string()->required()->in(['a', 'b'])"];
         yield 'not_in' => ['required|string|not_in:a,b', "FluentRule::string()->required()->notIn(['a', 'b'])"];
@@ -124,6 +135,8 @@ final class FluentRuleParityTest extends TestCase
         yield 'password' => ['required|string|min:8|confirmed', 'FluentRule::password(8)->required()->confirmed()'];
         yield 'bare declined' => ['declined', 'FluentRule::declined()'];
         yield 'bare accepted' => ['accepted', 'FluentRule::accepted()'];
+        yield 'accepted through the rule escape hatch' => ['accepted', "FluentRule::field()->rule('accepted')"];
+        yield 'boolean accepted' => ['boolean|accepted', 'FluentRule::boolean()->accepted()'];
     }
 
     #[Test]

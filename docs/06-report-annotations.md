@@ -98,9 +98,9 @@ A field counts as required when a missing value fails it: `required`, `present`,
 `declined`, and no `sometimes`. A conditional rule (`required_if`, `present_with` and so on), an
 `exclude`, `missing` or `prohibited` rule, and a rule object cannot be read that way,
 and the lane stays silent on the field. A `laravel-fluent-validation` chain is read as the rules it
-compiles to. A bare `FluentRule::accepted()` or `declined()`, with no `required()` or `present()`,
-stays silent: a missing field fails it when the request compiles its rules through `HasFluentRules`
-and passes it when the builder runs as a rule object.
+compiles to. A chain that holds `accepted` or `declined` without `required()` or `present()` stays
+silent, whatever else it holds: a missing field fails it when the request compiles its rules through
+`HasFluentRules` and can pass it when the builder runs as a rule object.
 
 It is also silent on a file whose head spreads into an
 object literal (`{ ...form }`) or builds `new FormData(el)`,

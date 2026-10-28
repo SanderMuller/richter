@@ -7,6 +7,7 @@ use SanderMuller\Richter\Analysis\Hazard;
 use SanderMuller\Richter\Analysis\HazardFindings;
 use SanderMuller\Richter\Analysis\Hazards\HazardLanes;
 use SanderMuller\Richter\Analysis\Hazards\MiddlewareGroupHazards;
+use SanderMuller\Richter\Analysis\ValidationRules;
 use SanderMuller\Richter\Changes\ChangedFileSymbols;
 use SanderMuller\Richter\Tests\TestCase;
 
@@ -574,9 +575,20 @@ final class HazardLanesTest extends TestCase
         );
     }
 
+    /** Guards a no-hazard assertion against passing only because the chain read as unknown. */
+    private function assertChainReads(string $rules): void
+    {
+        $fields = ValidationRules::rulesByMember($this->fluentRequest($rules))['App\Http\Requests\StorePostRequest::rules'] ?? [];
+
+        $this->assertNotContains(null, $fields, "a chain read as unknown: {$rules}");
+    }
+
     #[Test]
     public function a_reordered_or_equivalent_chain_is_not_a_boundary_hazard(): void
     {
+        $this->assertChainReads("['title' => FluentRule::string()->max(255)->required()]");
+        $this->assertChainReads("['title' => FluentRule::string()->requiredIf(true)]");
+
         $this->assertSame([], $this->boundaryEvidence("['title' => FluentRule::string()->max(255)->required()]", "['title' => FluentRule::string()->required()->max(255)]"));
         $this->assertSame([], $this->boundaryEvidence("['title' => FluentRule::string()->requiredIf(true)]", "['title' => FluentRule::string()->required()]"));
         // The rector's migration: the chain reads every guarding rule the string had.
@@ -596,6 +608,8 @@ final class HazardLanesTest extends TestCase
     #[Test]
     public function a_wildcard_key_migrated_into_each_raises_no_boundary_hazard(): void
     {
+        $this->assertChainReads("['items' => FluentRule::array()->required()->each(FluentRule::string()->required())]");
+
         // The dotted key leaves the head side, which the lane reads as a removed field.
         $this->assertSame([], $this->boundaryEvidence(
             "['items' => FluentRule::array()->required()->each(FluentRule::string()->required())]",

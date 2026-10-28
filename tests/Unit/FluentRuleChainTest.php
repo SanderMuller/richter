@@ -7,6 +7,7 @@ use PhpParser\Node\Stmt\Expression;
 use PhpParser\Node\Stmt\Namespace_;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
+use ReflectionClassConstant;
 use SanderMuller\Richter\Analysis\FluentRuleChain;
 use SanderMuller\Richter\Support\AppFiles;
 use SanderMuller\Richter\Tests\TestCase;
@@ -91,6 +92,175 @@ final class FluentRuleChainTest extends TestCase
         yield 'acceptedIf replaces accepted' => ["FluentRule::accepted()->required()->acceptedIf('role', 'admin')", ['accepted_if', 'required']];
         yield 'boolean accepted required' => ['FluentRule::boolean()->accepted()->required()', ['accepted', 'boolean', 'required']];
         yield 'bare declined' => ['FluentRule::declined()', null];
+        yield 'declinedIf replaces declined' => ["FluentRule::declined()->required()->declinedIf('role', 'admin')", ['declined_if', 'required']];
+        yield 'boolean accepted without presence' => ['FluentRule::boolean()->accepted()', null];
+        // Arguments read by position are refused when named or unpacked.
+        yield 'a named rule argument' => ["FluentRule::string()->rule(message: 'x', rule: 'max:10')", null];
+        yield 'a named requiredIf argument' => ["FluentRule::string()->requiredIf(values: 'x', field: true)", null];
+        yield 'an unpacked rule argument' => ['FluentRule::string()->rule(...$rules)', null];
+        yield 'a named message elsewhere is fine' => ["FluentRule::string()->max(255, message: 'Too long')", ['max', 'string']];
+        // Methods a builder does not have run only as a macro.
+        yield 'an embedded rule on a file' => ["FluentRule::file()->unique('posts')", null];
+        yield 'a comparison on a boolean' => ["FluentRule::boolean()->same('other')", null];
+        // A replacing method removes the seeded rule only.
+        yield 'format keeps a rule-added date' => ["FluentRule::date()->rule('date')->format('Y-m-d')", ['date', 'date_format']];
+        yield 'a first-class callable root' => ['FluentRule::string(...)', null];
+        yield 'requiredUnless true' => ['FluentRule::string()->requiredUnless(true)', ['string']];
+        yield 'excludeUnless a literal bool' => ['FluentRule::string()->excludeUnless(false)', null];
+        yield 'prohibitedIf a literal bool' => ['FluentRule::string()->prohibitedIf(true)', null];
+        yield 'prohibitedUnless a literal bool' => ['FluentRule::string()->prohibitedUnless(true)', null];
+        yield 'excludeIf a field' => ["FluentRule::string()->excludeIf('status', 'draft')", ['exclude_if', 'string']];
+    }
+
+    /**
+     * Every table entry, written out a second time from the package's builders, so a wrong or new
+     * entry in `FluentRuleChain` fails here. Family => [factory the row uses, method => rules added].
+     *
+     * @var array<string, array{string, array<string, list<string>>}>
+     */
+    private const array EXPECTED_METHODS = [
+        '*' => ['string', [
+            'label' => [], 'message' => [], 'messageFor' => [], 'fieldMessage' => [], 'bail' => ['bail'],
+            'nullable' => ['nullable'], 'required' => ['required'], 'sometimes' => ['sometimes'], 'filled' => ['filled'],
+            'present' => ['present'], 'prohibited' => ['prohibited'], 'exclude' => ['exclude'], 'missing' => ['missing'],
+            'presentIf' => ['present_if'], 'presentUnless' => ['present_unless'], 'presentWith' => ['present_with'],
+            'presentWithAll' => ['present_with_all'], 'missingIf' => ['missing_if'], 'missingUnless' => ['missing_unless'],
+            'missingWith' => ['missing_with'], 'missingWithAll' => ['missing_with_all'], 'requiredWith' => ['required_with'],
+            'requiredWithAll' => ['required_with_all'], 'requiredWithout' => ['required_without'],
+            'requiredWithoutAll' => ['required_without_all'], 'requiredIfAccepted' => ['required_if_accepted'],
+            'requiredIfDeclined' => ['required_if_declined'], 'excludeWith' => ['exclude_with'],
+            'excludeWithout' => ['exclude_without'], 'prohibits' => ['prohibits'],
+            'prohibitedIfAccepted' => ['prohibited_if_accepted'], 'prohibitedIfDeclined' => ['prohibited_if_declined'],
+        ]],
+        'string' => ['string', [
+            'unique' => ['unique'], 'exists' => ['exists'], 'enum' => ['enum'], 'in' => ['in'], 'notIn' => ['not_in'],
+            'same' => ['same'], 'different' => ['different'], 'confirmed' => ['confirmed'], 'inArray' => ['in_array'],
+            'distinct' => ['distinct'], 'inArrayKeys' => ['in_array_keys'], 'alpha' => ['alpha'], 'alphaDash' => ['alpha_dash'],
+            'alphaNumeric' => ['alpha_num'], 'ascii' => ['ascii'], 'encoding' => ['encoding'], 'between' => ['between'],
+            'doesntEndWith' => ['doesnt_end_with'], 'doesntStartWith' => ['doesnt_start_with'], 'endsWith' => ['ends_with'],
+            'exactly' => ['size'], 'lowercase' => ['lowercase'], 'max' => ['max'], 'min' => ['min'],
+            'startsWith' => ['starts_with'], 'uppercase' => ['uppercase'], 'url' => ['url'], 'httpUrl' => ['url'],
+            'activeUrl' => ['active_url'], 'uuid' => ['uuid'], 'ulid' => ['ulid'], 'json' => ['json'], 'ip' => ['ip'],
+            'ipv4' => ['ipv4'], 'ipv6' => ['ipv6'], 'macAddress' => ['mac_address'], 'regex' => ['regex'],
+            'notRegex' => ['not_regex'], 'timezone' => ['timezone'], 'hexColor' => ['hex_color'], 'date' => ['date'],
+            'email' => ['email'], 'dateFormat' => ['date_format'], 'currentPassword' => ['current_password'],
+        ]],
+        'numeric' => ['numeric', [
+            'unique' => ['unique'], 'exists' => ['exists'], 'enum' => ['enum'], 'in' => ['in'], 'notIn' => ['not_in'],
+            'same' => ['same'], 'different' => ['different'], 'confirmed' => ['confirmed'], 'inArray' => ['in_array'],
+            'distinct' => ['distinct'], 'inArrayKeys' => ['in_array_keys'], 'between' => ['between'], 'decimal' => ['decimal'],
+            'digits' => ['integer', 'digits'], 'digitsBetween' => ['integer', 'digits_between'], 'greaterThan' => ['gt'],
+            'greaterThanOrEqualTo' => ['gte'], 'integer' => ['integer'], 'lessThan' => ['lt'], 'lessThanOrEqualTo' => ['lte'],
+            'max' => ['max'], 'maxDigits' => ['max_digits'], 'min' => ['min'], 'minDigits' => ['min_digits'],
+            'multipleOf' => ['multiple_of'], 'positive' => ['gt'], 'negative' => ['lt'], 'nonNegative' => ['gte'],
+            'nonPositive' => ['lte'], 'exactly' => ['integer', 'size'],
+        ]],
+        'date' => ['date', [
+            'unique' => ['unique'], 'exists' => ['exists'], 'enum' => ['enum'], 'in' => ['in'], 'notIn' => ['not_in'],
+            'same' => ['same'], 'different' => ['different'], 'confirmed' => ['confirmed'], 'inArray' => ['in_array'],
+            'distinct' => ['distinct'], 'beforeToday' => ['before'], 'afterToday' => ['after'],
+            'todayOrBefore' => ['before_or_equal'], 'todayOrAfter' => ['after_or_equal'], 'past' => ['before'],
+            'future' => ['after'], 'nowOrPast' => ['before_or_equal'], 'nowOrFuture' => ['after_or_equal'],
+            'before' => ['before'], 'after' => ['after'], 'beforeOrEqual' => ['before_or_equal'],
+            'afterOrEqual' => ['after_or_equal'], 'between' => ['after', 'before'],
+            'betweenOrEqual' => ['after_or_equal', 'before_or_equal'], 'dateEquals' => ['date_equals'],
+        ]],
+        'boolean' => ['boolean', [
+            'accepted' => ['accepted'], 'acceptedIf' => ['accepted_if'], 'declined' => ['declined'], 'declinedIf' => ['declined_if'],
+        ]],
+        'array' => ['array', [
+            'min' => ['min'], 'max' => ['max'], 'between' => ['between'], 'exactly' => ['size'], 'list' => ['list'],
+            'requiredArrayKeys' => ['required_array_keys'], 'contains' => ['contains'], 'doesntContain' => ['doesnt_contain'],
+            'each' => [], 'children' => [], 'inArrayKeys' => ['in_array_keys'], 'distinct' => ['distinct'],
+        ]],
+        'file' => ['file', [
+            'min' => ['min'], 'max' => ['max'], 'between' => ['between'], 'exactly' => ['size'],
+            'extensions' => ['extensions'], 'mimes' => ['mimes'], 'mimetypes' => ['mimetypes'],
+        ]],
+        'image' => ['image', [
+            'min' => ['min'], 'max' => ['max'], 'between' => ['between'], 'exactly' => ['size'],
+            'extensions' => ['extensions'], 'mimes' => ['mimes'], 'mimetypes' => ['mimetypes'], 'allowSvg' => [],
+        ]],
+        'email' => ['email', [
+            'unique' => ['unique'], 'exists' => ['exists'], 'enum' => ['enum'], 'in' => ['in'], 'notIn' => ['not_in'],
+            'same' => ['same'], 'different' => ['different'], 'confirmed' => ['confirmed'], 'inArray' => ['in_array'],
+            'distinct' => ['distinct'], 'rfcCompliant' => [], 'strict' => [], 'validateMxRecord' => [],
+            'preventSpoofing' => [], 'withNativeValidation' => [], 'max' => ['max'],
+        ]],
+        'field' => ['field', [
+            'unique' => ['unique'], 'exists' => ['exists'], 'enum' => ['enum'], 'in' => ['in'], 'notIn' => ['not_in'],
+            'same' => ['same'], 'different' => ['different'], 'confirmed' => ['confirmed'], 'inArray' => ['in_array'],
+            'distinct' => ['distinct'], 'inArrayKeys' => ['in_array_keys'], 'children' => [],
+        ]],
+    ];
+
+    /** Factory => the rules it seeds, written out a second time from `FluentRule`. */
+    private const array EXPECTED_FACTORIES = [
+        'string' => ['string'], 'numeric' => ['numeric'], 'integer' => ['numeric', 'integer'], 'date' => ['date'],
+        'dateTime' => ['date_format'], 'boolean' => ['boolean'], 'accepted' => ['accepted'], 'declined' => ['declined'],
+        'array' => ['array'], 'list' => ['array', 'list'], 'file' => ['file'], 'image' => ['image'],
+        'email' => ['string', 'email'], 'url' => ['string', 'url'], 'httpUrl' => ['string', 'url'],
+        'uuid' => ['string', 'uuid'], 'ulid' => ['string', 'ulid'], 'ip' => ['string', 'ip'], 'ipv4' => ['string', 'ipv4'],
+        'ipv6' => ['string', 'ipv6'], 'macAddress' => ['string', 'mac_address'], 'json' => ['string', 'json'],
+        'timezone' => ['string', 'timezone'], 'hexColor' => ['string', 'hex_color'],
+        'activeUrl' => ['string', 'active_url'], 'regex' => ['string', 'regex'], 'field' => [],
+    ];
+
+    /** @return iterable<string, array{string, list<string>}> */
+    public static function methodEntries(): iterable
+    {
+        foreach (self::EXPECTED_METHODS as $family => [$factory, $methods]) {
+            $base = self::EXPECTED_FACTORIES[$factory];
+
+            foreach ($methods as $method => $added) {
+                // `required()` keeps presence certain, so the accepted/declined families read too.
+                yield "{$family}::{$method}" => ["FluentRule::{$factory}()->required()->{$method}()", [...$base, 'required', ...$added]];
+            }
+        }
+    }
+
+    /** @param  list<string>  $expected */
+    #[Test]
+    #[DataProvider('methodEntries')]
+    public function every_method_entry_adds_the_rules_its_builder_adds(string $code, array $expected): void
+    {
+        sort($expected);
+
+        $this->assertSame($expected, $this->names($code));
+    }
+
+    /** @return iterable<string, array{string, list<string>}> */
+    public static function factoryEntries(): iterable
+    {
+        foreach (self::EXPECTED_FACTORIES as $factory => $seeded) {
+            yield $factory => ["FluentRule::{$factory}()->required()", [...$seeded, 'required']];
+        }
+    }
+
+    /** @param  list<string>  $expected */
+    #[Test]
+    #[DataProvider('factoryEntries')]
+    public function every_factory_seeds_the_rules_its_builder_seeds(string $code, array $expected): void
+    {
+        sort($expected);
+
+        $this->assertSame($expected, $this->names($code));
+    }
+
+    #[Test]
+    public function every_table_entry_has_a_row(): void
+    {
+        // A new entry in FluentRuleChain without a row here fails, so no entry ships unchecked.
+        $methods = new ReflectionClassConstant(FluentRuleChain::class, 'METHODS')->getValue();
+        $factories = new ReflectionClassConstant(FluentRuleChain::class, 'FACTORIES')->getValue();
+        $this->assertIsArray($methods);
+        $this->assertIsArray($factories);
+
+        $this->assertSame(
+            array_map(static fn (array $row): array => array_keys($row[1]), self::EXPECTED_METHODS),
+            array_map(static fn (mixed $row): array => is_array($row) ? array_keys($row) : [], $methods),
+        );
+        $this->assertSame(array_keys(self::EXPECTED_FACTORIES), array_keys($factories));
     }
 
     /** @param  list<string>|null  $expected */

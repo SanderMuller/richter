@@ -245,22 +245,18 @@ final class ValidationRules
             return self::normalise(explode('|', $value->value));
         }
 
-        if (FluentRuleChain::isChain($value)) {
+        if (! $value instanceof Array_) {
             $names = FluentRuleChain::ruleNames($value);
 
             return $names === null ? null : self::normalise($names);
         }
 
-        // A chain inside an array is null like any other non-string item: there the builder runs as
-        // its own rule object, so its `sometimes()` governs only itself, and one flat name set would
-        // misread the field.
-        if (! $value instanceof Array_) {
-            return null;
-        }
-
         $names = [];
 
         foreach ($value->items as $item) {
+            // A FluentRule chain here is refused like any other non-string item: inside an array the
+            // builder runs as its own rule object, so its `sometimes()` governs only itself, and one
+            // flat name set would misread the field.
             if (! $item->value instanceof String_) {
                 return null;
             }

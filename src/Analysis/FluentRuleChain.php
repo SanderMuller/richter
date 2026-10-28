@@ -30,7 +30,7 @@ final class FluentRuleChain
 
     /**
      * Factory => [builder family, the rules the factory seeds]. `password()`, `enum()` and `anyOf()`
-     * build rule objects, and a macro factory is unknown, so neither is listed.
+     * build rule objects, and a macro factory is unknown, so none is listed.
      *
      * @var array<string, array{string, list<string>}>
      */
@@ -65,7 +65,29 @@ final class FluentRuleChain
     ];
 
     /**
-     * Family => method => the rules it adds. `*` holds the modifiers every builder shares. An empty
+     * The embedded rules (`HasEmbeddedRules`), on the string, numeric, date, email and field builders.
+     * The package adds them as rule objects; they read as the names the string form of the same rule
+     * has, so a migrated rule reads the same on both sides.
+     *
+     * @var array<string, list<string>>
+     */
+    private const array EMBEDDED = [
+        'unique' => ['unique'], 'exists' => ['exists'], 'enum' => ['enum'], 'in' => ['in'], 'notIn' => ['not_in'],
+    ];
+
+    /**
+     * The comparison methods the string, numeric, date, email and field builders each define.
+     *
+     * @var array<string, list<string>>
+     */
+    private const array COMPARISONS = [
+        'same' => ['same'], 'different' => ['different'], 'confirmed' => ['confirmed'],
+        'inArray' => ['in_array'], 'distinct' => ['distinct'],
+    ];
+
+    /**
+     * Family => method => the rules it adds. `*` holds the modifiers every builder has
+     * (`HasFieldModifiers`). An empty
      * list is a method that adds no rule to the field itself (a label, a message, nested `each()` and
      * `children()` keys, an email validation mode).
      *
@@ -87,11 +109,9 @@ final class FluentRuleChain
             'excludeWith' => ['exclude_with'], 'excludeWithout' => ['exclude_without'],
             'prohibits' => ['prohibits'], 'prohibitedIfAccepted' => ['prohibited_if_accepted'],
             'prohibitedIfDeclined' => ['prohibited_if_declined'],
-            'same' => ['same'], 'different' => ['different'], 'confirmed' => ['confirmed'],
-            'inArray' => ['in_array'], 'inArrayKeys' => ['in_array_keys'], 'distinct' => ['distinct'],
-            'unique' => ['unique'], 'exists' => ['exists'], 'enum' => ['enum'], 'in' => ['in'], 'notIn' => ['not_in'],
         ],
         'string' => [
+            ...self::EMBEDDED, ...self::COMPARISONS, 'inArrayKeys' => ['in_array_keys'],
             'alpha' => ['alpha'], 'alphaDash' => ['alpha_dash'], 'alphaNumeric' => ['alpha_num'], 'ascii' => ['ascii'],
             'encoding' => ['encoding'], 'between' => ['between'], 'doesntEndWith' => ['doesnt_end_with'],
             'doesntStartWith' => ['doesnt_start_with'], 'endsWith' => ['ends_with'], 'exactly' => ['size'],
@@ -103,6 +123,7 @@ final class FluentRuleChain
             'dateFormat' => ['date_format'], 'currentPassword' => ['current_password'],
         ],
         'numeric' => [
+            ...self::EMBEDDED, ...self::COMPARISONS, 'inArrayKeys' => ['in_array_keys'],
             'between' => ['between'], 'decimal' => ['decimal'], 'digits' => ['integer', 'digits'],
             'digitsBetween' => ['integer', 'digits_between'], 'greaterThan' => ['gt'], 'greaterThanOrEqualTo' => ['gte'],
             'integer' => ['integer'], 'lessThan' => ['lt'], 'lessThanOrEqualTo' => ['lte'], 'max' => ['max'],
@@ -111,6 +132,7 @@ final class FluentRuleChain
             'nonPositive' => ['lte'], 'exactly' => ['integer', 'size'],
         ],
         'date' => [
+            ...self::EMBEDDED, ...self::COMPARISONS,
             'beforeToday' => ['before'], 'afterToday' => ['after'], 'todayOrBefore' => ['before_or_equal'],
             'todayOrAfter' => ['after_or_equal'], 'past' => ['before'], 'future' => ['after'],
             'nowOrPast' => ['before_or_equal'], 'nowOrFuture' => ['after_or_equal'], 'before' => ['before'],
@@ -125,7 +147,8 @@ final class FluentRuleChain
         'array' => [
             'min' => ['min'], 'max' => ['max'], 'between' => ['between'], 'exactly' => ['size'], 'list' => ['list'],
             'requiredArrayKeys' => ['required_array_keys'], 'contains' => ['contains'],
-            'doesntContain' => ['doesnt_contain'], 'each' => [], 'children' => [],
+            'doesntContain' => ['doesnt_contain'], 'each' => [], 'children' => [], 'inArrayKeys' => ['in_array_keys'],
+            'distinct' => ['distinct'],
         ],
         'file' => [
             'min' => ['min'], 'max' => ['max'], 'between' => ['between'], 'exactly' => ['size'],
@@ -136,10 +159,11 @@ final class FluentRuleChain
             'extensions' => ['extensions'], 'mimes' => ['mimes'], 'mimetypes' => ['mimetypes'], 'allowSvg' => [],
         ],
         'email' => [
+            ...self::EMBEDDED, ...self::COMPARISONS,
             'rfcCompliant' => [], 'strict' => [], 'validateMxRecord' => [], 'preventSpoofing' => [],
             'withNativeValidation' => [], 'max' => ['max'],
         ],
-        'field' => ['children' => []],
+        'field' => [...self::EMBEDDED, ...self::COMPARISONS, 'inArrayKeys' => ['in_array_keys'], 'children' => []],
     ];
 
     /**
@@ -156,7 +180,7 @@ final class FluentRuleChain
     /**
      * Presence methods whose rule depends on their argument: a field name gives the snake_case rule,
      * a Closure or bool a rule object. Method => [rule for a field name, rule a literal `true` yields,
-     * rule a literal `false` yields]. A null yield means a literal bool cannot be read.
+     * rule a literal `false` yields]; '' yields no rule, and null means a literal bool cannot be read.
      *
      * @var array<string, array{string, string|null, string|null}>
      */
@@ -174,18 +198,6 @@ final class FluentRuleChain
 
     private const array PRESENCE_PREFIXES = ['required_', 'present_', 'exclude', 'prohibited', 'missing'];
 
-    /** Whether a value is a chain rooted on the FluentRule class — readable or not. */
-    public static function isChain(Node $value): bool
-    {
-        while ($value instanceof MethodCall) {
-            $value = $value->var;
-        }
-
-        return $value instanceof StaticCall
-            && $value->class instanceof Name
-            && AppFiles::resolveName($value->class) === self::ROOT;
-    }
-
     /**
      * The rule names the chain compiles to, without their parameters. Null when the value is no FluentRule chain,
      * or any link cannot be mapped.
@@ -201,7 +213,11 @@ final class FluentRuleChain
             $value = $value->var;
         }
 
-        if (! self::isChain($value) || ! $value instanceof StaticCall || ! $value->name instanceof Identifier) {
+        if (! $value instanceof StaticCall
+            || ! $value->class instanceof Name
+            || AppFiles::resolveName($value->class) !== self::ROOT
+            || ! $value->name instanceof Identifier
+            || $value->isFirstClassCallable()) {
             return null;
         }
 
@@ -221,7 +237,7 @@ final class FluentRuleChain
             }
         }
 
-        return self::presenceIsCertain($names) ? array_values($names) : null;
+        return self::presenceIsCertain($names) ? $names : null;
     }
 
     /**
@@ -243,23 +259,33 @@ final class FluentRuleChain
 
         if (isset(self::REPLACING[$family][$method])) {
             [$removed, $replacement] = self::REPLACING[$family][$method];
+            // The seeded rule only: a `->rule()` adding the same name earlier stays.
+            $seeded = array_search($removed, $names, true);
 
-            return [...array_values(array_diff($names, [$removed])), $replacement];
+            if ($seeded !== false) {
+                unset($names[$seeded]);
+            }
+
+            return [...array_values($names), $replacement];
         }
 
-        if (isset(self::BY_ARGUMENT[$method])) {
-            $rule = self::byArgument($method, $call->getArgs()[0] ?? null);
+        // `->rule()` and the conditional presence methods read their first argument. A named or
+        // unpacked argument may not be that parameter, so it is refused, as the shared reader refuses
+        // one for a rules array.
+        $readsArgument = isset(self::BY_ARGUMENT[$method]) || $method === 'rule';
 
-            return $rule === null ? null : ($rule === '' ? $names : [...$names, $rule]);
+        if (! $readsArgument || array_any($call->getArgs(), static fn (Arg $arg): bool => $arg->name instanceof Identifier || $arg->unpack)) {
+            return null;
         }
 
-        if ($method === 'rule') {
-            $rule = self::ruleToken($call->getArgs()[0] ?? null);
+        $first = $call->getArgs()[0] ?? null;
+        $rule = $method === 'rule' ? self::ruleToken($first) : self::byArgument($method, $first);
 
-            return $rule === null ? null : [...$names, $rule];
+        if ($rule === null) {
+            return null;
         }
 
-        return null;
+        return $rule === '' ? $names : [...$names, $rule];
     }
 
     /** The rule a conditional presence method adds, '' for none, null when the argument cannot be read. */
