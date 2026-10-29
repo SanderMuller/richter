@@ -364,7 +364,7 @@ final readonly class RulesDeclaration
      */
     public function usesHasFluentRules(): bool
     {
-        return array_any($this->class->stmts, fn (Stmt $statement) => $statement instanceof TraitUse && array_any($statement->traits, static fn (Name $trait): bool => AppFiles::resolveName($trait) === self::HAS_FLUENT_RULES));
+        return array_any($this->class->stmts, static fn (Stmt $statement): bool => $statement instanceof TraitUse && array_any($statement->traits, static fn (Name $trait): bool => AppFiles::resolveName($trait) === self::HAS_FLUENT_RULES));
     }
 
     private function canRunSchema(): bool
