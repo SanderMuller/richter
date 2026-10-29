@@ -16,6 +16,7 @@ use PhpParser\Node\Name;
 use PhpParser\Node\NullableType;
 use PhpParser\Node\Param;
 use PhpParser\Node\Scalar\String_;
+use PhpParser\Node\Stmt;
 use PhpParser\Node\Stmt\Class_;
 use PhpParser\Node\Stmt\ClassConst;
 use PhpParser\Node\Stmt\ClassLike;
@@ -344,7 +345,7 @@ final readonly class RulesDeclaration
         if ($type instanceof NullableType) {
             $type = $type->type;
         } elseif ($type instanceof UnionType && count($type->types) === 2) {
-            $named = array_values(array_filter($type->types, static fn (Node $member): bool => ! ($member instanceof Identifier && $member->toLowerString() === 'null')));
+            $named = array_values(array_filter($type->types, static fn (Node $member): bool => ! $member instanceof Identifier || $member->toLowerString() !== 'null'));
             $type = count($named) === 1 ? $named[0] : null;
         }
 
@@ -363,13 +364,7 @@ final readonly class RulesDeclaration
      */
     public function usesHasFluentRules(): bool
     {
-        foreach ($this->class->stmts as $statement) {
-            if ($statement instanceof TraitUse && array_any($statement->traits, static fn (Name $trait): bool => AppFiles::resolveName($trait) === self::HAS_FLUENT_RULES)) {
-                return true;
-            }
-        }
-
-        return false;
+        return array_any($this->class->stmts, fn (Stmt $statement) => $statement instanceof TraitUse && array_any($statement->traits, static fn (Name $trait): bool => AppFiles::resolveName($trait) === self::HAS_FLUENT_RULES));
     }
 
     private function canRunSchema(): bool
