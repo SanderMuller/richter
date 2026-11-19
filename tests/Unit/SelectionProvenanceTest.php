@@ -15,11 +15,11 @@ final class SelectionProvenanceTest extends TestCase
     /**
      * @param  list<array{depth: int, node: string, via: string}>  $callers
      * @param  list<string>  $entryPoints
-     * @return array{coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, registryEntryPoints: list<string>, lowConfidence: bool, callers: list<array{depth: int, node: string, via: string}>, dependencies: list<array{depth: int, node: string, via: string}>}
+     * @return array{coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, registryEntryPoints: list<string>, lowConfidence: bool, callers: list<array{depth: int, node: string, via: string}>, selectionCallers: list<array{depth: int, node: string, via: string}>, dependencies: list<array{depth: int, node: string, via: string}>}
      */
     private function detectResult(array $entryPoints = [], array $callers = []): array
     {
-        return ['coverage' => ['app/Services/X.php' => 'analyzed'], 'entryPoints' => $entryPoints, 'registryEntryPoints' => [], 'lowConfidence' => false, 'callers' => $callers, 'dependencies' => []];
+        return ['coverage' => ['app/Services/X.php' => 'analyzed'], 'entryPoints' => $entryPoints, 'registryEntryPoints' => [], 'lowConfidence' => false, 'callers' => $callers, 'selectionCallers' => $callers, 'dependencies' => []];
     }
 
     private function changed(string $file, string $fqcn): ChangedFileSymbols

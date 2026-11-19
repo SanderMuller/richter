@@ -20,14 +20,16 @@ final class AffectedTestsTest extends TestCase
      * @param  array<string, 'analyzed'|'unresolved'>  $coverage
      * @param  list<array{depth: int, node: string, via: string}>  $callers
      * @param  list<string>  $registryEntryPoints
+     * @param  list<array{depth: int, node: string, via: string}>|null  $selectionCallers  the caller
+     *   walk without model-relation edges; defaults to `$callers`, which holds no such edge here
      * @param  list<array{depth: int, node: string, via: string}>  $dependencies  the change's
      *   DOWNSTREAM closure. Defaults empty, which is what it was for every test here until the
      *   import axis became directional — a test that does not pass one proves nothing about it.
-     * @return array{coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, registryEntryPoints: list<string>, lowConfidence: bool, callers: list<array{depth: int, node: string, via: string}>, dependencies: list<array{depth: int, node: string, via: string}>}
+     * @return array{coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, registryEntryPoints: list<string>, lowConfidence: bool, callers: list<array{depth: int, node: string, via: string}>, selectionCallers: list<array{depth: int, node: string, via: string}>, dependencies: list<array{depth: int, node: string, via: string}>}
      */
-    private function detectResult(array $entryPoints, array $coverage = ['app/Services/X.php' => 'analyzed'], bool $lowConfidence = false, array $callers = [], array $registryEntryPoints = [], array $dependencies = []): array
+    private function detectResult(array $entryPoints, array $coverage = ['app/Services/X.php' => 'analyzed'], bool $lowConfidence = false, array $callers = [], array $registryEntryPoints = [], array $dependencies = [], ?array $selectionCallers = null): array
     {
-        return ['coverage' => $coverage, 'entryPoints' => $entryPoints, 'registryEntryPoints' => $registryEntryPoints, 'lowConfidence' => $lowConfidence, 'callers' => $callers, 'dependencies' => $dependencies];
+        return ['coverage' => $coverage, 'entryPoints' => $entryPoints, 'registryEntryPoints' => $registryEntryPoints, 'lowConfidence' => $lowConfidence, 'callers' => $callers, 'selectionCallers' => $selectionCallers ?? $callers, 'dependencies' => $dependencies];
     }
 
     private function changed(string $file, string $fqcn): ChangedFileSymbols
@@ -532,6 +534,30 @@ final class AffectedTestsTest extends TestCase
         $selection = AffectedTests::select(
             $this->detectResult([], callers: [['depth' => 1, 'node' => 'App\Services\Upstream::run', 'via' => 'call']]),
             [$this->changed('app/Services/X.php', 'App\Services\X')],
+            $index,
+            unresolvedDispatchSites: [],
+        );
+
+        $this->assertTrue($selection['determinable']);
+        $this->assertSame(['tests/Unit/UpstreamTest.php'], $selection['tests']);
+    }
+
+    #[Test]
+    public function tests_importing_a_class_reached_only_through_a_model_relation_are_not_selected(): void
+    {
+        $index = new TestReferenceIndex();
+        $index->addSource("<?php\nuse App\Models\Post;\n", 'tests/Unit/PostTest.php');
+        $index->addSource("<?php\nuse App\Services\Upstream;\n", 'tests/Unit/UpstreamTest.php');
+
+        $upstream = ['depth' => 1, 'node' => 'App\Services\Upstream::run', 'via' => 'call'];
+
+        $selection = AffectedTests::select(
+            $this->detectResult(
+                [],
+                callers: [$upstream, ['depth' => 1, 'node' => 'App\Models\Post', 'via' => 'model-relationship']],
+                selectionCallers: [$upstream],
+            ),
+            [$this->changed('app/Models/Comment.php', 'App\Models\Comment')],
             $index,
             unresolvedDispatchSites: [],
         );

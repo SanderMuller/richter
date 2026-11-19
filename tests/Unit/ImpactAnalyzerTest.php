@@ -896,6 +896,25 @@ final class ImpactAnalyzerTest extends TestCase
     }
 
     #[Test]
+    public function the_selection_callers_skip_a_model_that_only_relates_to_the_changed_one(): void
+    {
+        $analyzer = new ImpactAnalyzer(new CodeGraph([
+            ['source' => Post::class, 'target' => Comment::class, 'type' => 'model-relationship'],
+            ['source' => Comment::class, 'target' => 'App\Models\Comment::body', 'type' => 'declares'],
+            ['source' => 'App\Services\Notifier::send', 'target' => 'App\Models\Comment::body', 'type' => 'instance-call'],
+        ], hasUnparseableFiles: false));
+
+        $result = $analyzer->detectChanges([
+            $this->changedMethod('app/Models/Comment.php', Comment::class, 'body'),
+        ]);
+
+        // The full walk still reports the relation as context; only the selection walk drops it.
+        $this->assertContains(Post::class, $this->nodes($result['callers']));
+        $this->assertNotContains(Post::class, $this->nodes($result['selectionCallers']));
+        $this->assertContains('App\Services\Notifier::send', $this->nodes($result['selectionCallers']));
+    }
+
+    #[Test]
     public function a_model_reached_by_two_edges_collapses_to_one_label(): void
     {
         // Two relationship edges to the same model must not list it twice (which would inflate the count).

@@ -313,7 +313,7 @@ final class AffectedTests
     }
 
     /**
-     * @param  array{coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, registryEntryPoints?: list<string>, lowConfidence: bool, callers?: list<array{depth: int, node: string, via: string, file?: string, line?: int}>, dependencies?: list<array{depth: int, node: string, via: string, file?: string, line?: int}>, ...}  $result  an {@see ImpactAnalyzer::detectChanges()} result
+     * @param  array{coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, registryEntryPoints?: list<string>, selectionCallers?: list<array{depth: int, node: string, via: string}>, lowConfidence: bool, callers?: list<array{depth: int, node: string, via: string, file?: string, line?: int}>, dependencies?: list<array{depth: int, node: string, via: string, file?: string, line?: int}>, ...}  $result  an {@see ImpactAnalyzer::detectChanges()} result
      * @param  list<ChangedFileSymbols>  $changed
      * @param  CodeGraph|null  $graph  handed to the test index, which needs it for two entry-point
      *   shapes it cannot answer from `tests/` alone: a `schedule::` node, whose id is an opaque hash
@@ -503,7 +503,11 @@ final class AffectedTests
      * Nothing replaced it: every case it could have protected belongs to the caller half, the
      * changed-class half, or the entry-point axis.
      *
-     * @param  array{entryPoints: list<string>, callers?: list<array{depth: int, node: string, via: string, file?: string, line?: int}>, ...}  $result
+     * The caller half reads the walk without model-relation edges, as the entry-point axis does. A
+     * model that only relates to the changed model does not call it, and through the related models
+     * of one hub model a single change selected most of a real suite.
+     *
+     * @param  array{entryPoints: list<string>, selectionCallers?: list<array{depth: int, node: string, via: string}>, ...}  $result
      * @param  list<ChangedFileSymbols>  $changed
      * @return array<string, 'changed'|'caller'>
      */
@@ -523,9 +527,7 @@ final class AffectedTests
             }
         }
 
-        $callers = $result['callers'] ?? [];
-
-        foreach ($callers as $hop) {
+        foreach ($result['selectionCallers'] ?? [] as $hop) {
             $class = explode('::', $hop['node'], 2)[0];
 
             // A changed class that is also its own caller keeps the stronger origin: the diff
