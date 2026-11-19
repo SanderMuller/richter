@@ -730,6 +730,23 @@ final class RelationTraversalTracerTest extends TestCase
     }
 
     #[Test]
+    public function an_own_relation_with_an_app_relation_return_type_stays_a_relation_hop(): void
+    {
+        $targets = $this->targets(<<<'PHP'
+            <?php
+            namespace App\Models;
+            class Article
+            {
+                public function remarks(): \App\Relations\RemarkRelation { return $this->hasMany(\App\Models\Comment::class); }
+
+                public function count(): int { return $this->remarks()->count(); }
+            }
+            PHP);
+
+        $this->assertSame(['App\\Models\\Article::remarks'], $targets);
+    }
+
+    #[Test]
     public function an_own_method_without_an_app_class_return_type_roots_nothing(): void
     {
         $this->assertSame([], $this->targets(<<<'PHP'

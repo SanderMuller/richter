@@ -908,10 +908,42 @@ final class ImpactAnalyzerTest extends TestCase
             $this->changedMethod('app/Models/Comment.php', Comment::class, 'body'),
         ]);
 
-        // The full walk still reports the relation as context; only the selection walk drops it.
         $this->assertContains(Post::class, $this->nodes($result['callers']));
         $this->assertNotContains(Post::class, $this->nodes($result['selectionCallers']));
         $this->assertContains('App\Services\Notifier::send', $this->nodes($result['selectionCallers']));
+    }
+
+    #[Test]
+    public function the_selection_callers_keep_the_method_that_receives_a_changed_form_request(): void
+    {
+        $analyzer = new ImpactAnalyzer(new CodeGraph([
+            ['source' => 'App\Http\Requests\StorePostRequest', 'target' => 'App\Http\Requests\StorePostRequest::rules', 'type' => 'declares'],
+            ['source' => 'App\Http\Controllers\PostController::store', 'target' => 'App\Http\Requests\StorePostRequest', 'type' => 'references'],
+        ], hasUnparseableFiles: false));
+
+        $result = $analyzer->detectChanges([
+            $this->changedMethod('app/Http/Requests/StorePostRequest.php', 'App\Http\Requests\StorePostRequest', 'rules'),
+        ]);
+
+        $this->assertContains('App\Http\Controllers\PostController::store', $this->nodes($result['selectionCallers']));
+    }
+
+    #[Test]
+    public function the_selection_callers_keep_a_body_that_loads_a_relation_to_the_changed_model(): void
+    {
+        // Loading the relation hydrates the changed model, and a call on the loaded model
+        // (`$comment->publish()`) draws no edge of its own.
+        $analyzer = new ImpactAnalyzer(new CodeGraph([
+            ['source' => 'App\Models\Post::comments', 'target' => Comment::class, 'type' => 'relation-to-model'],
+            ['source' => 'App\Services\Digest::build', 'target' => 'App\Models\Post::comments', 'type' => 'loads-relation'],
+            ['source' => Comment::class, 'target' => 'App\Models\Comment::publish', 'type' => 'declares'],
+        ], hasUnparseableFiles: false));
+
+        $result = $analyzer->detectChanges([
+            $this->changedMethod('app/Models/Comment.php', Comment::class, 'publish'),
+        ]);
+
+        $this->assertContains('App\Services\Digest::build', $this->nodes($result['selectionCallers']));
     }
 
     #[Test]
@@ -1535,6 +1567,9 @@ final class ImpactAnalyzerTest extends TestCase
 
         $this->assertSame(['route::GET::/admin/rates'], $result['entryPoints']);
         $this->assertSame(['route::GET::/admin/formulas'], $result['associationEntryPoints']);
+        // The dispatch behind the fan-out is real, so test selection still reaches that route.
+        $this->assertSame(['route::GET::/admin/formulas'], $result['registryEntryPoints']);
+        $this->assertContains('App\Http\Controllers\FormulaController::index', $this->nodes($result['selectionCallers']));
     }
 
     #[Test]
@@ -1964,6 +1999,7 @@ final class ImpactAnalyzerTest extends TestCase
         ]);
 
         $this->assertContains('App\\Models\\Post', $this->nodes($result['callers']));
+        $this->assertNotContains('App\\Models\\Post', $this->nodes($result['selectionCallers']));
         $this->assertSame(0, $result['impacted']);
     }
 

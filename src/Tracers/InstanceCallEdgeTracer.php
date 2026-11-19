@@ -113,7 +113,6 @@ final class InstanceCallEdgeTracer
         return $edges;
     }
 
-    /** A call whose receiver is the literal `$this` or a `new` expression. */
     private function isResolvableCall(Node $node): bool
     {
         if (! $node instanceof MethodCall && ! $node instanceof NullsafeMethodCall) {
@@ -123,11 +122,7 @@ final class InstanceCallEdgeTracer
         return $node->var instanceof New_ || ($node->var instanceof Variable && $node->var->name === 'this');
     }
 
-    /**
-     * The class a `new` expression names. `self`, `static` and `parent` are refused: `static` can be a
-     * subclass with its own override, and the others need the enclosing class chain, which an
-     * anonymous class changes.
-     */
+    /** `static` can name a subclass with its own override, so the special names are refused. */
     private function constructedClass(New_ $new): ?string
     {
         if (! $new->class instanceof Name || $new->class->isSpecialClassName()) {

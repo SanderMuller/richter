@@ -94,17 +94,13 @@ final class RelationTraversalTracer
      * One entry per method that traverses anything, in file order. Each carries the types the method
      * states up front and the steps to walk once the index can answer.
      *
-     * @var list<array{source: string, seeds: array<string, string>, steps: list<array{assign: string|null, rootClass: string|null, rootVar: string|null, names: list<string>, stopAfter: int|null}>}>
+     * @var list<array{source: string, seeds: array<string, string>, steps: list<array{assign: string|null, rootClass: string|null, rootVar: string|null, names: list<string>, stopAfter: int|null, ownCall?: array{class: string, method: string}}>}>
      */
     private array $pending = [];
 
     private readonly DeclaredTypes $types;
 
-    /**
-     * The return types of the class being collected, by lowercased method name.
-     *
-     * @var array<string, string>
-     */
+    /** @var array<string, string> */
     private array $ownReturnTypes = [];
 
     public function __construct()
@@ -159,6 +155,14 @@ final class RelationTraversalTracer
             foreach ($method['steps'] as $step) {
                 $class = $step['rootClass'] ?? ($step['rootVar'] === null ? null : ($types[$step['rootVar']] ?? null));
 
+                // An own method the index reads as a relation (one that declares an app relation
+                // class) is a relation hop on the enclosing class, not a root.
+                $ownCall = $step['ownCall'] ?? null;
+
+                if ($ownCall !== null && $index->relationOf($ownCall['class'], $ownCall['method']) !== null) {
+                    [$class, $step] = [$ownCall['class'], [...$step, 'names' => [$ownCall['method']], 'stopAfter' => 0]];
+                }
+
                 if ($class !== null) {
                     [$class, $stepEdges] = $this->walk($index, $class, $step, $method['source']);
                     $edges = [...$edges, ...$stepEdges];
@@ -183,7 +187,7 @@ final class RelationTraversalTracer
      * One chain walked from a known class: the edges it draws, and the class it ends on (null when a
      * hop did not resolve, or when the chain ended on a collection or a builder).
      *
-     * @param  array{assign: string|null, rootClass: string|null, rootVar: string|null, names: list<string>, stopAfter: int|null}  $step
+     * @param  array{assign: string|null, rootClass: string|null, rootVar: string|null, names: list<string>, stopAfter: int|null, ownCall?: array{class: string, method: string}}  $step
      * @return array{0: string|null, 1: list<array{source: string, target: string, type: string}>}
      */
     private function walk(RelationIndex $index, string $class, array $step, string $source): array
@@ -344,7 +348,7 @@ final class RelationTraversalTracer
      *
      * @param  array<string, string>  $properties
      * @param  array<int, array<string, string>>  $docblocks  `@var` types, keyed by the assignment they annotate
-     * @param  list<array{assign: string|null, rootClass: string|null, rootVar: string|null, names: list<string>, stopAfter: int|null}>  $steps
+     * @param  list<array{assign: string|null, rootClass: string|null, rootVar: string|null, names: list<string>, stopAfter: int|null, ownCall?: array{class: string, method: string}}>  $steps
      * @param  array<int, true>  $handled
      */
     private function collectAssignment(Assign $node, string $classFqcn, array $properties, array $docblocks, bool $conditional, array &$steps, array &$handled): void
@@ -449,7 +453,7 @@ final class RelationTraversalTracer
      * a service is the property's type, and only what follows it can be a relation.
      *
      * @param  array<string, string>  $properties
-     * @return array{rootClass: string|null, rootVar: string|null, names: list<string>, stopAfter: int|null}|null
+     * @return array{rootClass: string|null, rootVar: string|null, names: list<string>, stopAfter: int|null, ownCall?: array{class: string, method: string}}|null
      */
     private function chainOf(PropertyFetch|NullsafePropertyFetch|MethodCall|NullsafeMethodCall $expression, string $classFqcn, array $properties): ?array
     {
@@ -511,14 +515,13 @@ final class RelationTraversalTracer
      * @param  non-empty-list<string>  $names
      * @param  list<int>  $callIndexes  the indexes into $names that are calls, innermost first
      * @param  array<string, string>  $properties
-     * @return array{rootClass: string|null, rootVar: string|null, names: list<string>, stopAfter: int|null}|null
+     * @return array{rootClass: string|null, rootVar: string|null, names: list<string>, stopAfter: int|null, ownCall?: array{class: string, method: string}}|null
      */
     private function chainOnThis(array $names, array $callIndexes, string $classFqcn, array $properties): ?array
     {
         $stopAfter = $callIndexes[0] ?? null;
 
-        // `$this->session()->variables`: the own method's declared return type is the root. A relation
-        // method declares a relation class, never a model, so it is not read here.
+        // `$this->post()->author`: the own method's declared return type is the root.
         $returned = $stopAfter === 0 ? ($this->ownReturnTypes[strtolower($names[0])] ?? null) : null;
 
         if ($returned !== null) {
@@ -526,7 +529,7 @@ final class RelationTraversalTracer
 
             return count($names) < 2
                 ? null
-                : ['rootClass' => $returned, 'rootVar' => null, 'names' => array_slice($names, 1), 'stopAfter' => $next === null ? null : $next - 1];
+                : ['rootClass' => $returned, 'rootVar' => null, 'names' => array_slice($names, 1), 'stopAfter' => $next === null ? null : $next - 1, 'ownCall' => ['class' => $classFqcn, 'method' => $names[0]]];
         }
 
         $property = $properties[$names[0]] ?? null;

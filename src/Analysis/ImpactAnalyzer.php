@@ -97,7 +97,8 @@ final readonly class ImpactAnalyzer
 
     /**
      * The association edges a model relation draws. A walk that excludes only these still crosses a
-     * registry fan-out, which is how `registryEntryPoints` is found.
+     * registry fan-out, which is how `registryEntryPoints` is found. The same walk feeds the import
+     * axis of {@see AffectedTests}.
      *
      * @var list<string>
      */
@@ -347,9 +348,6 @@ final readonly class ImpactAnalyzer
         // test that drives such a route does exercise the change. Carried separately so
         // {@see AffectedTests} can select over it without the entry-point list claiming it as a
         // caller. Internal, like the walk lists above: no output format reads it.
-        // The same walk also feeds the import axis of {@see AffectedTests}. A model reached only
-        // because it relates to the changed model does not run the change, and that axis selects
-        // every test that imports such a class.
         $selectionCallers = $this->graph->callersOf($seeds, $maxDepth, self::MODEL_ASSOCIATION_EDGE_TYPES);
         $registryEntryPoints = array_values(array_diff($this->entryPointsAmong($selectionCallers), $entryPoints));
         // The set the LEVEL grades, frozen before the two joins below. A frontend file's routes and a

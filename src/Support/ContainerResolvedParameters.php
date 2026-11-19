@@ -13,7 +13,6 @@ use PhpParser\Node\NullableType;
 use PhpParser\Node\Param;
 use PhpParser\Node\Stmt\ClassMethod;
 use PhpParser\Node\UnionType;
-use Throwable;
 
 /**
  * The app classes the container builds for a method's parameters. No call in the body shows them,
@@ -26,8 +25,6 @@ use Throwable;
  *   (`#[Give(SomeService::class)]`, or an app attribute that builds a form request) has the container
  *   build it. Every `X::class` argument counts, because what `resolve()` does with it is not visible
  *   here.
- *
- * An extra class widens the reach. A missing one hides the method from a change to the class.
  *
  * @internal
  */
@@ -104,11 +101,8 @@ final class ContainerResolvedParameters
 
     private static function isSubclass(string $class, string $parent): bool
     {
-        try {
-            return LoadableClass::exists($class) && is_subclass_of($class, $parent);
-        } catch (Throwable) {
-            return false;
-        }
+        // `exists()` loads the class, and `is_subclass_of` does not autoload its second argument.
+        return LoadableClass::exists($class) && is_subclass_of($class, $parent);
     }
 
     private static function namedClass(Expr $value): ?string

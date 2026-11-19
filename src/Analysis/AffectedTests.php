@@ -503,9 +503,9 @@ final class AffectedTests
      * Nothing replaced it: every case it could have protected belongs to the caller half, the
      * changed-class half, or the entry-point axis.
      *
-     * The caller half reads the walk without model-relation edges, as the entry-point axis does. A
-     * model that only relates to the changed model does not call it, and through the related models
-     * of one hub model a single change selected most of a real suite.
+     * The caller half reads the walk without `model-relationship` and `model-to-policy` edges. A model
+     * that only relates to the changed model does not call it, and through the related models of one
+     * hub model a single change selected most of a real suite.
      *
      * @param  array{entryPoints: list<string>, selectionCallers?: list<array{depth: int, node: string, via: string}>, ...}  $result
      * @param  list<ChangedFileSymbols>  $changed
