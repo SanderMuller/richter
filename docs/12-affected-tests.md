@@ -59,6 +59,8 @@ The downstream direction used to be included. It pulled in the change's dependen
 | drives an endpoint reaching the change | the entry-point axis |
 | imports a class the change calls | nothing, on purpose |
 
+The caller half skips two kinds of edge: `model-relationship` and `model-to-policy`. A model that only relates to the changed model, or that a changed policy governs, does not run the change. Through the related models of one central model, a single change otherwise selected most of a real suite.
+
 One consequence worth naming: for a controller change, the callers are `route::` nodes rather than app classes, so this axis contributes nothing and the entry-point axis carries the selection alone. That is correct, and it is why a controller diff selects so few tests by import.
 
 ## Unfollowable dispatches
@@ -87,15 +89,14 @@ restructure the dispatch into a form the tracer can follow (a literal `Job::disp
 `new Job(...)` the tracer can see), which fixes the gap rather than silencing it. A project that
 genuinely needs a dynamic dispatch keeps running its full suite, correctly.
 
-**Some sites cannot be cleared from the application side, and it is worth knowing which before you
-start.** A named constructor on the job's own class, `dispatch(SendInvoice::forOrder($order))`, is
-listed even though the receiver names the job, because nothing in this pass proves that method returns
-an instance of its own class (the edge *is* drawn; only the site stays).
-
-Rewriting the call site does not help: any form that keeps the factory keeps the site. Since one site
-is enough to make every run report `not determinable`, a project whose remaining sites are all of that
-kind has a floor it cannot reach past, and restructuring the others buys nothing until the last one
-goes. Check the list for these before planning that work.
+**A factory call clears its site when its return type is declared.** In
+`dispatch(SendInvoice::forOrder($order))`, PHP enforces the declared return type, so the dispatched
+job is that type or a subtype. Richter links the dispatcher to every dispatch target under the type and
+lists no site. The call can be `SomeClass::make()`, `$this->make()`, `self::make()`,
+`static::make()` or `SomeEnum::Case->job()`, written in the dispatch or bound once to a local above
+it. The declared type must name one app class, nullable or not. A union, a builtin, a vendor type
+such as `ShouldQueue`, or a missing type keeps the site. So does a type with no known dispatch target
+under it. To clear a factory site, declare the factory's return type.
 
 Five shapes look unfollowable and are not counted, because none of them hides anything:
 
