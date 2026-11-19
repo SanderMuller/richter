@@ -2,7 +2,9 @@
 
 namespace SanderMuller\Richter\Tracers;
 
+use Illuminate\Contracts\Container\ContextualAttribute;
 use PhpParser\Node;
+use PhpParser\Node\Expr;
 use PhpParser\Node\Expr\ArrowFunction;
 use PhpParser\Node\Expr\ClassConstFetch;
 use PhpParser\Node\Expr\Closure;
@@ -21,6 +23,7 @@ use SanderMuller\Richter\Support\AppFiles;
 use SanderMuller\Richter\Support\AppNamespace;
 use SanderMuller\Richter\Support\LoadableClass;
 use SanderMuller\Richter\Support\RelationIndex;
+use Throwable;
 
 /**
  * Reference edges for the families where a change to the class is a change to what its caller does:
@@ -37,6 +40,9 @@ use SanderMuller\Richter\Support\RelationIndex;
  * reads as unplaceable — the exact blind spot behind a payload field silently going missing. Emits
  * edges from the referencing method to the referenced class; the class-level target is deliberate,
  * the member-declaration pass in {@see CodeGraphBuilder} links its methods.
+ *
+ * One more lane is not a namespace family: a class a contextual parameter attribute names, which the
+ * container builds before the method runs ({@see classesResolvedForParameters()}).
  *
  * Consumed per file by the consolidated AST loop in {@see CodeGraphBuilder} — this class walks
  * nothing itself; all namespace targets (see NAMESPACE_TYPES) share that one pass. Dev/CI tooling only.
@@ -135,6 +141,12 @@ final class ReferenceEdgeTracer
             foreach ($this->constructorsCalledIn($instantiations, $classFqcn) as $constructor) {
                 $edges[] = ['source' => $sourceNode, 'target' => $constructor, 'type' => 'constructs'];
             }
+
+            foreach ($this->classesResolvedForParameters($method) as $target) {
+                if ($target !== $classFqcn) {
+                    $edges[] = ['source' => $sourceNode, 'target' => $target, 'type' => 'references'];
+                }
+            }
         }
 
         // A trait's methods run inside every class that uses it, but no call edge ever targets the
@@ -151,6 +163,61 @@ final class ReferenceEdgeTracer
         }
 
         return AppFiles::dedupeEdges($edges, byType: true);
+    }
+
+    /**
+     * The app classes a contextual attribute on a parameter names. Laravel fills a parameter that
+     * carries a {@see ContextualAttribute} by calling the attribute's `resolve()`, and an attribute
+     * that names a class (`#[Give(SomeService::class)]`, or an app attribute that builds a form
+     * request) has the container build that class: a form request is validated, so its `rules()`
+     * and `authorize()` run before the method body. No call in the body shows this.
+     *
+     * Every `X::class` argument counts, because what `resolve()` does with it is not visible here.
+     * An extra edge widens the reach. A missing one hides the method from a change to `X`.
+     *
+     * @return list<string>
+     */
+    private function classesResolvedForParameters(ClassMethod $method): array
+    {
+        $classes = [];
+
+        foreach ($method->params as $param) {
+            foreach ($param->attrGroups as $group) {
+                foreach ($group->attrs as $attribute) {
+                    if (! $this->isContextualAttribute(AppFiles::resolveName($attribute->name))) {
+                        continue;
+                    }
+
+                    foreach ($attribute->args as $arg) {
+                        $class = $this->namedClass($arg->value);
+
+                        if ($class !== null && AppNamespace::isInApp($class) && LoadableClass::exists($class)) {
+                            $classes[] = $class;
+                        }
+                    }
+                }
+            }
+        }
+
+        return array_values(array_unique($classes));
+    }
+
+    private function isContextualAttribute(string $attribute): bool
+    {
+        try {
+            return LoadableClass::exists($attribute) && is_subclass_of($attribute, ContextualAttribute::class);
+        } catch (Throwable) {
+            return false;
+        }
+    }
+
+    private function namedClass(Expr $value): ?string
+    {
+        if (! $value instanceof ClassConstFetch || ! $value->class instanceof Name || ! $value->name instanceof Identifier) {
+            return null;
+        }
+
+        return $value->name->toLowerString() === 'class' ? AppFiles::resolveName($value->class) : null;
     }
 
     /**

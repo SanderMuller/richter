@@ -5,6 +5,7 @@ namespace SanderMuller\Richter\Tests\Unit;
 use App\Actions\Post\ValidateJsonImport;
 use App\Handlers\Translation\DatabaseTranslationManager;
 use App\Http\Controllers\Post\ReviewController;
+use App\Http\Requests\Post\StorePostRequest;
 use App\Http\Requests\Post\Validators\JsonCommentImportValidator;
 use App\Http\Resources\Api\v2\Post\ReviewPlayerResource;
 use App\Http\Resources\Api\v2\Post\ReviewResource;
@@ -228,5 +229,48 @@ final class ReferenceEdgeTracerTest extends TestCase
     public function an_anonymous_class_draws_no_edge(): void
     {
         $this->assertSame([], $this->edges('new class { public function handle(): void {} };', ''));
+    }
+
+    /**
+     * @return list<array{source: string, target: string, type: string}>
+     */
+    private function parameterEdges(string $parameter): array
+    {
+        $source = "<?php\nnamespace App\Http\Controllers\Post;\nuse App\Http\Attributes\ValidatedInput;\nuse App\Http\Requests\Post\StorePostRequest;\nuse Illuminate\Container\Attributes\Give;\nclass ReviewController\n{\n    public function store({$parameter}): void {}\n}\n";
+
+        return new ReferenceEdgeTracer()->edgesForSource($source, self::CONTROLLER);
+    }
+
+    #[Test]
+    public function an_app_contextual_attribute_links_the_class_it_names(): void
+    {
+        $this->assertSame(
+            [['source' => self::CONTROLLER . '::store', 'target' => StorePostRequest::class, 'type' => 'references']],
+            $this->parameterEdges('#[ValidatedInput(StorePostRequest::class)] object $input'),
+        );
+    }
+
+    #[Test]
+    public function a_framework_contextual_attribute_links_the_class_it_names(): void
+    {
+        $this->assertSame(
+            [['source' => self::CONTROLLER . '::store', 'target' => StorePostRequest::class, 'type' => 'references']],
+            $this->parameterEdges('#[Give(StorePostRequest::class)] object $input'),
+        );
+    }
+
+    #[Test]
+    public function an_attribute_that_is_no_contextual_attribute_links_nothing(): void
+    {
+        $this->assertSame([], $this->parameterEdges('#[\Deprecated(StorePostRequest::class)] object $input'));
+        $this->assertSame([], $this->parameterEdges('#[Unknown(StorePostRequest::class)] object $input'));
+    }
+
+    #[Test]
+    public function a_contextual_attribute_naming_no_loadable_app_class_links_nothing(): void
+    {
+        $this->assertSame([], $this->parameterEdges('#[Give(\Illuminate\Http\Request::class)] object $input'));
+        $this->assertSame([], $this->parameterEdges('#[Give(Missing::class)] object $input'));
+        $this->assertSame([], $this->parameterEdges("#[ValidatedInput('App\\\\Http\\\\Requests\\\\Post\\\\StorePostRequest')] object \$input"));
     }
 }
