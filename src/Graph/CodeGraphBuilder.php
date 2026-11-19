@@ -15,6 +15,7 @@ use SanderMuller\Richter\Changes\MemberResolver;
 use SanderMuller\Richter\Console\InternalTracerBranchCommand;
 use SanderMuller\Richter\Support\AppFiles;
 use SanderMuller\Richter\Support\AppNamespace;
+use SanderMuller\Richter\Support\DispatchFamilies;
 use SanderMuller\Richter\Support\ProviderBindings;
 use SanderMuller\Richter\Support\RelationIndex;
 use SanderMuller\Richter\Support\RichterConfig;
@@ -441,6 +442,7 @@ final class CodeGraphBuilder
         $declaresByFqcn = [];
         $unparseableFiles = 0;
         $unresolvedDispatchSites = [];
+        $dispatchFamilies = [];
 
         foreach (AppFiles::phpClasses($projectRoot . '/app', $projectRoot) as $class) {
             $source = (string) file_get_contents($class['path']);
@@ -477,7 +479,7 @@ final class CodeGraphBuilder
             // bounded to "a dispatchable" (S2), so unlike S1 above this IS change-scopeable.
             $dispatch = $dispatchTracer->mayMatch($source)
                 ? $dispatchTracer->edgesForMethods($collector->classMethods, $class['fqcn'], $collector->classLikes)
-                : ['edges' => [], 'unresolvedSites' => []];
+                : ['edges' => [], 'unresolvedSites' => [], 'families' => []];
 
             // The tracer knows the dispatching member and the line; only this loop knows the file, so
             // it stamps the project-relative path the reports print everywhere else.
@@ -485,6 +487,10 @@ final class CodeGraphBuilder
 
             foreach ($dispatch['unresolvedSites'] as $site) {
                 $unresolvedDispatchSites[] = ['file' => $relativePath, ...$site];
+            }
+
+            foreach ($dispatch['families'] as $family) {
+                $dispatchFamilies[] = ['file' => $relativePath, ...$family];
             }
 
             array_push($edges, ...$dispatch['edges']);
@@ -513,6 +519,12 @@ final class CodeGraphBuilder
         // class-likes have been collected, because the subclass/implementor map is cross-file.
         array_push($edges, ...$hierarchyTracer->overrideEdges());
 
+        // A dispatched factory call is bounded by its declared return type, and the jobs under that
+        // type span files, so they are fanned out here, where every class is collected.
+        $families = DispatchFamilies::expand($dispatchFamilies, $hierarchyTracer);
+        array_push($edges, ...$families['edges']);
+        array_push($unresolvedDispatchSites, ...$families['unresolvedSites']);
+
         // Constant/enum-case member nodes + reader edges — likewise flushed after the loop, because
         // declaring-class resolution spans files.
         array_push($edges, ...$constantTracer->edges());
@@ -536,6 +548,9 @@ final class CodeGraphBuilder
 
         // Sorted before it leaves the branch: a report that names sites must not reorder between
         // runs, and the cached payload has to be byte-stable or the fingerprint starts flapping.
+        // Deduplicated: a statement can be recorded by the tracer and again by the fan-out, or twice by
+        // the fan-out. It is one place to look.
+        $unresolvedDispatchSites = array_values(array_unique($unresolvedDispatchSites, SORT_REGULAR));
         usort(
             $unresolvedDispatchSites,
             static fn (array $a, array $b): int => [$a['file'], $a['line'], $a['dispatcher']] <=> [$b['file'], $b['line'], $b['dispatcher']],

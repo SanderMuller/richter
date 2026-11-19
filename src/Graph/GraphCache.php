@@ -133,8 +133,12 @@ final class GraphCache
      * unresolved-dispatch site, as it already was in an accumulated array. A 27 entry lacks those sites,
      * so it reads such a dispatch as resolved. In the same release, an accumulated array that appends a
      * `new` of a class that is no dispatch target stops being a site, as the inline literal already was.
+     * 28 → 29: a dispatched factory call with an app return type (`SomeJob::for()`, `$this->resolve()`,
+     * `SomeEnum::Case->job()`) resolves and fans out `action-to-job` edges to every concrete dispatch
+     * target under that type. A collection mapped into a job class with `mapInto()` resolves, and a
+     * local bound in a top-level `try` body counts as bound. A 28 entry still carries those sites.
      */
-    private const int FORMAT_VERSION = 28;
+    private const int FORMAT_VERSION = 29;
 
     private ?CodeGraph $memoized = null;
 

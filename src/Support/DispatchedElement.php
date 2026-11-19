@@ -7,11 +7,12 @@ use PhpParser\Node\Expr;
 use PhpParser\Node\Expr\ArrowFunction;
 use PhpParser\Node\Expr\Closure;
 use PhpParser\Node\Expr\New_;
+use PhpParser\Node\Expr\StaticCall;
 use PhpParser\Node\Name;
 use SanderMuller\Richter\Tracers\DispatchEdgeTracer;
 
 /**
- * What one element of a dispatched array provably holds.
+ * What one element of a dispatched array provably holds, plus the one guess {@see namedConstructorTarget()}.
  *
  * Two readers ask this. {@see DispatchEdgeTracer} reads a literal written in the dispatch call, and
  * {@see AccumulatedArrayJobs} reads the literal that starts a local and every append to it. Both
@@ -74,5 +75,24 @@ final class DispatchedElement
         $job = AppFiles::resolveName($expr->class);
 
         return DispatchTarget::matches($job) ? $job : null;
+    }
+
+    /**
+     * The dispatch target a `SomeJob::for($x)` argument names, if its receiver is one.
+     *
+     * A guess, not a proof: nothing here shows the method returns its own class. The caller draws the
+     * edge and keeps the site.
+     *
+     * @return list<string>
+     */
+    public static function namedConstructorTarget(?Expr $value): array
+    {
+        if (! $value instanceof StaticCall || ! $value->class instanceof Name) {
+            return [];
+        }
+
+        $job = AppFiles::resolveName($value->class);
+
+        return DispatchTarget::matches($job) ? [$job] : [];
     }
 }

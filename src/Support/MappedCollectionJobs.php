@@ -5,10 +5,12 @@ namespace SanderMuller\Richter\Support;
 use PhpParser\Node\Arg;
 use PhpParser\Node\Expr;
 use PhpParser\Node\Expr\ArrowFunction;
+use PhpParser\Node\Expr\ClassConstFetch;
 use PhpParser\Node\Expr\Closure;
 use PhpParser\Node\Expr\MethodCall;
 use PhpParser\Node\Expr\Variable;
 use PhpParser\Node\Identifier;
+use PhpParser\Node\Name;
 use PhpParser\Node\Stmt\Return_;
 
 /**
@@ -72,6 +74,14 @@ final class MappedCollectionJobs
                 return $callable instanceof Arg ? self::jobsReturnedBy($callable->value) : null;
             }
 
+            // `mapInto(SomeJob::class)` is `map(fn ($item, $key) => new SomeJob($item, $key))`, so the
+            // class it names IS the item type, exactly as a written-out `new` is.
+            if ($method === 'mapInto') {
+                $class = $value->args[0] ?? null;
+
+                return $class instanceof Arg ? self::jobNamedBy($class->value) : null;
+            }
+
             if (! in_array($method, self::ITEM_PRESERVING, strict: true)) {
                 return null;
             }
@@ -121,6 +131,28 @@ final class MappedCollectionJobs
         $job = $returned instanceof Expr ? DispatchedElement::constructedTarget($returned) : null;
 
         return $job === null ? null : [$job];
+    }
+
+    /**
+     * The dispatch target a `SomeJob::class` argument names, or null for any other argument.
+     *
+     * `self`, `static` and `parent` stay null: name resolution leaves them verbatim.
+     *
+     * @return list<string>|null
+     */
+    private static function jobNamedBy(Expr $argument): ?array
+    {
+        if (! $argument instanceof ClassConstFetch
+            || ! $argument->class instanceof Name
+            || ! $argument->name instanceof Identifier
+            || $argument->name->toLowerString() !== 'class'
+            || in_array($argument->class->toLowerString(), ['self', 'static', 'parent'], strict: true)) {
+            return null;
+        }
+
+        $job = AppFiles::resolveName($argument->class);
+
+        return DispatchTarget::matches($job) ? [$job] : null;
     }
 
     /**

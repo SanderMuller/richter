@@ -32,6 +32,7 @@ use SanderMuller\Richter\Support\AccumulatedArrayJobs;
 use SanderMuller\Richter\Support\AppFiles;
 use SanderMuller\Richter\Support\DispatchedElement;
 use SanderMuller\Richter\Support\DispatchTarget;
+use SanderMuller\Richter\Support\FactoryReturnType;
 use SanderMuller\Richter\Support\LocallyConstructedJobs;
 use SanderMuller\Richter\Support\MappedCollectionJobs;
 
@@ -42,6 +43,8 @@ use SanderMuller\Richter\Support\MappedCollectionJobs;
  * nor flags a dispatch whose job can't be seen statically. This tracer fills both gaps: it emits
  * `action-to-job` edges (FQCN-keyed, joining the normalised graph) and records an unresolved-dispatch
  * signal for a variable or factory-call argument, so such a job reads as "unknown", not "none".
+ * A factory call with an app return type is the exception: it is returned as a `families` entry, which
+ * {@see CodeGraphBuilder} fans out to edges, or turns back into a site, once every class is collected.
  * An inline closure and a string literal are deliberately NOT that signal — see {@see dispatchSite()}.
  * Dev/CI tooling only.
  *
@@ -67,9 +70,9 @@ final readonly class DispatchEdgeTracer
      * No local binding proved — the shape {@see LocallyConstructedJobs::in()} returns for a method
      * that binds nothing.
      *
-     * @var array{jobs: array<string, array{pos: int, jobs: list<string>}>, collections: array<string, array{pos: int, jobs: list<string>}>, arrays: array{scopes: list<array{from: int, to: int}>, entries: array<string, array{pos: int, jobs: list<string>}>}}
+     * @var array{jobs: array<string, array{pos: int, jobs: list<string>}>, collections: array<string, array{pos: int, jobs: list<string>}>, arrays: array{scopes: list<array{from: int, to: int}>, entries: array<string, array{pos: int, jobs: list<string>}>}, calls: array<string, array{pos: int, call: MethodCall|StaticCall}>}
      */
-    private const array NO_LOCALS = ['jobs' => [], 'collections' => [], 'arrays' => AccumulatedArrayJobs::NONE];
+    private const array NO_LOCALS = ['jobs' => [], 'collections' => [], 'arrays' => AccumulatedArrayJobs::NONE, 'calls' => []];
 
     /** @var list<string> */
     private array $dispatchFunctions;
@@ -105,13 +108,13 @@ final readonly class DispatchEdgeTracer
         );
     }
 
-    /** @return array{edges: list<array{source: string, target: string, type: string}>, unresolvedSites: list<array{line: int, dispatcher: string}>} */
+    /** @return array{edges: list<array{source: string, target: string, type: string}>, unresolvedSites: list<array{line: int, dispatcher: string}>, families: list<array{line: int, dispatcher: string, type: string}>} */
     public function edgesForSource(string $source, string $classFqcn): array
     {
         $ast = AppFiles::parseResolved($source);
 
         if ($ast === null) {
-            return ['edges' => [], 'unresolvedSites' => []];
+            return ['edges' => [], 'unresolvedSites' => [], 'families' => []];
         }
 
         return $this->edgesForResolvedAst($ast, $classFqcn);
@@ -119,7 +122,7 @@ final readonly class DispatchEdgeTracer
 
     /**
      * @param  list<Node\Stmt>  $ast  a name-resolved AST ({@see AppFiles::parseResolved()})
-     * @return array{edges: list<array{source: string, target: string, type: string}>, unresolvedSites: list<array{line: int, dispatcher: string}>}
+     * @return array{edges: list<array{source: string, target: string, type: string}>, unresolvedSites: list<array{line: int, dispatcher: string}>, families: list<array{line: int, dispatcher: string, type: string}>}
      */
     public function edgesForResolvedAst(array $ast, string $classFqcn): array
     {
@@ -201,21 +204,22 @@ final readonly class DispatchEdgeTracer
      * @param  list<ClassMethod>  $classMethods  every ClassMethod in the file, any depth
      * @param  list<ClassLike>  $classLikes  the file's class-likes, read for the string constants that
      *   let `self::SOME_EVENT` be resolved the same way a bare literal is
-     * @return array{edges: list<array{source: string, target: string, type: string}>, unresolvedSites: list<array{line: int, dispatcher: string}>}
+     * @return array{edges: list<array{source: string, target: string, type: string}>, unresolvedSites: list<array{line: int, dispatcher: string}>, families: list<array{line: int, dispatcher: string, type: string}>}
      */
     public function edgesForMethods(array $classMethods, string $classFqcn, array $classLikes = []): array
     {
         $stringConstants = $this->stringConstantsByMethod($classLikes);
 
         $declaringClass = $this->lexicalScopeOf($classLikes, $classFqcn);
+        $factoryScope = ['scope' => $declaringClass, 'methods' => FactoryReturnType::ownMethodsOf($classLikes, $declaringClass)];
 
         $edges = [];
         $unresolvedSites = [];
+        $families = [];
 
         foreach ($classMethods as $method) {
             $dispatcher = ltrim($classFqcn, '\\') . '::' . $method->name->toString();
             $ownConstants = $stringConstants[spl_object_id($method)] ?? [];
-            $locals = LocallyConstructedJobs::in($method);
             // Both lanes below read the same body, so it is descended once. Two NodeFinder passes per
             // method — one for the calls, one for the `new`s — cost a second full walk of every
             // method in the app tree for nodes this one already sees.
@@ -243,6 +247,17 @@ final readonly class DispatchEdgeTracer
 
             new NodeTraverser($collector)->traverse([$method]);
 
+            // Asked before the dispatch lane, not only for the instantiation lane below: the locals are
+            // read only at a dispatch site, and proving them walks the whole method again. A method
+            // that dispatches nothing skips that walk. The constant map is passed so a method whose only
+            // dispatch is a component event counts as not dispatching, for both lanes.
+            $methodDispatches = array_any(
+                $calls,
+                fn (Node $call): bool => (! $call instanceof CallLike || ! $call->isFirstClassCallable())
+                    && $this->dispatchSite($call, $ownConstants) !== null,
+            );
+            $locals = $methodDispatches ? LocallyConstructedJobs::in($method) : self::NO_LOCALS;
+
             // Edges target `::handle` (the method `BusDispatcher::dispatchNow` prefers, falling back
             // to `__invoke` only when `handle` is absent), so an `__invoke`-only self-handling command
             // draws an edge to a `::handle` node that may not exist — a narrow residual, not a
@@ -253,7 +268,7 @@ final readonly class DispatchEdgeTracer
                 // keeps two opaque items of one `chain()` from reading as two separate places to look.
                 $origin = ['line' => $call->getStartLine(), 'dispatcher' => $dispatcher];
 
-                foreach ($this->jobsFromCall($call, $origin, $unresolvedSites, $ownConstants, $locals) as $jobFqcn) {
+                foreach ($this->jobsFromCall($call, $origin, $unresolvedSites, $families, $factoryScope, $ownConstants, $locals) as $jobFqcn) {
                     $target = $this->withDeclaringClass($jobFqcn, $declaringClass);
                     $edges[] = ['source' => $dispatcher, 'target' => $target . '::handle', 'type' => 'action-to-job'];
                 }
@@ -268,13 +283,7 @@ final readonly class DispatchEdgeTracer
             // value objects share) is linked only inside a method that actually dispatches; otherwise
             // a `new X(...)` that is merely constructed or returned is object construction, not a
             // dispatch, and must draw no edge — else every DTO-returning method reads as a dispatcher.
-            // Hence the same constant map as above: a method whose only dispatch is a component event
-            // does not dispatch, and must not unlock this.
-            $methodDispatches = array_any(
-                $calls,
-                fn (Node $call): bool => (! $call instanceof CallLike || ! $call->isFirstClassCallable())
-                    && $this->dispatchSite($call, $ownConstants) !== null,
-            );
+            // `$methodDispatches` above is that test.
 
             foreach ($instantiations as $new) {
                 if (! $new->class instanceof Name) {
@@ -308,7 +317,7 @@ final readonly class DispatchEdgeTracer
 
         // De-duplicated on the whole record, so a count reads as distinct sites rather than as
         // increments — a `chain()` of two opaque items is one place to look, not two.
-        return ['edges' => AppFiles::dedupeEdges($edges), 'unresolvedSites' => $this->dedupeSites($unresolvedSites)];
+        return ['edges' => AppFiles::dedupeEdges($edges), 'unresolvedSites' => $this->dedupeSites($unresolvedSites), 'families' => array_values(array_unique($families, SORT_REGULAR))];
     }
 
     /**
@@ -329,11 +338,13 @@ final readonly class DispatchEdgeTracer
     /**
      * @param  array{line: int, dispatcher: string}  $origin  the dispatch statement a site is recorded against
      * @param  list<array{line: int, dispatcher: string}>  $unresolvedSites
+     * @param  list<array{line: int, dispatcher: string, type: string}>  $families
+     * @param  array{scope: string|null, methods: array<string, ClassMethod>}  $factoryScope
      * @param  array<string, true>  $stringConstants
-     * @param  array{jobs: array<string, array{pos: int, jobs: list<string>}>, collections: array<string, array{pos: int, jobs: list<string>}>, arrays: array{scopes: list<array{from: int, to: int}>, entries: array<string, array{pos: int, jobs: list<string>}>}}  $locals
+     * @param  array{jobs: array<string, array{pos: int, jobs: list<string>}>, collections: array<string, array{pos: int, jobs: list<string>}>, arrays: array{scopes: list<array{from: int, to: int}>, entries: array<string, array{pos: int, jobs: list<string>}>}, calls: array<string, array{pos: int, call: MethodCall|StaticCall}>}  $locals
      * @return list<string>
      */
-    private function jobsFromCall(Node $call, array $origin, array &$unresolvedSites, array $stringConstants = [], array $locals = self::NO_LOCALS): array
+    private function jobsFromCall(Node $call, array $origin, array &$unresolvedSites, array &$families, array $factoryScope, array $stringConstants = [], array $locals = self::NO_LOCALS): array
     {
         // A first-class callable (`Job::dispatch(...)`) builds a closure, not a dispatch — and
         // calling getArgs() on it throws. It's not a dispatch site, so skip it.
@@ -344,8 +355,8 @@ final readonly class DispatchEdgeTracer
         $site = $this->dispatchSite($call, $stringConstants);
 
         return match ($site['mode'] ?? null) {
-            'single' => $this->jobsFromArg($site['arg'], $origin, $unresolvedSites, $locals),
-            'array' => $this->jobsFromArray($site['arg']?->value, $origin, $unresolvedSites, $locals),
+            'single' => $this->jobsFromArg($site['arg'], $origin, $unresolvedSites, $families, $factoryScope, $locals),
+            'array' => $this->jobsFromArray($site['arg']?->value, $origin, $unresolvedSites, $families, $factoryScope, $locals),
             'class' => DispatchTarget::matches($site['class']) ? [$site['class']] : [],
             default => [],
         };
@@ -491,10 +502,12 @@ final readonly class DispatchEdgeTracer
     /**
      * @param  array{line: int, dispatcher: string}  $origin
      * @param  list<array{line: int, dispatcher: string}>  $unresolvedSites
-     * @param  array{jobs: array<string, array{pos: int, jobs: list<string>}>, collections: array<string, array{pos: int, jobs: list<string>}>, arrays: array{scopes: list<array{from: int, to: int}>, entries: array<string, array{pos: int, jobs: list<string>}>}}  $locals
+     * @param  list<array{line: int, dispatcher: string, type: string}>  $families
+     * @param  array{scope: string|null, methods: array<string, ClassMethod>}  $factoryScope
+     * @param  array{jobs: array<string, array{pos: int, jobs: list<string>}>, collections: array<string, array{pos: int, jobs: list<string>}>, arrays: array{scopes: list<array{from: int, to: int}>, entries: array<string, array{pos: int, jobs: list<string>}>}, calls: array<string, array{pos: int, call: MethodCall|StaticCall}>}  $locals
      * @return list<string>
      */
-    private function jobsFromArg(?Arg $arg, array $origin, array &$unresolvedSites, array $locals = self::NO_LOCALS): array
+    private function jobsFromArg(?Arg $arg, array $origin, array &$unresolvedSites, array &$families, array $factoryScope, array $locals = self::NO_LOCALS): array
     {
         $value = $arg?->value;
 
@@ -503,7 +516,7 @@ final readonly class DispatchEdgeTracer
         }
 
         if ($value instanceof Array_) {
-            return $this->jobsFromArray($value, $origin, $unresolvedSites, $locals);
+            return $this->jobsFromArray($value, $origin, $unresolvedSites, $families, $factoryScope, $locals);
         }
 
         // An inline closure IS the job, and its body sits in the very AST the tracers just walked —
@@ -514,10 +527,16 @@ final readonly class DispatchEdgeTracer
             return [];
         }
 
-        $local = $this->localJobFor($value, $locals['jobs']);
+        $local = LocallyConstructedJobs::jobsBoundTo($value, $locals['jobs']);
 
         if ($local !== null) {
             return $local;
+        }
+
+        // The named-constructor edge is kept on this path too: the build can turn the family back
+        // into a site, and that edge is then the one reach left.
+        if ($this->recordedFamily($value, $origin, $families, $factoryScope, $locals)) {
+            return DispatchedElement::namedConstructorTarget($value);
         }
 
         // A dispatch verb whose job we can't see (a variable, or a factory call).
@@ -525,18 +544,20 @@ final readonly class DispatchEdgeTracer
 
         // A named constructor on a class that IS a dispatch target — `dispatch(SomeJob::for($x))`.
         // The edge is worth drawing: a change to that job should reach this member either way. The
-        // site stays, because nothing here proves the method returns an instance of its own class,
-        // and a wrong "resolved" would drop a real target from a selection.
-        return $this->namedConstructorTarget($value);
+        // site stays: no app return type could be read ({@see recordedFamily()} tried first), so
+        // nothing proves the method returns an instance of its own class.
+        return DispatchedElement::namedConstructorTarget($value);
     }
 
     /**
      * @param  array{line: int, dispatcher: string}  $origin
      * @param  list<array{line: int, dispatcher: string}>  $unresolvedSites
-     * @param  array{jobs: array<string, array{pos: int, jobs: list<string>}>, collections: array<string, array{pos: int, jobs: list<string>}>, arrays: array{scopes: list<array{from: int, to: int}>, entries: array<string, array{pos: int, jobs: list<string>}>}}  $locals
+     * @param  list<array{line: int, dispatcher: string, type: string}>  $families
+     * @param  array{scope: string|null, methods: array<string, ClassMethod>}  $factoryScope
+     * @param  array{jobs: array<string, array{pos: int, jobs: list<string>}>, collections: array<string, array{pos: int, jobs: list<string>}>, arrays: array{scopes: list<array{from: int, to: int}>, entries: array<string, array{pos: int, jobs: list<string>}>}, calls: array<string, array{pos: int, call: MethodCall|StaticCall}>}  $locals
      * @return list<string>
      */
-    private function jobsFromArray(?Expr $value, array $origin, array &$unresolvedSites, array $locals = self::NO_LOCALS): array
+    private function jobsFromArray(?Expr $value, array $origin, array &$unresolvedSites, array &$families, array $factoryScope, array $locals = self::NO_LOCALS): array
     {
         if (! $value instanceof Array_) {
             // A mapped collection proves its own item type — written out here, or held by a local
@@ -576,7 +597,7 @@ final readonly class DispatchEdgeTracer
                 continue;
             }
 
-            $local = $this->localJobFor($item->value, $locals['jobs']);
+            $local = LocallyConstructedJobs::jobsBoundTo($item->value, $locals['jobs']);
 
             if ($local !== null) {
                 $jobs = [...$jobs, ...$local];
@@ -584,54 +605,43 @@ final readonly class DispatchEdgeTracer
                 continue;
             }
 
+            if ($this->recordedFamily($item->value, $origin, $families, $factoryScope, $locals)) {
+                $jobs = [...$jobs, ...DispatchedElement::namedConstructorTarget($item->value)];
+
+                continue;
+            }
+
             // An opaque item in a chain/batch (a variable, a factory call) is an unfollowable
             // dispatch on its own — record it, or a job reached only this way reads as "none".
             $unresolvedSites[] = $origin;
-            $jobs = [...$jobs, ...$this->namedConstructorTarget($item->value)];
+            $jobs = [...$jobs, ...DispatchedElement::namedConstructorTarget($item->value)];
         }
 
         return $jobs;
     }
 
     /**
-     * The jobs a dispatched variable provably holds, or null when this pass cannot say.
+     * Record a dispatched factory call whose declared return type is an application type, and say
+     * whether it was one ({@see FactoryReturnType::ofDispatched()}).
      *
-     * `$job = new SomeJob(...); dispatch($job);` hides nothing: the instantiation is right there, the
-     * graph already carries the edge, and there is no restructuring for a project to do — the same
-     * argument that exempts an inline closure. Recording it as unfollowable taints every selection
-     * over reach the graph already has.
+     * The record is no edge yet. The type can be abstract, and the dispatch targets under it span
+     * files, so {@see CodeGraphBuilder} fans it out once every class is collected. The site is not
+     * recorded: the declared type bounds the target, which is what the site existed to say it did not.
      *
-     * @param  array<string, array{pos: int, jobs: list<string>}>  $localJobs
-     * @return list<string>|null
+     * @param  array{line: int, dispatcher: string}  $origin
+     * @param  list<array{line: int, dispatcher: string, type: string}>  $families
+     * @param  array{scope: string|null, methods: array<string, ClassMethod>}  $factoryScope
+     * @param  array{jobs: array<string, array{pos: int, jobs: list<string>}>, collections: array<string, array{pos: int, jobs: list<string>}>, arrays: array{scopes: list<array{from: int, to: int}>, entries: array<string, array{pos: int, jobs: list<string>}>}, calls: array<string, array{pos: int, call: MethodCall|StaticCall}>}  $locals
      */
-    private function localJobFor(?Expr $value, array $localJobs): ?array
+    private function recordedFamily(?Expr $value, array $origin, array &$families, array $factoryScope, array $locals): bool
     {
-        if (! $value instanceof Variable || ! is_string($value->name)) {
-            return null;
+        $type = FactoryReturnType::ofDispatched($value, $locals['calls'], $factoryScope['scope'], $factoryScope['methods']);
+
+        if ($type !== null) {
+            $families[] = [...$origin, 'type' => $type];
         }
 
-        $local = $localJobs[$value->name] ?? null;
-        $dispatchedAt = $value->getStartFilePos();
-
-        // Constructed BEFORE this argument. An assignment below the dispatch says nothing about the
-        // value dispatched here, and a parser that attached no positions (-1) proves no order at all.
-        return $local !== null && $local['pos'] >= 0 && $dispatchedAt > $local['pos'] ? $local['jobs'] : null;
-    }
-
-    /**
-     * The dispatch target a `SomeJob::for($x)` argument names, if its receiver is one.
-     *
-     * @return list<string>
-     */
-    private function namedConstructorTarget(?Expr $value): array
-    {
-        if (! $value instanceof StaticCall || ! $value->class instanceof Name) {
-            return [];
-        }
-
-        $job = AppFiles::resolveName($value->class);
-
-        return DispatchTarget::matches($job) ? [$job] : [];
+        return $type !== null;
     }
 
     /**

@@ -1124,4 +1124,103 @@ final class DispatchEdgeTracerTest extends TestCase
             array_column($this->edges($seeded, $uses), 'target'),
         );
     }
+
+    /**
+     * @return array{edges: list<array{source: string, target: string, type: string}>, unresolvedSites: list<array{line: int, dispatcher: string}>, families: list<array{line: int, dispatcher: string, type: string}>}
+     */
+    private function traceWithHelpers(string $body, string $helpers): array
+    {
+        $source = "<?php\nnamespace App\Http\Controllers;\nuse App\Enums\ExportFormat;\nuse App\Jobs\Exports\CsvExportJob;\nuse App\Jobs\Exports\ExportJob;\nuse Illuminate\Support\Facades\Bus;\nclass PostController\n{\n    public function store(): void\n    {\n        {$body}\n    }\n\n    {$helpers}\n}\n";
+
+        return new DispatchEdgeTracer()->edgesForSource($source, self::DISPATCHER);
+    }
+
+    /**
+     * A factory call whose declared return type is an app class is bounded by that type: the dispatch
+     * is recorded as a family for the build to fan out, and no site is recorded.
+     *
+     * @return Iterator<string, array{string, string, string}>
+     */
+    public static function typedFactories(): Iterator
+    {
+        yield 'static factory returning self' => ['dispatch(CsvExportJob::forRows([]));', '', 'App\Jobs\Exports\CsvExportJob'];
+        yield 'enum case method' => ['dispatch(ExportFormat::Csv->job([]));', '', 'App\Jobs\Exports\ExportJob'];
+        yield 'own method, abstract type' => ['dispatch($this->make());', 'private function make(): ExportJob { return ExportFormat::Csv->job([]); }', 'App\Jobs\Exports\ExportJob'];
+        yield 'own method, nullable' => ['dispatch($this->make());', 'private function make(): ?ExportJob { return null; }', 'App\Jobs\Exports\ExportJob'];
+        yield 'own method returning static' => ['dispatch(static::make());', 'public static function make(): static { return new static(); }', self::DISPATCHER];
+        yield 'local bound once above' => ['$job = $this->make(); $job->onQueue("low"); dispatch($job);', 'private function make(): ExportJob { return ExportFormat::Csv->job([]); }', 'App\Jobs\Exports\ExportJob'];
+        yield 'local bound to a static factory' => ['$job = CsvExportJob::forRows([]); dispatch($job);', '', 'App\Jobs\Exports\CsvExportJob'];
+        yield 'local bound in a top-level try' => ['try { $job = ExportFormat::Pdf->job([]); } catch (\RuntimeException) { return; } dispatch($job);', '', 'App\Jobs\Exports\ExportJob'];
+        yield 'chain item' => ['Bus::chain([CsvExportJob::forRows([])])->dispatch();', '', 'App\Jobs\Exports\CsvExportJob'];
+    }
+
+    #[Test]
+    #[DataProvider('typedFactories')]
+    public function a_factory_with_an_app_return_type_records_a_family_and_no_site(string $body, string $helpers, string $type): void
+    {
+        $result = $this->traceWithHelpers($body, $helpers);
+
+        $this->assertSame([], $result['unresolvedSites']);
+        $this->assertSame([$type], array_column($result['families'], 'type'));
+    }
+
+    /**
+     * The other direction: a factory whose return type does not bound the job keeps its site.
+     *
+     * @return Iterator<string, array{string, string}>
+     */
+    public static function untypedFactories(): Iterator
+    {
+        yield 'no return type' => ['dispatch($this->make());', 'private function make() { return null; }'];
+        yield 'vendor interface' => ['dispatch($this->make());', 'private function make(): \Illuminate\Contracts\Queue\ShouldQueue { return ExportFormat::Csv->job([]); }'];
+        yield 'union type' => ['dispatch($this->make());', 'private function make(): CsvExportJob|ExportJob { return ExportFormat::Csv->job([]); }'];
+        yield 'method of another object' => ['dispatch($this->factory->make());', ''];
+        yield 'local bound below the dispatch' => ['dispatch($job); $job = $this->make();', 'private function make(): ExportJob { return ExportFormat::Csv->job([]); }'];
+        yield 'local written twice' => ['$job = $this->make(); $job = $this->other(); dispatch($job);', 'private function make(): ExportJob { return ExportFormat::Csv->job([]); } private function other() { return null; }'];
+        yield 'local bound in a branch' => ['if ($this->ready) { $job = $this->make(); } dispatch($job);', 'private function make(): ExportJob { return ExportFormat::Csv->job([]); }'];
+        yield 'class constant that is no enum case' => ['dispatch(CsvExportJob::DEFAULT->forRows([]));', ''];
+        yield 'enum constant that is no case' => ['dispatch(ExportFormat::DEFAULT->job([]));', ''];
+        yield 'closure parameter shadows the local' => ['$job = ExportFormat::Csv->job([]); $send = function ($job) { dispatch($job); };', ''];
+        yield 'arrow function parameter shadows the local' => ['$job = ExportFormat::Csv->job([]); $send = fn ($job) => dispatch($job);', ''];
+        yield 'local bound in a catch block' => ['try { $this->prepare(); } catch (\RuntimeException) { $job = $this->make(); } dispatch($job);', 'private function make(): ExportJob { return ExportFormat::Csv->job([]); }'];
+        yield 'local bound in a nested try' => ['try { try { $job = $this->make(); } finally { $this->log(); } } catch (\RuntimeException) { return; } dispatch($job);', 'private function make(): ExportJob { return ExportFormat::Csv->job([]); }'];
+        yield 'static call to a private own method' => ['dispatch(static::make());', 'private static function make(): ExportJob { return ExportFormat::Csv->job([]); }'];
+    }
+
+    #[Test]
+    #[DataProvider('untypedFactories')]
+    public function a_factory_without_an_app_return_type_keeps_its_site(string $body, string $helpers): void
+    {
+        $result = $this->traceWithHelpers($body, $helpers);
+
+        $this->assertCount(1, $result['unresolvedSites']);
+        $this->assertSame([], $result['families']);
+    }
+
+    #[Test]
+    public function a_collection_mapped_into_a_job_class_resolves(): void
+    {
+        $result = $this->traceWithHelpers('Bus::chain(collect([[1], [2]])->mapInto(CsvExportJob::class))->dispatch();', '');
+
+        $this->assertSame([], $result['unresolvedSites']);
+        $this->assertSame(['App\Jobs\Exports\CsvExportJob::handle'], array_column($result['edges'], 'target'));
+    }
+
+    #[Test]
+    public function a_collection_mapped_into_a_class_that_is_no_job_keeps_its_site(): void
+    {
+        $result = $this->traceWithHelpers('Bus::chain(collect([[1]])->mapInto(\App\Models\Post::class))->dispatch();', '');
+
+        $this->assertCount(1, $result['unresolvedSites']);
+    }
+
+    #[Test]
+    public function a_collection_mapped_into_self_keeps_its_site(): void
+    {
+        // `self` is left verbatim by name resolution, and an unloadable name reads as a dispatch target.
+        $result = $this->traceWithHelpers('Bus::chain(collect([[1]])->mapInto(self::class))->dispatch();', '');
+
+        $this->assertCount(1, $result['unresolvedSites']);
+        $this->assertSame([], $result['edges']);
+    }
 }

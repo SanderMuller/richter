@@ -16,8 +16,11 @@ use PhpParser\Node\Expr\Include_;
 use PhpParser\Node\Expr\List_;
 use PhpParser\Node\Expr\MethodCall;
 use PhpParser\Node\Expr\New_;
+use PhpParser\Node\Expr\StaticCall;
 use PhpParser\Node\Expr\Variable;
 use PhpParser\Node\Name;
+use PhpParser\Node\Param;
+use PhpParser\Node\Stmt;
 use PhpParser\Node\Stmt\Catch_;
 use PhpParser\Node\Stmt\ClassMethod;
 use PhpParser\Node\Stmt\Expression;
@@ -25,12 +28,14 @@ use PhpParser\Node\Stmt\Foreach_;
 use PhpParser\Node\Stmt\Global_;
 use PhpParser\Node\Stmt\Static_;
 use PhpParser\Node\Stmt\StaticVar;
+use PhpParser\Node\Stmt\TryCatch;
 use PhpParser\Node\Stmt\Unset_;
 use PhpParser\NodeFinder;
 use SanderMuller\Richter\Tracers\DispatchEdgeTracer;
 
 /**
- * Which of a method's local variables provably hold a dispatch target when it dispatches them.
+ * Which of a method's local variables provably hold a dispatch target when it dispatches them, and
+ * which hold the result of one factory call (the tracer reads that call's declared return type).
  *
  * `$job = new SomeJob(...); dispatch($job);` is the shape this exists for. The graph already carries
  * the edge — the instantiation is right there in the same method — so recording the dispatch as
@@ -49,20 +54,20 @@ use SanderMuller\Richter\Tracers\DispatchEdgeTracer;
  */
 final class LocallyConstructedJobs
 {
-    /** @var array{jobs: array<string, array{pos: int, jobs: list<string>}>, collections: array<string, array{pos: int, jobs: list<string>}>, arrays: array{scopes: list<array{from: int, to: int}>, entries: array<string, array{pos: int, jobs: list<string>}>}} */
-    private const array NOTHING = ['jobs' => [], 'collections' => [], 'arrays' => ['scopes' => [], 'entries' => []]];
+    /** @var array{jobs: array<string, array{pos: int, jobs: list<string>}>, collections: array<string, array{pos: int, jobs: list<string>}>, arrays: array{scopes: list<array{from: int, to: int}>, entries: array<string, array{pos: int, jobs: list<string>}>}, calls: array<string, array{pos: int, call: MethodCall|StaticCall}>} */
+    private const array NOTHING = ['jobs' => [], 'collections' => [], 'arrays' => ['scopes' => [], 'entries' => []], 'calls' => []];
 
     /**
-     * Variables this method provably fills with a dispatch target, by name, and the ones it fills
-     * with a collection of them.
+     * Variables this method provably fills with a dispatch target, by name, the ones it fills
+     * with a collection of them, and the ones it binds once to a factory call.
      *
      * The bar is deliberately high, because the payoff is dropping an unfollowable-dispatch signal and
      * the cost of being wrong is a selection that omits a real test. A name qualifies only when the
-     * method writes it EXACTLY ONCE, that write is a top-level `= new SomeTarget(...)` or a top-level
-     * mapped collection, and nothing else in the method can rebind it — no second assignment, no
-     * `foreach` binding, no by-reference `use`, no parameter of the same name. A conditional
-     * assignment therefore never qualifies: it sits below the top level, so the variable could still
-     * hold whatever it held before.
+     * method writes it EXACTLY ONCE, that write is a top-level `= new SomeTarget(...)`, a top-level
+     * factory call, or a top-level mapped collection, and nothing else in the method can rebind it — no
+     * second assignment, no `foreach` binding, no by-reference `use`, no parameter of the same name.
+     * The body of a top-level `try` counts as top level ({@see topLevelStatements()}). A conditional
+     * assignment never qualifies: it sits below the top level.
      *
      * A COLLECTION carries one more guard, because the two proofs claim different things. That a
      * variable is never rebound proves what it IS, which is the whole claim for a single job: no call
@@ -85,16 +90,15 @@ final class LocallyConstructedJobs
      * construction and the dispatch, which needs the callee's signature to see. Every other unknown
      * shape lands on "not provable", which keeps the site.
      *
-     * @return array{jobs: array<string, array{pos: int, jobs: list<string>}>, collections: array<string, array{pos: int, jobs: list<string>}>, arrays: array{scopes: list<array{from: int, to: int}>, entries: array<string, array{pos: int, jobs: list<string>}>}}
+     * @return array{jobs: array<string, array{pos: int, jobs: list<string>}>, collections: array<string, array{pos: int, jobs: list<string>}>, arrays: array{scopes: list<array{from: int, to: int}>, entries: array<string, array{pos: int, jobs: list<string>}>}, calls: array<string, array{pos: int, call: MethodCall|StaticCall}>}
      */
     public static function in(ClassMethod $method): array
     {
         $assignments = self::topLevelAssignments($method);
 
-        // Nothing built, mapped or STARTED EMPTY at the top level means nothing to prove, and most
-        // methods are that case. The write count below walks the whole method, so asking the cheap
-        // questions first keeps that walk off every method that could never qualify — the graph build
-        // runs this per method, and a whole extra AST pass over each one is not free.
+        // Nothing built, called or STARTED EMPTY at the top level means nothing to prove. The write
+        // count below walks the whole method, so asking the cheap questions first keeps that walk off
+        // a method that could never qualify. The tracer only asks for a method that dispatches.
         $hasCandidate = self::hasCandidate($assignments);
         // An accumulator can live in ANY scope of the method, so the cheap top-level scan no longer
         // answers "could this method have one" — a single predicate-only pass does.
@@ -117,11 +121,12 @@ final class LocallyConstructedJobs
         $arrays = $mayAccumulate ? AccumulatedArrayJobs::in($method, $exposesLocals) : AccumulatedArrayJobs::NONE;
 
         if (! $hasCandidate) {
-            return ['jobs' => [], 'collections' => [], 'arrays' => $arrays];
+            return ['jobs' => [], 'collections' => [], 'arrays' => $arrays, 'calls' => []];
         }
 
         $jobs = [];
         $collections = [];
+        $calls = [];
 
         // Source order, so a chain split over two statements resolves: a binding may read one made
         // above it and never one made below. The write count is applied HERE rather than to the
@@ -135,6 +140,14 @@ final class LocallyConstructedJobs
 
             if ($job !== null) {
                 $jobs[$name] = ['pos' => $pos, 'jobs' => [$job]];
+
+                continue;
+            }
+
+            // A factory call: the caller resolves its type ({@see FactoryReturnType}). One object, so
+            // the write count is the whole guard, as for a `new`.
+            if ($expr instanceof StaticCall || ($expr instanceof MethodCall && MappedCollectionJobs::in($expr, $collections) === null)) {
+                $calls[$name] = ['pos' => $pos, 'call' => $expr];
 
                 continue;
             }
@@ -155,23 +168,43 @@ final class LocallyConstructedJobs
 
         // The accumulator is proved over OCCURRENCES rather than the write count above, because
         // `$chain[] = …` assigns to an ArrayDimFetch and that count never sees it. {@see AccumulatedArrayJobs}
-        return ['jobs' => $jobs, 'collections' => $collections, 'arrays' => $arrays];
+        return ['jobs' => $jobs, 'collections' => $collections, 'arrays' => $arrays, 'calls' => $calls];
+    }
+
+    /**
+     * The jobs a dispatched variable provably holds, or null when this pass cannot say.
+     *
+     * @param  array<string, array{pos: int, jobs: list<string>}>  $localJobs
+     * @return list<string>|null
+     */
+    public static function jobsBoundTo(?Expr $value, array $localJobs): ?array
+    {
+        if (! $value instanceof Variable || ! is_string($value->name)) {
+            return null;
+        }
+
+        $local = $localJobs[$value->name] ?? null;
+        $dispatchedAt = $value->getStartFilePos();
+
+        // Constructed BEFORE this argument. An assignment below the dispatch says nothing about the
+        // value dispatched here, and a parser that attached no positions (-1) proves no order at all.
+        return $local !== null && $local['pos'] >= 0 && $dispatchedAt > $local['pos'] ? $local['jobs'] : null;
     }
 
     /**
      * The `$x = …` assignments directly in the method's body, in source order.
      *
      * Top level only, and that is the whole point: an assignment inside a branch says nothing about
-     * what the variable holds further down. Only the two right-hand sides that can ever qualify are
+     * what the variable holds further down. Only the right-hand sides that can ever qualify are
      * carried, so the scan stays a statement walk rather than a reason to descend.
      *
-     * @return list<array{name: string, pos: int, expr: New_|MethodCall}>
+     * @return list<array{name: string, pos: int, expr: New_|MethodCall|StaticCall}>
      */
     private static function topLevelAssignments(ClassMethod $method): array
     {
         $assignments = [];
 
-        foreach ($method->stmts ?? [] as $stmt) {
+        foreach (self::topLevelStatements($method->stmts ?? []) as $stmt) {
             if (! $stmt instanceof Expression) {
                 continue;
             }
@@ -186,7 +219,7 @@ final class LocallyConstructedJobs
                 continue;
             }
 
-            if (! $assign->expr instanceof New_ && ! $assign->expr instanceof MethodCall) {
+            if (! $assign->expr instanceof New_ && ! $assign->expr instanceof MethodCall && ! $assign->expr instanceof StaticCall) {
                 continue;
             }
 
@@ -199,17 +232,38 @@ final class LocallyConstructedJobs
     }
 
     /**
+     * The method's top-level statements, with the body of a top-level `try` read as top level too.
+     *
+     * A `try` body runs in order like the method body does. A binding in it either completes or throws
+     * to a catch, and a name the method writes exactly once has no other value to hold after the
+     * `try`: it holds that one value or it is unset, and an unset variable dispatches nothing. The
+     * catch and finally blocks are not read: they run only on some paths.
+     *
+     * @param  array<Stmt>  $stmts
+     * @return list<Stmt>
+     */
+    private static function topLevelStatements(array $stmts): array
+    {
+        $flat = [];
+
+        foreach ($stmts as $stmt) {
+            $flat = $stmt instanceof TryCatch ? [...$flat, ...array_values($stmt->stmts)] : [...$flat, $stmt];
+        }
+
+        return $flat;
+    }
+
+    /**
      * Whether any assignment could qualify at all, read without the whole-method walk.
      *
-     * A mapped chain is asked WITHOUT the bindings the build passes it, so this answers "does one
-     * statement prove itself" — enough to decide whether the method is worth walking. A chain split
-     * over two statements has such a statement above it by definition.
+     * A `new` must name a dispatch target to count. Any call counts: whether a factory call returns a
+     * job is the tracer's question, and a mapped chain split over two statements starts with a call.
      *
-     * @param  list<array{name: string, pos: int, expr: New_|MethodCall}>  $assignments
+     * @param  list<array{name: string, pos: int, expr: New_|MethodCall|StaticCall}>  $assignments
      */
     private static function hasCandidate(array $assignments): bool
     {
-        return array_any($assignments, static fn (array $assignment) => DispatchedElement::constructedTarget($assignment['expr']) !== null || MappedCollectionJobs::in($assignment['expr']) !== null);
+        return array_any($assignments, static fn (array $assignment) => ! $assignment['expr'] instanceof New_ || DispatchedElement::constructedTarget($assignment['expr']) !== null);
     }
 
     /**
@@ -260,10 +314,6 @@ final class LocallyConstructedJobs
 
             $dynamic = true;
         };
-
-        foreach ($method->params as $param) {
-            $count($param->var);
-        }
 
         foreach (new NodeFinder()->find([$method], static fn (Node $node): bool => true) as $node) {
             // Every mention, read or write: the walk visits each node once, so a name's occurrences
@@ -323,6 +373,9 @@ final class LocallyConstructedJobs
                     ...($node->keyVar instanceof Expr ? self::assignedVariables($node->keyVar) : []),
                     ...self::assignedVariables($node->valueVar),
                 ]),
+                // Every parameter, not only the method's: a closure's `$job` parameter shadows the
+                // outer `$job`, and a dispatch inside the closure sends whatever its caller passes.
+                $node instanceof Param => array_map($count, [$node->var]),
                 $node instanceof ClosureUse => array_map($count, [$node->var]),
                 $node instanceof Static_ => array_map($count, array_map(static fn (StaticVar $var): Variable => $var->var, $node->vars)),
                 $node instanceof Global_ => array_map($count, $node->vars),

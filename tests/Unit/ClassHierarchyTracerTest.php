@@ -343,4 +343,82 @@ final class ClassHierarchyTracerTest extends TestCase
 
         $this->assertCount(1, $edges);
     }
+
+    /** @return list<string>|null */
+    private function subtypesOf(string $type, string ...$sources): ?array
+    {
+        $tracer = new ClassHierarchyTracer();
+
+        foreach ($sources as $source) {
+            $ast = AppFiles::parseResolved($source);
+            $this->assertNotNull($ast, 'fixture source failed to parse');
+
+            /** @var list<ClassLike> $classLikes */
+            $classLikes = array_values(new NodeFinder()->findInstanceOf($ast, ClassLike::class));
+            $tracer->collect($classLikes);
+        }
+
+        $subtypes = $tracer->concreteSubtypesOf($type);
+
+        if ($subtypes !== null) {
+            sort($subtypes);
+        }
+
+        return $subtypes;
+    }
+
+    #[Test]
+    public function concrete_subtypes_cover_a_grandchild_and_a_child_interface(): void
+    {
+        $this->assertSame(['App\C', 'App\D'], $this->subtypesOf(
+            'App\I',
+            "<?php\nnamespace App;\ninterface I {}",
+            "<?php\nnamespace App;\ninterface J extends I {}",
+            "<?php\nnamespace App;\nabstract class A implements I {}",
+            "<?php\nnamespace App;\nabstract class B extends A {}",
+            "<?php\nnamespace App;\nfinal class C extends B {}",
+            "<?php\nnamespace App;\nfinal class D implements J {}",
+        ));
+    }
+
+    #[Test]
+    public function a_concrete_type_is_its_own_subtype(): void
+    {
+        $this->assertSame(['App\C'], $this->subtypesOf('App\C', "<?php\nnamespace App;\nclass C {}"));
+    }
+
+    #[Test]
+    public function a_scanned_type_with_no_concrete_subtype_has_none(): void
+    {
+        $this->assertSame([], $this->subtypesOf('App\I', "<?php\nnamespace App;\ninterface I {}"));
+    }
+
+    #[Test]
+    public function an_unscanned_type_has_unknown_subtypes(): void
+    {
+        $this->assertNull($this->subtypesOf('App\I', "<?php\nnamespace App;\nclass C {}"));
+    }
+
+    #[Test]
+    public function an_anonymous_class_extending_a_subtype_makes_the_subtypes_unknown(): void
+    {
+        $this->assertNull($this->subtypesOf(
+            'App\A',
+            "<?php\nnamespace App;\nabstract class A {}",
+            "<?php\nnamespace App;\nabstract class B extends A {}",
+            "<?php\nnamespace App;\nfinal class C extends B {}",
+            "<?php\nnamespace App;\nfinal class F { public function make(): A { return new class extends B {}; } }",
+        ));
+    }
+
+    #[Test]
+    public function an_anonymous_class_implementing_a_child_interface_makes_the_subtypes_unknown(): void
+    {
+        $this->assertNull($this->subtypesOf(
+            'App\I',
+            "<?php\nnamespace App;\ninterface I {}",
+            "<?php\nnamespace App;\ninterface J extends I {}",
+            "<?php\nnamespace App;\nfinal class F { public function make(): I { return new class implements J {}; } }",
+        ));
+    }
 }

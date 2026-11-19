@@ -47,8 +47,11 @@ use SanderMuller\Richter\Support\AppFiles;
  */
 final class ClassHierarchyTracer
 {
-    /** @var array<string, array{parent: string|null, interfaces: list<string>, methods: list<string>, declared: list<string>}> keyed by FQCN */
+    /** @var array<string, array{parent: string|null, interfaces: list<string>, methods: list<string>, declared: list<string>, concrete: bool}> keyed by FQCN */
     private array $records = [];
+
+    /** @var array<string, true> types an anonymous class extends or implements directly */
+    private array $anonymouslyExtended = [];
 
     /**
      * Record every class-like in one file. Fed per file by the consolidated AST loop in
@@ -68,6 +71,15 @@ final class ClassHierarchyTracer
             $fqcn = $node->namespacedName?->toString();
 
             if ($fqcn === null) {
+                // An anonymous class is a subtype no FQCN names, so its bases cannot list their subtypes.
+                if ($node instanceof Class_) {
+                    foreach ([$this->parentOf($node), ...$this->interfacesOf($node)] as $base) {
+                        if ($base !== null) {
+                            $this->anonymouslyExtended[$base] = true;
+                        }
+                    }
+                }
+
                 continue;
             }
 
@@ -79,6 +91,7 @@ final class ClassHierarchyTracer
                 // ones `methods` filters away: "does this class declare m itself?" is a different
                 // question from "can m be overridden?", and inheritedEdges() asks the first.
                 'declared' => $this->declaredMethods($node),
+                'concrete' => ($node instanceof Class_ && ! $node->isAbstract()) || $node instanceof Enum_,
             ];
         }
     }
@@ -99,6 +112,44 @@ final class ClassHierarchyTracer
         }
 
         return $edges;
+    }
+
+    /**
+     * The classes an object declared as `$type` can be at runtime: `$type` itself when it is concrete,
+     * and every concrete app class that extends or implements it. Null when richter never scanned
+     * `$type`, because then its subtypes are unknown — a vendor type, or an app class whose file did
+     * not parse — and null when an anonymous class extends `$type` or one of its subtypes, because
+     * that subtype has no name to list. An enum counts as concrete: its cases are instances.
+     *
+     * The walk runs over ancestors, the same app-scoped relation {@see overrideEdges()} reads, so a
+     * subtype reached only through a vendor class in between is not found. That is the same scope
+     * every override edge has.
+     *
+     * @return list<string>|null
+     */
+    public function concreteSubtypesOf(string $type): ?array
+    {
+        if (! isset($this->records[$type])) {
+            return null;
+        }
+
+        $subtypes = [];
+
+        foreach ($this->records as $fqcn => $record) {
+            if ($fqcn !== $type && ! in_array($type, $this->ancestorsOf($fqcn), true)) {
+                continue;
+            }
+
+            if (isset($this->anonymouslyExtended[$fqcn])) {
+                return null;
+            }
+
+            if ($record['concrete']) {
+                $subtypes[] = $fqcn;
+            }
+        }
+
+        return $subtypes;
     }
 
     /**
