@@ -52,32 +52,7 @@ trait RebindsConsoleOutput
             $output = $params['output'];
             assert($input instanceof InputInterface && $output instanceof OutputInterface);
 
-            return new class ($input, $output, $clean) extends OutputStyle {
-                /** @var callable(string): string */
-                private $clean;
-
-                /** @param  callable(string): string  $clean */
-                public function __construct(InputInterface $input, OutputInterface $output, callable $clean)
-                {
-                    parent::__construct($input, $output);
-                    $this->clean = $clean;
-                }
-
-                /**
-                 * `mixed` because the parent declares no type, so anything narrower is a fatal — and a
-                 * native type is what satisfies the missing-type rule where a docblock does not.
-                 */
-                public function writeln(mixed $messages, int $type = 0): void
-                {
-                    $lines = is_iterable($messages) ? [...$messages] : [$messages];
-                    $text = implode("\n", array_map(
-                        static fn (mixed $line): string => is_string($line) ? $line : '',
-                        $lines,
-                    ));
-
-                    parent::writeln(($this->clean)($text), $type);
-                }
-            };
+            return new PaoLikeOutputStyle($input, $output, $clean);
         });
     }
 }
