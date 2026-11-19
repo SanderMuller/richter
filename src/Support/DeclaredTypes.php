@@ -172,6 +172,27 @@ final class DeclaredTypes
         return $types;
     }
 
+    /**
+     * The app class each of the class's own methods declares it returns, keyed by lowercased name.
+     * `self` and `static` are left out: in a trait or a subclass they name another class.
+     *
+     * @return array<string, string>
+     */
+    public function returnTypesOf(ClassLike $node): array
+    {
+        $types = [];
+
+        foreach ($node->getMethods() as $method) {
+            $type = $this->classTypeOf($method->returnType);
+
+            if ($type !== null) {
+                $types[$method->name->toLowerString()] = $type;
+            }
+        }
+
+        return $types;
+    }
+
     /** @return array<string, string> */
     public function parameterTypesOf(FunctionLike $method): array
     {

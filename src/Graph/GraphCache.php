@@ -141,7 +141,8 @@ final class GraphCache
      * app class (`#[Give(SomeService::class)]`), draws a `references` edge from the method to that
      * class. A 29 entry lacks it, so a change to the request's `rules()` reaches no caller.
      * The same version adds an `instance-call` edge for a call on a new instance
-     * (`new Formatter()->format()`), which a 29 entry also lacks.
+     * (`new Formatter()->format()`), and a `loads-relation` edge for a relation read off an own method
+     * that declares a model return type (`$this->post()->author`). A 29 entry lacks both.
      */
     private const int FORMAT_VERSION = 30;
 

@@ -50,8 +50,8 @@ use SanderMuller\Richter\Support\RelationIndex;
  * A hop needs no type inference: {@see RelationIndex} says which model a relation method returns, so
  * only the ROOT of a chain needs a type. The roots this reads are the ones the source states —
  * `$this`, a typed property, a typed parameter, `new Post`, a model-returning static
- * ({@see self::MODEL_RETURNING}), a `@var` docblock, and a local bound to any of those. Anything
- * else ends the chain before it starts.
+ * ({@see self::MODEL_RETURNING}), a `$this->method()` whose declaration states a model return type,
+ * a `@var` docblock, and a local bound to any of those. Anything else ends the chain before it starts.
  *
  * A chain also ends at a to-MANY hop, after drawing it. `$post->comments` is an Eloquent collection,
  * so a `->author` after it belongs to the collection, not to `Comment`; naming `Comment::author`
@@ -100,6 +100,13 @@ final class RelationTraversalTracer
 
     private readonly DeclaredTypes $types;
 
+    /**
+     * The return types of the class being collected, by lowercased method name.
+     *
+     * @var array<string, string>
+     */
+    private array $ownReturnTypes = [];
+
     public function __construct()
     {
         $this->types = new DeclaredTypes();
@@ -124,6 +131,7 @@ final class RelationTraversalTracer
             }
 
             $properties = $this->types->propertyTypesOf($node);
+            $this->ownReturnTypes = $this->types->returnTypesOf($node);
 
             foreach ($node->getMethods() as $method) {
                 $this->collectMethod($method, $fqcn, $properties);
@@ -446,7 +454,7 @@ final class RelationTraversalTracer
     private function chainOf(PropertyFetch|NullsafePropertyFetch|MethodCall|NullsafeMethodCall $expression, string $classFqcn, array $properties): ?array
     {
         $names = [];
-        $callAt = null;
+        $calls = [];
         $node = $expression;
 
         while ($node instanceof PropertyFetch || $node instanceof NullsafePropertyFetch || $node instanceof MethodCall || $node instanceof NullsafeMethodCall) {
@@ -457,15 +465,17 @@ final class RelationTraversalTracer
             // A relation called as a method returns a query builder, so the chain cannot continue
             // past it. Recorded by position, since the calls are collected from the outside in.
             if ($node instanceof MethodCall || $node instanceof NullsafeMethodCall) {
-                $callAt = count($names);
+                $calls[] = count($names);
             }
 
             array_unshift($names, $node->name->toString());
             $node = $node->var;
         }
 
-        // Positions were counted from the outermost name inward; flip to an index into $names.
-        $stopAfter = $callAt === null ? null : count($names) - 1 - $callAt;
+        // Positions were counted from the outermost name inward; flip to indexes into $names. The
+        // innermost call is where the chain stops.
+        $callIndexes = array_map(static fn (int $position): int => count($names) - 1 - $position, array_reverse($calls));
+        $stopAfter = $callIndexes[0] ?? null;
 
         // A static root — `Post::find($id)->comments` — states its class in the source.
         if ($node instanceof StaticCall) {
@@ -489,6 +499,34 @@ final class RelationTraversalTracer
         if ($node->name !== 'this') {
             // A local or parameter: the type is whatever the method bound to it by this point.
             return ['rootClass' => null, 'rootVar' => $node->name, 'names' => $names, 'stopAfter' => $stopAfter];
+        }
+
+        return $this->chainOnThis($names, $callIndexes, $classFqcn, $properties);
+    }
+
+    /**
+     * A chain whose root is `$this`: an own method's return type, a typed property, or the enclosing
+     * class itself.
+     *
+     * @param  non-empty-list<string>  $names
+     * @param  list<int>  $callIndexes  the indexes into $names that are calls, innermost first
+     * @param  array<string, string>  $properties
+     * @return array{rootClass: string|null, rootVar: string|null, names: list<string>, stopAfter: int|null}|null
+     */
+    private function chainOnThis(array $names, array $callIndexes, string $classFqcn, array $properties): ?array
+    {
+        $stopAfter = $callIndexes[0] ?? null;
+
+        // `$this->session()->variables`: the own method's declared return type is the root. A relation
+        // method declares a relation class, never a model, so it is not read here.
+        $returned = $stopAfter === 0 ? ($this->ownReturnTypes[strtolower($names[0])] ?? null) : null;
+
+        if ($returned !== null) {
+            $next = $callIndexes[1] ?? null;
+
+            return count($names) < 2
+                ? null
+                : ['rootClass' => $returned, 'rootVar' => null, 'names' => array_slice($names, 1), 'stopAfter' => $next === null ? null : $next - 1];
         }
 
         $property = $properties[$names[0]] ?? null;

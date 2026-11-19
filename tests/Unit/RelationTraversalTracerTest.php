@@ -685,6 +685,74 @@ final class RelationTraversalTracerTest extends TestCase
             PHP));
     }
 
+    #[Test]
+    public function an_own_method_with_a_model_return_type_roots_the_chain(): void
+    {
+        $targets = $this->targets(<<<'PHP'
+            <?php
+            namespace App\Services;
+            use App\Models\Post;
+            final class Reporter
+            {
+                public function run(): void
+                {
+                    $name = $this->post()->author->team;
+                    $other = $this?->post()?->author;
+                }
+
+                private function post(): ?Post { return null; }
+            }
+            PHP);
+
+        $this->assertSame(['App\\Models\\Post::author', 'App\\Models\\User::team'], $targets);
+    }
+
+    #[Test]
+    public function a_later_relation_call_still_stops_a_chain_rooted_in_an_own_method(): void
+    {
+        $targets = $this->targets(<<<'PHP'
+            <?php
+            namespace App\Services;
+            use App\Models\Comment;
+            final class Reporter
+            {
+                public function run(): void
+                {
+                    $query = $this->comment()->author()->team;
+                }
+
+                private function comment(): Comment { return new Comment(); }
+            }
+            PHP);
+
+        // `author()` returns a builder, so `team` is read off the builder, not off `User`.
+        $this->assertSame(['App\\Models\\Comment::author'], $targets);
+    }
+
+    #[Test]
+    public function an_own_method_without_an_app_class_return_type_roots_nothing(): void
+    {
+        $this->assertSame([], $this->targets(<<<'PHP'
+            <?php
+            namespace App\Services;
+            final class Reporter
+            {
+                public function run(): void
+                {
+                    $a = $this->untyped()->author;
+                    $b = $this->either()->author;
+                    $c = $this->vendor()->author;
+                    $d = $this->post();
+                }
+
+                private function untyped() { return null; }
+                private function either(): \App\Models\Post|\App\Models\Comment { return new \App\Models\Post(); }
+                private function vendor(): \Illuminate\Support\Collection { return collect(); }
+                private function post(): \App\Models\Post { return new \App\Models\Post(); }
+            }
+            PHP));
+    }
+
     /** @return list<string> */
     private function targets(string $source): array
     {
