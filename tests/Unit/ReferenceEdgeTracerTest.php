@@ -273,4 +273,22 @@ final class ReferenceEdgeTracerTest extends TestCase
         $this->assertSame([], $this->parameterEdges('#[Give(Missing::class)] object $input'));
         $this->assertSame([], $this->parameterEdges("#[ValidatedInput('App\\\\Http\\\\Requests\\\\Post\\\\StorePostRequest')] object \$input"));
     }
+
+    #[Test]
+    public function a_parameter_typed_as_a_form_request_links_the_request(): void
+    {
+        $expected = [['source' => self::CONTROLLER . '::store', 'target' => StorePostRequest::class, 'type' => 'references']];
+
+        $this->assertSame($expected, $this->parameterEdges('StorePostRequest $request'));
+        $this->assertSame($expected, $this->parameterEdges('?StorePostRequest $request'));
+        $this->assertSame($expected, $this->parameterEdges('StorePostRequest|string $request'));
+    }
+
+    #[Test]
+    public function a_parameter_typed_as_another_class_links_nothing(): void
+    {
+        $this->assertSame([], $this->parameterEdges('\App\Models\Post $post'));
+        $this->assertSame([], $this->parameterEdges('\Illuminate\Http\Request $request'));
+        $this->assertSame([], $this->parameterEdges('Missing $request'));
+    }
 }

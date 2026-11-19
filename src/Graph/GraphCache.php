@@ -137,9 +137,9 @@ final class GraphCache
      * `SomeEnum::Case->job()`) resolves and fans out `action-to-job` edges to every concrete dispatch
      * target under that type. A collection mapped into a job class with `mapInto()` resolves, and a
      * local bound in a top-level `try` body counts as bound. A 28 entry still carries those sites.
-     * 29 → 30: a parameter with a contextual attribute that names an app class
-     * (`#[Give(SomeService::class)]`) draws a `references` edge from the method to that class. A 29
-     * entry lacks it, so a change to a form request named only that way reaches no caller.
+     * 29 → 30: a parameter typed as an app form request, or with a contextual attribute that names an
+     * app class (`#[Give(SomeService::class)]`), draws a `references` edge from the method to that
+     * class. A 29 entry lacks it, so a change to the request's `rules()` reaches no caller.
      */
     private const int FORMAT_VERSION = 30;
 
