@@ -4,9 +4,11 @@ namespace SanderMuller\Richter\Tracers;
 
 use PhpParser\Node;
 use PhpParser\Node\Expr\MethodCall;
+use PhpParser\Node\Expr\New_;
 use PhpParser\Node\Expr\NullsafeMethodCall;
 use PhpParser\Node\Expr\Variable;
 use PhpParser\Node\Identifier;
+use PhpParser\Node\Name;
 use PhpParser\Node\Stmt\ClassLike;
 use PhpParser\Node\Stmt\ClassMethod;
 use PhpParser\NodeFinder;
@@ -21,10 +23,10 @@ use SanderMuller\Richter\Support\AppFiles;
  * with ten call sites in six files and no caller edge at all, five of them `$this->` in the
  * declaring file itself.
  *
- * This lane draws the most resolvable of those shapes and only that one: `$this->method()`, where
- * the receiver is the enclosing class by definition and needs no type inference. A call on a
- * property, a parameter or a local is a receiver-typing problem and is left to a later lane rather
- * than guessed at here.
+ * This lane draws the two shapes whose receiver needs no type inference: `$this->method()`, where the
+ * receiver is the enclosing class by definition, and `new Foo(...)->method()`, where the expression
+ * names its own class. A call on a property, a parameter or a local is a receiver-typing problem and
+ * is left to a later lane rather than guessed at here.
  *
  * Emits an `instance-call` edge from the calling member node to `Class::method`, the same member-level
  * shape {@see StaticCallEdgeTracer} uses. The target member may be inherited rather than declared
@@ -86,16 +88,18 @@ final class InstanceCallEdgeTracer
         $source = $fqcn . '::' . $method->name->toString();
         $edges = [];
 
-        foreach (AppFiles::nodesOwnedByWithNesting($method, $this->isSelfCall(...)) as [$call, $nested]) {
+        foreach (AppFiles::nodesOwnedByWithNesting($method, $this->isResolvableCall(...)) as [$call, $nested]) {
             /** @var MethodCall|NullsafeMethodCall $call */
+            $receiver = $call->var instanceof New_ ? $this->constructedClass($call->var) : ($nested ? null : $fqcn);
+
             // A first-class callable (`$this->build(...)`) makes a closure; it does not call the
             // method, and drawing the edge would report a caller that never runs.
-            if ($nested || $call->isFirstClassCallable() || ! $call->name instanceof Identifier) {
+            if ($receiver === null || $call->isFirstClassCallable() || ! $call->name instanceof Identifier) {
                 continue;
             }
 
             $callee = $call->name->toString();
-            $target = "{$fqcn}::{$callee}";
+            $target = "{$receiver}::{$callee}";
 
             // Recursion is not reach: a member that calls itself tells a reader nothing, and the
             // self-edge would draw a loop in every rendered chain through it.
@@ -109,11 +113,27 @@ final class InstanceCallEdgeTracer
         return $edges;
     }
 
-    /** A call whose receiver is the literal `$this` — the only receiver this lane resolves. */
-    private function isSelfCall(Node $node): bool
+    /** A call whose receiver is the literal `$this` or a `new` expression. */
+    private function isResolvableCall(Node $node): bool
     {
-        return ($node instanceof MethodCall || $node instanceof NullsafeMethodCall)
-            && $node->var instanceof Variable
-            && $node->var->name === 'this';
+        if (! $node instanceof MethodCall && ! $node instanceof NullsafeMethodCall) {
+            return false;
+        }
+
+        return $node->var instanceof New_ || ($node->var instanceof Variable && $node->var->name === 'this');
+    }
+
+    /**
+     * The class a `new` expression names. `self`, `static` and `parent` are refused: `static` can be a
+     * subclass with its own override, and the others need the enclosing class chain, which an
+     * anonymous class changes.
+     */
+    private function constructedClass(New_ $new): ?string
+    {
+        if (! $new->class instanceof Name || $new->class->isSpecialClassName()) {
+            return null;
+        }
+
+        return AppFiles::resolveName($new->class);
     }
 }

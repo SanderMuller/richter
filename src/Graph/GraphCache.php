@@ -140,6 +140,8 @@ final class GraphCache
      * 29 → 30: a parameter typed as an app form request, or with a contextual attribute that names an
      * app class (`#[Give(SomeService::class)]`), draws a `references` edge from the method to that
      * class. A 29 entry lacks it, so a change to the request's `rules()` reaches no caller.
+     * The same version adds an `instance-call` edge for a call on a new instance
+     * (`new Formatter()->format()`), which a 29 entry also lacks.
      */
     private const int FORMAT_VERSION = 30;
 

@@ -63,6 +63,57 @@ final class InstanceCallEdgeTracerTest extends TestCase
     }
 
     #[Test]
+    public function a_call_on_a_new_instance_links_to_the_constructed_class(): void
+    {
+        $edges = $this->edges(<<<'PHP'
+            class Reporter
+            {
+                public function run(): string { return new Formatter()->format('x') . (new Exporter)->export(); }
+            }
+            PHP);
+
+        $this->assertSame(['App\Services\Formatter::format', 'App\Services\Exporter::export'], array_column($edges, 'target'));
+        $this->assertSame(['instance-call'], array_values(array_unique(array_column($edges, 'type'))));
+    }
+
+    #[Test]
+    public function a_call_on_a_new_instance_links_inside_an_anonymous_class_too(): void
+    {
+        // Unlike `$this`, the class a `new` names does not change inside an anonymous class.
+        $edges = $this->edges(<<<'PHP'
+            class Reporter
+            {
+                public function run(): object
+                {
+                    return new class { public function go(): string { return new Formatter()->format('x'); } };
+                }
+            }
+            PHP);
+
+        $this->assertSame(['App\Services\Formatter::format'], array_column($edges, 'target'));
+    }
+
+    #[Test]
+    public function a_call_on_a_new_self_static_parent_or_anonymous_instance_draws_nothing(): void
+    {
+        $edges = $this->edges(<<<'PHP'
+            class Reporter extends BaseReporter
+            {
+                public function run(): void
+                {
+                    new static()->format();
+                    new self()->format();
+                    new parent()->format();
+                    new class {}->format();
+                    new $class()->format();
+                }
+            }
+            PHP);
+
+        $this->assertSame([], $edges);
+    }
+
+    #[Test]
     public function recursion_draws_nothing(): void
     {
         $edges = $this->edges(<<<'PHP'
