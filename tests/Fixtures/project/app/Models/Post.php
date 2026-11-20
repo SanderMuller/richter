@@ -28,6 +28,11 @@ final class Post extends Model
         return ['status' => 'string'];
     }
 
+    public function getExcerptAttribute(): string
+    {
+        return '';
+    }
+
     protected static function booted(): void
     {
         self::addGlobalScope(new PublishedScope());

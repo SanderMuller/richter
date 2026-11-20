@@ -10,4 +10,9 @@ final class CommentObserver
     {
         $comment->touch();
     }
+
+    public function forceDeleting(Comment $comment): void
+    {
+        $comment->post()->dissociate();
+    }
 }

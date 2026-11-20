@@ -8,4 +8,9 @@ trait WithAudits
     {
         return static::class;
     }
+
+    public static function auditChannel(): string
+    {
+        return 'audits';
+    }
 }

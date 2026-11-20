@@ -93,10 +93,12 @@ App\Models\Comment::__construct	hook	App\Models\Comment::casts
 App\Models\Comment::casts	casts	App\Casts\Markdown
 App\Models\Comment::factory	factory	App\Models\Comment::casts
 App\Models\Comment::factory	factory	App\Models\Post::factory
-App\Models\Comment::factory	factory	App\Observers\CommentObserver
+App\Models\Comment::factory	factory	App\Observers\CommentObserver::saving
 App\Models\Comment::post	relation-to-model	App\Models\Post
 App\Models\Comment::post	hydrates	App\Models\Post::booted
 App\Models\Comment::post	hydrates	App\Models\Post::casts
+App\Models\Comment::post	hydrates	App\Models\Post::getExcerptAttribute
+App\Models\Concerns\WithAudits	declares	App\Models\Concerns\WithAudits::auditChannel
 App\Models\Concerns\WithAudits	declares	App\Models\Concerns\WithAudits::auditName
 App\Models\Post	declares	App\Models\Post::COMMENTS
 App\Models\Post	declares	App\Models\Post::REVIEWS
@@ -106,6 +108,7 @@ App\Models\Post	declares	App\Models\Post::addGlobalScope
 App\Models\Post	declares	App\Models\Post::booted
 App\Models\Post	declares	App\Models\Post::casts
 App\Models\Post	declares	App\Models\Post::comments
+App\Models\Post	declares	App\Models\Post::getExcerptAttribute
 App\Models\Post	declares	App\Models\Post::load
 App\Models\Post	declares	App\Models\Post::query
 App\Models\Post	declares	App\Models\Post::reviews
@@ -118,6 +121,7 @@ App\Models\Post::comments	relation-to-model	App\Models\Comment
 App\Models\Post::comments	hydrates	App\Models\Comment::casts
 App\Models\Post::comments	hydrates	App\Observers\CommentObserver
 App\Models\Post::factory	factory	App\Jobs\Exports\CsvExportJob::forRows
+App\Models\Post::factory	factory	App\Models\Concerns\WithAudits::auditChannel
 App\Models\Post::factory	factory	App\Models\Post::booted
 App\Models\Post::factory	factory	App\Models\Post::casts
 App\Models\Post::reviews	relation-to-model	App\Models\Review
@@ -126,6 +130,7 @@ App\Models\PostContainer	declares	App\Models\PostContainer::query
 App\Models\PostContainer::posts	relation-to-model	App\Models\Post
 App\Models\PostContainer::posts	hydrates	App\Models\Post::booted
 App\Models\PostContainer::posts	hydrates	App\Models\Post::casts
+App\Models\PostContainer::posts	hydrates	App\Models\Post::getExcerptAttribute
 App\Models\Review	uses-trait	App\Models\Concerns\WithAudits
 App\Models\Review	declares	App\Models\Review::ANSWERS
 App\Models\Review	declares	App\Models\Review::__construct
@@ -138,7 +143,10 @@ App\Models\Review::auditName	inherits	App\Models\Concerns\WithAudits::auditName
 App\Models\Scopes\PublishedScope	declares	App\Models\Scopes\PublishedScope::__construct
 App\Models\Scopes\PublishedScope::__construct	hook	App\Models\Scopes\PublishedScope::apply
 App\Models\User	model-to-policy	App\Policies\UserPolicy
+App\Observers\CommentObserver	declares	App\Observers\CommentObserver::forceDeleting
 App\Observers\CommentObserver	declares	App\Observers\CommentObserver::saving
+App\Observers\CommentObserver::forceDeleting	loads-relation	App\Models\Comment::post
+App\Observers\CommentObserver::forceDeleting	model	App\Models\Comment::post
 App\Observers\CommentObserver::saving	model	App\Models\Comment::touch
 App\Pages\SettingsPage	action-to-view	view::blade__pages.settings
 App\Policies\PostPolicy	declares	App\Policies\PostPolicy::UPDATE

@@ -4,6 +4,7 @@ namespace Database\Factories;
 
 use App\Jobs\Exports\CsvExportJob;
 use App\Models\Post;
+use App\Models\Review;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /** @extends Factory<Post> */
@@ -15,6 +16,7 @@ final class PostFactory extends Factory
         return [
             Post::TITLE => 'A title',
             'export' => CsvExportJob::forRows([]),
+            'channel' => Review::auditChannel(),
         ];
     }
 }

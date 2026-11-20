@@ -283,7 +283,9 @@ final class CodeGraphBuilderTest extends TestCase
         $this->assertSame('factory', $this->directCallersOf('App\\Jobs\\Exports\\CsvExportJob::forRows')['App\\Models\\Post::factory'] ?? null);
         $this->assertSame('factory', $this->directCallersOf('App\\Models\\Post::factory')['App\\Models\\Comment::factory'] ?? null);
         $this->assertSame('factory', $this->directCallersOf('App\\Models\\Post::booted')['App\\Models\\Post::factory'] ?? null);
-        $this->assertSame('factory', $this->directCallersOf('App\\Observers\\CommentObserver')['App\\Models\\Comment::factory'] ?? null);
+        $this->assertSame('factory', $this->directCallersOf('App\\Observers\\CommentObserver::saving')['App\\Models\\Comment::factory'] ?? null);
+        // Named on the trait that declares it, so no receiver node joins the report's reach.
+        $this->assertSame('factory', $this->directCallersOf('App\\Models\\Concerns\\WithAudits::auditChannel')['App\\Models\\Post::factory'] ?? null);
         // No climb to the model: that would carry a factory's reach on to every caller of `Post`.
         $this->assertArrayNotHasKey('App\\Models\\Post', $this->directCallersOf('App\\Models\\Post::factory'));
     }
@@ -292,6 +294,15 @@ final class CodeGraphBuilderTest extends TestCase
     public function a_factory_state_a_test_must_ask_for_links_nothing(): void
     {
         $this->assertArrayNotHasKey('App\\Models\\Comment::factory', $this->directCallersOf('App\\Services\\CommentSummariser::__construct'));
+    }
+
+    #[Test]
+    public function a_factory_reaches_only_the_observer_events_a_create_fires(): void
+    {
+        $this->assertArrayNotHasKey('App\\Models\\Comment::factory', $this->directCallersOf('App\\Observers\\CommentObserver::forceDeleting'));
+        $this->assertArrayNotHasKey('App\\Models\\Comment::factory', $this->directCallersOf('App\\Observers\\CommentObserver'));
+        // An accessor runs when a test reads the model, not when a factory builds it.
+        $this->assertArrayNotHasKey('App\\Models\\Post::factory', $this->directCallersOf('App\\Models\\Post::getExcerptAttribute'));
     }
 
     #[Test]

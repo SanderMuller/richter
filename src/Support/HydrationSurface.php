@@ -118,9 +118,10 @@ final class HydrationSurface
      * A relation method to each observer of the model it returns: an observer runs when a model is
      * saved or deleted through the relation. A parent's observer counts too: `#[ObservedBy]` and an
      * `observe()` call in a parent's `booted()` both apply to the subclass. A model's factory node
-     * (`X::factory`) links to the observers of `X` the same way, because the factory saves it.
+     * (`X::factory`) links to the create and save handlers of those observers, because the
+     * factory saves the model.
      *
-     * @param  array<string, array{parent: string|null, ...}>  $inheritance
+     * @param  array<string, array{parent: string|null, declared: list<string>}>  $inheritance
      * @param  list<array{source: string, target: string, type: string}>  $edges  the merged graph edges
      * @return list<array{source: string, target: string, type: string}>
      */
@@ -146,7 +147,9 @@ final class HydrationSurface
 
         foreach (array_keys(ModelFactoryTracer::factoryNodes($edges)) as $factory) {
             foreach (self::observersOf(substr($factory, 0, -strlen('::factory')), $observers, $inheritance) as $observer) {
-                $hydrates[] = ['source' => $factory, 'target' => $observer, 'type' => ModelFactoryTracer::EDGE_TYPE];
+                foreach (self::createHandlersOf($observer, $inheritance) as $handler) {
+                    $hydrates[] = ['source' => $factory, 'target' => $handler, 'type' => ModelFactoryTracer::EDGE_TYPE];
+                }
             }
         }
 
@@ -154,8 +157,36 @@ final class HydrationSurface
     }
 
     /**
+     * The observer methods a factory fires: the create and save events, named on the class that
+     * declares each one. A factory never fires `deleting` or `forceDeleting`.
+     *
+     * @param  array<string, array{parent: string|null, declared: list<string>}>  $inheritance
+     * @return list<string>
+     */
+    private static function createHandlersOf(string $observer, array $inheritance): array
+    {
+        $handlers = [];
+
+        foreach (ModelFactoryTracer::CREATE_EVENTS as $event) {
+            $seen = [];
+
+            for ($class = $observer; $class !== null && ! isset($seen[$class]); $class = $inheritance[$class]['parent'] ?? null) {
+                $seen[$class] = true;
+
+                if (in_array($event, $inheritance[$class]['declared'] ?? [], true)) {
+                    $handlers[] = "{$class}::{$event}";
+
+                    break;
+                }
+            }
+        }
+
+        return $handlers;
+    }
+
+    /**
      * @param  array<string, list<string>>  $observers
-     * @param  array<string, array{parent: string|null, ...}>  $inheritance
+     * @param  array<string, array{parent: string|null, declared: list<string>}>  $inheritance
      * @return list<string>
      */
     private static function observersOf(string $model, array $observers, array $inheritance): array

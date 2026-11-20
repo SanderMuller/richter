@@ -12,6 +12,7 @@ use PhpParser\Node\Stmt\Class_;
 use PhpParser\Node\Stmt\ClassLike;
 use PhpParser\Node\Stmt\TraitUse;
 use PhpParser\NodeFinder;
+use ReflectionClass;
 use ReflectionMethod;
 use SanderMuller\Richter\Support\AppFiles;
 use SanderMuller\Richter\Support\AppNamespace;
@@ -39,6 +40,11 @@ final readonly class ModelFactoryTracer
     public const string EDGE_TYPE = 'factory';
 
     private const array ALWAYS_RUN = ['definition', 'configure'];
+
+    /** The Eloquent observer events that a factory fires when it creates a model. */
+    public const array CREATE_EVENTS = ['creating', 'created', 'saving', 'saved'];
+
+    private const string READ_ONLY_HOOK = '/::(?:get\\w+Attribute|getAttributeValue|newCollection|newEloquentBuilder|newQuery\\w*|newModelQuery|getMorphClass|toArray|jsonSerialize|serializeDate)$/';
 
     public function __construct(private string $projectRoot) {}
 
@@ -74,12 +80,21 @@ final readonly class ModelFactoryTracer
                 }
             }
 
-            foreach ($surface->surfaceOf($model) as $target) {
+            foreach (array_filter($surface->surfaceOf($model), $this->runsOnCreate(...)) as $target) {
                 $edges[] = ['source' => $source, 'target' => $target, 'type' => self::EDGE_TYPE];
             }
         }
 
         return AppFiles::dedupeEdges($edges, byType: true);
+    }
+
+    /**
+     * Whether a hydration-surface node runs when a factory builds the model. Accessors and the
+     * serialisation and query hooks run only when a test reads the model, so they stay out.
+     */
+    private function runsOnCreate(string $node): bool
+    {
+        return preg_match(self::READ_ONLY_HOOK, $node) !== 1;
     }
 
     /**
@@ -200,7 +215,7 @@ final readonly class ModelFactoryTracer
         match (true) {
             $method === 'factory' => $creates[] = ['model', $class],
             $method === 'new' => $creates[] = ['factory', $class],
-            $this->declaredInApp($class, $method) => $calls[] = "{$class}::{$method}",
+            ($target = $this->declaringMember($class, $method)) !== null => $calls[] = $target,
             default => null,
         };
     }
@@ -252,15 +267,47 @@ final readonly class ModelFactoryTracer
         return [$creates, array_values(array_unique($calls))];
     }
 
-    private function declaredInApp(string $class, string $method): bool
+    /**
+     * The node of the app class or trait that declares the method. Named on the declarer rather than
+     * on the receiver: a receiver node only a factory names would join the report's reach through
+     * its own `inherits` edge.
+     */
+    private function declaringMember(string $class, string $method): ?string
     {
         try {
-            return AppNamespace::isInApp($class)
-                && (class_exists($class) || enum_exists($class))
-                && method_exists($class, $method)
-                && AppNamespace::isInApp(new ReflectionMethod($class, $method)->getDeclaringClass()->getName());
+            if (! AppNamespace::isInApp($class) || ! class_exists($class) && ! enum_exists($class) || ! method_exists($class, $method)) {
+                return null;
+            }
+
+            $reflection = new ReflectionMethod($class, $method);
+            $declarer = self::traitDeclaring($reflection->getDeclaringClass(), $reflection) ?? $reflection->getDeclaringClass()->getName();
+
+            return AppNamespace::isInApp($declarer) ? "{$declarer}::{$method}" : null;
         } catch (Throwable) {
-            return false;
+            return null;
         }
+    }
+
+    /**
+     * PHP reports a trait method as declared by the class that uses the trait. The trait whose
+     * source holds the method's body is the real declarer.
+     *
+     * @param  ReflectionClass<object>  $class
+     */
+    private static function traitDeclaring(ReflectionClass $class, ReflectionMethod $method): ?string
+    {
+        foreach ($class->getTraits() as $trait) {
+            $nested = self::traitDeclaring($trait, $method);
+
+            if ($nested !== null) {
+                return $nested;
+            }
+
+            if ($trait->getFileName() === $method->getFileName() && $trait->hasMethod($method->getName())) {
+                return $trait->getName();
+            }
+        }
+
+        return null;
     }
 }
