@@ -984,6 +984,27 @@ final class ImpactAnalyzerTest extends TestCase
     }
 
     #[Test]
+    public function the_selection_walk_does_not_count_a_hop_that_only_says_where_code_lives(): void
+    {
+        // Seven hops, one of them `declares`: one past the limit for the report, inside it for selection.
+        $edges = [
+            ['source' => Comment::class, 'target' => 'App\\Models\\Comment::body', 'type' => 'declares'],
+            ['source' => 'App\\Services\\S1::run', 'target' => Comment::class, 'type' => 'references'],
+        ];
+
+        foreach (range(2, 6) as $step) {
+            $edges[] = ['source' => "App\\Services\\S{$step}::run", 'target' => 'App\\Services\\S' . ($step - 1) . '::run', 'type' => 'static-call'];
+        }
+
+        $result = new ImpactAnalyzer(new CodeGraph($edges, hasUnparseableFiles: false))->detectChanges([
+            $this->changedMethod('app/Models/Comment.php', Comment::class, 'body'),
+        ]);
+
+        $this->assertNotContains('App\\Services\\S6::run', $this->nodes($result['callers']));
+        $this->assertContains('App\\Services\\S6::run', $this->nodes($result['selectionCallers']));
+    }
+
+    #[Test]
     public function the_selection_callers_keep_a_body_that_loads_a_relation_whose_model_runs_the_change_on_load(): void
     {
         // The cast runs when `comments` hydrates each Comment: no call site names it.

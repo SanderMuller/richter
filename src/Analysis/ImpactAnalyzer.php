@@ -118,6 +118,16 @@ final readonly class ImpactAnalyzer
      */
     private const array SELECTION_EXCLUDED_EDGE_TYPES = [...self::MODEL_ASSOCIATION_EDGE_TYPES, 'relation-to-model'];
 
+    /**
+     * The hops the selection walk does not count toward its depth: each one only says where code
+     * lives (a member to its class, a using class's member to the trait or parent that runs it, a
+     * model's casts to a cast class). The `hydrates` and `casts` lanes add these hops to a path, and
+     * counted they pushed the code that loads a relation past the depth limit.
+     *
+     * @var list<string>
+     */
+    private const array SELECTION_FREE_EDGE_TYPES = ['declares', 'inherits', 'casts'];
+
     public function __construct(private CodeGraph $graph) {}
 
     /**
@@ -363,7 +373,7 @@ final readonly class ImpactAnalyzer
         // test that drives such a route does exercise the change. Carried separately so
         // {@see AffectedTests} can select over it without the entry-point list claiming it as a
         // caller. Internal, like the walk lists above: no output format reads it.
-        $selectionCallers = $this->graph->callersOf($seeds, $maxDepth, self::SELECTION_EXCLUDED_EDGE_TYPES);
+        $selectionCallers = $this->graph->callersOf($seeds, $maxDepth, self::SELECTION_EXCLUDED_EDGE_TYPES, self::SELECTION_FREE_EDGE_TYPES);
         $selectionEntryPoints = $this->entryPointsAmong($selectionCallers);
         $registryEntryPoints = array_values(array_diff($selectionEntryPoints, $entryPoints));
         // Listed in the report, but reached only by loading a relation to a changed model member

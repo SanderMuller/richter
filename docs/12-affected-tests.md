@@ -63,6 +63,8 @@ The caller half skips three kinds of edge: `model-relationship`, `model-to-polic
 
 Loading a relation does run some of the related model's code: its casts, accessors and mutators, boot hooks and observers. Those are linked to each relation method that loads the model, so a change to a cast class or an accessor still selects the code, and the tests, that load the relation. A change to any other model method selects only the code that calls it, on both axes. A call the tracers cannot type, such as one in a collection callback or in a Blade view, is then not selected through the relation.
 
+The caller half walks up to six hops, like the report. A hop that only says where code lives does not count: a method to its class, a class's method to the trait or parent that runs it, and a model's casts to a cast class. An entry point that the report reaches within six hops only through a relation is not selected, even when a longer path without the relation exists.
+
 One consequence worth naming: for a controller change, the callers are `route::` nodes rather than app classes, so this axis contributes nothing and the entry-point axis carries the selection alone. That is correct, and it is why a controller diff selects so few tests by import.
 
 ## Unfollowable dispatches

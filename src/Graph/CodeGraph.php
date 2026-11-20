@@ -467,11 +467,14 @@ final class CodeGraph
      * @param  list<string>  $excludeTypes  edge types the walk refuses to traverse. Not a filter on
      *   the result: a node reachable ONLY through an excluded edge does not appear at all, which is
      *   the point — the caller asking for this wants to know what survives without them.
+     * @param  list<string>  $freeTypes  edge types whose hop does not count toward `$maxDepth`. A hop
+     *   that only says where code lives (a member to its class, a using class to its trait) moves
+     *   the walk no closer to a caller, so it must not use up the budget the calls need.
      * @return list<array{depth: int, node: string, via: string}>
      */
-    public function callersOf(array $from, int $maxDepth = 6, array $excludeTypes = []): array
+    public function callersOf(array $from, int $maxDepth = 6, array $excludeTypes = [], array $freeTypes = []): array
     {
-        return $this->walk($this->upstream, $from, $maxDepth, $excludeTypes);
+        return $this->walk($this->upstream, $from, $maxDepth, $excludeTypes, $freeTypes);
     }
 
     /**
@@ -634,9 +637,10 @@ final class CodeGraph
      * @param  array<string, list<array{node: string, via: string}>>  $adjacency
      * @param  list<string>  $from
      * @param  list<string>  $excludeTypes
+     * @param  list<string>  $freeTypes
      * @return list<array{depth: int, node: string, via: string}>
      */
-    private function walk(array $adjacency, array $from, int $maxDepth, array $excludeTypes = []): array
+    private function walk(array $adjacency, array $from, int $maxDepth, array $excludeTypes = [], array $freeTypes = []): array
     {
         $result = [];
 
@@ -644,9 +648,11 @@ final class CodeGraph
             if ($firstVisit) {
                 $result[] = ['depth' => $depth, 'node' => $hop['node'], 'via' => $hop['via']];
             }
-        }, $excludeTypes);
+        }, $excludeTypes, $freeTypes);
 
-        // BFS already appends in non-decreasing depth order, so no sort is needed.
+        // BFS already appends in non-decreasing depth order, so no sort is needed. With free edge
+        // types a node can first be reached at a depth a later free hop improves on; the list keeps
+        // the first one.
         return $result;
     }
 
@@ -728,22 +734,31 @@ final class CodeGraph
      * @param  list<string>  $from
      * @param  callable(array{node: string, via: string}, int, bool, string): void  $onEdge
      * @param  list<string>  $excludeTypes  edge types never traversed
+     * @param  list<string>  $freeTypes
      */
-    private function bfs(array $adjacency, array $from, int $maxDepth, callable $onEdge, array $excludeTypes = []): void
+    private function bfs(array $adjacency, array $from, int $maxDepth, callable $onEdge, array $excludeTypes = [], array $freeTypes = []): void
     {
         /** @var array<string, bool> $structuralOnly whether every edge from the seed to this node was structural */
         $structuralOnly = [];
         $seen = [];
         $queue = [];
+        /** @var array<string, int> $latest the queue index of each node's latest entry */
+        $latest = [];
 
         foreach ($from as $start) {
             $seen[$start] = 0;
             $structuralOnly[$start] = false;
+            $latest[$start] = count($queue);
             $queue[] = ['node' => $start, 'depth' => 0, 'structuralOnly' => false];
         }
 
         for ($head = 0; isset($queue[$head]); ++$head) {
             $current = $queue[$head];
+
+            // A free hop can queue a node again at a lower depth; only its latest entry is walked.
+            if ($freeTypes !== [] && $latest[$current['node']] !== $head) {
+                continue;
+            }
 
             if ($current['depth'] >= $maxDepth) {
                 continue;
@@ -758,30 +773,63 @@ final class CodeGraph
                     continue;
                 }
 
-                $depth = $current['depth'] + 1;
+                $depth = $current['depth'] + (in_array($hop['via'], $freeTypes, strict: true) ? 0 : 1);
                 $firstVisit = ! isset($seen[$hop['node']]);
-                // Depth 1 takes the edge's own kind: a seed carries `false` so its own override hops
-                // stay legal, and AND-ing against that would clear every path from the start.
+                // A seed's own hop takes the edge's own kind: a seed carries `false` so its own override
+                // hops stay legal, and AND-ing against that would clear every path from the start. The
+                // seeds are the first entries; a free hop can put another node at depth 0 too.
                 $isStructural = in_array($hop['via'], self::STRUCTURAL_EDGE_TYPES, strict: true);
-                $hopStructuralOnly = $current['depth'] === 0 ? $isStructural : ($current['structuralOnly'] && $isStructural);
+                $hopStructuralOnly = $head < count($from) ? $isStructural : ($current['structuralOnly'] && $isStructural);
 
                 $onEdge($hop, $depth, $firstVisit, $current['node']);
 
                 if ($firstVisit) {
                     $seen[$hop['node']] = $depth;
                     $structuralOnly[$hop['node']] = $hopStructuralOnly;
+                    $latest[$hop['node']] = count($queue);
                     $queue[] = ['node' => $hop['node'], 'depth' => $depth, 'structuralOnly' => $hopStructuralOnly];
 
                     continue;
                 }
 
-                // Already seen, but reached before only through type structure: this path carries a
-                // call, so re-walk it once with the gate lifted.
-                if (! $hopStructuralOnly && $structuralOnly[$hop['node']]) {
-                    $structuralOnly[$hop['node']] = false;
-                    $queue[] = ['node' => $hop['node'], 'depth' => $depth, 'structuralOnly' => false];
+                $entry = $this->revisit($hop['node'], $depth, $hopStructuralOnly, $seen, $structuralOnly, $freeTypes !== []);
+
+                if ($entry !== null) {
+                    $latest[$hop['node']] = count($queue);
+                    $queue[] = $entry;
                 }
             }
         }
+    }
+
+    /**
+     * The queue entry for a node {@see bfs()} has already seen, or null when this hop adds nothing.
+     *
+     * - Reached at a lower depth, through a free hop: walk on from that depth. A plain BFS never
+     *   gets here, because it reaches every node at its least depth first.
+     * - Reached before only through type structure, and this path carries a call: re-walk it once
+     *   with the gate lifted. With free hops this entry replaces the node's earlier one, so it keeps
+     *   the least depth found.
+     *
+     * @param  array<string, int>  $seen
+     * @param  array<string, bool>  $structuralOnly
+     * @return array{node: string, depth: int, structuralOnly: bool}|null
+     */
+    private function revisit(string $node, int $depth, bool $hopStructuralOnly, array &$seen, array &$structuralOnly, bool $withFreeHops): ?array
+    {
+        if ($depth < $seen[$node]) {
+            $seen[$node] = $depth;
+            $structuralOnly[$node] = $structuralOnly[$node] && $hopStructuralOnly;
+
+            return ['node' => $node, 'depth' => $depth, 'structuralOnly' => $structuralOnly[$node]];
+        }
+
+        if ($hopStructuralOnly || ! $structuralOnly[$node]) {
+            return null;
+        }
+
+        $structuralOnly[$node] = false;
+
+        return ['node' => $node, 'depth' => $withFreeHops ? $seen[$node] : $depth, 'structuralOnly' => false];
     }
 }

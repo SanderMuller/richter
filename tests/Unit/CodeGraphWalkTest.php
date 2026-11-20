@@ -468,4 +468,33 @@ final class CodeGraphWalkTest extends TestCase
         $this->assertSame([], $graph->nodesDefinedIn('routes/'));
         $this->assertSame([], $graph->nodesDefinedIn('routes/api.php'));
     }
+
+    #[Test]
+    public function a_free_hop_does_not_count_toward_the_depth_limit(): void
+    {
+        $graph = new CodeGraph([
+            ['source' => 'App\\Models\\Comment', 'target' => 'App\\Models\\Comment::body', 'type' => 'declares'],
+            ['source' => 'App\\Services\\A::run', 'target' => 'App\\Models\\Comment', 'type' => 'references'],
+            ['source' => 'App\\Services\\B::run', 'target' => 'App\\Services\\A::run', 'type' => 'static-call'],
+        ], hasUnparseableFiles: false);
+
+        $this->assertNotContains('App\\Services\\B::run', array_column($graph->callersOf(['App\\Models\\Comment::body'], 2), 'node'));
+        $this->assertContains('App\\Services\\B::run', array_column($graph->callersOf(['App\\Models\\Comment::body'], 2, [], ['declares']), 'node'));
+    }
+
+    #[Test]
+    public function a_node_a_free_hop_reaches_again_at_a_lower_depth_walks_on_from_that_depth(): void
+    {
+        // `Mid` is first reached at depth 2 the long way, then at depth 1 through the free hop. Its
+        // caller `Top` is within a limit of 2 only from the lower depth.
+        $graph = new CodeGraph([
+            ['source' => 'App\\A::run', 'target' => 'App\\Seed::run', 'type' => 'static-call'],
+            ['source' => 'App\\Mid::run', 'target' => 'App\\A::run', 'type' => 'static-call'],
+            ['source' => 'App\\Seed', 'target' => 'App\\Seed::run', 'type' => 'declares'],
+            ['source' => 'App\\Mid::run', 'target' => 'App\\Seed', 'type' => 'references'],
+            ['source' => 'App\\Top::run', 'target' => 'App\\Mid::run', 'type' => 'static-call'],
+        ], hasUnparseableFiles: false);
+
+        $this->assertContains('App\\Top::run', array_column($graph->callersOf(['App\\Seed::run'], 2, [], ['declares']), 'node'));
+    }
 }
