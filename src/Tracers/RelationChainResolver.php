@@ -115,7 +115,7 @@ final readonly class RelationChainResolver
 
             $edges[] = ['source' => $source, 'target' => "{$relation['owner']}::{$relation['method']}", 'type' => 'loads-relation'];
 
-            if ($relation['toMany'] && isset($step['elements']) && $position === $last && $step['stopAfter'] === null) {
+            if ($relation['toMany'] && isset($step['elements']) && $position === $last) {
                 return [$relation['related'], $edges];
             }
 

@@ -34,6 +34,7 @@ final class RelationTraversalTracerTest extends TestCase
         class User
         {
             public function team() { return $this->belongsTo(\App\Models\Team::class); }
+            public function posts() { return $this->hasMany(\App\Models\Post::class); }
             public function notify(): void {}
         }
         class Team {}
@@ -938,6 +939,131 @@ final class RelationTraversalTracerTest extends TestCase
                 }
             }
             PHP));
+    }
+
+    #[Test]
+    public function a_write_that_states_no_type_clears_a_loaded_local(): void
+    {
+        $this->assertSame([], $this->instanceCalls(<<<'PHP'
+            <?php
+            namespace App\Services;
+            final class Notifier
+            {
+                public function run(\App\Models\Post $post, array $rows): void
+                {
+                    $a = $post->author;
+                    [$a] = $rows;
+                    $a->notify();
+
+                    $b = $post->author;
+                    $b = &$rows[0];
+                    $b->notify();
+
+                    $c = $post->author;
+                    try {
+                        $rows[] = 1;
+                    } catch (\Exception $c) {
+                        $c->notify();
+                    }
+
+                    $d = $post->author;
+                    $d .= 'x';
+                    $d->notify();
+                }
+            }
+            PHP));
+    }
+
+    #[Test]
+    public function a_foreach_value_is_the_loaded_model_only_inside_the_loop(): void
+    {
+        $this->assertSame(['App\\Models\\Comment::publish'], $this->instanceCalls(<<<'PHP'
+            <?php
+            namespace App\Services;
+            final class Publisher
+            {
+                public function run(\App\Models\Post $post, bool $flag): void
+                {
+                    if ($flag) {
+                        $item = $post->author;
+                    } else {
+                        foreach ($post->comments as $item) {
+                            $item->publish();
+                        }
+                    }
+
+                    // After the loop, `$item` may be the author or the last comment.
+                    $item->notify();
+                }
+            }
+            PHP));
+    }
+
+    #[Test]
+    public function a_foreach_over_a_to_many_hop_mid_chain_binds_nothing(): void
+    {
+        $this->assertSame([], $this->instanceCalls(<<<'PHP'
+            <?php
+            namespace App\Services;
+            final class Publisher
+            {
+                public function run(\App\Models\Post $post): void
+                {
+                    foreach ($post->comments->author as $item) {
+                        $item->notify();
+                    }
+
+                    foreach ($post->comments as [$first]) {
+                        $first->publish();
+                    }
+                }
+            }
+            PHP));
+    }
+
+    #[Test]
+    public function a_foreach_after_several_hops_binds_the_last_relation_model(): void
+    {
+        $this->assertSame(['App\\Models\\User::notify'], $this->instanceCalls(<<<'PHP'
+            <?php
+            namespace App\Services;
+            final class Publisher
+            {
+                public function run(\App\Models\Comment $comment): void
+                {
+                    foreach ($comment->author->posts as $post) {
+                        $post->author->notify();
+                    }
+                }
+            }
+            PHP));
+    }
+
+    #[Test]
+    public function a_call_on_a_loaded_model_counts_on_the_right_of_an_assignment_and_after_an_own_method(): void
+    {
+        $this->assertSame(['App\\Models\\User::notify', 'App\\Models\\User::notify'], array_column(array_values(array_filter(
+            $this->edges(<<<'PHP'
+                <?php
+                namespace App\Services;
+                use App\Models\Post;
+                final class Notifier
+                {
+                    public function first(Post $post): void
+                    {
+                        $result = $post->author->notify();
+                    }
+
+                    public function second(): void
+                    {
+                        $this->post()->author->notify();
+                    }
+
+                    private function post(): Post { return new Post(); }
+                }
+                PHP),
+            static fn (array $edge): bool => $edge['type'] === 'instance-call',
+        )), 'target'));
     }
 
     /** @return list<string> */

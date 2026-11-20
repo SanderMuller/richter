@@ -2,19 +2,14 @@
 
 namespace SanderMuller\Richter\Tracers;
 
-use PhpParser\Node;
 use PhpParser\Node\Expr;
-use PhpParser\Node\Expr\ArrowFunction;
 use PhpParser\Node\Expr\Assign;
-use PhpParser\Node\Expr\Closure;
-use PhpParser\Node\Expr\Match_;
 use PhpParser\Node\Expr\MethodCall;
 use PhpParser\Node\Expr\New_;
 use PhpParser\Node\Expr\NullsafeMethodCall;
 use PhpParser\Node\Expr\NullsafePropertyFetch;
 use PhpParser\Node\Expr\PropertyFetch;
 use PhpParser\Node\Expr\StaticCall;
-use PhpParser\Node\Expr\Ternary;
 use PhpParser\Node\Expr\Variable;
 use PhpParser\Node\FunctionLike;
 use PhpParser\Node\Identifier;
@@ -23,20 +18,10 @@ use PhpParser\Node\Scalar\Int_;
 use PhpParser\Node\Scalar\String_;
 use PhpParser\Node\Stmt\ClassLike;
 use PhpParser\Node\Stmt\ClassMethod;
-use PhpParser\Node\Stmt\Do_;
-use PhpParser\Node\Stmt\Else_;
-use PhpParser\Node\Stmt\ElseIf_;
-use PhpParser\Node\Stmt\For_;
 use PhpParser\Node\Stmt\Foreach_;
-use PhpParser\Node\Stmt\If_;
-use PhpParser\Node\Stmt\Switch_;
-use PhpParser\Node\Stmt\TryCatch;
 use PhpParser\Node\Stmt\Use_;
-use PhpParser\Node\Stmt\While_;
 use PhpParser\NodeFinder;
 use PhpParser\NodeTraverser;
-use PhpParser\NodeVisitor;
-use PhpParser\NodeVisitorAbstract;
 use SanderMuller\Richter\Graph\CodeGraphBuilder;
 use SanderMuller\Richter\Support\AppFiles;
 use SanderMuller\Richter\Support\DeclaredTypes;
@@ -64,9 +49,11 @@ use SanderMuller\Richter\Support\RelationIndex;
  * local bound to `$post->author`, and the value of `foreach ($post->comments as $comment)`. Nothing
  * else in the method names that class, so without an `instance-call` edge to `User::notify` the call
  * reaches it only through the class-level `relation-to-model` edge. A receiver the source types by
- * itself (a parameter, `new`, a static) is left to the receiver-typing lanes. Cross-file — the index completes only after every file is read — so it
- * accumulates via {@see collect()} across the consolidated AST pass in {@see CodeGraphBuilder} and
- * emits once, via {@see edges()}.
+ * itself (a parameter, `new`, a static) is left to the receiver-typing lanes.
+ *
+ * Cross-file — the index completes only after every file is read — so it accumulates via
+ * {@see collect()} across the consolidated AST pass in {@see CodeGraphBuilder} and emits once, via
+ * {@see edges()}.
  *
  * @internal
  */
@@ -95,6 +82,9 @@ final class RelationTraversalTracer
      * @var list<string>
      */
     private const array FIND_BY_ID = ['find', 'findOrFail', 'findOrNew'];
+
+    /** A step that binds nothing: with an `assign`, it clears that name. */
+    private const array CLEARED = ['assign' => null, 'rootClass' => null, 'rootVar' => null, 'names' => [], 'stopAfter' => null];
 
     /**
      * One entry per method that traverses anything, in file order. Each carries the types the method
@@ -173,68 +163,7 @@ final class RelationTraversalTracer
         $docblocks = $this->types->docblockTypesIn($scope);
         $seeds = $this->types->parameterTypesOf($scope);
 
-        // One descent collects everything this scope reads: the outermost closures (their children
-        // skipped, since each is its own scope, recursed into below), the chain-capable nodes in
-        // preorder — which IS start-position order, because a child never starts before its parent —
-        // and the branching ranges. The three separate finds this replaces each walked the same tree
-        // in full, and the containment filters they then needed were quadratic in the found nodes.
-        $walk = new class ($scope) extends NodeVisitorAbstract {
-            /** @var list<Closure|ArrowFunction> */
-            public array $closures = [];
-
-            /** @var list<Assign|Foreach_|PropertyFetch|NullsafePropertyFetch|MethodCall|NullsafeMethodCall> */
-            public array $nodes = [];
-
-            /** @var list<array{0: int, 1: int}> */
-            public array $branching = [];
-
-            public function __construct(private readonly FunctionLike $scope) {}
-
-            public function enterNode(Node $node): ?int
-            {
-                // `$node !== $this->scope` because the traversal starts on the scope node itself, and
-                // stopping there would skip the very body this walk exists to read.
-                if ($node !== $this->scope && ($node instanceof Closure || $node instanceof ArrowFunction)) {
-                    $this->closures[] = $node;
-
-                    return NodeVisitor::DONT_TRAVERSE_CHILDREN;
-                }
-
-                // Also a branching range below: it binds its own names, and an assignment in its body
-                // may not run.
-                if ($node instanceof Foreach_) {
-                    $this->nodes[] = $node;
-                }
-
-                if ($node instanceof Assign
-                    || $node instanceof PropertyFetch
-                    || $node instanceof NullsafePropertyFetch
-                    || $node instanceof MethodCall
-                    || $node instanceof NullsafeMethodCall) {
-                    $this->nodes[] = $node;
-
-                    return null;
-                }
-
-                // An assignment inside one of these may or may not run, and a sibling branch may bind
-                // the same name to another model — so its range marks bindings as conditional.
-                if ($node instanceof If_
-                    || $node instanceof Else_
-                    || $node instanceof ElseIf_
-                    || $node instanceof For_
-                    || $node instanceof Foreach_
-                    || $node instanceof While_
-                    || $node instanceof Do_
-                    || $node instanceof Switch_
-                    || $node instanceof Match_
-                    || $node instanceof TryCatch
-                    || $node instanceof Ternary) {
-                    $this->branching[] = [$node->getStartFilePos(), $node->getEndFilePos()];
-                }
-
-                return null;
-            }
-        };
+        $walk = new RelationScopeWalk($scope);
 
         new NodeTraverser($walk)->traverse([$scope]);
 
@@ -246,10 +175,26 @@ final class RelationTraversalTracer
 
         $steps = [];
         $handled = [];
-        $branching = $walk->branching;
+
+        // A `foreach` value is the loaded model only inside the loop. After it, the name holds the last
+        // element, or its old value when the collection was empty, so it is cleared where the loop ends.
+        $clearAfter = [];
 
         foreach ($nodes as $node) {
+            [$cleared, $clearAfter] = $this->clearedBefore($node->getStartFilePos(), $clearAfter);
+            $steps = [...$steps, ...$cleared];
+
             if (isset($handled[spl_object_id($node)])) {
+                continue;
+            }
+
+            $written = RelationScopeWalk::writtenNames($node);
+
+            if ($written !== null) {
+                foreach ($written as $name) {
+                    $steps[] = [...self::CLEARED, 'assign' => $name];
+                }
+
                 continue;
             }
 
@@ -258,18 +203,17 @@ final class RelationTraversalTracer
                 // a second branch may bind the same name to another model. Source order cannot say
                 // which one the runtime took, so a conditional binding clears the variable instead of
                 // typing it.
-                $conditional = array_any(
-                    $branching,
-                    static fn (array $range): bool => $node->getStartFilePos() >= $range[0] && $node->getEndFilePos() <= $range[1],
-                );
-
-                $this->collectAssignment($node, $classFqcn, $properties, $docblocks, $conditional, $steps, $handled);
+                $this->collectAssignment($node, $classFqcn, $properties, $docblocks, $walk->isConditional($node), $steps, $handled);
 
                 continue;
             }
 
             if ($node instanceof Foreach_) {
-                $this->collectForeach($node, $classFqcn, $properties, $steps, $handled);
+                $bound = $this->collectForeach($node, $classFqcn, $properties, $steps, $handled);
+
+                if ($bound !== null) {
+                    $clearAfter[] = [$node->getEndFilePos(), $bound];
+                }
 
                 continue;
             }
@@ -360,13 +304,14 @@ final class RelationTraversalTracer
      * The names a `foreach` binds. Its value is the related model when the loop reads a to-many
      * relation property; every other bound name is cleared, since its old type no longer holds.
      *
+     *
      * @param  array<string, string>  $properties
      * @param  list<array{assign: string|null, rootClass: string|null, rootVar: string|null, names: list<string>, stopAfter: int|null, ownCall?: array{class: string, method: string}, elements?: true}>  $steps
      * @param  array<int, true>  $handled
+     * @return string|null the value name it typed, which the caller clears where the loop ends
      */
-    private function collectForeach(Foreach_ $node, string $classFqcn, array $properties, array &$steps, array &$handled): void
+    private function collectForeach(Foreach_ $node, string $classFqcn, array $properties, array &$steps, array &$handled): ?string
     {
-        $cleared = ['assign' => null, 'rootClass' => null, 'rootVar' => null, 'names' => [], 'stopAfter' => null];
         $expression = $node->expr;
         $chain = null;
 
@@ -385,9 +330,34 @@ final class RelationTraversalTracer
 
         foreach (new NodeFinder()->findInstanceOf(array_filter([$node->keyVar, $node->valueVar]), Variable::class) as $variable) {
             if (is_string($variable->name) && (! $bound || $variable !== $node->valueVar)) {
-                $steps[] = [...$cleared, 'assign' => $variable->name];
+                $steps[] = [...self::CLEARED, 'assign' => $variable->name];
             }
         }
+
+        return $bound ? $value : null;
+    }
+
+    /**
+     * The clearing steps for every `foreach` value whose loop ended before this position, and the
+     * loops still open.
+     *
+     * @param  list<array{0: int, 1: string}>  $clearAfter  loop end position and the name it bound
+     * @return array{0: list<array{assign: string, rootClass: null, rootVar: null, names: array{}, stopAfter: null}>, 1: list<array{0: int, 1: string}>}
+     */
+    private function clearedBefore(int $position, array $clearAfter): array
+    {
+        $steps = [];
+        $open = [];
+
+        foreach ($clearAfter as [$end, $name]) {
+            if ($end < $position) {
+                $steps[] = [...self::CLEARED, 'assign' => $name];
+            } else {
+                $open[] = [$end, $name];
+            }
+        }
+
+        return [$steps, $open];
     }
 
     /**
