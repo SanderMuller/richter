@@ -30,6 +30,7 @@ use SanderMuller\Richter\Tracers\DispatchEdgeTracer;
 use SanderMuller\Richter\Tracers\EntryPointTracer;
 use SanderMuller\Richter\Tracers\FacadeEdgeTracer;
 use SanderMuller\Richter\Tracers\InstanceCallEdgeTracer;
+use SanderMuller\Richter\Tracers\ModelFactoryTracer;
 use SanderMuller\Richter\Tracers\PolicyEdgeTracer;
 use SanderMuller\Richter\Tracers\ReferenceEdgeTracer;
 use SanderMuller\Richter\Tracers\RelationTraversalTracer;
@@ -563,6 +564,9 @@ final class CodeGraphBuilder
         // model: test selection walks these instead of `relation-to-model`.
         array_push($edges, ...$hydrationSurface->edges($relationEdges));
 
+        // The app code a model factory runs, which test code reaches through `X::factory()`.
+        array_push($edges, ...new ModelFactoryTracer($projectRoot)->edges($hydrationSurface, array_keys($hierarchyTracer->inheritanceMap())));
+
         // Sorted before it leaves the branch: a report that names sites must not reorder between
         // runs, and the cached payload has to be byte-stable or the fingerprint starts flapping.
         // Deduplicated: a statement can be recorded by the tracer and again by the fan-out, or twice by
@@ -818,13 +822,16 @@ final class CodeGraphBuilder
      * own class's callers and the change falsely reads as unreached. Excluded from risk counting in
      * {@see ImpactAnalyzer} (declaration is association, not invocation).
      *
+     * A model's factory node (`X::factory`) gets none. The model does not declare it, and a climb to
+     * `X` would carry a factory's reach on to every caller of the model.
+     *
      * @param  list<array{source: string, target: string, type: string}>  $edges
      * @return list<array{source: string, target: string, type: string}>
      */
     public static function declaresEdges(array $edges): array
     {
         $declares = [];
-        $seen = [];
+        $seen = ModelFactoryTracer::factoryNodes($edges);
 
         foreach ($edges as $edge) {
             foreach ([$edge['source'], $edge['target']] as $node) {

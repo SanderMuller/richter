@@ -155,7 +155,8 @@ final class GraphCache
      * The same version draws an `inherits` edge from a using class's member to the trait method that
      * runs (`Status::sorted` to `SortsCases::sorted`). A 31 entry lacks it. It also draws a `hook`
      * edge from a class's `__construct` to each method that package code calls on it (a global
-     * scope's `apply()`). A 31 entry lacks that too.
+     * scope's `apply()`). A 31 entry lacks that too. And it draws a `factory` edge from `X::factory`
+     * to the app code that model factory runs. A 31 entry lacks that as well.
      */
     private const int FORMAT_VERSION = 32;
 

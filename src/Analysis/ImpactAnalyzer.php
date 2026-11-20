@@ -71,9 +71,11 @@ final readonly class ImpactAnalyzer
      * all of them. Counting that would let one edit to the resolver saturate the level on breadth,
      * while the reach it carries — which is what gives a registry-dispatched class any caller at all
      * — is exactly what must keep flowing.
+     * `factory` links a model's factory to the code it runs. The factory is test code, so what it
+     * reaches is not production impact; it is there for test selection.
      * Reach, coverage, and entry-point discovery still flow through these edges.
      */
-    public const array RISK_EXCLUDED_EDGE_TYPES = ['model-relationship', 'declares', 'uses-trait', 'override', 'model-to-policy', 'config-registry', 'config-registry-fanout'];
+    public const array RISK_EXCLUDED_EDGE_TYPES = ['model-relationship', 'declares', 'uses-trait', 'override', 'model-to-policy', 'config-registry', 'config-registry-fanout', 'factory'];
 
     /**
      * Edges that carry CONTEXT rather than a call, for the purpose of finding entry points.

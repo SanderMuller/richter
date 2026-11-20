@@ -3,11 +3,14 @@
 namespace App\Models;
 
 use App\Models\Scopes\PublishedScope;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 final class Post extends Model
 {
+    use HasFactory;
+
     public const string COMMENTS = 'comments';
 
     public const string REVIEWS = 'reviews';

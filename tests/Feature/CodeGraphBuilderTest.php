@@ -278,6 +278,23 @@ final class CodeGraphBuilderTest extends TestCase
     }
 
     #[Test]
+    public function a_model_factory_links_to_the_app_code_its_definition_runs(): void
+    {
+        $this->assertSame('factory', $this->directCallersOf('App\\Jobs\\Exports\\CsvExportJob::forRows')['App\\Models\\Post::factory'] ?? null);
+        $this->assertSame('factory', $this->directCallersOf('App\\Models\\Post::factory')['App\\Models\\Comment::factory'] ?? null);
+        $this->assertSame('factory', $this->directCallersOf('App\\Models\\Post::booted')['App\\Models\\Post::factory'] ?? null);
+        $this->assertSame('factory', $this->directCallersOf('App\\Observers\\CommentObserver')['App\\Models\\Comment::factory'] ?? null);
+        // No climb to the model: that would carry a factory's reach on to every caller of `Post`.
+        $this->assertArrayNotHasKey('App\\Models\\Post', $this->directCallersOf('App\\Models\\Post::factory'));
+    }
+
+    #[Test]
+    public function a_factory_state_a_test_must_ask_for_links_nothing(): void
+    {
+        $this->assertArrayNotHasKey('App\\Models\\Comment::factory', $this->directCallersOf('App\\Services\\CommentSummariser::__construct'));
+    }
+
+    #[Test]
     public function a_method_package_code_calls_links_from_the_constructor_of_its_class(): void
     {
         $this->assertSame('hook', $this->directCallersOf('App\\Casts\\Markdown::get')['App\\Casts\\Markdown::__construct'] ?? null);

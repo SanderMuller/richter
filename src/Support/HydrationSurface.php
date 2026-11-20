@@ -17,6 +17,7 @@ use PhpParser\Node\Stmt\Return_;
 use PhpParser\Node\Stmt\TraitUse;
 use PhpParser\NodeFinder;
 use SanderMuller\Richter\Graph\CodeGraphBuilder;
+use SanderMuller\Richter\Tracers\ModelFactoryTracer;
 
 /**
  * The code that runs when a model is loaded or saved, and the two edge kinds that follow from it.
@@ -116,7 +117,8 @@ final class HydrationSurface
     /**
      * A relation method to each observer of the model it returns: an observer runs when a model is
      * saved or deleted through the relation. A parent's observer counts too: `#[ObservedBy]` and an
-     * `observe()` call in a parent's `booted()` both apply to the subclass.
+     * `observe()` call in a parent's `booted()` both apply to the subclass. A model's factory node
+     * (`X::factory`) links to the observers of `X` the same way, because the factory saves it.
      *
      * @param  array<string, array{parent: string|null, ...}>  $inheritance
      * @param  list<array{source: string, target: string, type: string}>  $edges  the merged graph edges
@@ -135,22 +137,38 @@ final class HydrationSurface
         $hydrates = [];
 
         foreach ($edges as $edge) {
-            if ($edge['type'] !== 'relation-to-model') {
-                continue;
-            }
-
-            $seen = [];
-
-            for ($model = $edge['target']; $model !== null && ! isset($seen[$model]); $model = $inheritance[$model]['parent'] ?? null) {
-                $seen[$model] = true;
-
-                foreach ($observers[$model] ?? [] as $observer) {
+            if ($edge['type'] === 'relation-to-model') {
+                foreach (self::observersOf($edge['target'], $observers, $inheritance) as $observer) {
                     $hydrates[] = ['source' => $edge['source'], 'target' => $observer, 'type' => 'hydrates'];
                 }
             }
         }
 
+        foreach (array_keys(ModelFactoryTracer::factoryNodes($edges)) as $factory) {
+            foreach (self::observersOf(substr($factory, 0, -strlen('::factory')), $observers, $inheritance) as $observer) {
+                $hydrates[] = ['source' => $factory, 'target' => $observer, 'type' => ModelFactoryTracer::EDGE_TYPE];
+            }
+        }
+
         return $hydrates;
+    }
+
+    /**
+     * @param  array<string, list<string>>  $observers
+     * @param  array<string, array{parent: string|null, ...}>  $inheritance
+     * @return list<string>
+     */
+    private static function observersOf(string $model, array $observers, array $inheritance): array
+    {
+        $found = [];
+        $seen = [];
+
+        for ($class = $model; $class !== null && ! isset($seen[$class]); $class = $inheritance[$class]['parent'] ?? null) {
+            $seen[$class] = true;
+            array_push($found, ...$observers[$class] ?? []);
+        }
+
+        return $found;
     }
 
     /**
@@ -160,7 +178,7 @@ final class HydrationSurface
      *
      * @return list<string>
      */
-    private function surfaceOf(string $model): array
+    public function surfaceOf(string $model): array
     {
         $nodes = [];
         $pending = [$model];

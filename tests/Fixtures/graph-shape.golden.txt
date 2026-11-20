@@ -68,6 +68,7 @@ App\Http\Resources\Api\v2\Post\ReviewResource::toArray	resource	App\Http\Resourc
 App\Http\Resources\Api\v2\Post\ReviewResource::toArray	static-call	App\Http\Resources\Api\v2\Post\ReviewPlayerResource::make
 App\Http\Resources\Api\v2\Post\ReviewResource::toArray	action-to-resource	App\Http\Resources\Api\v2\Post\ReviewPlayerResource::toArray
 App\Jobs\Exports\CsvExportJob	declares	App\Jobs\Exports\CsvExportJob::__construct
+App\Jobs\Exports\CsvExportJob	declares	App\Jobs\Exports\CsvExportJob::forRows
 App\Jobs\Exports\CsvExportJob	declares	App\Jobs\Exports\CsvExportJob::handle
 App\Jobs\Exports\CsvExportJob::__construct	inherits	App\Jobs\Exports\ExportJob::__construct
 App\Jobs\Exports\PdfExportJob	declares	App\Jobs\Exports\PdfExportJob::__construct
@@ -90,6 +91,9 @@ App\Models\Comment	declares	App\Models\Comment::touch
 App\Models\Comment	model-to-observer	App\Observers\CommentObserver
 App\Models\Comment::__construct	hook	App\Models\Comment::casts
 App\Models\Comment::casts	casts	App\Casts\Markdown
+App\Models\Comment::factory	factory	App\Models\Comment::casts
+App\Models\Comment::factory	factory	App\Models\Post::factory
+App\Models\Comment::factory	factory	App\Observers\CommentObserver
 App\Models\Comment::post	relation-to-model	App\Models\Post
 App\Models\Comment::post	hydrates	App\Models\Post::booted
 App\Models\Comment::post	hydrates	App\Models\Post::casts
@@ -113,6 +117,9 @@ App\Models\Post::booted	constructs	App\Models\Scopes\PublishedScope::__construct
 App\Models\Post::comments	relation-to-model	App\Models\Comment
 App\Models\Post::comments	hydrates	App\Models\Comment::casts
 App\Models\Post::comments	hydrates	App\Observers\CommentObserver
+App\Models\Post::factory	factory	App\Jobs\Exports\CsvExportJob::forRows
+App\Models\Post::factory	factory	App\Models\Post::booted
+App\Models\Post::factory	factory	App\Models\Post::casts
 App\Models\Post::reviews	relation-to-model	App\Models\Review
 App\Models\PostContainer	declares	App\Models\PostContainer::posts
 App\Models\PostContainer	declares	App\Models\PostContainer::query

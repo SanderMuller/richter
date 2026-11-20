@@ -756,6 +756,19 @@ final class ImpactAnalyzerTest extends TestCase
     }
 
     #[Test]
+    public function a_model_factory_feeds_test_selection_and_not_the_impacted_count(): void
+    {
+        $graph = new CodeGraph([
+            ['source' => 'App\\Models\\Post::factory', 'target' => 'App\\Support\\Slugger::make', 'type' => 'factory'],
+        ], hasUnparseableFiles: false);
+
+        $result = new ImpactAnalyzer($graph)->detectChanges([$this->changedMethod('app/Support/Slugger.php', 'App\\Support\\Slugger', 'make')]);
+
+        $this->assertContains('App\\Models\\Post::factory', array_column($result['selectionCallers'], 'node'));
+        $this->assertSame(0, $result['impacted']);
+    }
+
+    #[Test]
     public function an_additive_only_change_to_a_job_is_low_not_medium(): void
     {
         // A new method on a job has no callers; the entry-class floor must not fire.

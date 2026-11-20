@@ -655,6 +655,23 @@ final class AffectedTestsTest extends TestCase
     }
 
     #[Test]
+    public function a_model_factory_that_runs_the_change_selects_the_tests_importing_the_model(): void
+    {
+        $index = new TestReferenceIndex();
+        $index->addSource("<?php\nuse App\Models\Post;\n", 'tests/Unit/PostTest.php');
+
+        $selection = AffectedTests::select(
+            $this->detectResult([], callers: [['depth' => 1, 'node' => 'App\Models\Post::factory', 'via' => 'factory']]),
+            [$this->changed('app/Support/Slugger.php', 'App\Support\Slugger')],
+            $index,
+            unresolvedDispatchSites: [],
+        );
+
+        $this->assertTrue($selection['determinable']);
+        $this->assertSame(['tests/Unit/PostTest.php'], $selection['tests']);
+    }
+
+    #[Test]
     public function a_class_driven_route_is_selected_when_the_graph_is_given(): void
     {
         // A Filament page is driven by neither route name nor URI — `livewire(AdminPanel::class)`
