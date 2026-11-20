@@ -5,6 +5,7 @@ namespace SanderMuller\Richter\Tests\Unit;
 use PhpParser\Node\Stmt\ClassLike;
 use PhpParser\Node\Stmt\Use_;
 use PhpParser\NodeFinder;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use SanderMuller\Richter\Support\AppFiles;
 use SanderMuller\Richter\Support\RelationIndex;
@@ -1134,6 +1135,122 @@ final class RelationTraversalTracerTest extends TestCase
                     $post->comments()->notify()->published();
                     $post->comments()->publish();
                     $post->comments->published();
+                }
+            }
+            PHP));
+    }
+
+    #[Test]
+    public function an_imported_scope_attribute_marks_a_scope_and_a_private_one_does_not(): void
+    {
+        $this->assertSame(['App\\Models\\Note::pinned'], $this->instanceCalls(<<<'PHP'
+            <?php
+            namespace App\Models;
+            use Illuminate\Database\Eloquent\Attributes\Scope;
+            class Note
+            {
+                #[Scope]
+                protected function pinned($query): void {}
+
+                #[Scope]
+                private function hidden($query): void {}
+            }
+            class Board
+            {
+                public function notes() { return $this->hasMany(Note::class); }
+
+                public function run(): void
+                {
+                    $this->notes()->pinned()->hidden()->get();
+                }
+            }
+            PHP));
+    }
+
+    #[Test]
+    public function a_scope_follows_a_relation_on_an_own_method_root(): void
+    {
+        $this->assertSame(['App\\Models\\Comment::scopePublished', 'App\\Models\\Comment::scopeActive'], $this->instanceCalls(<<<'PHP'
+            <?php
+            namespace App\Models;
+            class Article
+            {
+                public function remarks(): \App\Relations\RemarkRelation { return $this->hasMany(\App\Models\Comment::class); }
+
+                public function run(): void
+                {
+                    $this->post()->comments()->orderByRaw('id')->published()->get();
+                    $this->remarks()->withSum('votes', 'id')->active()->get();
+                }
+
+                private function post(): Post { return new Post(); }
+            }
+            PHP));
+    }
+
+    /** @return iterable<string, array{string}> */
+    public static function scopeChains(): iterable
+    {
+        yield 'a call in the root arguments' => ['\\App\\Models\\Post::create([$request->input(\'title\')])->comments()->published()->get();'];
+        yield 'a typed property root' => ['$this->post->comments()->published()->get();'];
+        yield 'a call name in another case' => ['$this->post->comments()->PUBLISHED()->get();'];
+        yield 'the nullsafe operator' => ['$this->post?->comments()?->published()?->get();'];
+    }
+
+    #[Test]
+    #[DataProvider('scopeChains')]
+    public function a_scope_chain_resolves_from_each_root_shape(string $statement): void
+    {
+        $this->assertSame(['App\\Models\\Comment::scopePublished'], $this->instanceCalls(<<<PHP
+            <?php
+            namespace App\\Services;
+            final class Feed
+            {
+                public function __construct(private \\App\\Models\\Post \$post) {}
+
+                public function run(\\Illuminate\\Http\\Request \$request): void
+                {
+                    {$statement}
+                }
+            }
+            PHP));
+    }
+
+    #[Test]
+    public function a_call_further_in_than_the_relation_keeps_its_scopes_out(): void
+    {
+        // `author()` is the innermost call, so `team` and what follows are not its builder calls.
+        $this->assertSame([], $this->instanceCalls(<<<'PHP'
+            <?php
+            namespace App\Services;
+            final class Feed
+            {
+                public function run(\App\Models\Comment $comment): void
+                {
+                    $comment->author()->first()->team->published();
+                }
+            }
+            PHP));
+    }
+
+    #[Test]
+    public function an_inherited_scope_names_the_ancestor_that_declares_it(): void
+    {
+        $this->assertSame(['App\\Models\\Entry::scopeLive'], $this->instanceCalls(<<<'PHP'
+            <?php
+            namespace App\Models;
+            abstract class Entry
+            {
+                public function scopeLive($query) { return $query; }
+            }
+            class Reply extends Entry {}
+            class Thread
+            {
+                public function replies() { return $this->hasMany(Reply::class); }
+
+                public function run(): void
+                {
+                    $this->replies()->live()->get();
                 }
             }
             PHP));

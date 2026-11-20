@@ -398,36 +398,19 @@ final class RelationTraversalTracer
     }
 
     /**
-     * {@see rootedChainOf()}, plus the calls that follow the innermost call while every one of them is
-     * a call: on a relation called as a method, those run on its query builder.
-     *
-     * @param  array<string, string>  $properties
-     * @return array{rootClass: string|null, rootVar: string|null, names: list<string>, stopAfter: int|null, ownCall?: array{class: string, method: string}, elements?: true, builderCalls?: list<string>}|null
-     */
-    private function chainOf(PropertyFetch|NullsafePropertyFetch|MethodCall|NullsafeMethodCall $expression, string $classFqcn, array $properties): ?array
-    {
-        $chain = $this->rootedChainOf($expression, $classFqcn, $properties);
-
-        if ($chain === null) {
-            return null;
-        }
-
-        $calls = RelationScopeWalk::callsAfterInnermost($expression);
-
-        return $calls === [] ? $chain : [...$chain, 'builderCalls' => $calls];
-    }
-
-    /**
      * One `$root->a->b` expression as a root plus the names to resolve against it, or null when the
      * root carries no type this can read.
      *
      * A first name that is a typed property rather than a relation is consumed here: `$this->post` in
      * a service is the property's type, and only what follows it can be a relation.
      *
+     * `builderCalls` are the names after the stopping call when every one of them is a call: on a
+     * relation called as a method, those run on its query builder.
+     *
      * @param  array<string, string>  $properties
      * @return array{rootClass: string|null, rootVar: string|null, names: list<string>, stopAfter: int|null, ownCall?: array{class: string, method: string}, elements?: true, builderCalls?: list<string>}|null
      */
-    private function rootedChainOf(PropertyFetch|NullsafePropertyFetch|MethodCall|NullsafeMethodCall $expression, string $classFqcn, array $properties): ?array
+    private function chainOf(PropertyFetch|NullsafePropertyFetch|MethodCall|NullsafeMethodCall $expression, string $classFqcn, array $properties): ?array
     {
         $names = [];
         $calls = [];
@@ -452,18 +435,19 @@ final class RelationTraversalTracer
         // innermost call is where the chain stops.
         $callIndexes = array_map(static fn (int $position): int => count($names) - 1 - $position, array_reverse($calls));
         $stopAfter = $callIndexes[0] ?? null;
+        $builderCalls = $this->callsAfter($names, $callIndexes, $stopAfter);
 
         // A static root — `Post::find($id)->comments` — states its class in the source.
         if ($node instanceof StaticCall) {
             $direct = $this->directTypeOf($node);
 
-            return $direct === null ? null : ['rootClass' => $direct, 'rootVar' => null, 'names' => $names, 'stopAfter' => $stopAfter];
+            return $direct === null ? null : ['rootClass' => $direct, 'rootVar' => null, 'names' => $names, 'stopAfter' => $stopAfter, 'builderCalls' => $builderCalls];
         }
 
         if ($node instanceof New_) {
             $direct = $this->directTypeOf($node);
 
-            return $direct === null ? null : ['rootClass' => $direct, 'rootVar' => null, 'names' => $names, 'stopAfter' => $stopAfter];
+            return $direct === null ? null : ['rootClass' => $direct, 'rootVar' => null, 'names' => $names, 'stopAfter' => $stopAfter, 'builderCalls' => $builderCalls];
         }
 
         // No emptiness test on $names: the loop above unshifted at least one, since the expression
@@ -474,7 +458,7 @@ final class RelationTraversalTracer
 
         if ($node->name !== 'this') {
             // A local or parameter: the type is whatever the method bound to it by this point.
-            return ['rootClass' => null, 'rootVar' => $node->name, 'names' => $names, 'stopAfter' => $stopAfter];
+            return ['rootClass' => null, 'rootVar' => $node->name, 'names' => $names, 'stopAfter' => $stopAfter, 'builderCalls' => $builderCalls];
         }
 
         return $this->chainOnThis($names, $callIndexes, $classFqcn, $properties);
@@ -501,19 +485,38 @@ final class RelationTraversalTracer
 
             return count($names) < 2
                 ? null
-                : ['rootClass' => $returned, 'rootVar' => null, 'names' => array_slice($names, 1), 'stopAfter' => $next === null ? null : $next - 1, 'ownCall' => ['class' => $classFqcn, 'method' => $names[0]]];
+                : ['rootClass' => $returned, 'rootVar' => null, 'names' => array_slice($names, 1), 'stopAfter' => $next === null ? null : $next - 1, 'ownCall' => ['class' => $classFqcn, 'method' => $names[0]], 'builderCalls' => $this->callsAfter($names, $callIndexes, $next)];
         }
 
         $property = $properties[$names[0]] ?? null;
 
         if ($property === null) {
             // `$this->comments` inside the model itself: the enclosing class is the receiver.
-            return ['rootClass' => $classFqcn, 'rootVar' => null, 'names' => $names, 'stopAfter' => $stopAfter];
+            return ['rootClass' => $classFqcn, 'rootVar' => null, 'names' => $names, 'stopAfter' => $stopAfter, 'builderCalls' => $this->callsAfter($names, $callIndexes, $stopAfter)];
         }
 
         // `$this->post` alone reads a property, not a relation: there is no hop left to resolve.
         return count($names) < 2
             ? null
-            : ['rootClass' => $property, 'rootVar' => null, 'names' => array_slice($names, 1), 'stopAfter' => $stopAfter === null ? null : $stopAfter - 1];
+            : ['rootClass' => $property, 'rootVar' => null, 'names' => array_slice($names, 1), 'stopAfter' => $stopAfter === null ? null : $stopAfter - 1, 'builderCalls' => $this->callsAfter($names, $callIndexes, $stopAfter)];
+    }
+
+    /**
+     * The names after the call at `$stopAfter`, when every one of them is a call too; otherwise none.
+     *
+     * @param  list<string>  $names
+     * @param  list<int>  $callIndexes
+     * @return list<string>
+     */
+    private function callsAfter(array $names, array $callIndexes, ?int $stopAfter): array
+    {
+        if ($stopAfter === null) {
+            return [];
+        }
+
+        $after = array_slice($names, $stopAfter + 1);
+        $calls = array_filter($callIndexes, static fn (int $index): bool => $index > $stopAfter);
+
+        return count($calls) === count($after) ? $after : [];
     }
 }

@@ -14,7 +14,7 @@ use SanderMuller\Richter\Support\RelationIndex;
 final readonly class RelationChainResolver
 {
     /** Builder methods that return the builder, so a scope can still follow them. */
-    private const string BUILDER_RETURNING = '/^(?:(?:or)?where\\w*|orderBy(?:Desc)?|latest|oldest|limit|take|skip|offset|with|withCount|without|select|addSelect|distinct|groupBy|having|when|unless|withTrashed|onlyTrashed|withoutTrashed)$/i';
+    private const string BUILDER_RETURNING = '/^(?:(?:or)?where\\w*|orderBy\\w*|reorder|inRandomOrder|latest|oldest|limit|take|skip|offset|forPage|with\\w*|without\\w*|has|doesntHave|select|addSelect|distinct|groupBy|having|when|unless|onlyTrashed|lockForUpdate|sharedLock)$/i';
 
     public function __construct(private RelationIndex $index) {}
 
@@ -60,7 +60,10 @@ final readonly class RelationChainResolver
             $ownCall = $step['ownCall'] ?? null;
 
             if ($ownCall !== null && $this->index->relationOf($ownCall['class'], $ownCall['method']) !== null) {
-                [$class, $step] = [$ownCall['class'], [...$step, 'names' => [$ownCall['method']], 'stopAfter' => 0]];
+                // Every name the step kept follows the own call, and they are its builder calls when all
+                // of them are calls.
+                $calls = count($step['builderCalls'] ?? []) === count($step['names']) - 1 && $step['stopAfter'] === 0 ? $step['names'] : [];
+                [$class, $step] = [$ownCall['class'], [...$step, 'names' => [$ownCall['method']], 'stopAfter' => 0, 'builderCalls' => $calls]];
             }
 
             if ($class !== null) {

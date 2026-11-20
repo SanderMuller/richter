@@ -308,7 +308,8 @@ final class RelationIndex
 
             foreach ($method->attrGroups as $group) {
                 foreach ($group->attrs as $attribute) {
-                    if ($attribute->name->toString() === self::SCOPE_ATTRIBUTE) {
+                    // Laravel skips a private method with the attribute.
+                    if (! $method->isPrivate() && AppFiles::resolveName($attribute->name) === self::SCOPE_ATTRIBUTE) {
                         $scopes[strtolower($name)] = $name;
                     }
                 }
