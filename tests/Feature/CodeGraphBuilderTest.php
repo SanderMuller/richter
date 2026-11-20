@@ -272,6 +272,21 @@ final class CodeGraphBuilderTest extends TestCase
     }
 
     #[Test]
+    public function a_relation_links_to_the_observer_of_the_model_it_loads(): void
+    {
+        $this->assertSame('hydrates', $this->directCallersOf('App\\Observers\\CommentObserver')['App\\Models\\Post::comments'] ?? null);
+    }
+
+    #[Test]
+    public function a_method_package_code_calls_links_from_the_constructor_of_its_class(): void
+    {
+        $this->assertSame('hook', $this->directCallersOf('App\\Casts\\Markdown::get')['App\\Casts\\Markdown::__construct'] ?? null);
+        $this->assertSame('hook', $this->directCallersOf('App\\Models\\Scopes\\PublishedScope::apply')['App\\Models\\Scopes\\PublishedScope::__construct'] ?? null);
+        $this->assertSame('constructs', $this->directCallersOf('App\\Models\\Scopes\\PublishedScope::__construct')['App\\Models\\Post::booted'] ?? null);
+        $this->assertArrayNotHasKey('App\\Models\\Comment::__construct', $this->directCallersOf('App\\Models\\Comment::archive'));
+    }
+
+    #[Test]
     public function a_walked_relation_survives_the_second_hop_walk_being_off(): void
     {
         // The traversal is drawn by the consolidated per-file pass, not by the second-hop walk, so

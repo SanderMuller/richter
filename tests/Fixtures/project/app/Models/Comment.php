@@ -3,10 +3,13 @@
 namespace App\Models;
 
 use App\Casts\Markdown;
+use App\Observers\CommentObserver;
+use Illuminate\Database\Eloquent\Attributes\ObservedBy;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+#[ObservedBy(CommentObserver::class)]
 final class Comment extends Model
 {
     /** @return array<string, string> */

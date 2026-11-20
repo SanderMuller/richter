@@ -374,9 +374,14 @@ final readonly class ImpactAnalyzer
         // that drives such a route does exercise the change. A free hop does not use up depth, so
         // the selection walk also reaches past the report's limit. Carried separately so
         // {@see AffectedTests} can select over them without the entry-point list claiming them as
-        // callers. Internal, like the walk lists above: no output format reads it.
+        // callers. Internal, like the walk lists above: no output format reads it. A middleware a
+        // group runs adds every route of the group, because the graph draws no edge for membership.
         $selectionCallers = $this->graph->callersOf($seeds, $maxDepth, self::SELECTION_EXCLUDED_EDGE_TYPES, self::SELECTION_FREE_EDGE_TYPES);
-        $selectionEntryPoints = $this->entryPointsAmong($selectionCallers);
+        $groupLane = new MiddlewareGroupFindings($this->graph);
+        $selectionEntryPoints = array_values(array_unique([
+            ...$this->entryPointsAmong($selectionCallers),
+            ...$groupLane->routesRunning([...$seeds, ...array_column($selectionCallers, 'node')]),
+        ]));
         $selectionOnlyEntryPoints = array_values(array_diff($selectionEntryPoints, $entryPoints));
         // Listed in the report, but reached only by loading a relation to a changed model member
         // that does not run on load: test selection leaves them out, as it does their importers.
@@ -426,7 +431,6 @@ final readonly class ImpactAnalyzer
 
         $findings = $newFileFindings;
         [$modelParityLane, $consumerParityLane, $requestParityLane] = ParityFindings::checkers($this->graph, $payloadParityEnabled);
-        $groupLane = new MiddlewareGroupFindings($this->graph);
         // A FINDING lane, so it sits here and not in ParityFindings, which returns hazards. It reads
         // the two indexes ChangedSymbols built from the base and head trees and touches no file.
         $siblingReadLane = SiblingReadParity::fromConfig();

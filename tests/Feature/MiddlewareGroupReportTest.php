@@ -92,6 +92,36 @@ final class MiddlewareGroupReportTest extends TestCase
         $this->assertSame($withoutKernel['entryPoints'], $withKernel['entryPoints']);
     }
 
+    #[Test]
+    public function selection_takes_every_route_of_the_group(): void
+    {
+        $result = new ImpactAnalyzer($this->graph())->detectChanges([$this->changedMiddleware()]);
+
+        $routes = $result['selectionOnlyEntryPoints'];
+        sort($routes);
+        $this->assertSame(['route::GET::/api/a', 'route::GET::/api/b'], $routes);
+    }
+
+    #[Test]
+    public function selection_takes_the_group_routes_of_a_middleware_the_change_reaches(): void
+    {
+        $graph = new CodeGraph([
+            ['source' => self::TENANT, 'target' => self::TENANT . '::handle', 'type' => 'declares'],
+            ['source' => self::TENANT . '::handle', 'target' => 'App\Support\TenantResolver::resolve', 'type' => 'static-call'],
+            ['source' => 'App\Support\TenantResolver', 'target' => 'App\Support\TenantResolver::resolve', 'type' => 'declares'],
+        ], hasUnparseableFiles: false);
+        $change = new ChangedFileSymbols(
+            'app/Support/TenantResolver.php',
+            'App\Support\TenantResolver',
+            [new MemberChange('resolve', MemberChange::KIND_METHOD, MemberChange::CHANGE_MODIFIED, true)],
+            cosmeticOnly: false,
+        );
+
+        $routes = new ImpactAnalyzer($graph)->detectChanges([$change])['selectionOnlyEntryPoints'];
+        sort($routes);
+        $this->assertSame(['route::GET::/api/a', 'route::GET::/api/b'], $routes);
+    }
+
     private function changedMiddleware(): ChangedFileSymbols
     {
         return new ChangedFileSymbols(

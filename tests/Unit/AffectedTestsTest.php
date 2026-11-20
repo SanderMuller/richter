@@ -532,6 +532,19 @@ final class AffectedTestsTest extends TestCase
     }
 
     #[Test]
+    public function a_support_class_selects_each_test_that_imports_it(): void
+    {
+        $index = new TestReferenceIndex();
+        $index->addSource("<?php\nnamespace Tests\\Browser\\Pages;\nfinal class ErrorLogPage\n{\n    public function url(): string { return '/errors/log'; }\n}\n", 'tests/Browser/Pages/ErrorLogPage.php');
+        $index->addSource("<?php\nnamespace Tests\\Browser;\nuse Tests\\Browser\\Pages\\ErrorLogPage;\nfinal class ErrorLogBrowserTest extends \\Tests\\DuskTestCase\n{\n    public function test_it(): void { \$this->visit(new ErrorLogPage()); }\n}\n", 'tests/Browser/ErrorLogBrowserTest.php');
+
+        $selection = AffectedTests::select($this->detectResult(['route::GET::/errors/log']), [], $index, unresolvedDispatchSites: []);
+
+        $this->assertTrue($selection['determinable']);
+        $this->assertSame(['tests/Browser/ErrorLogBrowserTest.php'], $selection['tests']);
+    }
+
+    #[Test]
     public function a_support_trait_a_pest_directory_call_applies_still_blocks_determination(): void
     {
         // `uses()->in()` applies the trait to a directory, which this scan does not resolve.

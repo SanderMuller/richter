@@ -153,7 +153,9 @@ final class GraphCache
      * method draws a `hydrates` edge to the code that runs when it loads the model (casts, accessors,
      * boot hooks, observers). A 31 entry lacks both, so a change to a cast class reaches nothing.
      * The same version draws an `inherits` edge from a using class's member to the trait method that
-     * runs (`Status::sorted` to `SortsCases::sorted`). A 31 entry lacks it.
+     * runs (`Status::sorted` to `SortsCases::sorted`). A 31 entry lacks it. It also draws a `hook`
+     * edge from a class's `__construct` to each method that package code calls on it (a global
+     * scope's `apply()`). A 31 entry lacks that too.
      */
     private const int FORMAT_VERSION = 32;
 

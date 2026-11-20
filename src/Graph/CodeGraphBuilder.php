@@ -16,6 +16,7 @@ use SanderMuller\Richter\Console\InternalTracerBranchCommand;
 use SanderMuller\Richter\Support\AppFiles;
 use SanderMuller\Richter\Support\AppNamespace;
 use SanderMuller\Richter\Support\DispatchFamilies;
+use SanderMuller\Richter\Support\FrameworkHooks;
 use SanderMuller\Richter\Support\HydrationSurface;
 use SanderMuller\Richter\Support\ProviderBindings;
 use SanderMuller\Richter\Support\RelationIndex;
@@ -263,6 +264,8 @@ final class CodeGraphBuilder
         foreach (HydrationSurface::observerEdges($tracerBranch['inheritance'], $edges) as $observerEdge) {
             $edges[] = $observerEdge;
         }
+
+        array_push($edges, ...FrameworkHooks::edges($tracerBranch['inheritance']));
 
         $edges = AppFiles::dedupeEdges($edges, byType: true);
 

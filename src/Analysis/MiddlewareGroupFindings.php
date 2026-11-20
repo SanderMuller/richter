@@ -25,9 +25,11 @@ use Throwable;
  * entry point: the middleware itself" for a change that runs on every route in the group. This note
  * supplies the size the edges withhold.
  *
- * Findings only — never `risk`, `--fail-on`, or `affected-tests`. Letting the group's routes count
- * toward risk would raise the level of every middleware edit in every consuming app at once, which
- * is a decision that needs its own evidence, not a side effect of this note.
+ * Findings only — never `risk` or `--fail-on`. Letting the group's routes count toward risk would
+ * raise the level of every middleware edit in every consuming app at once, which is a decision that
+ * needs its own evidence, not a side effect of this note. Test selection does use the routes
+ * ({@see routesRunning()}): a test of any of them runs the middleware, and selection must not
+ * under-select.
  *
  * Group membership comes from {@see MiddlewareGroups}, the reader the group hazard lane uses too, so
  * every Kernel and `bootstrap/app.php` form one lane reads the other reads. Only the middleware a
@@ -62,6 +64,44 @@ final class MiddlewareGroupFindings
         }
 
         return $findings;
+    }
+
+    /**
+     * The routes that run the class of any given node as a member of a middleware group: the graph's
+     * `route-to-middleware` edges to the group, and the registered routes that carry it (a provider
+     * that groups route files in a loop draws no edge).
+     *
+     * @param  list<string>  $nodes
+     * @return list<string>
+     */
+    public function routesRunning(array $nodes): array
+    {
+        $groups = [];
+
+        foreach (array_unique(array_map(static fn (string $node): string => explode('::', $node, 2)[0], $nodes)) as $class) {
+            foreach ($this->membership()[$class] ?? [] as $entry) {
+                $groups["middleware::{$entry['group']}"] = true;
+            }
+        }
+
+        if ($groups === []) {
+            return [];
+        }
+
+        $routes = array_filter(
+            array_column($this->graph->callersOf(array_keys($groups), maxDepth: 1), 'node'),
+            static fn (string $node): bool => str_starts_with($node, 'route::'),
+        );
+
+        foreach (array_keys($groups) as $node) {
+            foreach ($this->registeredRoutes(substr($node, strlen('middleware::'))) ?? [] as $route) {
+                foreach (array_diff($route->methods(), ['HEAD']) as $method) {
+                    $routes[] = "route::{$method}::/" . ltrim($route->uri(), '/');
+                }
+            }
+        }
+
+        return array_values(array_unique($routes));
     }
 
     /**
@@ -177,11 +217,25 @@ final class MiddlewareGroupFindings
     /** Null when the running application is not the project under analysis, so the count would describe the wrong app. */
     private function registeredRoutesCarrying(string $group): ?int
     {
+        $routes = $this->registeredRoutes($group);
+
+        return $routes === null ? null : count($routes);
+    }
+
+    /**
+     * The registered routes that carry the group, or null when the running application is not the
+     * project under analysis.
+     *
+     * @return list<RoutingRoute>|null
+     */
+    private function registeredRoutes(string $group): ?array
+    {
         $root = $this->projectRoot;
 
         try {
-            // A null root proceeds — a lenient default this COUNT can afford and the runtime-guards
-            // lane deliberately cannot (it fails closed on an unknown root; see RuntimeRouterGuards).
+            // A null root proceeds — a lenient default the count and test selection can afford, since
+            // more routes only select more tests, and the runtime-guards lane deliberately cannot (it
+            // fails closed on an unknown root; see RuntimeRouterGuards).
             if ($root !== null && ! RunningApplication::isProject($root)) {
                 return null;
             }
@@ -191,7 +245,7 @@ final class MiddlewareGroupFindings
                 static fn (RoutingRoute $route): bool => in_array($group, $route->middleware(), true),
             );
 
-            return count($carrying);
+            return array_values($carrying);
         } catch (Throwable) {
             return null;
         }

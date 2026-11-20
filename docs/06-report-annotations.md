@@ -2,9 +2,9 @@
 
 `richter:detect-changes` renders four lanes beside the reach it reports: security exposure per route, Pennant feature gates, payload-parity breaks, and middleware group membership.
 
-Two of them are annotation only. Pennant gates and middleware group membership feed nothing: not the [risk level](08-risk-levels.md), not a gate, and not the [affected-test selection](12-affected-tests.md).
+Two of them are annotation only. Pennant gates and middleware group membership feed neither the [risk level](08-risk-levels.md) nor a gate. Group membership does feed the [affected-test selection](12-affected-tests.md): a test of any route in the group runs the middleware.
 
-Membership is not the same thing as the group's guards. Which routes a group runs on is the annotation, and it feeds nothing. A guard the group itself lost is a [tier-3 hazard](08-risk-levels.md#hazards) read from `bootstrap/app.php` or a legacy Kernel, and that does decide the level.
+Membership is not the same thing as the group's guards. Which routes a group runs on is the annotation, and it feeds only test selection. A guard the group itself lost is a [tier-3 hazard](08-risk-levels.md#hazards) read from `bootstrap/app.php` or a legacy Kernel, and that does decide the level.
 
 The other two do reach the level, each through one narrow door:
 

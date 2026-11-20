@@ -40,7 +40,7 @@ The command inverts the test-reference index into a selection: the test files th
 
 A `schedule::` entry resolves through the command it runs, and a route matched by neither its name nor a literal URI resolves through the class handling it, so a test importing a Livewire component or a Filament page selects the route driven by it.
 
-Only conventionally-named `*Test.php` files are selected; helpers and fixtures under `tests/` never end up as runner arguments, and an entry point that no test names, but a support trait or base class does, selects each test that uses that support file: a test class that `use`s the trait or extends the base class, directly or through another support file, or a Pest file that names it in `uses()`. When a Pest `uses()->in()` call applies it to a directory, the tests cannot be mapped, so determination is blocked rather than silently dropping them. Selection is reference-based recall, not proof of coverage: reached entry points nothing references contribute nothing, and the report says how many those are.
+Only conventionally-named `*Test.php` files are selected; helpers and fixtures under `tests/` never end up as runner arguments, and an entry point that no test names, but a support trait or base class does, selects each test that uses that support file: a test class that `use`s the trait, extends the base class or imports the class (a browser test's page object), directly or through another support file, or a Pest file that names it in `uses()`. When a Pest `uses()->in()` call applies it to a directory, the tests cannot be mapped, so determination is blocked rather than silently dropping them. Selection is reference-based recall, not proof of coverage: reached entry points nothing references contribute nothing, and the report says how many those are.
 
 ## Why the import axis runs one way
 
@@ -64,6 +64,8 @@ The caller half skips three kinds of edge: `model-relationship`, `model-to-polic
 Loading a relation does run some of the related model's code: its casts, accessors and mutators, boot hooks and observers. Those are linked to each relation method that loads the model, so a change to a cast class or an accessor still selects the code, and the tests, that load the relation. A change to any other model method selects only the code that calls it, on both axes. A call the tracers cannot type, such as one in a collection callback or in a Blade view, is then not selected through the relation.
 
 The caller half walks up to six hops, like the report. A hop that only says where code lives does not count: a method to its class, a class's method to the trait or parent that runs it, and a model's casts to a cast class. An entry point that the report reaches within six hops only through a relation is not selected, even when a longer path without the relation exists.
+
+A middleware that a middleware group runs is connected to no route in the graph. When the change is in such a middleware, or the caller half reaches one, every route of the group is selected over, because a test of any of them runs the middleware. The routes come from the graph and, when the analysed project is the running application, from its registered route table. This does not change the report or the risk level.
 
 One consequence worth naming: for a controller change, the callers are `route::` nodes rather than app classes, so this axis contributes nothing and the entry-point axis carries the selection alone. That is correct, and it is why a controller diff selects so few tests by import.
 

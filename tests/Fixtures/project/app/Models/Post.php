@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Scopes\PublishedScope;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
@@ -22,6 +23,11 @@ final class Post extends Model
     protected function casts(): array
     {
         return ['status' => 'string'];
+    }
+
+    protected static function booted(): void
+    {
+        self::addGlobalScope(new PublishedScope());
     }
 
     /** @return HasMany<Comment, $this> */

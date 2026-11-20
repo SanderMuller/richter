@@ -4,7 +4,8 @@ namespace SanderMuller\Richter\Analysis;
 
 /**
  * Which test classes use a support file under `tests/`: a trait or base class the tests `use` or
- * extend, or name in a Pest `uses()` call. A route that only such a file names is still driven by
+ * extend, a class they import (a browser test's page object), or one they name in a Pest `uses()`
+ * call. A route that only such a file names is still driven by
  * each test that uses it, so {@see AffectedTests} can select those tests instead of the whole suite.
  *
  * A regex scan, like the rest of {@see TestReferenceIndex}. Names resolve against the file's
@@ -54,6 +55,10 @@ final class TestSupportUsers
         }
 
         $used = $this->traitUses($source);
+
+        foreach ($imports as $imported) {
+            $this->usedBy[$imported][] = $file;
+        }
 
         foreach ($used as $name) {
             $this->usedBy[$resolve($name)][] = $file;
