@@ -90,7 +90,7 @@ final class RelationTraversalTracer
      * One entry per method that traverses anything, in file order. Each carries the types the method
      * states up front and the steps to walk once the index can answer.
      *
-     * @var list<array{source: string, seeds: array<string, string>, steps: list<array{assign: string|null, rootClass: string|null, rootVar: string|null, names: list<string>, stopAfter: int|null, ownCall?: array{class: string, method: string}, elements?: true}>}>
+     * @var list<array{source: string, seeds: array<string, string>, steps: list<array{assign: string|null, rootClass: string|null, rootVar: string|null, names: list<string>, stopAfter: int|null, ownCall?: array{class: string, method: string}, elements?: true, builderCalls?: list<string>}>}>
      */
     private array $pending = [];
 
@@ -240,7 +240,7 @@ final class RelationTraversalTracer
      *
      * @param  array<string, string>  $properties
      * @param  array<int, array<string, string>>  $docblocks  `@var` types, keyed by the assignment they annotate
-     * @param  list<array{assign: string|null, rootClass: string|null, rootVar: string|null, names: list<string>, stopAfter: int|null, ownCall?: array{class: string, method: string}, elements?: true}>  $steps
+     * @param  list<array{assign: string|null, rootClass: string|null, rootVar: string|null, names: list<string>, stopAfter: int|null, ownCall?: array{class: string, method: string}, elements?: true, builderCalls?: list<string>}>  $steps
      * @param  array<int, true>  $handled
      */
     private function collectAssignment(Assign $node, string $classFqcn, array $properties, array $docblocks, bool $conditional, array &$steps, array &$handled): void
@@ -306,7 +306,7 @@ final class RelationTraversalTracer
      *
      *
      * @param  array<string, string>  $properties
-     * @param  list<array{assign: string|null, rootClass: string|null, rootVar: string|null, names: list<string>, stopAfter: int|null, ownCall?: array{class: string, method: string}, elements?: true}>  $steps
+     * @param  list<array{assign: string|null, rootClass: string|null, rootVar: string|null, names: list<string>, stopAfter: int|null, ownCall?: array{class: string, method: string}, elements?: true, builderCalls?: list<string>}>  $steps
      * @param  array<int, true>  $handled
      * @return string|null the value name it typed, which the caller clears where the loop ends
      */
@@ -398,6 +398,26 @@ final class RelationTraversalTracer
     }
 
     /**
+     * {@see rootedChainOf()}, plus the calls that follow the innermost call while every one of them is
+     * a call: on a relation called as a method, those run on its query builder.
+     *
+     * @param  array<string, string>  $properties
+     * @return array{rootClass: string|null, rootVar: string|null, names: list<string>, stopAfter: int|null, ownCall?: array{class: string, method: string}, elements?: true, builderCalls?: list<string>}|null
+     */
+    private function chainOf(PropertyFetch|NullsafePropertyFetch|MethodCall|NullsafeMethodCall $expression, string $classFqcn, array $properties): ?array
+    {
+        $chain = $this->rootedChainOf($expression, $classFqcn, $properties);
+
+        if ($chain === null) {
+            return null;
+        }
+
+        $calls = RelationScopeWalk::callsAfterInnermost($expression);
+
+        return $calls === [] ? $chain : [...$chain, 'builderCalls' => $calls];
+    }
+
+    /**
      * One `$root->a->b` expression as a root plus the names to resolve against it, or null when the
      * root carries no type this can read.
      *
@@ -405,9 +425,9 @@ final class RelationTraversalTracer
      * a service is the property's type, and only what follows it can be a relation.
      *
      * @param  array<string, string>  $properties
-     * @return array{rootClass: string|null, rootVar: string|null, names: list<string>, stopAfter: int|null, ownCall?: array{class: string, method: string}, elements?: true}|null
+     * @return array{rootClass: string|null, rootVar: string|null, names: list<string>, stopAfter: int|null, ownCall?: array{class: string, method: string}, elements?: true, builderCalls?: list<string>}|null
      */
-    private function chainOf(PropertyFetch|NullsafePropertyFetch|MethodCall|NullsafeMethodCall $expression, string $classFqcn, array $properties): ?array
+    private function rootedChainOf(PropertyFetch|NullsafePropertyFetch|MethodCall|NullsafeMethodCall $expression, string $classFqcn, array $properties): ?array
     {
         $names = [];
         $calls = [];
@@ -467,7 +487,7 @@ final class RelationTraversalTracer
      * @param  non-empty-list<string>  $names
      * @param  list<int>  $callIndexes  the indexes into $names that are calls, innermost first
      * @param  array<string, string>  $properties
-     * @return array{rootClass: string|null, rootVar: string|null, names: list<string>, stopAfter: int|null, ownCall?: array{class: string, method: string}, elements?: true}|null
+     * @return array{rootClass: string|null, rootVar: string|null, names: list<string>, stopAfter: int|null, ownCall?: array{class: string, method: string}, elements?: true, builderCalls?: list<string>}|null
      */
     private function chainOnThis(array $names, array $callIndexes, string $classFqcn, array $properties): ?array
     {

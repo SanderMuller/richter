@@ -145,7 +145,9 @@ final class GraphCache
      * that declares a model return type (`$this->post()->author`). A 29 entry lacks both.
      *
      * 30 → 31: a call on a model a relation loaded (`$post->author->notify()`, or the value of
-     * `foreach ($post->comments as $comment)`) draws an `instance-call` edge. A 30 entry lacks it.
+     * `foreach ($post->comments as $comment)`) draws an `instance-call` edge, and so does a scope on a
+     * relation's query builder (`$post->comments()->published()` to `Comment::scopePublished`). A 30
+     * entry lacks both.
      */
     private const int FORMAT_VERSION = 31;
 

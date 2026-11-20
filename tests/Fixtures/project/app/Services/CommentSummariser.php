@@ -35,4 +35,10 @@ final class CommentSummariser
             $comment->save();
         }
     }
+
+    /** A scope on a relation's query builder: the scope method is named nowhere in the body. */
+    public function recentCount(Post $post): int
+    {
+        return $post->comments()->recent()->count();
+    }
 }

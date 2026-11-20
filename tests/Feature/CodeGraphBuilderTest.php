@@ -257,6 +257,14 @@ final class CodeGraphBuilderTest extends TestCase
     }
 
     #[Test]
+    public function a_scope_on_a_relation_builder_links_the_scope_method(): void
+    {
+        $dependencies = $this->directDependenciesOf('App\\Services\\CommentSummariser::recentCount');
+
+        $this->assertSame('instance-call', $dependencies['App\\Models\\Comment::scopeRecent'] ?? null);
+    }
+
+    #[Test]
     public function a_walked_relation_survives_the_second_hop_walk_being_off(): void
     {
         // The traversal is drawn by the consolidated per-file pass, not by the second-hop walk, so

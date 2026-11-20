@@ -28,8 +28,12 @@ final class RelationTraversalTracerTest extends TestCase
         }
         class Comment
         {
+            use \App\Models\Concerns\HasStatus;
             public function author() { return $this->belongsTo(\App\Models\User::class); }
             public function publish(): void {}
+            public function scopePublished($query) { return $query; }
+            #[\Illuminate\Database\Eloquent\Attributes\Scope]
+            protected function visible($query): void {}
         }
         class User
         {
@@ -38,6 +42,15 @@ final class RelationTraversalTracerTest extends TestCase
             public function notify(): void {}
         }
         class Team {}
+        PHP;
+
+    private const string TRAITS = <<<'PHP'
+        <?php
+        namespace App\Models\Concerns;
+        trait HasStatus
+        {
+            public function scopeActive($query) { return $query; }
+        }
         PHP;
 
     #[Test]
@@ -1066,6 +1079,66 @@ final class RelationTraversalTracerTest extends TestCase
         )), 'target'));
     }
 
+    #[Test]
+    public function a_scope_on_a_relation_builder_names_the_scope_method(): void
+    {
+        $this->assertSame(
+            ['App\\Models\\Comment::scopePublished', 'App\\Models\\Comment::visible', 'App\\Models\\Comment::scopeActive'],
+            $this->instanceCalls(<<<'PHP'
+                <?php
+                namespace App\Services;
+                final class Feed
+                {
+                    public function run(\App\Models\Post $post): void
+                    {
+                        $post->comments()->published()->get();
+                        $post->comments()->where('approved', true)->visible()->latest()->get();
+                        $post->comments()->orderByDesc('id')->active()->first();
+                    }
+                }
+                PHP),
+        );
+    }
+
+    #[Test]
+    public function a_scope_inside_the_model_reads_its_own_relation(): void
+    {
+        $this->assertSame(['App\\Models\\Comment::scopePublished'], $this->instanceCalls(<<<'PHP'
+            <?php
+            namespace App\Models;
+            class Article
+            {
+                public function comments() { return $this->hasMany(\App\Models\Comment::class); }
+
+                public function latestPublished(): mixed
+                {
+                    return $this->comments()->published()->first();
+                }
+            }
+            PHP));
+    }
+
+    #[Test]
+    public function a_builder_chain_ends_at_a_call_that_leaves_the_builder(): void
+    {
+        // `get()` returns a collection and `count()` a number; `notify()` is no scope of Comment.
+        $this->assertSame([], $this->instanceCalls(<<<'PHP'
+            <?php
+            namespace App\Services;
+            final class Feed
+            {
+                public function run(\App\Models\Post $post): void
+                {
+                    $post->comments()->get()->published();
+                    $post->comments()->count();
+                    $post->comments()->notify()->published();
+                    $post->comments()->publish();
+                    $post->comments->published();
+                }
+            }
+            PHP));
+    }
+
     /** @return list<string> */
     private function instanceCalls(string $source): array
     {
@@ -1087,7 +1160,7 @@ final class RelationTraversalTracerTest extends TestCase
         $index = new RelationIndex();
         $tracer = new RelationTraversalTracer();
 
-        foreach ([self::MODELS, $source] as $file) {
+        foreach ([self::MODELS, self::TRAITS, $source] as $file) {
             $ast = AppFiles::parseResolved($file);
             $this->assertNotNull($ast);
             $classLikes = array_values(new NodeFinder()->findInstanceOf($ast, ClassLike::class));

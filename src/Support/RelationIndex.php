@@ -47,8 +47,11 @@ final class RelationIndex
      */
     private const array TO_MANY = ['hasMany', 'hasManyThrough', 'belongsToMany', 'morphMany', 'morphToMany', 'morphedByMany'];
 
+    /** Marks a method as a query scope under its own name (Laravel 12). */
+    private const string SCOPE_ATTRIBUTE = 'Illuminate\\Database\\Eloquent\\Attributes\\Scope';
+
     /**
-     * @var array<string, array{parent: string|null, traits: list<string>, relations: array<string, array{related: string, toMany: bool}>}>
+     * @var array<string, array{parent: string|null, traits: list<string>, relations: array<string, array{related: string, toMany: bool}>, scopes: array<string, string>}>
      *   keyed by FQCN
      */
     private array $records = [];
@@ -75,6 +78,7 @@ final class RelationIndex
                 'parent' => $node instanceof Class_ && $node->extends instanceof Name ? AppFiles::resolveName($node->extends) : null,
                 'traits' => $this->traitsUsedBy($node),
                 'relations' => $this->relationsIn($node),
+                'scopes' => $this->scopesIn($node),
             ];
 
             $this->traitsMerged = false;
@@ -107,6 +111,32 @@ final class RelationIndex
 
             if ($relation !== null) {
                 return ['owner' => $fqcn, 'method' => $method, ...$relation];
+            }
+
+            $fqcn = $this->records[$fqcn]['parent'] ?? '';
+        }
+
+        return null;
+    }
+
+    /**
+     * The method a query scope call runs, as `Owner::method`, or null when neither the class, its
+     * ancestors, nor its traits declare that scope. `published()` runs `scopePublished()`, or a method
+     * named `published` with the `#[Scope]` attribute. Owner follows the rule {@see relationOf()} uses.
+     */
+    public function scopeOf(string $class, string $name): ?string
+    {
+        $this->mergeTraits();
+
+        $fqcn = ltrim($class, '\\');
+        $seen = [];
+
+        while (isset($this->records[$fqcn]) && ! isset($seen[$fqcn])) {
+            $seen[$fqcn] = true;
+            $method = $this->records[$fqcn]['scopes'][strtolower($name)] ?? null;
+
+            if ($method !== null) {
+                return "{$fqcn}::{$method}";
             }
 
             $fqcn = $this->records[$fqcn]['parent'] ?? '';
@@ -203,6 +233,8 @@ final class RelationIndex
                 // overrode, and the override is the code that runs.
                 $this->records[$fqcn]['relations'][$method] ??= $relation;
             }
+
+            $this->records[$fqcn]['scopes'] += $this->traitScopesOf($record['traits'], []);
         }
     }
 
@@ -232,6 +264,58 @@ final class RelationIndex
         }
 
         return $relations;
+    }
+
+    /**
+     * The scopes a list of traits supplies, following traits that use traits, as {@see traitRelationsOf()}.
+     *
+     * @param  list<string>  $traits
+     * @param  array<string, true>  $seen
+     * @return array<string, string>
+     */
+    private function traitScopesOf(array $traits, array $seen): array
+    {
+        $scopes = [];
+
+        foreach ($traits as $trait) {
+            if (isset($seen[$trait]) || ! isset($this->records[$trait])) {
+                continue;
+            }
+
+            $seen[$trait] = true;
+            $scopes = [...$this->traitScopesOf($this->records[$trait]['traits'], $seen), ...$this->records[$trait]['scopes'], ...$scopes];
+        }
+
+        return $scopes;
+    }
+
+    /**
+     * The query scopes one class-like declares, keyed by the lowercased name a call uses: a
+     * `scopeX()` method, or a method with the `#[Scope]` attribute.
+     *
+     * @return array<string, string>
+     */
+    private function scopesIn(ClassLike $node): array
+    {
+        $scopes = [];
+
+        foreach ($node->getMethods() as $method) {
+            $name = $method->name->toString();
+
+            if (preg_match('/^scope([A-Z].*)$/', $name, $match) === 1) {
+                $scopes[strtolower($match[1])] = $name;
+            }
+
+            foreach ($method->attrGroups as $group) {
+                foreach ($group->attrs as $attribute) {
+                    if ($attribute->name->toString() === self::SCOPE_ATTRIBUTE) {
+                        $scopes[strtolower($name)] = $name;
+                    }
+                }
+            }
+        }
+
+        return $scopes;
     }
 
     /**

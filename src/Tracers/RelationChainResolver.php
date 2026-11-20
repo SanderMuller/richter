@@ -13,6 +13,9 @@ use SanderMuller\Richter\Support\RelationIndex;
  */
 final readonly class RelationChainResolver
 {
+    /** Builder methods that return the builder, so a scope can still follow them. */
+    private const string BUILDER_RETURNING = '/^(?:(?:or)?where\\w*|orderBy(?:Desc)?|latest|oldest|limit|take|skip|offset|with|withCount|without|select|addSelect|distinct|groupBy|having|when|unless|withTrashed|onlyTrashed|withoutTrashed)$/i';
+
     public function __construct(private RelationIndex $index) {}
 
     /**
@@ -23,7 +26,7 @@ final readonly class RelationChainResolver
      * hop the index cannot name ends its chain with no edge, and clears the variable it was going to
      * bind — a reassignment richter cannot follow must not leave the old type standing.
      *
-     * @param  list<array{source: string, seeds: array<string, string>, steps: list<array{assign: string|null, rootClass: string|null, rootVar: string|null, names: list<string>, stopAfter: int|null, ownCall?: array{class: string, method: string}, elements?: true}>}>  $pending
+     * @param  list<array{source: string, seeds: array<string, string>, steps: list<array{assign: string|null, rootClass: string|null, rootVar: string|null, names: list<string>, stopAfter: int|null, ownCall?: array{class: string, method: string}, elements?: true, builderCalls?: list<string>}>}>  $pending
      * @return list<array{source: string, target: string, type: string}>
      */
     public function edges(array $pending): array
@@ -38,7 +41,7 @@ final readonly class RelationChainResolver
     }
 
     /**
-     * @param  array{source: string, seeds: array<string, string>, steps: list<array{assign: string|null, rootClass: string|null, rootVar: string|null, names: list<string>, stopAfter: int|null, ownCall?: array{class: string, method: string}, elements?: true}>}  $method
+     * @param  array{source: string, seeds: array<string, string>, steps: list<array{assign: string|null, rootClass: string|null, rootVar: string|null, names: list<string>, stopAfter: int|null, ownCall?: array{class: string, method: string}, elements?: true, builderCalls?: list<string>}>}  $method
      * @return list<array{source: string, target: string, type: string}>
      */
     private function methodEdges(array $method): array
@@ -94,7 +97,7 @@ final readonly class RelationChainResolver
      * only when a relation hop loaded that model, in this chain or in the local it starts from.
      * `elements` asks for the related model of a final to-many hop: what a `foreach` binds.
      *
-     * @param  array{assign: string|null, rootClass: string|null, rootVar: string|null, names: list<string>, stopAfter: int|null, ownCall?: array{class: string, method: string}, elements?: true}  $step
+     * @param  array{assign: string|null, rootClass: string|null, rootVar: string|null, names: list<string>, stopAfter: int|null, ownCall?: array{class: string, method: string}, elements?: true, builderCalls?: list<string>}  $step
      * @return array{0: string|null, 1: list<array{source: string, target: string, type: string}>}
      */
     private function walk(string $class, array $step, string $source, bool $rootLoaded): array
@@ -119,9 +122,13 @@ final readonly class RelationChainResolver
                 return [$relation['related'], $edges];
             }
 
+            if ($position === $step['stopAfter']) {
+                return [null, [...$edges, ...$this->scopeEdges($relation['related'], $step['builderCalls'] ?? [], $source)]];
+            }
+
             // A collection, or a query builder from the method form: nothing left that the next name
             // could be a relation on, and nothing a variable could be bound to either.
-            if ($relation['toMany'] || $position === $step['stopAfter']) {
+            if ($relation['toMany']) {
                 return [null, $edges];
             }
 
@@ -130,5 +137,34 @@ final readonly class RelationChainResolver
 
         // A `foreach` over a single model iterates its attributes, so it binds no model.
         return [isset($step['elements']) ? null : $class, $edges];
+    }
+
+    /**
+     * The scope methods a run of calls on a relation's query builder runs. The run ends at the first
+     * call that is neither a scope nor a method that hands the builder back
+     * ({@see self::BUILDER_RETURNING}): after `get()` or `count()` a name is no scope.
+     *
+     * @param  list<string>  $calls
+     * @return list<array{source: string, target: string, type: string}>
+     */
+    private function scopeEdges(string $model, array $calls, string $source): array
+    {
+        $edges = [];
+
+        foreach ($calls as $call) {
+            $scope = $this->index->scopeOf($model, $call);
+
+            if ($scope !== null) {
+                $edges[] = ['source' => $source, 'target' => $scope, 'type' => 'instance-call'];
+
+                continue;
+            }
+
+            if (preg_match(self::BUILDER_RETURNING, $call) !== 1) {
+                break;
+            }
+        }
+
+        return $edges;
     }
 }

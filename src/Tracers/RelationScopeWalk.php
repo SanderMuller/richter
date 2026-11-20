@@ -3,6 +3,7 @@
 namespace SanderMuller\Richter\Tracers;
 
 use PhpParser\Node;
+use PhpParser\Node\Expr;
 use PhpParser\Node\Expr\ArrowFunction;
 use PhpParser\Node\Expr\Assign;
 use PhpParser\Node\Expr\AssignOp;
@@ -16,6 +17,7 @@ use PhpParser\Node\Expr\PropertyFetch;
 use PhpParser\Node\Expr\Ternary;
 use PhpParser\Node\Expr\Variable;
 use PhpParser\Node\FunctionLike;
+use PhpParser\Node\Identifier;
 use PhpParser\Node\Stmt\Catch_;
 use PhpParser\Node\Stmt\Do_;
 use PhpParser\Node\Stmt\Else_;
@@ -139,5 +141,40 @@ final class RelationScopeWalk extends NodeVisitorAbstract
         }
 
         return $names;
+    }
+
+    /**
+     * The calls written after the innermost call of a chain, in source order, when every name after it
+     * is a call: `$post->comments()->published()->get()` gives `published`, `get`. A property fetch
+     * between them, or a dynamic name, gives none.
+     *
+     * @return list<string>
+     */
+    public static function callsAfterInnermost(Expr $expression): array
+    {
+        // Outermost first; reversed below so the calls read in source order.
+        $calls = [];
+        $node = $expression;
+
+        while ($node instanceof MethodCall || $node instanceof NullsafeMethodCall) {
+            if (! $node->name instanceof Identifier) {
+                return [];
+            }
+
+            $calls[] = $node->name->toString();
+            $node = $node->var;
+        }
+
+        $finder = new NodeFinder();
+
+        // A call further in means the innermost call is not the last one of this run.
+        if ($finder->findFirstInstanceOf($node, MethodCall::class) !== null || $finder->findFirstInstanceOf($node, NullsafeMethodCall::class) !== null) {
+            return [];
+        }
+
+        // The innermost call itself is where the walk stops, not a call after it.
+        array_pop($calls);
+
+        return array_reverse($calls);
     }
 }
