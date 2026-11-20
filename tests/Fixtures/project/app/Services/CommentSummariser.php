@@ -26,4 +26,13 @@ final class CommentSummariser
 
         return (string) $comment->post->title;
     }
+
+    /** A model a relation loaded: nothing else in the body names its class. */
+    public function archiveAll(Post $post): void
+    {
+        foreach ($post->comments as $comment) {
+            $comment->archive();
+            $comment->save();
+        }
+    }
 }

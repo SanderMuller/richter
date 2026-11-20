@@ -246,6 +246,17 @@ final class CodeGraphBuilderTest extends TestCase
     }
 
     #[Test]
+    public function a_call_on_a_model_a_relation_loaded_links_the_method_it_calls(): void
+    {
+        // `foreach ($post->comments as $comment) { $comment->archive(); }` names Comment nowhere.
+        // `save()` is a framework method, so the merge step drops that one.
+        $dependencies = $this->directDependenciesOf('App\\Services\\CommentSummariser::archiveAll');
+
+        $this->assertSame('instance-call', $dependencies['App\\Models\\Comment::archive'] ?? null);
+        $this->assertArrayNotHasKey('App\\Models\\Comment::save', $dependencies);
+    }
+
+    #[Test]
     public function a_walked_relation_survives_the_second_hop_walk_being_off(): void
     {
         // The traversal is drawn by the consolidated per-file pass, not by the second-hop walk, so

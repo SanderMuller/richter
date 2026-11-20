@@ -58,7 +58,13 @@ use SanderMuller\Richter\Support\RelationIndex;
  * there would be an edge the expression never makes.
  *
  * Emits `loads-relation`, the same edge an eager-load call draws for the same claim: this member
- * depends on that relation. Cross-file — the index completes only after every file is read — so it
+ * depends on that relation.
+ *
+ * A model the chain LOADED is the one receiver this types for a call: `$post->author->notify()`, a
+ * local bound to `$post->author`, and the value of `foreach ($post->comments as $comment)`. Nothing
+ * else in the method names that class, so without an `instance-call` edge to `User::notify` the call
+ * reaches it only through the class-level `relation-to-model` edge. A receiver the source types by
+ * itself (a parameter, `new`, a static) is left to the receiver-typing lanes. Cross-file — the index completes only after every file is read — so it
  * accumulates via {@see collect()} across the consolidated AST pass in {@see CodeGraphBuilder} and
  * emits once, via {@see edges()}.
  *
@@ -94,7 +100,7 @@ final class RelationTraversalTracer
      * One entry per method that traverses anything, in file order. Each carries the types the method
      * states up front and the steps to walk once the index can answer.
      *
-     * @var list<array{source: string, seeds: array<string, string>, steps: list<array{assign: string|null, rootClass: string|null, rootVar: string|null, names: list<string>, stopAfter: int|null, ownCall?: array{class: string, method: string}}>}>
+     * @var list<array{source: string, seeds: array<string, string>, steps: list<array{assign: string|null, rootClass: string|null, rootVar: string|null, names: list<string>, stopAfter: int|null, ownCall?: array{class: string, method: string}, elements?: true}>}>
      */
     private array $pending = [];
 
@@ -136,83 +142,13 @@ final class RelationTraversalTracer
     }
 
     /**
-     * The edges every recorded method resolves to.
-     *
-     * Steps run in source order, because a local carries a type only after the line that bound it: an
-     * assignment resolves its own chain, then binds the variable to whatever that chain ended on. A
-     * hop the index cannot name ends its chain with no edge, and clears the variable it was going to
-     * bind — a reassignment richter cannot follow must not leave the old type standing.
+     * The edges every recorded method resolves to, once the index holds every file.
      *
      * @return list<array{source: string, target: string, type: string}>
      */
     public function edges(RelationIndex $index): array
     {
-        $edges = [];
-
-        foreach ($this->pending as $method) {
-            $types = $method['seeds'];
-
-            foreach ($method['steps'] as $step) {
-                $class = $step['rootClass'] ?? ($step['rootVar'] === null ? null : ($types[$step['rootVar']] ?? null));
-
-                // An own method the index reads as a relation (one that declares an app relation
-                // class) is a relation hop on the enclosing class, not a root.
-                $ownCall = $step['ownCall'] ?? null;
-
-                if ($ownCall !== null && $index->relationOf($ownCall['class'], $ownCall['method']) !== null) {
-                    [$class, $step] = [$ownCall['class'], [...$step, 'names' => [$ownCall['method']], 'stopAfter' => 0]];
-                }
-
-                if ($class !== null) {
-                    [$class, $stepEdges] = $this->walk($index, $class, $step, $method['source']);
-                    $edges = [...$edges, ...$stepEdges];
-                }
-
-                if ($step['assign'] !== null) {
-                    // An unresolved right-hand side unbinds the variable rather than leaving a stale
-                    // type on it.
-                    $class === null ? $types[$step['assign']] = '' : $types[$step['assign']] = $class;
-
-                    if ($types[$step['assign']] === '') {
-                        unset($types[$step['assign']]);
-                    }
-                }
-            }
-        }
-
-        return AppFiles::dedupeEdges($edges, byType: true);
-    }
-
-    /**
-     * One chain walked from a known class: the edges it draws, and the class it ends on (null when a
-     * hop did not resolve, or when the chain ended on a collection or a builder).
-     *
-     * @param  array{assign: string|null, rootClass: string|null, rootVar: string|null, names: list<string>, stopAfter: int|null, ownCall?: array{class: string, method: string}}  $step
-     * @return array{0: string|null, 1: list<array{source: string, target: string, type: string}>}
-     */
-    private function walk(RelationIndex $index, string $class, array $step, string $source): array
-    {
-        $edges = [];
-
-        foreach ($step['names'] as $position => $name) {
-            $relation = $index->relationOf($class, $name);
-
-            if ($relation === null) {
-                return [null, $edges];
-            }
-
-            $edges[] = ['source' => $source, 'target' => "{$relation['owner']}::{$relation['method']}", 'type' => 'loads-relation'];
-
-            // A collection, or a query builder from the method form: nothing left that the next name
-            // could be a relation on, and nothing a variable could be bound to either.
-            if ($relation['toMany'] || $position === $step['stopAfter']) {
-                return [null, $edges];
-            }
-
-            $class = $relation['related'];
-        }
-
-        return [$class, $edges];
+        return new RelationChainResolver($index)->edges($this->pending);
     }
 
     /**
@@ -246,7 +182,7 @@ final class RelationTraversalTracer
             /** @var list<Closure|ArrowFunction> */
             public array $closures = [];
 
-            /** @var list<Assign|PropertyFetch|NullsafePropertyFetch|MethodCall|NullsafeMethodCall> */
+            /** @var list<Assign|Foreach_|PropertyFetch|NullsafePropertyFetch|MethodCall|NullsafeMethodCall> */
             public array $nodes = [];
 
             /** @var list<array{0: int, 1: int}> */
@@ -262,6 +198,12 @@ final class RelationTraversalTracer
                     $this->closures[] = $node;
 
                     return NodeVisitor::DONT_TRAVERSE_CHILDREN;
+                }
+
+                // Also a branching range below: it binds its own names, and an assignment in its body
+                // may not run.
+                if ($node instanceof Foreach_) {
+                    $this->nodes[] = $node;
                 }
 
                 if ($node instanceof Assign
@@ -326,6 +268,12 @@ final class RelationTraversalTracer
                 continue;
             }
 
+            if ($node instanceof Foreach_) {
+                $this->collectForeach($node, $classFqcn, $properties, $steps, $handled);
+
+                continue;
+            }
+
             if (! $node instanceof PropertyFetch && ! $node instanceof NullsafePropertyFetch && ! $node instanceof MethodCall && ! $node instanceof NullsafeMethodCall) {
                 continue;
             }
@@ -348,7 +296,7 @@ final class RelationTraversalTracer
      *
      * @param  array<string, string>  $properties
      * @param  array<int, array<string, string>>  $docblocks  `@var` types, keyed by the assignment they annotate
-     * @param  list<array{assign: string|null, rootClass: string|null, rootVar: string|null, names: list<string>, stopAfter: int|null, ownCall?: array{class: string, method: string}}>  $steps
+     * @param  list<array{assign: string|null, rootClass: string|null, rootVar: string|null, names: list<string>, stopAfter: int|null, ownCall?: array{class: string, method: string}, elements?: true}>  $steps
      * @param  array<int, true>  $handled
      */
     private function collectAssignment(Assign $node, string $classFqcn, array $properties, array $docblocks, bool $conditional, array &$steps, array &$handled): void
@@ -409,6 +357,40 @@ final class RelationTraversalTracer
     }
 
     /**
+     * The names a `foreach` binds. Its value is the related model when the loop reads a to-many
+     * relation property; every other bound name is cleared, since its old type no longer holds.
+     *
+     * @param  array<string, string>  $properties
+     * @param  list<array{assign: string|null, rootClass: string|null, rootVar: string|null, names: list<string>, stopAfter: int|null, ownCall?: array{class: string, method: string}, elements?: true}>  $steps
+     * @param  array<int, true>  $handled
+     */
+    private function collectForeach(Foreach_ $node, string $classFqcn, array $properties, array &$steps, array &$handled): void
+    {
+        $cleared = ['assign' => null, 'rootClass' => null, 'rootVar' => null, 'names' => [], 'stopAfter' => null];
+        $expression = $node->expr;
+        $chain = null;
+
+        if ($expression instanceof PropertyFetch || $expression instanceof NullsafePropertyFetch) {
+            $chain = $this->chainOf($expression, $classFqcn, $properties);
+            $handled[spl_object_id($expression)] = true;
+        }
+
+        $value = $node->valueVar instanceof Variable && is_string($node->valueVar->name) ? $node->valueVar->name : null;
+        $bound = $chain !== null && $value !== null && $chain['stopAfter'] === null;
+
+        // First: the loop expression is read before the loop binds anything, even a name it reuses.
+        if ($chain !== null) {
+            $steps[] = $bound ? ['assign' => $value, ...$chain, 'elements' => true] : ['assign' => null, ...$chain];
+        }
+
+        foreach (new NodeFinder()->findInstanceOf(array_filter([$node->keyVar, $node->valueVar]), Variable::class) as $variable) {
+            if (is_string($variable->name) && (! $bound || $variable !== $node->valueVar)) {
+                $steps[] = [...$cleared, 'assign' => $variable->name];
+            }
+        }
+    }
+
+    /**
      * The app model an expression names outright: `new Post(...)`, or `Post::find(...)` and the other
      * single-model statics. A `Post::query()` names a builder, so it names nothing here.
      */
@@ -453,7 +435,7 @@ final class RelationTraversalTracer
      * a service is the property's type, and only what follows it can be a relation.
      *
      * @param  array<string, string>  $properties
-     * @return array{rootClass: string|null, rootVar: string|null, names: list<string>, stopAfter: int|null, ownCall?: array{class: string, method: string}}|null
+     * @return array{rootClass: string|null, rootVar: string|null, names: list<string>, stopAfter: int|null, ownCall?: array{class: string, method: string}, elements?: true}|null
      */
     private function chainOf(PropertyFetch|NullsafePropertyFetch|MethodCall|NullsafeMethodCall $expression, string $classFqcn, array $properties): ?array
     {
@@ -515,7 +497,7 @@ final class RelationTraversalTracer
      * @param  non-empty-list<string>  $names
      * @param  list<int>  $callIndexes  the indexes into $names that are calls, innermost first
      * @param  array<string, string>  $properties
-     * @return array{rootClass: string|null, rootVar: string|null, names: list<string>, stopAfter: int|null, ownCall?: array{class: string, method: string}}|null
+     * @return array{rootClass: string|null, rootVar: string|null, names: list<string>, stopAfter: int|null, ownCall?: array{class: string, method: string}, elements?: true}|null
      */
     private function chainOnThis(array $names, array $callIndexes, string $classFqcn, array $properties): ?array
     {

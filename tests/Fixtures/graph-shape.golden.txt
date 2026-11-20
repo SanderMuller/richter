@@ -76,6 +76,7 @@ App\Listeners\SendPostNotification::handle	model	App\Models\PostContainer::query
 App\Livewire\StatusPanel	declares	App\Livewire\StatusPanel::render
 App\Livewire\StatusPanel::render	view	blade::livewire.status-panel::render
 App\Livewire\StatusPanel::render	action-to-view	view::blade__livewire.status_panel
+App\Models\Comment	declares	App\Models\Comment::archive
 App\Models\Comment	declares	App\Models\Comment::post
 App\Models\Comment::post	relation-to-model	App\Models\Post
 App\Models\Concerns\WithAudits	declares	App\Models\Concerns\WithAudits::auditName
@@ -104,9 +105,12 @@ App\Policies\PostPolicy	declares	App\Policies\PostPolicy::UPDATE
 App\Policies\PostPolicy	declares	App\Policies\PostPolicy::update
 App\Policies\UserPolicy	declares	App\Policies\UserPolicy::DELETE
 App\Policies\UserPolicy	declares	App\Policies\UserPolicy::delete
+App\Services\CommentSummariser	declares	App\Services\CommentSummariser::archiveAll
 App\Services\CommentSummariser	declares	App\Services\CommentSummariser::latest
 App\Services\CommentSummariser	declares	App\Services\CommentSummariser::preload
 App\Services\CommentSummariser	declares	App\Services\CommentSummariser::summarise
+App\Services\CommentSummariser::archiveAll	instance-call	App\Models\Comment::archive
+App\Services\CommentSummariser::archiveAll	loads-relation	App\Models\Post::comments
 App\Services\CommentSummariser::latest	loads-relation	App\Models\Comment::post
 App\Services\CommentSummariser::preload	references-constant	App\Models\Post::REVIEWS
 App\Services\CommentSummariser::preload	loads-relation	App\Models\Post::reviews

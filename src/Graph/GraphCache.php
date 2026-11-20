@@ -143,8 +143,11 @@ final class GraphCache
      * The same version adds an `instance-call` edge for a call on a new instance
      * (`new Formatter()->format()`), and a `loads-relation` edge for a relation read off an own method
      * that declares a model return type (`$this->post()->author`). A 29 entry lacks both.
+     *
+     * 30 → 31: a call on a model a relation loaded (`$post->author->notify()`, or the value of
+     * `foreach ($post->comments as $comment)`) draws an `instance-call` edge. A 30 entry lacks it.
      */
-    private const int FORMAT_VERSION = 30;
+    private const int FORMAT_VERSION = 31;
 
     private ?CodeGraph $memoized = null;
 

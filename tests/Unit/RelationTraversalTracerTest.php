@@ -29,10 +29,12 @@ final class RelationTraversalTracerTest extends TestCase
         class Comment
         {
             public function author() { return $this->belongsTo(\App\Models\User::class); }
+            public function publish(): void {}
         }
         class User
         {
             public function team() { return $this->belongsTo(\App\Models\Team::class); }
+            public function notify(): void {}
         }
         class Team {}
         PHP;
@@ -768,6 +770,183 @@ final class RelationTraversalTracerTest extends TestCase
                 private function post(): \App\Models\Post { return new \App\Models\Post(); }
             }
             PHP));
+    }
+
+    #[Test]
+    public function a_call_at_the_end_of_a_to_one_chain_names_the_loaded_model(): void
+    {
+        $edges = $this->edges(<<<'PHP'
+            <?php
+            namespace App\Services;
+            final class Reporter
+            {
+                public function __construct(private \App\Models\Post $post) {}
+
+                public function run(): void
+                {
+                    $this->post->author?->notify();
+                }
+            }
+            PHP);
+
+        $this->assertContains(['source' => 'App\\Services\\Reporter::run', 'target' => 'App\\Models\\Post::author', 'type' => 'loads-relation'], $edges);
+        $this->assertContains(['source' => 'App\\Services\\Reporter::run', 'target' => 'App\\Models\\User::notify', 'type' => 'instance-call'], $edges);
+    }
+
+    #[Test]
+    public function a_local_bound_through_a_relation_carries_the_loaded_model_to_a_call(): void
+    {
+        $this->assertSame(['App\\Models\\User::notify'], $this->instanceCalls(<<<'PHP'
+            <?php
+            namespace App\Services;
+            final class Reporter
+            {
+                public function run(\App\Models\Post $post): void
+                {
+                    $author = $post->author;
+                    $author->notify();
+                }
+            }
+            PHP));
+    }
+
+    #[Test]
+    public function a_foreach_over_a_to_many_relation_types_its_value_variable(): void
+    {
+        $edges = $this->edges(<<<'PHP'
+            <?php
+            namespace App\Services;
+            final class Publisher
+            {
+                public function run(\App\Models\Post $post): void
+                {
+                    foreach ($post->comments as $comment) {
+                        $comment->publish();
+                        $comment->author->notify();
+                    }
+                }
+            }
+            PHP);
+
+        $this->assertSame(
+            ['App\\Models\\Post::comments', 'App\\Models\\Comment::publish', 'App\\Models\\Comment::author', 'App\\Models\\User::notify'],
+            array_column($edges, 'target'),
+        );
+        $this->assertSame(['loads-relation', 'instance-call', 'loads-relation', 'instance-call'], array_column($edges, 'type'));
+    }
+
+    #[Test]
+    public function a_call_on_a_model_no_relation_loaded_draws_no_instance_call(): void
+    {
+        // A typed parameter, a `new` and a static all name the class in the source already, and a
+        // call on a collection or on a relation builder is not a call on the model.
+        $this->assertSame([], $this->instanceCalls(<<<'PHP'
+            <?php
+            namespace App\Services;
+            final class Publisher
+            {
+                public function run(\App\Models\Comment $comment, \App\Models\Post $post): void
+                {
+                    $comment->publish();
+                    new \App\Models\Comment()->publish();
+                    \App\Models\Comment::find(1)->publish();
+                    $post->comments->publish();
+                    $post->author()->notify();
+
+                    foreach ($post->comments() as $item) {
+                        $item->publish();
+                    }
+                }
+            }
+            PHP));
+    }
+
+    #[Test]
+    public function a_foreach_over_anything_else_clears_the_names_it_binds(): void
+    {
+        $this->assertSame([], $this->instanceCalls(<<<'PHP'
+            <?php
+            namespace App\Services;
+            final class Publisher
+            {
+                public function run(\App\Models\Post $post, array $rows): void
+                {
+                    $comment = $post->author;
+                    $key = $post->author;
+
+                    foreach ($rows as $key => $comment) {
+                        $comment->notify();
+                        $key->notify();
+                    }
+                }
+            }
+            PHP));
+    }
+
+    #[Test]
+    public function a_foreach_key_over_a_relation_is_not_the_model(): void
+    {
+        $this->assertSame(['App\\Models\\Comment::publish'], $this->instanceCalls(<<<'PHP'
+            <?php
+            namespace App\Services;
+            final class Publisher
+            {
+                public function run(\App\Models\Post $post): void
+                {
+                    $index = $post->author;
+
+                    foreach ($post->comments as $index => $comment) {
+                        $index->notify();
+                        $comment->publish();
+                    }
+                }
+            }
+            PHP));
+    }
+
+    #[Test]
+    public function a_foreach_reads_its_relation_before_it_rebinds_the_root_name(): void
+    {
+        $this->assertSame(['App\\Models\\Comment::publish'], $this->instanceCalls(<<<'PHP'
+            <?php
+            namespace App\Services;
+            final class Publisher
+            {
+                public function run(\App\Models\Post $post): void
+                {
+                    foreach ($post->comments as $post) {
+                        $post->publish();
+                    }
+                }
+            }
+            PHP));
+    }
+
+    #[Test]
+    public function a_foreach_over_a_to_one_relation_iterates_attributes_not_models(): void
+    {
+        $this->assertSame([], $this->instanceCalls(<<<'PHP'
+            <?php
+            namespace App\Services;
+            final class Publisher
+            {
+                public function run(\App\Models\Post $post): void
+                {
+                    foreach ($post->author as $field) {
+                        $field->notify();
+                    }
+                }
+            }
+            PHP));
+    }
+
+    /** @return list<string> */
+    private function instanceCalls(string $source): array
+    {
+        return array_column(array_values(array_filter(
+            $this->edges($source),
+            static fn (array $edge): bool => $edge['type'] === 'instance-call',
+        )), 'target');
     }
 
     /** @return list<string> */
