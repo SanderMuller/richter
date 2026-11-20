@@ -306,6 +306,26 @@ final class CodeGraphBuilderTest extends TestCase
     }
 
     #[Test]
+    public function a_view_links_the_livewire_components_it_embeds(): void
+    {
+        $this->assertSame('livewire-embed', $this->directDependenciesOf('view::blade__posts.show')['App\\Livewire\\StatusPanel'] ?? null);
+
+        // A runtime pick links the components that the called method names, and no other class.
+        $picked = $this->directDependenciesOf('view::blade__settings.index');
+        $this->assertSame('livewire-embed', $picked['App\\Livewire\\StatusPanel'] ?? null);
+        $this->assertSame('livewire-embed', $picked['App\\Livewire\\NotificationSettings'] ?? null);
+        $this->assertArrayNotHasKey(Post::class, $picked);
+    }
+
+    #[Test]
+    public function a_change_to_an_embedded_component_reaches_the_route_that_renders_the_page(): void
+    {
+        $callers = array_column(new ImpactAnalyzer($this->graph())->impact('App\\Livewire\\StatusPanel::refresh')['callers'], 'node');
+
+        $this->assertContains('route::GET::/posts/{post}/reviews', $callers);
+    }
+
+    #[Test]
     public function a_method_package_code_calls_links_from_the_constructor_of_its_class(): void
     {
         $this->assertSame('hook', $this->directCallersOf('App\\Casts\\Markdown::get')['App\\Casts\\Markdown::__construct'] ?? null);

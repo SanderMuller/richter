@@ -5,3 +5,5 @@
 @can(App\Policies\PostPolicy::UPDATE, $post)
     <a href="{{ route('posts.edit', $post) }}">Edit</a>
 @endcan
+
+<livewire:status-panel />

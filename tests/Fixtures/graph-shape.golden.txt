@@ -23,6 +23,12 @@ App\Enums\ExportFormat::job	constructs	App\Jobs\Exports\PdfExportJob::__construc
 App\Enums\ExportFormat::job	action-to-job	App\Jobs\Exports\PdfExportJob::handle
 App\Enums\FeatureToggle	declares	App\Enums\FeatureToggle::BETA_DASHBOARD
 App\Enums\FeatureToggle	declares	App\Enums\FeatureToggle::isActive
+App\Enums\SettingsTab	declares	App\Enums\SettingsTab::NOTIFICATIONS
+App\Enums\SettingsTab	declares	App\Enums\SettingsTab::STATUS
+App\Enums\SettingsTab	declares	App\Enums\SettingsTab::component
+App\Enums\SettingsTab	declares	App\Enums\SettingsTab::title
+App\Enums\SettingsTab::component	references-constant	App\Enums\SettingsTab::NOTIFICATIONS
+App\Enums\SettingsTab::component	references-constant	App\Enums\SettingsTab::STATUS
 App\Events\PostPublished	declares	App\Events\PostPublished::__construct
 App\Events\PostPublished	event-to-listener	App\Listeners\SendPostNotification::handle
 App\Filament\Resources\PostResource	declares	App\Filament\Resources\PostResource::table
@@ -80,6 +86,8 @@ App\Jobs\ProcessPostJob::handle	loads-relation	App\Models\Post::reviews
 App\Jobs\ProcessPostJob::handle	model	App\Models\Post::reviews
 App\Listeners\SendPostNotification	declares	App\Listeners\SendPostNotification::handle
 App\Listeners\SendPostNotification::handle	model	App\Models\PostContainer::query
+App\Livewire\NotificationSettings	declares	App\Livewire\NotificationSettings::save
+App\Livewire\StatusPanel	declares	App\Livewire\StatusPanel::refresh
 App\Livewire\StatusPanel	declares	App\Livewire\StatusPanel::render
 App\Livewire\StatusPanel::render	view	blade::livewire.status-panel::render
 App\Livewire\StatusPanel::render	action-to-view	view::blade__livewire.status_panel
@@ -189,6 +197,9 @@ route::GET::/posts/{post}/interactive	route-to-middleware	Laravel\Pennant\Middle
 route::GET::/posts/{post}/reviews	route-to-controller	App\Http\Controllers\Post\ReviewController
 route::POST::/posts	route-to-controller	App\Http\Controllers\Post\PostController
 route::PUT::/posts/{post}	route-to-controller	App\Http\Controllers\Post\PostController
+view::blade__posts.show	livewire-embed	App\Livewire\StatusPanel
 view::blade__posts.show	authorizes	App\Policies\PostPolicy
 view::blade__posts.show	view-to-view	view::blade__layouts.app
 view::blade__posts.show	view-to-view	view::blade__posts.partials.header
+view::blade__settings.index	livewire-embed	App\Livewire\NotificationSettings
+view::blade__settings.index	livewire-embed	App\Livewire\StatusPanel

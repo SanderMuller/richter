@@ -30,6 +30,7 @@ use SanderMuller\Richter\Tracers\DispatchEdgeTracer;
 use SanderMuller\Richter\Tracers\EntryPointTracer;
 use SanderMuller\Richter\Tracers\FacadeEdgeTracer;
 use SanderMuller\Richter\Tracers\InstanceCallEdgeTracer;
+use SanderMuller\Richter\Tracers\LivewireEmbedTracer;
 use SanderMuller\Richter\Tracers\ModelFactoryTracer;
 use SanderMuller\Richter\Tracers\PolicyEdgeTracer;
 use SanderMuller\Richter\Tracers\ReferenceEdgeTracer;
@@ -442,6 +443,9 @@ final class CodeGraphBuilder
         // Renders a class writes out by name — the lane that places a Livewire/Filament view, whose
         // component Brain's route-anchored walk never reaches.
         $viewTracer = new ViewRenderTracer($projectRoot);
+        // The Livewire components a view embeds. The methods that name a component by `::class` are
+        // collected across files, for a view that picks its component at runtime.
+        $livewireTracer = new LivewireEmbedTracer();
 
         // The paths whose ASTs trace() consumes: files under the tracer's own roots.
         $retainPrefixes = array_map(
@@ -526,6 +530,10 @@ final class CodeGraphBuilder
             if (ViewRenderTracer::mayMatch($source)) {
                 array_push($edges, ...$viewTracer->edgesForClassLikes($collector->classLikes));
             }
+
+            if (str_contains($source, '::class')) {
+                $livewireTracer->collect($collector->classMethods);
+            }
         }
 
         // CHA override edges (ancestor::m → concrete::m). Emitted once here, after every file's
@@ -566,6 +574,10 @@ final class CodeGraphBuilder
 
         // The app code a model factory runs, which test code reaches through `X::factory()`.
         array_push($edges, ...new ModelFactoryTracer($projectRoot)->edges($hydrationSurface, array_keys($hierarchyTracer->inheritanceMap())));
+
+        // A view to the Livewire components it embeds. Needs every app class collected, to tell a
+        // component from another class a method names.
+        array_push($edges, ...$livewireTracer->edges($projectRoot, $hierarchyTracer->inheritanceMap()));
 
         // Sorted before it leaves the branch: a report that names sites must not reorder between
         // runs, and the cached payload has to be byte-stable or the fingerprint starts flapping.

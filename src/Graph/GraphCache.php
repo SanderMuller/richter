@@ -156,7 +156,8 @@ final class GraphCache
      * runs (`Status::sorted` to `SortsCases::sorted`). A 31 entry lacks it. It also draws a `hook`
      * edge from a class's `__construct` to each method that package code calls on it (a global
      * scope's `apply()`). A 31 entry lacks that too. And it draws a `factory` edge from `X::factory`
-     * to the app code that model factory runs. A 31 entry lacks that as well.
+     * to the app code that model factory runs. A 31 entry lacks that as well, and the
+     * `livewire-embed` edge from a Blade view to the Livewire components it embeds.
      */
     private const int FORMAT_VERSION = 32;
 
