@@ -528,11 +528,14 @@ final class CodeGraph
      * caller passes the narrower set as `$dependencySeeds` to keep the second walk on the members it
      * can actually pin. `null` means "same as `$from`", so every existing call site is unaffected.
      *
+     * `$excludeTypes` are edge types neither walk crosses, so nothing behind them is reached.
+     *
      * @param  list<string>  $from
      * @param  list<string>|null  $dependencySeeds
+     * @param  list<string>  $excludeTypes
      * @return array<string, array<string, true>>
      */
-    public function reachedViaTypes(array $from, int $maxDepth = 6, ?array $dependencySeeds = null): array
+    public function reachedViaTypes(array $from, int $maxDepth = 6, ?array $dependencySeeds = null, array $excludeTypes = []): array
     {
         $dependencySeeds ??= $from;
         $via = [];
@@ -540,7 +543,7 @@ final class CodeGraph
         foreach ([[$this->upstream, $from], [$this->downstream, $dependencySeeds]] as [$adjacency, $seeds]) {
             $this->bfs($adjacency, $seeds, $maxDepth, static function (array $hop, int $depth, bool $firstVisit) use (&$via): void {
                 $via[$hop['node']][$hop['via']] = true;
-            });
+            }, $excludeTypes);
         }
 
         foreach ([...$from, ...$dependencySeeds] as $seed) {

@@ -15,6 +15,7 @@ use SanderMuller\Richter\Support\Fqcn;
 use SanderMuller\Richter\Support\HydrationSurface;
 use SanderMuller\Richter\Support\ReachReasons;
 use SanderMuller\Richter\Support\RichterConfig;
+use SanderMuller\Richter\Tracers\ModelFactoryTracer;
 
 /**
  * Over a {@see CodeGraph}: impact(symbol) blast radius + detectChanges(files) reached entry points/risk.
@@ -407,7 +408,8 @@ final readonly class ImpactAnalyzer
         $coverage = $this->withUnresolvedJobFlips($coverage, $changed, $perFileSeeds, $maxDepth, $reachMemo);
 
         // A node only reachable through `model-relationship` is context, not risk — counting it lets touching a hub model saturate to HIGH on relation breadth alone. Any behavioural edge still counts.
-        $reach = $this->graph->reachedViaTypes($seeds, $maxDepth, $dependencySeeds);
+        // A factory edge is test code: what a factory runs is no part of the change's reach.
+        $reach = $this->graph->reachedViaTypes($seeds, $maxDepth, $dependencySeeds, [ModelFactoryTracer::EDGE_TYPE]);
         $impacted = count(array_filter($reach, $this->isRiskBearing(...)));
         $relatedModels = $this->uncountedReachVia($reach, ['model-relationship']);
         // What the change reaches through the hierarchy rather than through a call: a class using the

@@ -769,6 +769,23 @@ final class ImpactAnalyzerTest extends TestCase
     }
 
     #[Test]
+    public function a_class_change_counts_nothing_behind_its_factory_node(): void
+    {
+        // A class-level change seeds every node that names the class, `Post::factory` included.
+        $graph = new CodeGraph([
+            ['source' => 'App\\Models\\Post::factory', 'target' => 'App\\Models\\User::factory', 'type' => 'factory'],
+            ['source' => 'App\\Models\\User::factory', 'target' => 'App\\Observers\\UserObserver::creating', 'type' => 'factory'],
+            ['source' => 'App\\Observers\\UserObserver::creating', 'target' => 'App\\Support\\Slugger::make', 'type' => 'static-call'],
+            ['source' => 'App\\Models\\Comment::factory', 'target' => 'App\\Models\\Post::factory', 'type' => 'factory'],
+            ['source' => 'App\\Console\\SeedCommand::handle', 'target' => 'App\\Models\\Comment::factory', 'type' => 'static-call'],
+        ], hasUnparseableFiles: false);
+
+        $result = new ImpactAnalyzer($graph)->detectChanges([$this->changedCoarse('app/Models/Post.php', 'App\\Models\\Post')]);
+
+        $this->assertSame(0, $result['impacted']);
+    }
+
+    #[Test]
     public function an_additive_only_change_to_a_job_is_low_not_medium(): void
     {
         // A new method on a job has no callers; the entry-class floor must not fire.
