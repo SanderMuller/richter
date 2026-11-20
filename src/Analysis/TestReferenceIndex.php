@@ -55,6 +55,13 @@ final class TestReferenceIndex
 
     private ?CodeGraph $graph = null;
 
+    private readonly TestSupportUsers $supportUsers;
+
+    public function __construct()
+    {
+        $this->supportUsers = new TestSupportUsers();
+    }
+
     /**
      * @param  string|null  $projectRoot  when given, recorded test-file paths are made relative to
      *   it — the form a test-runner invocation (`php artisan test <file>`) expects
@@ -152,6 +159,10 @@ final class TestReferenceIndex
         }
 
         $this->recordClassReferences($source, $file);
+
+        if ($file !== null) {
+            $this->supportUsers->add($source, $file);
+        }
     }
 
     /**
@@ -251,6 +262,18 @@ final class TestReferenceIndex
         }
 
         return array_all($tests, fn (string $file): bool => $this->assertionWeakByFile[$file] ?? false);
+    }
+
+    /**
+     * The runnable tests that use a support file from the list: a trait or base class under `tests/`
+     * that a reference was found in. Null when a user cannot be mapped ({@see TestSupportUsers}).
+     *
+     * @param  list<string>  $files
+     * @return list<string>|null
+     */
+    public function runnableUsersOf(array $files): ?array
+    {
+        return $this->supportUsers->runnableUsersOf($files);
     }
 
     /**

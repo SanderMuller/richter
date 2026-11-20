@@ -40,7 +40,7 @@ The command inverts the test-reference index into a selection: the test files th
 
 A `schedule::` entry resolves through the command it runs, and a route matched by neither its name nor a literal URI resolves through the class handling it, so a test importing a Livewire component or a Filament page selects the route driven by it.
 
-Only conventionally-named `*Test.php` files are selected; helpers and fixtures under `tests/` never end up as runner arguments, and an entry point whose only references live in a support trait blocks determination rather than silently dropping the tests using that trait. Selection is reference-based recall, not proof of coverage: reached entry points nothing references contribute nothing, and the report says how many those are.
+Only conventionally-named `*Test.php` files are selected; helpers and fixtures under `tests/` never end up as runner arguments, and an entry point whose only references live in a support trait or base class selects each test that uses it: a test class that `use`s the trait or extends the base class, directly or through another support file, or a Pest file that names it in `uses()`. When a Pest `uses()->in()` call applies it to a directory, the tests cannot be mapped, so determination is blocked rather than silently dropping them. Selection is reference-based recall, not proof of coverage: reached entry points nothing references contribute nothing, and the report says how many those are.
 
 ## Why the import axis runs one way
 

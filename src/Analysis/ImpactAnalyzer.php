@@ -28,7 +28,7 @@ use SanderMuller\Richter\Support\RichterConfig;
  * `CompleteDetectChangesResult` is internal: it types richter's own empty result and test fixtures,
  * and it can change in a minor release.
  *
- * @phpstan-type CompleteDetectChangesResult array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, newFiles: list<string>, fqcns: array<string, string>, callers: list<array{depth: int, node: string, via: string}>, dependencies: list<array{depth: int, node: string, via: string}>, seeds: list<string>, reach: array<string, array<string, true>>, edges: list<array{source: string, target: string, via: string, depth: int}>, entryPoints: list<string>, associationEntryPoints: list<string>, associationEntryPointsVia: array<string, list<string>>, registryEntryPoints: list<string>, relationOnlyEntryPoints: list<string>, selectionCallers: list<array{depth: int, node: string, via: string}>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, SecurityShape>, entryPointGates: array<string, list<string>>, entryPointAuthGates: array<string, list<string>>, entryPointAuthMiddleware: array<string, list<string>>, entryPointRuntimeGuards: array<string, list<array{middleware: string, group: string|null}>>, entryPointAttribution: array<string, array{via: string, ownReach: int}>, entryPointKeepSet: array{kept: list<string>, droppedHub: int}, impacted: int, relatedModels: list<string>, traitAndOverrideReach: list<string>, traitAndOverrideReachVia: array<string, list<string>>, risk: RiskLevel, riskCause: string, hazards: list<Hazard>, verification: array<string, bool|null>, lowConfidence: bool, findings: list<string>}
+ * @phpstan-type CompleteDetectChangesResult array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, newFiles: list<string>, fqcns: array<string, string>, callers: list<array{depth: int, node: string, via: string}>, dependencies: list<array{depth: int, node: string, via: string}>, seeds: list<string>, reach: array<string, array<string, true>>, edges: list<array{source: string, target: string, via: string, depth: int}>, entryPoints: list<string>, associationEntryPoints: list<string>, associationEntryPointsVia: array<string, list<string>>, selectionOnlyEntryPoints: list<string>, relationOnlyEntryPoints: list<string>, selectionCallers: list<array{depth: int, node: string, via: string}>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, SecurityShape>, entryPointGates: array<string, list<string>>, entryPointAuthGates: array<string, list<string>>, entryPointAuthMiddleware: array<string, list<string>>, entryPointRuntimeGuards: array<string, list<array{middleware: string, group: string|null}>>, entryPointAttribution: array<string, array{via: string, ownReach: int}>, entryPointKeepSet: array{kept: list<string>, droppedHub: int}, impacted: int, relatedModels: list<string>, traitAndOverrideReach: list<string>, traitAndOverrideReachVia: array<string, list<string>>, risk: RiskLevel, riskCause: string, hazards: list<Hazard>, verification: array<string, bool|null>, lowConfidence: bool, findings: list<string>}
  */
 final readonly class ImpactAnalyzer
 {
@@ -98,7 +98,7 @@ final readonly class ImpactAnalyzer
 
     /**
      * The association edges a model relation draws. A walk that excludes only these still crosses a
-     * registry fan-out, which is how `registryEntryPoints` is found. The same walk feeds the import
+     * registry fan-out, which is one way `selectionOnlyEntryPoints` is found. The same walk feeds the import
      * axis of {@see AffectedTests}.
      *
      * @var list<string>
@@ -215,7 +215,7 @@ final readonly class ImpactAnalyzer
             'entryPointLocations' => [], 'entryPointSecurity' => [], 'entryPointGates' => [],
             'entryPointKeepSet' => ['kept' => [], 'droppedHub' => 0],
             'entryPointAuthGates' => [], 'entryPointAuthMiddleware' => [], 'entryPointRuntimeGuards' => [], 'entryPointAttribution' => [],
-            'impacted' => 0, 'relatedModels' => [], 'registryEntryPoints' => [], 'relationOnlyEntryPoints' => [], 'selectionCallers' => [], 'traitAndOverrideReach' => [], 'traitAndOverrideReachVia' => [], 'risk' => RiskLevel::Low,
+            'impacted' => 0, 'relatedModels' => [], 'selectionOnlyEntryPoints' => [], 'relationOnlyEntryPoints' => [], 'selectionCallers' => [], 'traitAndOverrideReach' => [], 'traitAndOverrideReachVia' => [], 'risk' => RiskLevel::Low,
             // Ladder step 0: nothing was analysed, which is not the same fact as "analysed and could
             // not be placed". An empty diff has always reported LOW and still does.
             'riskCause' => 'no analysable change: this diff touches nothing richter analyses',
@@ -260,7 +260,7 @@ final readonly class ImpactAnalyzer
      *     entryPointKeepSet: array{kept: list<string>, droppedHub: int},
      *     impacted: int,
      *     relatedModels: list<string>,
-     *     registryEntryPoints: list<string>,
+     *     selectionOnlyEntryPoints: list<string>,
      *     relationOnlyEntryPoints: list<string>,
      *     selectionCallers: list<array{depth: int, node: string, via: string}>,
      *     traitAndOverrideReach: list<string>,
@@ -368,14 +368,16 @@ final readonly class ImpactAnalyzer
         // `relatedModels` below); the entry-point list now draws it too.
         $entryPoints = $this->callReachedEntryPoints($seeds, $maxDepth, $reachMemo);
         $associationEntryPoints = array_values(array_diff($this->entryPointsAmong($callers), $entryPoints));
-        // A registry fan-out is context in the REPORT — it names every class its config file lists,
-        // so it cannot tell one of them from another — but the dispatch behind it is real, and a
-        // test that drives such a route does exercise the change. Carried separately so
-        // {@see AffectedTests} can select over it without the entry-point list claiming it as a
-        // caller. Internal, like the walk lists above: no output format reads it.
+        // The entry points only the selection walk reaches. Two things put them there. A registry
+        // fan-out is context in the REPORT — it names every class its config file lists, so it
+        // cannot tell one of them from another — but the dispatch behind it is real, and a test
+        // that drives such a route does exercise the change. A free hop does not use up depth, so
+        // the selection walk also reaches past the report's limit. Carried separately so
+        // {@see AffectedTests} can select over them without the entry-point list claiming them as
+        // callers. Internal, like the walk lists above: no output format reads it.
         $selectionCallers = $this->graph->callersOf($seeds, $maxDepth, self::SELECTION_EXCLUDED_EDGE_TYPES, self::SELECTION_FREE_EDGE_TYPES);
         $selectionEntryPoints = $this->entryPointsAmong($selectionCallers);
-        $registryEntryPoints = array_values(array_diff($selectionEntryPoints, $entryPoints));
+        $selectionOnlyEntryPoints = array_values(array_diff($selectionEntryPoints, $entryPoints));
         // Listed in the report, but reached only by loading a relation to a changed model member
         // that does not run on load: test selection leaves them out, as it does their importers.
         $relationOnlyEntryPoints = array_values(array_diff($entryPoints, $selectionEntryPoints));
@@ -516,7 +518,7 @@ final readonly class ImpactAnalyzer
             'entryPoints' => $entryPoints,
             'associationEntryPoints' => $associationEntryPoints,
             'associationEntryPointsVia' => $this->associationReasons($associationEntryPoints, $seeds, $maxDepth, $callers),
-            'registryEntryPoints' => $registryEntryPoints,
+            'selectionOnlyEntryPoints' => $selectionOnlyEntryPoints,
             'relationOnlyEntryPoints' => $relationOnlyEntryPoints,
             'selectionCallers' => $selectionCallers,
             'entryPointPaths' => $entryPointPaths,

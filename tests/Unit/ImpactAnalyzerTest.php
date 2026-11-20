@@ -1645,7 +1645,7 @@ final class ImpactAnalyzerTest extends TestCase
         $this->assertSame(['route::GET::/admin/rates'], $result['entryPoints']);
         $this->assertSame(['route::GET::/admin/formulas'], $result['associationEntryPoints']);
         // The dispatch behind the fan-out is real, so test selection still reaches that route.
-        $this->assertSame(['route::GET::/admin/formulas'], $result['registryEntryPoints']);
+        $this->assertSame(['route::GET::/admin/formulas'], $result['selectionOnlyEntryPoints']);
         $this->assertContains('App\Http\Controllers\FormulaController::index', $this->nodes($result['selectionCallers']));
     }
 

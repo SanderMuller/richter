@@ -19,17 +19,17 @@ final class AffectedTestsTest extends TestCase
      * @param  list<string>  $entryPoints
      * @param  array<string, 'analyzed'|'unresolved'>  $coverage
      * @param  list<array{depth: int, node: string, via: string}>  $callers
-     * @param  list<string>  $registryEntryPoints
+     * @param  list<string>  $selectionOnlyEntryPoints
      * @param  list<array{depth: int, node: string, via: string}>|null  $selectionCallers  the caller
      *   walk without model-relation edges; defaults to `$callers`, which holds no such edge here
      * @param  list<array{depth: int, node: string, via: string}>  $dependencies  the change's
      *   DOWNSTREAM closure. Defaults empty, which is what it was for every test here until the
      *   import axis became directional — a test that does not pass one proves nothing about it.
-     * @return array{coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, registryEntryPoints: list<string>, lowConfidence: bool, callers: list<array{depth: int, node: string, via: string}>, selectionCallers: list<array{depth: int, node: string, via: string}>, dependencies: list<array{depth: int, node: string, via: string}>}
+     * @return array{coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, selectionOnlyEntryPoints: list<string>, lowConfidence: bool, callers: list<array{depth: int, node: string, via: string}>, selectionCallers: list<array{depth: int, node: string, via: string}>, dependencies: list<array{depth: int, node: string, via: string}>}
      */
-    private function detectResult(array $entryPoints, array $coverage = ['app/Services/X.php' => 'analyzed'], bool $lowConfidence = false, array $callers = [], array $registryEntryPoints = [], array $dependencies = [], ?array $selectionCallers = null): array
+    private function detectResult(array $entryPoints, array $coverage = ['app/Services/X.php' => 'analyzed'], bool $lowConfidence = false, array $callers = [], array $selectionOnlyEntryPoints = [], array $dependencies = [], ?array $selectionCallers = null): array
     {
-        return ['coverage' => $coverage, 'entryPoints' => $entryPoints, 'registryEntryPoints' => $registryEntryPoints, 'lowConfidence' => $lowConfidence, 'callers' => $callers, 'selectionCallers' => $selectionCallers ?? $callers, 'dependencies' => $dependencies];
+        return ['coverage' => $coverage, 'entryPoints' => $entryPoints, 'selectionOnlyEntryPoints' => $selectionOnlyEntryPoints, 'lowConfidence' => $lowConfidence, 'callers' => $callers, 'selectionCallers' => $selectionCallers ?? $callers, 'dependencies' => $dependencies];
     }
 
     private function changed(string $file, string $fqcn): ChangedFileSymbols
@@ -80,7 +80,7 @@ final class AffectedTestsTest extends TestCase
         // exercises the change — skipping it would under-select, the one direction this must never
         // fail in.
         $selection = AffectedTests::select(
-            $this->detectResult([], registryEntryPoints: ['route::GET::/errors/log']),
+            $this->detectResult([], selectionOnlyEntryPoints: ['route::GET::/errors/log']),
             [$this->changed('app/Services/X.php', 'App\Services\X')],
             $this->index(),
             unresolvedDispatchSites: [],
@@ -492,6 +492,59 @@ final class AffectedTestsTest extends TestCase
 
         $this->assertTrue($selection['determinable']);
         $this->assertSame([], $selection['tests']);
+    }
+
+    #[Test]
+    public function a_support_trait_selects_each_test_that_uses_it(): void
+    {
+        $selection = $this->selectWithSupport([
+            'tests/Feature/ErrorPageTest.php' => "<?php\nnamespace Tests\\Feature;\nuse Tests\\Support\\VisitsErrors;\nfinal class ErrorPageTest extends \\Tests\\TestCase\n{\n    use VisitsErrors;\n}\n",
+            'tests/Feature/PestErrorTest.php' => "<?php\nuses(\\Tests\\Support\\VisitsErrors::class);\nit('renders', fn () => true);\n",
+            'tests/Feature/OtherTest.php' => "<?php\nnamespace Tests\\Feature;\nfinal class OtherTest extends \\Tests\\TestCase\n{\n}\n",
+        ]);
+
+        $this->assertTrue($selection['determinable']);
+        $this->assertSame(['tests/Feature/ErrorPageTest.php', 'tests/Feature/PestErrorTest.php'], $selection['tests']);
+    }
+
+    #[Test]
+    public function a_support_trait_on_a_base_class_selects_the_tests_that_extend_it(): void
+    {
+        $selection = $this->selectWithSupport([
+            'tests/Feature/BrowsingTestCase.php' => "<?php\nnamespace Tests\\Feature;\nabstract class BrowsingTestCase extends \\Tests\\TestCase\n{\n    use \\Tests\\Support\\VisitsErrors;\n}\n",
+            'tests/Feature/ErrorPageTest.php' => "<?php\nnamespace Tests\\Feature;\nfinal class ErrorPageTest extends BrowsingTestCase\n{\n}\n",
+        ]);
+
+        $this->assertTrue($selection['determinable']);
+        $this->assertSame(['tests/Feature/ErrorPageTest.php'], $selection['tests']);
+    }
+
+    #[Test]
+    public function a_support_trait_a_pest_directory_call_applies_still_blocks_determination(): void
+    {
+        // `uses()->in()` applies the trait to a directory, which this scan does not resolve.
+        $selection = $this->selectWithSupport([
+            'tests/Pest.php' => "<?php\nuses(Tests\\Support\\VisitsErrors::class)->in('Feature');\n",
+            'tests/Feature/ErrorPageTest.php' => "<?php\nnamespace Tests\\Feature;\nfinal class ErrorPageTest extends \\Tests\\TestCase\n{\n    use \\Tests\\Support\\VisitsErrors;\n}\n",
+        ]);
+
+        $this->assertFalse($selection['determinable']);
+    }
+
+    /**
+     * @param  array<string, string>  $sources  test file => source, beside a support trait that visits `/errors/log`
+     * @return array{determinable: bool, tests: list<string>, ...}
+     */
+    private function selectWithSupport(array $sources): array
+    {
+        $index = new TestReferenceIndex();
+        $index->addSource("<?php\nnamespace Tests\\Support;\ntrait VisitsErrors\n{\n    public function visitErrors(): void\n    {\n        \$this->get('/errors/log');\n    }\n}\n", 'tests/Support/VisitsErrors.php');
+
+        foreach ($sources as $file => $source) {
+            $index->addSource($source, $file);
+        }
+
+        return AffectedTests::select($this->detectResult(['route::GET::/errors/log']), [], $index, unresolvedDispatchSites: []);
     }
 
     #[Test]
