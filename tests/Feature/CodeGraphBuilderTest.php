@@ -318,6 +318,12 @@ final class CodeGraphBuilderTest extends TestCase
     }
 
     #[Test]
+    public function the_graph_carries_the_methods_that_return_a_named_route_url(): void
+    {
+        $this->assertSame(['posts.edit'], $this->graph()->routeUrlHelpers()['editUrl'] ?? null);
+    }
+
+    #[Test]
     public function a_change_to_an_embedded_component_reaches_the_route_that_renders_the_page(): void
     {
         $callers = array_column(new ImpactAnalyzer($this->graph())->impact('App\\Livewire\\StatusPanel::refresh')['callers'], 'node');

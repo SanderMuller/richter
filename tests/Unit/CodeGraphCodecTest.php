@@ -23,6 +23,7 @@ final class CodeGraphCodecTest extends TestCase
             hasUnparseableFiles: true,
             unresolvedDispatchSites: [['file' => 'app/Services/Importer.php', 'line' => 12, 'dispatcher' => 'App\Services\Importer::run']],
             nodeMetadata: ['route::GET::/posts' => ['file' => 'routes/web.php', 'line' => 3]],
+            routeUrlHelpers: ['editUrl' => ['posts.edit']],
         );
 
         $stored = json_decode(json_encode($graph->toArray(), JSON_THROW_ON_ERROR), associative: true);
@@ -48,6 +49,8 @@ final class CodeGraphCodecTest extends TestCase
         yield 'node metadata absent' => ['nodeMetadata', null, 'metadata-rejected'];
         yield 'node metadata as a string' => ['nodeMetadata', 'corrupt', 'metadata-rejected'];
         yield 'a node metadata record that is not a map' => ['nodeMetadata', ['route::GET::/posts' => 'routes/web.php'], 'metadata-rejected'];
+        yield 'route URL helpers absent' => ['routeUrlHelpers', null, 'url-helpers-rejected'];
+        yield 'a route URL helper with a string for its routes' => ['routeUrlHelpers', ['editUrl' => 'posts.edit'], 'url-helpers-rejected'];
     }
 
     #[Test]
@@ -90,6 +93,7 @@ final class CodeGraphCodecTest extends TestCase
             'hasUnparseableFiles' => false,
             'unresolvedDispatchSites' => [],
             'nodeMetadata' => [],
+            'routeUrlHelpers' => [],
         ];
     }
 }

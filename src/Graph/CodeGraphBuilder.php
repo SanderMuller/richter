@@ -35,6 +35,7 @@ use SanderMuller\Richter\Tracers\ModelFactoryTracer;
 use SanderMuller\Richter\Tracers\PolicyEdgeTracer;
 use SanderMuller\Richter\Tracers\ReferenceEdgeTracer;
 use SanderMuller\Richter\Tracers\RelationTraversalTracer;
+use SanderMuller\Richter\Tracers\RouteUrlHelpers;
 use SanderMuller\Richter\Tracers\StaticCallEdgeTracer;
 use SanderMuller\Richter\Tracers\ViewRenderTracer;
 
@@ -276,6 +277,7 @@ final class CodeGraphBuilder
             $tracerBranch['unparseableFiles'] > 0,
             $tracerBranch['unresolvedDispatchSites'],
             NodeMetadata::withFallbackFiles($edges, $metadata, $projectRoot),
+            $tracerBranch['routeUrlHelpers'],
         );
 
         $this->emitPhase($onProgress, 'rewrites-and-members', $phaseStart);
@@ -292,7 +294,7 @@ final class CodeGraphBuilder
      * order build() appends them serially, keeping the merged graph byte-identical either way.
      *
      * @param  (callable(string, array<string, mixed>): void)|null  $onProgress
-     * @return array{edges: list<array{source: string, target: string, type: string}>, unparseableFiles: int, unresolvedDispatchSites: list<array{file: string, line: int, dispatcher: string}>, inheritance: array<string, array{parent: string|null, declared: list<string>}>, declares: array<string, list<array{source: string, target: string, type: string}>>}
+     * @return array{edges: list<array{source: string, target: string, type: string}>, unparseableFiles: int, unresolvedDispatchSites: list<array{file: string, line: int, dispatcher: string}>, inheritance: array<string, array{parent: string|null, declared: list<string>}>, declares: array<string, list<array{source: string, target: string, type: string}>>, routeUrlHelpers: array<string, list<string>>}
      */
     public function buildTracerBranch(string $projectRoot, ?callable $onProgress = null): array
     {
@@ -341,6 +343,7 @@ final class CodeGraphBuilder
             'unresolvedDispatchSites' => $consolidated['unresolvedDispatchSites'],
             'inheritance' => $consolidated['inheritance'],
             'declares' => $consolidated['declares'],
+            'routeUrlHelpers' => $consolidated['routeUrlHelpers'],
         ];
     }
 
@@ -409,7 +412,7 @@ final class CodeGraphBuilder
      * Conflating the two (as pre-036 code did) would make an unrelated unparseable file's taint
      * masquerade as a scopeable dispatch signal — see plan 036 "Why v1 was unsound".
      *
-     * @return array{edges: list<array{source: string, target: string, type: string}>, unparseableFiles: int, unresolvedDispatchSites: list<array{file: string, line: int, dispatcher: string}>, entryPointAsts: array<string, list<Node\Stmt>>, inheritance: array<string, array{parent: string|null, declared: list<string>}>, declares: array<string, list<array{source: string, target: string, type: string}>>}
+     * @return array{edges: list<array{source: string, target: string, type: string}>, unparseableFiles: int, unresolvedDispatchSites: list<array{file: string, line: int, dispatcher: string}>, entryPointAsts: array<string, list<Node\Stmt>>, inheritance: array<string, array{parent: string|null, declared: list<string>}>, declares: array<string, list<array{source: string, target: string, type: string}>>, routeUrlHelpers: array<string, list<string>>}
      */
     private function consolidatedTracerEdges(string $projectRoot, EntryPointTracer $entryPointTracer, ProviderBindings $providerBindings): array
     {
@@ -446,6 +449,9 @@ final class CodeGraphBuilder
         // The Livewire components a view embeds. The methods that name a component by `::class` are
         // collected across files, for a view that picks its component at runtime.
         $livewireTracer = new LivewireEmbedTracer();
+        // Methods that return a named route's URL, which a test calls instead of naming the route.
+        // Every file counts: a name is kept only when no other app method declares it.
+        $urlHelpers = new RouteUrlHelpers();
 
         // The paths whose ASTs trace() consumes: files under the tracer's own roots.
         $retainPrefixes = array_map(
@@ -534,6 +540,8 @@ final class CodeGraphBuilder
             if (str_contains($source, '::class')) {
                 $livewireTracer->collect($collector->classMethods);
             }
+
+            $urlHelpers->collect($collector->classMethods);
         }
 
         // CHA override edges (ancestor::m → concrete::m). Emitted once here, after every file's
@@ -599,6 +607,7 @@ final class CodeGraphBuilder
             // INHERITS its action reaches its member node through Brain, not through this branch.
             'inheritance' => $hierarchyTracer->inheritanceMap(),
             'declares' => $declaresByFqcn,
+            'routeUrlHelpers' => $urlHelpers->helpers(),
         ];
     }
 

@@ -5,6 +5,7 @@ namespace SanderMuller\Richter\Graph;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Process;
 use SanderMuller\Richter\Support\RichterConfig;
+use SanderMuller\Richter\Tracers\RouteUrlHelpers;
 use Throwable;
 
 /**
@@ -63,7 +64,7 @@ final class TracerBranchRunner
      * or malformed output) — the caller then rebuilds the branch in-process. The temp file is always
      * cleaned up.
      *
-     * @return array{edges: list<array{source: string, target: string, type: string}>, unparseableFiles: int, unresolvedDispatchSites: list<array{file: string, line: int, dispatcher: string}>, inheritance: array<string, array{parent: string|null, declared: list<string>}>, declares: array<string, list<array{source: string, target: string, type: string}>>}|null
+     * @return array{edges: list<array{source: string, target: string, type: string}>, unparseableFiles: int, unresolvedDispatchSites: list<array{file: string, line: int, dispatcher: string}>, inheritance: array<string, array{parent: string|null, declared: list<string>}>, declares: array<string, list<array{source: string, target: string, type: string}>>, routeUrlHelpers: array<string, list<string>>}|null
      */
     public static function finish(PendingTracerBranch $pending): ?array
     {
@@ -89,7 +90,7 @@ final class TracerBranchRunner
      * rather than risking a wrong graph from a truncated or corrupt file — a slow-but-correct build
      * beats a fast-but-wrong one.
      *
-     * @return array{edges: list<array{source: string, target: string, type: string}>, unparseableFiles: int, unresolvedDispatchSites: list<array{file: string, line: int, dispatcher: string}>, inheritance: array<string, array{parent: string|null, declared: list<string>}>, declares: array<string, list<array{source: string, target: string, type: string}>>}|null
+     * @return array{edges: list<array{source: string, target: string, type: string}>, unparseableFiles: int, unresolvedDispatchSites: list<array{file: string, line: int, dispatcher: string}>, inheritance: array<string, array{parent: string|null, declared: list<string>}>, declares: array<string, list<array{source: string, target: string, type: string}>>, routeUrlHelpers: array<string, list<string>>}|null
      */
     private static function validate(mixed $decoded): ?array
     {
@@ -169,12 +170,19 @@ final class TracerBranchRunner
             }
         }
 
+        $routeUrlHelpers = RouteUrlHelpers::fromPayload($decoded['routeUrlHelpers'] ?? null);
+
+        if ($routeUrlHelpers === null) {
+            return null;
+        }
+
         return [
             'edges' => $edges,
             'unparseableFiles' => $decoded['unparseableFiles'],
             'unresolvedDispatchSites' => $decoded['unresolvedDispatchSites'],
             'inheritance' => $inheritance,
             'declares' => $declares,
+            'routeUrlHelpers' => $routeUrlHelpers,
         ];
     }
 

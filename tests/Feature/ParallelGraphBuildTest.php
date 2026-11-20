@@ -103,6 +103,7 @@ final class ParallelGraphBuildTest extends TestCase
             'unresolvedDispatchSites' => [],
             'inheritance' => ['App\\Services\\Child' => ['parent' => 42, 'declared' => ['handle']]],
             'declares' => [],
+            'routeUrlHelpers' => [],
         ]));
         $process = Process::path(base_path())->start([PHP_BINARY, '-r', 'exit(0);']);
 
@@ -140,6 +141,7 @@ final class ParallelGraphBuildTest extends TestCase
             'unresolvedDispatchSites' => [['file' => 'app/Services/Importer.php', 'dispatcher' => 'App\\Services\\Importer::run']],
             'inheritance' => [],
             'declares' => [],
+            'routeUrlHelpers' => [],
         ]));
         $process = Process::path(base_path())->start([PHP_BINARY, '-r', 'exit(0);']);
 
@@ -159,6 +161,7 @@ final class ParallelGraphBuildTest extends TestCase
             // the parent looks members up there rather than re-parsing every app class file.
             'inheritance' => ['App\\Services\\Child' => ['parent' => 'App\\Services\\Base', 'declared' => ['handle']]],
             'declares' => ['App\\Services\\Child' => [['source' => 'App\\Services\\Child', 'target' => 'App\\Services\\Child::handle', 'type' => 'declares']]],
+            'routeUrlHelpers' => ['editUrl' => ['posts.edit']],
         ];
         file_put_contents($out, (string) json_encode($branch));
         $process = Process::path(base_path())->start([PHP_BINARY, '-r', 'exit(0);']);

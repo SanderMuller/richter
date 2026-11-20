@@ -57,9 +57,12 @@ final class TestReferenceIndex
 
     private readonly TestSupportUsers $supportUsers;
 
+    private readonly TestHelperCalls $helperCalls;
+
     public function __construct()
     {
         $this->supportUsers = new TestSupportUsers();
+        $this->helperCalls = new TestHelperCalls();
     }
 
     /**
@@ -75,6 +78,12 @@ final class TestReferenceIndex
     public function useGraph(CodeGraph $graph): void
     {
         $this->graph = $graph;
+
+        // A test that calls `$post->editUrl()` drives the route the helper returns the URL of, the
+        // same as a test that names it with `route('posts.edit')`.
+        foreach ($this->helperCalls->routeReferences($graph->routeUrlHelpers()) as [$route, $file]) {
+            $this->record($this->routeNames, $route, $file);
+        }
     }
 
     /**
@@ -151,6 +160,8 @@ final class TestReferenceIndex
                 $this->record($this->uris, $template === false || $template === '' ? $uri : $template, $file);
             }
         }
+
+        $this->helperCalls->add($source, $file);
 
         if (preg_match_all('/(?:artisan|Artisan::call|Artisan::queue)\(\s*[\'"]([^\'"\s]+)[\'"]/', $source, $matches) > 0) {
             foreach ($matches[1] as $command) {

@@ -3,6 +3,7 @@
 namespace SanderMuller\Richter\Graph;
 
 use SanderMuller\Richter\Analysis\ImpactAnalyzer;
+use SanderMuller\Richter\Tracers\RouteUrlHelpers;
 
 /**
  * A directed code graph (nodes connected by typed edges) with upstream/downstream traversal. Built
@@ -76,8 +77,10 @@ final class CodeGraph
      *   than as a flag so a report can send a reader to the line instead of saying only that one
      *   exists; `hasUnresolvedDispatches()` derives from it, so the two can never disagree.
      * @param  array<string, MetadataShape>  $nodeMetadata  sparse per-node annotation, keyed by node id
+     * @param  array<string, list<string>>  $routeUrlHelpers  app method name => the route names it
+     *   returns the URL of, for a test that calls the method instead of naming the route
      */
-    public function __construct(array $edges, private readonly bool $hasUnparseableFiles, private readonly array $unresolvedDispatchSites = [], private readonly array $nodeMetadata = [])
+    public function __construct(array $edges, private readonly bool $hasUnparseableFiles, private readonly array $unresolvedDispatchSites = [], private readonly array $nodeMetadata = [], private readonly array $routeUrlHelpers = [])
     {
         // Canonical order before building adjacency: a fresh build receives edges build-ordered,
         // a cache-revived graph receives them regrouped by source ({@see toArray()}). Without a
@@ -91,6 +94,16 @@ final class CodeGraph
             $this->nodes[$edge['source']] = true;
             $this->nodes[$edge['target']] = true;
         }
+    }
+
+    /**
+     * App method name => the route names whose URL it returns ({@see RouteUrlHelpers}).
+     *
+     * @return array<string, list<string>>
+     */
+    public function routeUrlHelpers(): array
+    {
+        return $this->routeUrlHelpers;
     }
 
     public function hasUnresolvedDispatches(): bool
@@ -194,7 +207,7 @@ final class CodeGraph
      * The graph as plain constructor input, for on-disk caching. Every edge lives in the downstream
      * adjacency (nodes only exist through edges), so deriving from it loses nothing.
      *
-     * @return array{edges: list<array{source: string, target: string, type: string}>, hasUnparseableFiles: bool, unresolvedDispatchSites: list<array{file: string, line: int, dispatcher: string}>, nodeMetadata: array<string, MetadataShape>}
+     * @return array{edges: list<array{source: string, target: string, type: string}>, hasUnparseableFiles: bool, unresolvedDispatchSites: list<array{file: string, line: int, dispatcher: string}>, nodeMetadata: array<string, MetadataShape>, routeUrlHelpers: array<string, list<string>>}
      */
     public function toArray(): array
     {
@@ -211,13 +224,14 @@ final class CodeGraph
             'hasUnparseableFiles' => $this->hasUnparseableFiles,
             'unresolvedDispatchSites' => $this->unresolvedDispatchSites,
             'nodeMetadata' => $this->nodeMetadata,
+            'routeUrlHelpers' => $this->routeUrlHelpers,
         ];
     }
 
-    /** @param  array{edges: list<array{source: string, target: string, type: string}>, hasUnparseableFiles: bool, unresolvedDispatchSites: list<array{file: string, line: int, dispatcher: string}>, nodeMetadata?: array<string, MetadataShape>}  $data */
+    /** @param  array{edges: list<array{source: string, target: string, type: string}>, hasUnparseableFiles: bool, unresolvedDispatchSites: list<array{file: string, line: int, dispatcher: string}>, nodeMetadata?: array<string, MetadataShape>, routeUrlHelpers?: array<string, list<string>>}  $data */
     public static function fromArray(array $data): self
     {
-        return new self($data['edges'], $data['hasUnparseableFiles'], $data['unresolvedDispatchSites'], $data['nodeMetadata'] ?? []);
+        return new self($data['edges'], $data['hasUnparseableFiles'], $data['unresolvedDispatchSites'], $data['nodeMetadata'] ?? [], $data['routeUrlHelpers'] ?? []);
     }
 
     /**

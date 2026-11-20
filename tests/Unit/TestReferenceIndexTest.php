@@ -125,6 +125,26 @@ final class TestReferenceIndexTest extends TestCase
     }
 
     #[Test]
+    public function a_test_calling_a_route_url_helper_references_the_route(): void
+    {
+        $index = new TestReferenceIndex();
+        $index->addSource('<?php $this->get($user->loginUrl())->assertOk();', 'tests/Feature/LoginTest.php');
+        $index->addSource('<?php $this->get($user->profileUrl());', 'tests/Feature/ProfileTest.php');
+        $index->useGraph(new CodeGraph([], hasUnparseableFiles: false, routeUrlHelpers: ['loginUrl' => ['login'], 'logoutUrl' => ['logout']]));
+
+        $this->assertSame(['tests/Feature/LoginTest.php'], $index->testsReferencing('route::GET::/login'));
+    }
+
+    #[Test]
+    public function a_route_url_helper_no_test_calls_references_nothing(): void
+    {
+        $index = $this->index('<?php $this->get($user->profileUrl());');
+        $index->useGraph(new CodeGraph([], hasUnparseableFiles: false, routeUrlHelpers: ['loginUrl' => ['login']]));
+
+        $this->assertFalse($index->hasReference('route::GET::/login'));
+    }
+
+    #[Test]
     public function a_route_hit_by_literal_uri_is_referenced(): void
     {
         $index = $this->index('<?php $this->get("/errors/log");');

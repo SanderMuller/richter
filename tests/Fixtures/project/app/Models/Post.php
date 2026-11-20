@@ -49,4 +49,10 @@ final class Post extends Model
     {
         return $this->hasMany(Review::class);
     }
+
+    /** The URL a test calls for instead of naming the route. */
+    public function editUrl(): string
+    {
+        return route('posts.edit', $this);
+    }
 }

@@ -116,6 +116,7 @@ App\Models\Post	declares	App\Models\Post::addGlobalScope
 App\Models\Post	declares	App\Models\Post::booted
 App\Models\Post	declares	App\Models\Post::casts
 App\Models\Post	declares	App\Models\Post::comments
+App\Models\Post	declares	App\Models\Post::editUrl
 App\Models\Post	declares	App\Models\Post::getExcerptAttribute
 App\Models\Post	declares	App\Models\Post::load
 App\Models\Post	declares	App\Models\Post::query

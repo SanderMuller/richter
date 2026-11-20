@@ -75,6 +75,7 @@ final class GraphCacheTest extends TestCase
             'hasUnparseableFiles' => false,
             'unresolvedDispatchSites' => [],
             'nodeMetadata' => $nodeMetadata,
+            'routeUrlHelpers' => [],
         ], JSON_THROW_ON_ERROR));
     }
 
@@ -477,6 +478,7 @@ final class GraphCacheTest extends TestCase
             'hasUnparseableFiles' => false,
             'unresolvedDispatchSites' => [],
             'nodeMetadata' => [],
+            'routeUrlHelpers' => [],
         ], $graph->toArray());
     }
 

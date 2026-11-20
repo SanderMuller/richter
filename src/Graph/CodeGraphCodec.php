@@ -2,6 +2,8 @@
 
 namespace SanderMuller\Richter\Graph;
 
+use SanderMuller\Richter\Tracers\RouteUrlHelpers;
+
 /**
  * Richter's own graph from the plain array its cache entry stores, the counterpart of
  * {@see CodeGraph::toArray()}.
@@ -58,7 +60,13 @@ final class CodeGraphCodec
             return ReadOutcome::refused('unparseable-flag-rejected', "the unparseable-files flag in {$file} is not a boolean");
         }
 
-        return ReadOutcome::of(new CodeGraph($edges, $unparseable, $dispatchSites, $metadata));
+        $routeUrlHelpers = RouteUrlHelpers::fromPayload($data['routeUrlHelpers'] ?? null);
+
+        if ($routeUrlHelpers === null) {
+            return ReadOutcome::refused('url-helpers-rejected', "the route URL helper map in {$file} is not one this version can revive");
+        }
+
+        return ReadOutcome::of(new CodeGraph($edges, $unparseable, $dispatchSites, $metadata, $routeUrlHelpers));
     }
 
     /**
