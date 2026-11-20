@@ -5,6 +5,24 @@ All notable changes to `sandermuller/richter` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.75.0 - 2026-11-20
+
+### Added
+
+- Added call edges for a method called on a model that a relation loaded: `$post->author->notify()` links `User::notify`, and so does `$author->notify()` after `$author = $post->author`.
+- Added the value of a `foreach` over a to-many relation as a typed model: in `foreach ($post->comments as $comment)`, `$comment->publish()` links `Comment::publish`.
+- Added scope edges on a relation's query builder: `$post->comments()->published()->get()` links `Comment::scopePublished`, or a `published()` method with the `#[Scope]` attribute. A scope declared on a parent model or a trait is found too, and builder calls such as `where()` or `orderBy()` can come before it.
+
+### Changed
+
+- The graph cache format changed, so the first run after the upgrade rebuilds the graph.
+
+### What's Changed
+
+* Update boundwize/structarmed requirement from ^0.19 || ^0.20 to ^0.19 || ^0.20 || ^0.21 by @dependabot[bot] in https://github.com/SanderMuller/richter/pull/12
+
+**Full Changelog**: https://github.com/SanderMuller/richter/compare/v0.74.0...v0.75.0
+
 ## v0.74.0 - 2026-11-20
 
 ### Added
@@ -156,6 +174,7 @@ composer require --dev sandermuller/richter -W
 
 
 
+
 ```
 The graph cache format version moves to 27, so no cached graph survives the change. Nothing to do:
 the next run rebuilds.
@@ -236,6 +255,7 @@ tests/Feature/PostTest.php IS in the selection.
 
 
 
+
 ```
 Every reason is listed, not the first that matched — the useful question is usually whether *one* of
 them is the weak one. An import reason says whether the class changed or merely calls the change,
@@ -282,6 +302,7 @@ broke nothing**.
 'tests' => [
     'unrunnable_paths' => ['tests/Browser/*'],
 ],
+
 
 
 
@@ -369,6 +390,7 @@ php artisan richter:warm --json   # for a deploy step to branch on
 
 
 
+
 ```
 `--check` names the input that differs rather than reporting that one does:
 
@@ -376,6 +398,7 @@ php artisan richter:warm --json   # for a deploy step to branch on
 The cached entry does NOT match this tree — every run rebuilds.
   reason       inputs-changed
   differing non-file inputs: php (8.5.8 → 8.5.9)
+
 
 
 
@@ -452,6 +475,7 @@ prose, `--json` and `--markdown` output.
 ```bash
 php artisan richter:locate --symbol="App\Models\Post"
 php artisan richter:locate --file=app/Models/Post.php
+
 
 
 
@@ -602,6 +626,7 @@ Richter now learns hubs from configuration:
 
 
 
+
 ```
 **Both lists empty means off**, and that is the default. A project that has not described its hubs keeps every surface. No measurement produced a rule for hub-ness — two applications gave no defensible threshold, and a real hub list names a service provider, a shared client and one model, a set the measurement explicitly could not derive — so a shipped default would be a guess presented as a finding.
 
@@ -613,6 +638,7 @@ Two kinds of surface are always kept. One whose **own file is in the diff** — 
 
 ```bash
 php artisan richter:task-slice --base=HEAD~1 --head=HEAD
+
 
 
 
@@ -769,6 +795,7 @@ $f = $order->flag; if (! $f) { }     // read as guarded, and silent
 
 
 
+
 ```
 `! $x`, `if ($x)` and a ternary condition are now soft wherever they appear, on the fetch itself or on a local it was assigned to.
 
@@ -818,6 +845,7 @@ Nothing is hidden or folded. The same surfaces are reported, the count beside th
 app/Actions/CreateTask.php: App\Actions\CreateTask::handle reads Order->external_id (bare);
 App\Models\Order::resolvedExternalId reads it (fallback). Nullable per its docblock. Check
 whether this read needs the same handling.
+
 
 
 
@@ -974,6 +1002,7 @@ app/Models/Article.php (App\Models\Article::table, property)
 
 
 
+
 ```
 The rule covers the 25 properties the base `Model` declares that an application sets to change behaviour — among them `$table`, `$connection`, `$primaryKey`, `$keyType`, `$incrementing`, `$timestamps`, `$perPage`, `$with`, `$appends`, `$hidden`, `$visible`, `$fillable`, `$guarded`, `$casts` and `$touches`. The runtime caches Eloquent writes are excluded.
 
@@ -996,6 +1025,7 @@ The named low-confidence reason from 0.57.0 now names the right kind. Sourced fr
 ```
 a changed member could not be pinned to a graph node (low confidence):
 app/Models/Post.php (App\Models\Post, class declaration)
+
 
 
 
@@ -1046,6 +1076,7 @@ It now names each one:
 ```
 a changed member could not be pinned to a graph node (low confidence):
 app/Models/Post.php (App\Models\Post::perPage, property)
+
 
 
 
@@ -1219,6 +1250,7 @@ The --html option requires a path: --html=<path>.
 
 
 
+
 ```
 This is the rule `--fail-on` and `--fail-on-hazard` already apply, through the same mechanism: a flag the user actually typed fails closed rather than being silently ignored. `--open` without `--html` was already guarded for exactly this reason; `--html` itself was the gap.
 
@@ -1352,6 +1384,7 @@ The three prose formats now keep the discriminating surfaces inline and fold the
 
 
 
+
 ```
 **Nothing is dropped.** The section still counts every surface, and the collapsed group states its own count, so the report cannot read as shorter than the reach it found. A surface whose reason the walk could not record stays inline: absence of a reason is not evidence of a weak one.
 
@@ -1380,6 +1413,7 @@ A dropped column now names what still refers to it, so the report says who has n
   ```
   ! [tier 2 migration] App\Models\Post — column `posts`.`subtitle` dropped, still named by
     App\Models\Post's own $fillable/$casts, a `subtitle` key in app/Http/Resources/PostResource.php
+  
   
   
   
@@ -1541,6 +1575,7 @@ Hazards (1):
 
 
 
+
 ```
 The suffix says "via its class" rather than naming a declaring class, because a `migration` hazard is named for a model and a `contract` hazard can name a class deleted whole — neither has a declaring class to point at.
 
@@ -1617,6 +1652,7 @@ Tightening a rate limit reported a tier-3 HIGH saying the limit was gone. A guar
   
   ```
   the rate limit on the GET /search route in routes/api.php rose from `throttle:60,1` to `throttle:120,1`
+  
   
   
   
@@ -2094,6 +2130,7 @@ dispatch($job);
 
 
 
+
 ```
 That was recorded as a dispatch whose target could not be followed — and the taint is global, so one of them makes every `richter:affected-tests` run report `not determinable` and fall back to the full suite. The graph has carried the edge for this shape all along: the instantiation is in the same method, right above the dispatch. The site pointed at a place to restructure where nothing was hidden and nothing needed restructuring.
 
@@ -2224,6 +2261,7 @@ Build profile: nothing was built — the diff holds nothing the graph is built f
 
 
 
+
 ```
 On stderr, like the table it stands in for, and before the payload in `--json` mode so stdout stays one document. Building anyway was the alternative, and it would make a no-op run pay for an analysis nothing asked for.
 
@@ -2241,6 +2279,7 @@ An event named by a class constant resolves in **any** declaration form, includi
 public const string
     SUBTITLE_CHANGED = 'subtitle-changed',
     SUBTITLE_DELETED = 'subtitle-deleted';
+
 
 
 
@@ -2319,6 +2358,7 @@ Build profile (forced rebuild):
   total                      3.85s
   no scoped rebuild: non-app-change
     config/services.php differs from the cached graph and sits outside app/
+
 
 
 
@@ -2452,6 +2492,7 @@ It now names every site:
 ```
 the graph contains job dispatches that could not be followed:
 app/Jobs/Fanout.php:88 (App\Jobs\Fanout::handle), app/Services/Importer.php:12 (App\Services\Importer::run)
+
 
 
 
@@ -2908,6 +2949,7 @@ Note: 2 changed file(s) are outside the analysed scope (not PHP under app/, a Bl
 
 
 
+
 ```
 Stderr, like the untracked-file note, so `--json` and `--markdown` stdout stay exactly the report. Frontend sources the configuration declines to scan are not counted: generated Wayfinder output under `frontend.generated_paths` and `.d.ts` declarations were silenced on purpose, and a note that fires loudest on regeneration churn is one people stop reading.
 
@@ -3030,6 +3072,7 @@ One new advisory lane, and a README that finally leads with what the package is 
   
   
   
+  
   ```
   The count comes off the `route:: → middleware::<group>` edges already in the graph, so it counts endpoints only: a controller-level attachment of the same group does not inflate it. Membership is read from `$middlewareGroups` on a Laravel 10 Kernel or the `->web(append: [...])` form in a Laravel 11+ `bootstrap/app.php`. A member written as an alias resolves through the same alias map, parameters are cut first (`tenant:strict` is one alias with an argument), and a group that names another group is expanded transitively, since Laravel runs the inner group's middleware on the outer group's routes too.
   
@@ -3062,6 +3105,7 @@ Two silent-failure shapes that richter used to miss: a call through an applicati
   
   ```text
     ! resources/js/Pages/Posts/Create.vue posts to POST /posts and sends 'subtitle', which this diff removes from App\Http\Requests\StorePostRequest::rules() (renamed to 'sub_title'?)
+  
   
   
   
