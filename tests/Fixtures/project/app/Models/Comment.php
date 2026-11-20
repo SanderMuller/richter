@@ -2,12 +2,19 @@
 
 namespace App\Models;
 
+use App\Casts\Markdown;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 final class Comment extends Model
 {
+    /** @return array<string, string> */
+    protected function casts(): array
+    {
+        return ['body' => Markdown::class];
+    }
+
     /** @return BelongsTo<Post, $this> */
     public function post(): BelongsTo
     {

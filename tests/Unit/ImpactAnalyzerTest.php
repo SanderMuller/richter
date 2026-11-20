@@ -929,18 +929,74 @@ final class ImpactAnalyzerTest extends TestCase
     }
 
     #[Test]
-    public function the_selection_callers_keep_a_body_that_loads_a_relation_to_the_changed_model(): void
+    public function the_selection_callers_skip_a_body_that_only_loads_a_relation_to_the_changed_model(): void
     {
-        // Loading the relation hydrates the changed model, and a call on the loaded model
-        // (`$comment->publish()`) draws no edge of its own.
         $analyzer = new ImpactAnalyzer(new CodeGraph([
             ['source' => 'App\Models\Post::comments', 'target' => Comment::class, 'type' => 'relation-to-model'],
             ['source' => 'App\Services\Digest::build', 'target' => 'App\Models\Post::comments', 'type' => 'loads-relation'],
-            ['source' => Comment::class, 'target' => 'App\Models\Comment::publish', 'type' => 'declares'],
+            ['source' => Comment::class, 'target' => 'App\Models\Comment::body', 'type' => 'declares'],
+            ['source' => 'App\Services\Notifier::send', 'target' => 'App\Models\Comment::body', 'type' => 'instance-call'],
         ], hasUnparseableFiles: false));
 
         $result = $analyzer->detectChanges([
-            $this->changedMethod('app/Models/Comment.php', Comment::class, 'publish'),
+            $this->changedMethod('app/Models/Comment.php', Comment::class, 'body'),
+        ]);
+
+        $this->assertContains('App\Services\Digest::build', $this->nodes($result['callers']));
+        $this->assertNotContains('App\Services\Digest::build', $this->nodes($result['selectionCallers']));
+        $this->assertContains('App\Services\Notifier::send', $this->nodes($result['selectionCallers']));
+    }
+
+    #[Test]
+    public function an_entry_point_that_only_loads_a_relation_to_the_changed_model_is_relation_only(): void
+    {
+        $analyzer = new ImpactAnalyzer(new CodeGraph([
+            ['source' => 'App\\Models\\Post::comments', 'target' => Comment::class, 'type' => 'relation-to-model'],
+            ['source' => 'App\\Http\\Controllers\\PostController::show', 'target' => 'App\\Models\\Post::comments', 'type' => 'loads-relation'],
+            ['source' => 'route::GET::/posts/{post}', 'target' => 'App\\Http\\Controllers\\PostController::show', 'type' => 'route-to-controller'],
+            ['source' => Comment::class, 'target' => 'App\\Models\\Comment::body', 'type' => 'declares'],
+        ], hasUnparseableFiles: false));
+
+        $result = $analyzer->detectChanges([
+            $this->changedMethod('app/Models/Comment.php', Comment::class, 'body'),
+        ]);
+
+        $this->assertSame(['route::GET::/posts/{post}'], $result['entryPoints']);
+        $this->assertSame(['route::GET::/posts/{post}'], $result['relationOnlyEntryPoints']);
+    }
+
+    #[Test]
+    public function a_relation_only_entry_point_a_changed_frontend_file_names_stays_selected(): void
+    {
+        $analyzer = new ImpactAnalyzer(new CodeGraph([
+            ['source' => 'App\\Models\\Post::comments', 'target' => Comment::class, 'type' => 'relation-to-model'],
+            ['source' => 'App\\Http\\Controllers\\PostController::show', 'target' => 'App\\Models\\Post::comments', 'type' => 'loads-relation'],
+            ['source' => 'route::GET::/posts/{post}', 'target' => 'App\\Http\\Controllers\\PostController::show', 'type' => 'route-to-controller'],
+            ['source' => Comment::class, 'target' => 'App\\Models\\Comment::body', 'type' => 'declares'],
+        ], hasUnparseableFiles: false));
+
+        $result = $analyzer->detectChanges([
+            $this->changedMethod('app/Models/Comment.php', Comment::class, 'body'),
+            $this->changedFrontend('resources/js/Pages/Post.vue', ['route::GET::/posts/{post}']),
+        ]);
+
+        $this->assertSame([], $result['relationOnlyEntryPoints']);
+    }
+
+    #[Test]
+    public function the_selection_callers_keep_a_body_that_loads_a_relation_whose_model_runs_the_change_on_load(): void
+    {
+        // The cast runs when `comments` hydrates each Comment: no call site names it.
+        $analyzer = new ImpactAnalyzer(new CodeGraph([
+            ['source' => 'App\Models\Post::comments', 'target' => Comment::class, 'type' => 'relation-to-model'],
+            ['source' => 'App\Models\Post::comments', 'target' => 'App\Models\Comment::casts', 'type' => 'hydrates'],
+            ['source' => 'App\Models\Comment::casts', 'target' => 'App\Casts\Markdown', 'type' => 'casts'],
+            ['source' => 'App\Casts\Markdown', 'target' => 'App\Casts\Markdown::get', 'type' => 'declares'],
+            ['source' => 'App\Services\Digest::build', 'target' => 'App\Models\Post::comments', 'type' => 'loads-relation'],
+        ], hasUnparseableFiles: false));
+
+        $result = $analyzer->detectChanges([
+            $this->changedMethod('app/Casts/Markdown.php', 'App\Casts\Markdown', 'get'),
         ]);
 
         $this->assertContains('App\Services\Digest::build', $this->nodes($result['selectionCallers']));

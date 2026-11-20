@@ -265,6 +265,13 @@ final class CodeGraphBuilderTest extends TestCase
     }
 
     #[Test]
+    public function a_cast_class_links_to_the_casts_that_name_it_and_to_the_relations_that_load_them(): void
+    {
+        $this->assertSame('casts', $this->directCallersOf('App\\Casts\\Markdown')['App\\Models\\Comment::casts'] ?? null);
+        $this->assertSame('hydrates', $this->directCallersOf('App\\Models\\Comment::casts')['App\\Models\\Post::comments'] ?? null);
+    }
+
+    #[Test]
     public function a_walked_relation_survives_the_second_hop_walk_being_off(): void
     {
         // The traversal is drawn by the consolidated per-file pass, not by the second-hop walk, so

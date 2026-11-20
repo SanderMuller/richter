@@ -1,3 +1,5 @@
+App\Casts\Markdown	declares	App\Casts\Markdown::get
+App\Casts\Markdown	declares	App\Casts\Markdown::set
 App\Contracts\PostPublisher	declares	App\Contracts\PostPublisher::publish
 App\Contracts\PostPublisher::publish	override	App\Services\YoutubePublisher::publish
 App\Contracts\PostTranscoder	declares	App\Contracts\PostTranscoder::transcode
@@ -77,9 +79,12 @@ App\Livewire\StatusPanel	declares	App\Livewire\StatusPanel::render
 App\Livewire\StatusPanel::render	view	blade::livewire.status-panel::render
 App\Livewire\StatusPanel::render	action-to-view	view::blade__livewire.status_panel
 App\Models\Comment	declares	App\Models\Comment::archive
+App\Models\Comment	declares	App\Models\Comment::casts
 App\Models\Comment	declares	App\Models\Comment::post
 App\Models\Comment	declares	App\Models\Comment::scopeRecent
+App\Models\Comment::casts	casts	App\Casts\Markdown
 App\Models\Comment::post	relation-to-model	App\Models\Post
+App\Models\Comment::post	hydrates	App\Models\Post::casts
 App\Models\Concerns\WithAudits	declares	App\Models\Concerns\WithAudits::auditName
 App\Models\Post	declares	App\Models\Post::COMMENTS
 App\Models\Post	declares	App\Models\Post::REVIEWS
@@ -92,14 +97,17 @@ App\Models\Post	declares	App\Models\Post::query
 App\Models\Post	declares	App\Models\Post::reviews
 App\Models\Post	model-to-policy	App\Policies\PostPolicy
 App\Models\Post::comments	relation-to-model	App\Models\Comment
+App\Models\Post::comments	hydrates	App\Models\Comment::casts
 App\Models\Post::reviews	relation-to-model	App\Models\Review
 App\Models\PostContainer	declares	App\Models\PostContainer::posts
 App\Models\PostContainer	declares	App\Models\PostContainer::query
 App\Models\PostContainer::posts	relation-to-model	App\Models\Post
+App\Models\PostContainer::posts	hydrates	App\Models\Post::casts
 App\Models\Review	uses-trait	App\Models\Concerns\WithAudits
 App\Models\Review	declares	App\Models\Review::ANSWERS
 App\Models\Review	declares	App\Models\Review::answers
 App\Models\Review::answers	relation-to-model	App\Models\Comment
+App\Models\Review::answers	hydrates	App\Models\Comment::casts
 App\Models\User	model-to-policy	App\Policies\UserPolicy
 App\Pages\SettingsPage	action-to-view	view::blade__pages.settings
 App\Policies\PostPolicy	declares	App\Policies\PostPolicy::UPDATE

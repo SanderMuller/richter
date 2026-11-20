@@ -16,6 +16,7 @@ use SanderMuller\Richter\Console\InternalTracerBranchCommand;
 use SanderMuller\Richter\Support\AppFiles;
 use SanderMuller\Richter\Support\AppNamespace;
 use SanderMuller\Richter\Support\DispatchFamilies;
+use SanderMuller\Richter\Support\HydrationSurface;
 use SanderMuller\Richter\Support\ProviderBindings;
 use SanderMuller\Richter\Support\RelationIndex;
 use SanderMuller\Richter\Support\RichterConfig;
@@ -258,6 +259,11 @@ final class CodeGraphBuilder
             $edges[] = $inheritedEdge;
         }
 
+        // Brain draws the observer edge, so this reads the merged set, not the tracer branch.
+        foreach (HydrationSurface::observerEdges($tracerBranch['inheritance'], $edges) as $observerEdge) {
+            $edges[] = $observerEdge;
+        }
+
         $edges = AppFiles::dedupeEdges($edges, byType: true);
 
         $graph = new CodeGraph(
@@ -421,6 +427,8 @@ final class CodeGraphBuilder
         // trait it uses and the code that traverses it are different files — so it accumulates here
         // and answers once the loop below has collected every class-like.
         $relationIndex = new RelationIndex();
+        // What runs when a model loads, for the same cross-file reason.
+        $hydrationSurface = new HydrationSurface();
         // Bodies that walk a relation (`$this->post->author`). Cross-file for the same reason: the
         // hops resolve against the index above, which only answers once the loop has finished.
         $traversalTracer = new RelationTraversalTracer();
@@ -472,6 +480,7 @@ final class CodeGraphBuilder
             $constantTracer->collect($collector->classLikes);
             $facadeTracer->collect($collector->classLikes);
             $relationIndex->collect($collector->classLikes);
+            $hydrationSurface->collect($collector->classLikes);
             $traversalTracer->collect($collector->classLikes, $collector->uses);
 
             // Dispatchers → jobs incl. configured custom helpers + the unresolved-dispatch signal
@@ -544,7 +553,12 @@ final class CodeGraphBuilder
 
         // Each relation method to the model it returns, so a change to that model reaches the code
         // that traverses or eager-loads the relation instead of stopping at the model class node.
-        array_push($edges, ...$relationIndex->modelEdges());
+        $relationEdges = $relationIndex->modelEdges();
+        array_push($edges, ...$relationEdges);
+
+        // A model's cast classes, and each relation method to the code that runs when it loads the
+        // model: test selection walks these instead of `relation-to-model`.
+        array_push($edges, ...$hydrationSurface->edges($relationEdges));
 
         // Sorted before it leaves the branch: a report that names sites must not reorder between
         // runs, and the cached payload has to be byte-stable or the fingerprint starts flapping.

@@ -148,8 +148,12 @@ final class GraphCache
      * `foreach ($post->comments as $comment)`) draws an `instance-call` edge, and so does a scope on a
      * relation's query builder (`$post->comments()->published()` to `Comment::scopePublished`). A 30
      * entry lacks both.
+     *
+     * 31 → 32: a model's `casts()` draws a `casts` edge to each app cast class it names, and a relation
+     * method draws a `hydrates` edge to the code that runs when it loads the model (casts, accessors,
+     * boot hooks, observers). A 31 entry lacks both, so a change to a cast class reaches nothing.
      */
-    private const int FORMAT_VERSION = 31;
+    private const int FORMAT_VERSION = 32;
 
     private ?CodeGraph $memoized = null;
 

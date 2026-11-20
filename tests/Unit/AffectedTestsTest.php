@@ -91,6 +91,16 @@ final class AffectedTestsTest extends TestCase
     }
 
     #[Test]
+    public function an_entry_point_reached_only_through_a_relation_selects_no_tests(): void
+    {
+        $result = [...$this->detectResult(['route::GET::/errors/log']), 'relationOnlyEntryPoints' => ['route::GET::/errors/log']];
+
+        $selection = AffectedTests::select($result, [$this->changed('app/Services/X.php', 'App\Services\X')], $this->index(), unresolvedDispatchSites: []);
+
+        $this->assertNotContains('tests/Feature/ErrorLogTest.php', $selection['tests']);
+    }
+
+    #[Test]
     public function a_test_file_the_diff_touched_is_selected_without_any_graph_reasoning(): void
     {
         $selection = AffectedTests::select(

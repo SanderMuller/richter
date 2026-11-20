@@ -59,7 +59,9 @@ The downstream direction used to be included. It pulled in the change's dependen
 | drives an endpoint reaching the change | the entry-point axis |
 | imports a class the change calls | nothing, on purpose |
 
-The caller half skips two kinds of edge: `model-relationship` and `model-to-policy`. A model that only relates to the changed model, or that a changed policy governs, does not run the change. Through the related models of one central model, a single change otherwise selected most of a real suite.
+The caller half skips three kinds of edge: `model-relationship`, `model-to-policy` and `relation-to-model`. A model that only relates to the changed model, or that a changed policy governs, does not run the change. Through the related models of one central model, a single change otherwise selected most of a real suite.
+
+Loading a relation does run some of the related model's code: its casts, accessors and mutators, boot hooks and observers. Those are linked to each relation method that loads the model, so a change to a cast class or an accessor still selects the code, and the tests, that load the relation. A change to any other model method selects only the code that calls it, on both axes. A call the tracers cannot type, such as one in a collection callback or in a Blade view, is then not selected through the relation.
 
 One consequence worth naming: for a controller change, the callers are `route::` nodes rather than app classes, so this axis contributes nothing and the entry-point axis carries the selection alone. That is correct, and it is why a controller diff selects so few tests by import.
 
