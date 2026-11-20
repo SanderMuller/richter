@@ -285,6 +285,12 @@ final class CodeGraphBuilderTest extends TestCase
     }
 
     #[Test]
+    public function a_call_on_a_using_class_links_to_the_trait_method_that_runs(): void
+    {
+        $this->assertSame('inherits', $this->directCallersOf('App\\Models\\Concerns\\WithAudits::auditName')['App\\Models\\Review::auditName'] ?? null);
+    }
+
+    #[Test]
     public function a_trait_links_back_to_its_using_class(): void
     {
         $this->assertSame([Review::class => 'uses-trait'], $this->directCallersOf(WithAudits::class));

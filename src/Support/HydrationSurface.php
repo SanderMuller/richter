@@ -50,7 +50,7 @@ final class HydrationSurface
     ];
 
     /** Methods Eloquent calls on load, save or serialisation, by name. Broad on purpose: a miss under-selects. */
-    private const string HYDRATION_METHOD = '/^(?:__construct|getTable|casts|getCasts|get\w*Attribute|set\w*Attribute|getAttributeValue|boot\w*|booted|initialize\w+|newCollection|newEloquentBuilder|newFromBuilder|newInstance|setRawAttributes|serializeDate|toArray|jsonSerialize)$/';
+    private const string HYDRATION_METHOD = '/^(?:__construct|getTable|casts|getCasts|get\w*Attribute|set\w*Attribute|getAttributeValue|boot\w*|booted|initialize\w+|newCollection|newEloquentBuilder|newFromBuilder|newInstance|setRawAttributes|newQuery\w*|newModelQuery|getDateFormat|getKeyName|getMorphClass|getConnectionName|serializeDate|toArray|jsonSerialize)$/';
 
     /**
      * @var array<string, array{enum: bool, parent: string|null, traits: list<string>, members: list<string>, methodCasts: list<string>, propertyCasts: list<string>}>

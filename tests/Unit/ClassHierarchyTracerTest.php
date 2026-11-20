@@ -344,6 +344,53 @@ final class ClassHierarchyTracerTest extends TestCase
         $this->assertCount(1, $edges);
     }
 
+    #[Test]
+    public function a_method_a_trait_supplies_connects_the_using_class_node_to_the_trait(): void
+    {
+        // The call names the using class, while the body lives in the trait.
+        $enum = "<?php\nnamespace App\\Enums;\nenum Status: string\n{\n    use \\App\\Enums\\Concerns\\SortsCases;\n    case Open = 'open';\n}\n";
+
+        $edges = $this->inherited([
+            $this->callEdge('App\\Enums\\Status::sorted'),
+            ['source' => 'App\\Enums\\Status', 'target' => 'App\\Enums\\Concerns\\SortsCases', 'type' => 'uses-trait'],
+            ['source' => 'App\\Enums\\Concerns\\SortsCases', 'target' => 'App\\Enums\\Concerns\\SortsCases::sorted', 'type' => 'declares'],
+        ], $enum);
+
+        $this->assertSame([[
+            'source' => 'App\\Enums\\Status::sorted',
+            'target' => 'App\\Enums\\Concerns\\SortsCases::sorted',
+            'type' => 'inherits',
+        ]], $edges);
+    }
+
+    #[Test]
+    public function a_trait_a_trait_uses_and_a_parent_s_trait_are_both_found(): void
+    {
+        $parent = "<?php\nnamespace App\\Models;\nclass Entry\n{\n}\n";
+        $child = "<?php\nnamespace App\\Models;\nclass Comment extends Entry\n{\n}\n";
+
+        $edges = $this->inherited([
+            $this->callEdge('App\\Models\\Comment::label'),
+            ['source' => 'App\\Models\\Entry', 'target' => 'App\\Models\\HasLabel', 'type' => 'uses-trait'],
+            ['source' => 'App\\Models\\HasLabel', 'target' => 'App\\Models\\FormatsLabel', 'type' => 'uses-trait'],
+            ['source' => 'App\\Models\\FormatsLabel', 'target' => 'App\\Models\\FormatsLabel::label', 'type' => 'declares'],
+        ], $parent, $child);
+
+        $this->assertSame('App\\Models\\FormatsLabel::label', $edges[0]['target'] ?? null);
+    }
+
+    #[Test]
+    public function a_method_the_class_declares_itself_draws_no_trait_edge(): void
+    {
+        $class = "<?php\nnamespace App\\Models;\nclass Comment\n{\n    public function label(): string\n    {\n        return '';\n    }\n}\n";
+
+        $this->assertSame([], $this->inherited([
+            $this->callEdge('App\\Models\\Comment::label'),
+            ['source' => 'App\\Models\\Comment', 'target' => 'App\\Models\\HasLabel', 'type' => 'uses-trait'],
+            ['source' => 'App\\Models\\HasLabel', 'target' => 'App\\Models\\HasLabel::label', 'type' => 'declares'],
+        ], $class));
+    }
+
     /** @return list<string>|null */
     private function subtypesOf(string $type, string ...$sources): ?array
     {

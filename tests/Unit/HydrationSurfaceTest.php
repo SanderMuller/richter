@@ -151,6 +151,8 @@ final class HydrationSurfaceTest extends TestCase
                 public function configure(): void {}
                 public function __construct(array $attributes = []) {}
                 public function newCollection(array $models = []) {}
+                public function newQueryForRestoration($ids) {}
+                public function getMorphClass() {}
                 public function toArray() {}
                 protected function excerpt(): ?Attribute { return null; }
                 public function publish(): void {}
@@ -161,7 +163,9 @@ final class HydrationSurfaceTest extends TestCase
             'App\\Models\\Post::comments hydrates App\\Models\\Comment::__construct',
             'App\\Models\\Post::comments hydrates App\\Models\\Comment::configure',
             'App\\Models\\Post::comments hydrates App\\Models\\Comment::excerpt',
+            'App\\Models\\Post::comments hydrates App\\Models\\Comment::getMorphClass',
             'App\\Models\\Post::comments hydrates App\\Models\\Comment::newCollection',
+            'App\\Models\\Post::comments hydrates App\\Models\\Comment::newQueryForRestoration',
             'App\\Models\\Post::comments hydrates App\\Models\\Comment::toArray',
         ], $edges);
     }

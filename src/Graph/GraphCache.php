@@ -152,6 +152,8 @@ final class GraphCache
      * 31 → 32: a model's `casts()` draws a `casts` edge to each app cast class it names, and a relation
      * method draws a `hydrates` edge to the code that runs when it loads the model (casts, accessors,
      * boot hooks, observers). A 31 entry lacks both, so a change to a cast class reaches nothing.
+     * The same version draws an `inherits` edge from a using class's member to the trait method that
+     * runs (`Status::sorted` to `SortsCases::sorted`). A 31 entry lacks it.
      */
     private const int FORMAT_VERSION = 32;
 

@@ -105,9 +105,12 @@ App\Models\PostContainer::posts	relation-to-model	App\Models\Post
 App\Models\PostContainer::posts	hydrates	App\Models\Post::casts
 App\Models\Review	uses-trait	App\Models\Concerns\WithAudits
 App\Models\Review	declares	App\Models\Review::ANSWERS
+App\Models\Review	declares	App\Models\Review::__construct
 App\Models\Review	declares	App\Models\Review::answers
+App\Models\Review	declares	App\Models\Review::auditName
 App\Models\Review::answers	relation-to-model	App\Models\Comment
 App\Models\Review::answers	hydrates	App\Models\Comment::casts
+App\Models\Review::auditName	inherits	App\Models\Concerns\WithAudits::auditName
 App\Models\User	model-to-policy	App\Policies\UserPolicy
 App\Pages\SettingsPage	action-to-view	view::blade__pages.settings
 App\Policies\PostPolicy	declares	App\Policies\PostPolicy::UPDATE
@@ -136,6 +139,9 @@ App\Services\GdThumbnailRenderer	declares	App\Services\GdThumbnailRenderer::rend
 App\Services\PostPublisher	declares	App\Services\PostPublisher::notify
 App\Services\PostPublisher	declares	App\Services\PostPublisher::publish
 App\Services\PostPublisher::publish	instance-call	App\Services\PostPublisher::notify
+App\Services\ReviewAuditor	declares	App\Services\ReviewAuditor::label
+App\Services\ReviewAuditor::label	constructs	App\Models\Review::__construct
+App\Services\ReviewAuditor::label	instance-call	App\Models\Review::auditName
 App\Services\YoutubePublisher	implements	App\Contracts\PostPublisher
 App\Services\YoutubePublisher	declares	App\Services\YoutubePublisher::publish
 route::GET::/auth/login	route-to-controller	App\Http\Controllers\Auth\SocialAuthController

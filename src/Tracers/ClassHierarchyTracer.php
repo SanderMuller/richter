@@ -40,8 +40,9 @@ use SanderMuller\Richter\Support\AppFiles;
  * (OQ2); `private` methods (never polymorphic) and `static` methods (hidden, not overridden) are
  * excluded, as is `__construct` (called on the concrete type directly, not virtually dispatched);
  * ancestors are APP-SCOPED (OQ3) — a vendor base richter never scanned is simply absent here, so the
- * traversal stops at it and no edge to an unknown method is drawn. Traits are excluded entirely: a
- * trait method is copied into the using class, not dispatched.
+ * traversal stops at it and no edge to an unknown method is drawn. Traits draw no override edge: a
+ * trait method is copied into the using class, not dispatched. They do draw an `inherits` edge, from
+ * the using class's member to the trait's ({@see inheritedEdgesFor()}).
  *
  * @internal
  */
@@ -203,6 +204,7 @@ final class ClassHierarchyTracer
     public static function inheritedEdgesFor(array $inheritance, array $edges): array
     {
         $inherited = [];
+        $traits = self::traitDeclarations($edges);
 
         foreach ($edges as $edge) {
             foreach ([$edge['source'], $edge['target']] as $node) {
@@ -220,7 +222,7 @@ final class ClassHierarchyTracer
                     continue;
                 }
 
-                $ancestor = self::nearestDeclarerIn($inheritance, $class, $method);
+                $ancestor = self::nearestDeclarerIn($inheritance, $traits, $class, $method);
 
                 if ($ancestor !== null) {
                     $inherited["{$class}::{$method}"] = ['source' => "{$class}::{$method}", 'target' => "{$ancestor}::{$method}", 'type' => 'inherits'];
@@ -232,16 +234,23 @@ final class ClassHierarchyTracer
     }
 
     /**
-     * The closest ancestor CLASS that declares the method — the one that actually runs. Walks the
-     * parent chain only: an interface declares no body, so an edge to it would carry reachability to
-     * code that does not exist, and a trait's methods are copied into the using class (where they read
-     * as declared) rather than inherited. Stops at the first ancestor richter did not scan, matching
+     * The trait or ancestor class whose body runs for the method — the one that actually runs. A
+     * class's own traits come first, then its parent and the parent's traits, the same order PHP
+     * resolves them in. An interface declares no body, so an edge to it would carry reachability to
+     * code that does not exist. Stops at the first ancestor richter did not scan, matching
      * {@see ancestorsOf()}'s app-scoped rule.
      *
      * @param  array<string, array{parent: string|null, declared: list<string>}>  $inheritance
+     * @param  array{uses: array<string, list<string>>, declared: array<string, array<string, true>>}  $traits
      */
-    private static function nearestDeclarerIn(array $inheritance, string $fqcn, string $method): ?string
+    private static function nearestDeclarerIn(array $inheritance, array $traits, string $fqcn, string $method): ?string
     {
+        $trait = self::traitDeclaring($traits, $fqcn, $method);
+
+        if ($trait !== null) {
+            return $trait;
+        }
+
         $seen = [];
         $parent = $inheritance[$fqcn]['parent'] ?? null;
 
@@ -257,7 +266,67 @@ final class ClassHierarchyTracer
                 return $parent;
             }
 
+            $trait = self::traitDeclaring($traits, $parent, $method);
+
+            if ($trait !== null) {
+                return $trait;
+            }
+
             $parent = $record['parent'];
+        }
+
+        return null;
+    }
+
+    /**
+     * The traits each class-like uses and the methods each class-like declares, read from the
+     * `uses-trait` and `declares` edges: the records skip traits, because a trait is never a target
+     * of an override.
+     *
+     * @param  list<array{source: string, target: string, type: string}>  $edges
+     * @return array{uses: array<string, list<string>>, declared: array<string, array<string, true>>}
+     */
+    private static function traitDeclarations(array $edges): array
+    {
+        $uses = [];
+        $declared = [];
+
+        foreach ($edges as $edge) {
+            if ($edge['type'] === 'uses-trait') {
+                $uses[$edge['source']][] = $edge['target'];
+            } elseif ($edge['type'] === 'declares' && str_starts_with($edge['target'], $edge['source'] . '::')) {
+                $declared[$edge['source']][substr($edge['target'], strlen($edge['source']) + 2)] = true;
+            }
+        }
+
+        return ['uses' => $uses, 'declared' => $declared];
+    }
+
+    /**
+     * The trait, among those the class uses directly or through another trait, that declares the
+     * method. Breadth first, so a trait the class names wins over one a trait pulls in.
+     *
+     * @param  array{uses: array<string, list<string>>, declared: array<string, array<string, true>>}  $traits
+     */
+    private static function traitDeclaring(array $traits, string $fqcn, string $method): ?string
+    {
+        $pending = $traits['uses'][$fqcn] ?? [];
+        $seen = [];
+
+        while ($pending !== []) {
+            $trait = array_shift($pending);
+
+            if (isset($seen[$trait])) {
+                continue;
+            }
+
+            $seen[$trait] = true;
+
+            if (isset($traits['declared'][$trait][$method])) {
+                return $trait;
+            }
+
+            array_push($pending, ...$traits['uses'][$trait] ?? []);
         }
 
         return null;
