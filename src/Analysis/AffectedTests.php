@@ -428,9 +428,14 @@ final class AffectedTests
                 continue;
             }
 
-            // A reference inside a support trait or base class is a real coverage signal: each test
-            // that uses the support file drives the route through it.
-            $runnable = [...TestReferenceIndex::runnableOnly($referencing), ...$tests->runnableUsersOf($referencing) ?? []];
+            // A reference inside a support trait or base class counts only when no test names the
+            // entry point itself. A base class can name a URI for its own setup, and every test
+            // extends it, so with a direct test its users add noise, not coverage.
+            $runnable = TestReferenceIndex::runnableOnly($referencing);
+
+            if ($runnable === []) {
+                $runnable = $tests->runnableUsersOf($referencing) ?? [];
+            }
 
             if ($runnable === []) {
                 // The support file's users cannot be mapped (a Pest `uses()->in()`), or nothing uses

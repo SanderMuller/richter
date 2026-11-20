@@ -508,6 +508,18 @@ final class AffectedTestsTest extends TestCase
     }
 
     #[Test]
+    public function a_support_file_adds_no_tests_when_a_test_names_the_entry_point_itself(): void
+    {
+        $selection = $this->selectWithSupport([
+            'tests/Feature/ErrorLogTest.php' => "<?php\nnamespace Tests\\Feature;\nfinal class ErrorLogTest extends \\Tests\\TestCase\n{\n    public function test_it(): void { \$this->get('/errors/log'); }\n}\n",
+            'tests/Feature/ErrorPageTest.php' => "<?php\nnamespace Tests\\Feature;\nfinal class ErrorPageTest extends \\Tests\\TestCase\n{\n    use \\Tests\\Support\\VisitsErrors;\n}\n",
+        ]);
+
+        $this->assertTrue($selection['determinable']);
+        $this->assertSame(['tests/Feature/ErrorLogTest.php'], $selection['tests']);
+    }
+
+    #[Test]
     public function a_support_trait_on_a_base_class_selects_the_tests_that_extend_it(): void
     {
         $selection = $this->selectWithSupport([
