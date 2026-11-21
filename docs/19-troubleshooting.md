@@ -80,6 +80,16 @@ A file never `git add`-ed appears in no diff form. `detect-changes` flags it on 
 
 `richter:detect-changes` runs through `php artisan`, so it boots your application to build the graph. It needs whatever booting normally requires, typically an `.env` and an `APP_KEY`. This bites in CI more than locally; see [Gating in CI](09-ci-gating.md).
 
+### A command exits 139 with no output
+
+Exit 139 means the PHP process crashed with a segmentation fault. One cause seen in practice is the pcov coverage extension when opcache also runs in the CLI: on PHP 8.5 with pcov 1.0.12, the heap got corrupted while PHP compiled an autoloaded class. Richter does not collect coverage, so turn pcov off for the run:
+
+```bash
+php -d pcov.enabled=0 artisan richter:affected-tests
+```
+
+The selection and the report do not change.
+
 ### The base ref cannot be resolved in CI
 
 The diff is taken against the merge-base with `--base`, so that ref must exist in the checkout's history. Check out with `fetch-depth: 0`.
