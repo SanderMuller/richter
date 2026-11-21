@@ -76,13 +76,7 @@ final class MiddlewareGroupFindings
      */
     public function routesRunning(array $nodes): array
     {
-        $groups = [];
-
-        foreach (array_unique(array_map(static fn (string $node): string => explode('::', $node, 2)[0], $nodes)) as $class) {
-            foreach ($this->membership()[$class] ?? [] as $entry) {
-                $groups["middleware::{$entry['group']}"] = true;
-            }
-        }
+        $groups = array_fill_keys(array_map(static fn (string $group): string => "middleware::{$group}", $this->groupsRunning($nodes)), true);
 
         if ($groups === []) {
             return [];
@@ -102,6 +96,25 @@ final class MiddlewareGroupFindings
         }
 
         return array_values(array_unique($routes));
+    }
+
+    /**
+     * The middleware groups that run the class of any given node.
+     *
+     * @param  list<string>  $nodes
+     * @return list<string>
+     */
+    public function groupsRunning(array $nodes): array
+    {
+        $groups = [];
+
+        foreach (array_unique(array_map(static fn (string $node): string => explode('::', $node, 2)[0], $nodes)) as $class) {
+            foreach ($this->membership()[$class] ?? [] as $entry) {
+                $groups[$entry['group']] = true;
+            }
+        }
+
+        return array_map(strval(...), array_keys($groups));
     }
 
     /**

@@ -59,10 +59,13 @@ final class TestReferenceIndex
 
     private readonly TestHelperCalls $helperCalls;
 
+    private readonly SelectionOnlyTests $selectionOnly;
+
     public function __construct()
     {
         $this->supportUsers = new TestSupportUsers();
         $this->helperCalls = new TestHelperCalls();
+        $this->selectionOnly = new SelectionOnlyTests();
     }
 
     /**
@@ -147,10 +150,8 @@ final class TestReferenceIndex
             $this->assertionWeakByFile[$file] = $this->sourceLacksBehaviouralAssertions($source);
         }
 
-        if (preg_match_all('/route\(\s*[\'"]([^\'"]+)[\'"]/', $source, $matches) > 0) {
-            foreach ($matches[1] as $name) {
-                $this->record($this->routeNames, $name, $file);
-            }
+        foreach (TestRouteNames::in($source) as $name) {
+            $this->record($this->routeNames, $name, $file);
         }
 
         if (preg_match_all('/[\'"](\/[^\'"\s]*)[\'"]/', $source, $matches) > 0) {
@@ -173,6 +174,7 @@ final class TestReferenceIndex
 
         if ($file !== null) {
             $this->supportUsers->add($source, $file);
+            $this->selectionOnly->add($source, $file);
         }
     }
 
@@ -252,6 +254,32 @@ final class TestReferenceIndex
     public function testsReferencing(string $entryPointNode): ?array
     {
         return $this->resolve($entryPointNode)['tests'] ?? null;
+    }
+
+    /**
+     * {@see testsReferencing()} plus the tests that run the entry point without naming it
+     * ({@see SelectionOnlyTests}). For test selection only: the report grades the entry point by
+     * its real references.
+     *
+     * @return list<string>|null
+     */
+    public function testsSelecting(string $entryPointNode): ?array
+    {
+        $tests = $this->testsReferencing($entryPointNode);
+        $documenting = $tests === null ? [] : $this->selectionOnly->documenting($entryPointNode);
+
+        return $documenting === [] ? $tests : $this->unique([...$tests ?? [], ...$documenting]);
+    }
+
+    /**
+     * The test files that register a route of their own in the middleware group, so they run every
+     * middleware of it. For test selection only.
+     *
+     * @return list<string>
+     */
+    public function testsRegisteringRoutesIn(string $group): array
+    {
+        return $this->selectionOnly->registeringRoutesIn($group);
     }
 
     /**

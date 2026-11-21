@@ -42,6 +42,10 @@ A `schedule::` entry resolves through the command it runs, and a route matched b
 
 A test can drive a route through an app method that returns its URL, such as `$post->editUrl()` returning `route('posts.edit', $this)`. A method counts when it returns `route()`, `Uri::route()`, `URL::route()` or a signed route with a literal name. A test that calls it by name references that route, the same as a test that names the route. The match is by method name alone, so a name that any other app method also declares is not used: a shared name such as `url()` would match calls that have nothing to do with the route.
 
+A test that calls `route($page)` takes the name from a variable, usually a data provider. In such a file, every string literal that equals a registered route name references that route.
+
+A test that runs `scramble:export` or `scramble:analyze` reads every route under Scramble's `api_path` (`api` by default). It is selected for a change that reaches one of those routes, but it does not count as a reference in the report.
+
 Only conventionally-named `*Test.php` files are selected; helpers and fixtures under `tests/` never end up as runner arguments, and an entry point that no test names, but a support trait or base class does, selects each test that uses that support file: a test class that `use`s the trait, extends the base class or imports the class (a browser test's page object), directly or through another support file, or a Pest file that names it in `uses()`. When a Pest `uses()->in()` call applies it to a directory, the tests cannot be mapped, so determination is blocked rather than silently dropping them. Selection is reference-based recall, not proof of coverage: reached entry points nothing references contribute nothing, and the report says how many those are.
 
 ## Why the import axis runs one way
@@ -67,7 +71,7 @@ Loading a relation does run some of the related model's code: its casts, accesso
 
 The caller half walks up to six hops, like the report. A hop that only says where code lives does not count: a method to its class, a class's method to the trait or parent that runs it, and a model's casts to a cast class. An entry point that the report reaches within six hops only through a relation is not selected, even when a longer path without the relation exists.
 
-A middleware that a middleware group runs is connected to no route in the graph. When the change is in such a middleware, or the caller half reaches one, every route of the group is selected over, because a test of any of them runs the middleware. The routes come from the graph and, when the analysed project is the running application, from its registered route table. This does not change the report or the risk level.
+A middleware that a middleware group runs is connected to no route in the graph. When the change is in such a middleware, or the caller half reaches one, every route of the group is selected over, because a test of any of them runs the middleware. The routes come from the graph and, when the analysed project is the running application, from its registered route table. A test that registers its own route in the group, such as `Route::middleware('web')->get('_test/headers', …)`, is selected too. This does not change the report or the risk level.
 
 A test that builds a model through its factory runs the factory's code, and that code is not in `app/`. The caller half follows `factory` links from `X::factory` to what the factory runs: the members its `definition()` and `configure()` call, the factories of the models it creates for its attributes, and the code that runs when those models are built: casts, boot hooks, mutators and the create and save handlers of their observers. A test that imports `X` is then selected. A state method is not followed. These links do not count toward the impacted number or the risk level.
 

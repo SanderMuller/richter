@@ -29,7 +29,7 @@ use SanderMuller\Richter\Tracers\ModelFactoryTracer;
  * `CompleteDetectChangesResult` is internal: it types richter's own empty result and test fixtures,
  * and it can change in a minor release.
  *
- * @phpstan-type CompleteDetectChangesResult array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, newFiles: list<string>, fqcns: array<string, string>, callers: list<array{depth: int, node: string, via: string}>, dependencies: list<array{depth: int, node: string, via: string}>, seeds: list<string>, reach: array<string, array<string, true>>, edges: list<array{source: string, target: string, via: string, depth: int}>, entryPoints: list<string>, associationEntryPoints: list<string>, associationEntryPointsVia: array<string, list<string>>, selectionOnlyEntryPoints: list<string>, relationOnlyEntryPoints: list<string>, selectionCallers: list<array{depth: int, node: string, via: string}>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, SecurityShape>, entryPointGates: array<string, list<string>>, entryPointAuthGates: array<string, list<string>>, entryPointAuthMiddleware: array<string, list<string>>, entryPointRuntimeGuards: array<string, list<array{middleware: string, group: string|null}>>, entryPointAttribution: array<string, array{via: string, ownReach: int}>, entryPointKeepSet: array{kept: list<string>, droppedHub: int}, impacted: int, relatedModels: list<string>, traitAndOverrideReach: list<string>, traitAndOverrideReachVia: array<string, list<string>>, risk: RiskLevel, riskCause: string, hazards: list<Hazard>, verification: array<string, bool|null>, lowConfidence: bool, findings: list<string>}
+ * @phpstan-type CompleteDetectChangesResult array{changed: array<string, int>, coverage: array<string, 'analyzed'|'unresolved'>, newFiles: list<string>, fqcns: array<string, string>, callers: list<array{depth: int, node: string, via: string}>, dependencies: list<array{depth: int, node: string, via: string}>, seeds: list<string>, reach: array<string, array<string, true>>, edges: list<array{source: string, target: string, via: string, depth: int}>, entryPoints: list<string>, associationEntryPoints: list<string>, associationEntryPointsVia: array<string, list<string>>, selectionOnlyEntryPoints: list<string>, selectionMiddlewareGroups: list<string>, relationOnlyEntryPoints: list<string>, selectionCallers: list<array{depth: int, node: string, via: string}>, entryPointPaths: array<string, list<array{node: string, via: string, file?: string, line?: int}>>, entryPointLocations: array<string, array{file: string, line?: int}>, entryPointSecurity: array<string, SecurityShape>, entryPointGates: array<string, list<string>>, entryPointAuthGates: array<string, list<string>>, entryPointAuthMiddleware: array<string, list<string>>, entryPointRuntimeGuards: array<string, list<array{middleware: string, group: string|null}>>, entryPointAttribution: array<string, array{via: string, ownReach: int}>, entryPointKeepSet: array{kept: list<string>, droppedHub: int}, impacted: int, relatedModels: list<string>, traitAndOverrideReach: list<string>, traitAndOverrideReachVia: array<string, list<string>>, risk: RiskLevel, riskCause: string, hazards: list<Hazard>, verification: array<string, bool|null>, lowConfidence: bool, findings: list<string>}
  */
 final readonly class ImpactAnalyzer
 {
@@ -218,7 +218,7 @@ final readonly class ImpactAnalyzer
             'entryPointLocations' => [], 'entryPointSecurity' => [], 'entryPointGates' => [],
             'entryPointKeepSet' => ['kept' => [], 'droppedHub' => 0],
             'entryPointAuthGates' => [], 'entryPointAuthMiddleware' => [], 'entryPointRuntimeGuards' => [], 'entryPointAttribution' => [],
-            'impacted' => 0, 'relatedModels' => [], 'selectionOnlyEntryPoints' => [], 'relationOnlyEntryPoints' => [], 'selectionCallers' => [], 'traitAndOverrideReach' => [], 'traitAndOverrideReachVia' => [], 'risk' => RiskLevel::Low,
+            'impacted' => 0, 'relatedModels' => [], 'selectionOnlyEntryPoints' => [], 'selectionMiddlewareGroups' => [], 'relationOnlyEntryPoints' => [], 'selectionCallers' => [], 'traitAndOverrideReach' => [], 'traitAndOverrideReachVia' => [], 'risk' => RiskLevel::Low,
             // Ladder step 0: nothing was analysed, which is not the same fact as "analysed and could
             // not be placed". An empty diff has always reported LOW and still does.
             'riskCause' => 'no analysable change: this diff touches nothing richter analyses',
@@ -264,6 +264,7 @@ final readonly class ImpactAnalyzer
      *     impacted: int,
      *     relatedModels: list<string>,
      *     selectionOnlyEntryPoints: list<string>,
+     *     selectionMiddlewareGroups: list<string>,
      *     relationOnlyEntryPoints: list<string>,
      *     selectionCallers: list<array{depth: int, node: string, via: string}>,
      *     traitAndOverrideReach: list<string>,
@@ -381,10 +382,13 @@ final readonly class ImpactAnalyzer
         // group runs adds every route of the group, because the graph draws no edge for membership.
         $selectionCallers = $this->graph->callersOf($seeds, $maxDepth, self::SELECTION_EXCLUDED_EDGE_TYPES, self::SELECTION_FREE_EDGE_TYPES);
         $groupLane = new MiddlewareGroupFindings($this->graph);
+        $selectionNodes = [...$seeds, ...array_column($selectionCallers, 'node')];
         $selectionEntryPoints = array_values(array_unique([
             ...$this->entryPointsAmong($selectionCallers),
-            ...$groupLane->routesRunning([...$seeds, ...array_column($selectionCallers, 'node')]),
+            ...$groupLane->routesRunning($selectionNodes),
         ]));
+        // A test that registers its own route in such a group runs the middleware too.
+        $selectionMiddlewareGroups = $groupLane->groupsRunning($selectionNodes);
         $selectionOnlyEntryPoints = array_values(array_diff($selectionEntryPoints, $entryPoints));
         // Listed in the report, but reached only by loading a relation to a changed model member
         // that does not run on load: test selection leaves them out, as it does their importers.
@@ -527,6 +531,7 @@ final readonly class ImpactAnalyzer
             'associationEntryPoints' => $associationEntryPoints,
             'associationEntryPointsVia' => $this->associationReasons($associationEntryPoints, $seeds, $maxDepth, $callers),
             'selectionOnlyEntryPoints' => $selectionOnlyEntryPoints,
+            'selectionMiddlewareGroups' => $selectionMiddlewareGroups,
             'relationOnlyEntryPoints' => $relationOnlyEntryPoints,
             'selectionCallers' => $selectionCallers,
             'entryPointPaths' => $entryPointPaths,

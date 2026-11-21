@@ -145,6 +145,37 @@ final class TestReferenceIndexTest extends TestCase
     }
 
     #[Test]
+    public function a_test_that_takes_the_route_name_from_a_data_provider_references_the_route(): void
+    {
+        $index = new TestReferenceIndex();
+        $index->addSource("<?php\nfunction pages(): array { return [['login', 'Sign in']]; }\n\$this->get(route(\$page))->assertSee(\$title);", 'tests/Feature/PagesTest.php');
+
+        $this->assertSame(['tests/Feature/PagesTest.php'], $index->testsReferencing('route::GET::/login'));
+    }
+
+    #[Test]
+    public function a_route_name_literal_in_a_test_that_builds_no_url_from_a_variable_references_nothing(): void
+    {
+        $index = $this->index("<?php \$this->assertSame('login', \$tab->key());");
+
+        $this->assertFalse($index->hasReference('route::GET::/login'));
+    }
+
+    #[Test]
+    public function an_api_docs_export_test_is_selected_for_a_route_under_the_api_path_without_referencing_it(): void
+    {
+        config()->set('scramble.api_path', 'v2');
+        $index = new TestReferenceIndex();
+        $index->addSource("<?php \$this->artisan('scramble:export', ['--path' => \$path]);", 'tests/Feature/ApiDocsTest.php');
+
+        $this->assertSame(['tests/Feature/ApiDocsTest.php'], $index->testsSelecting('route::GET::/v2/posts'));
+        $this->assertSame(['tests/Feature/ApiDocsTest.php'], $index->testsSelecting('route::GET::/v2'));
+        $this->assertSame([], $index->testsSelecting('route::GET::/v20/posts'));
+        $this->assertSame([], $index->testsSelecting('route::GET::/login'));
+        $this->assertFalse($index->hasReference('route::GET::/v2/posts'));
+    }
+
+    #[Test]
     public function a_route_hit_by_literal_uri_is_referenced(): void
     {
         $index = $this->index('<?php $this->get("/errors/log");');

@@ -7,7 +7,9 @@ use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Route;
 use PHPUnit\Framework\Attributes\Test;
+use SanderMuller\Richter\Analysis\AffectedTests;
 use SanderMuller\Richter\Analysis\ImpactAnalyzer;
+use SanderMuller\Richter\Analysis\TestReferenceIndex;
 use SanderMuller\Richter\Changes\ChangedFileSymbols;
 use SanderMuller\Richter\Changes\MemberChange;
 use SanderMuller\Richter\Graph\CodeGraph;
@@ -120,6 +122,25 @@ final class MiddlewareGroupReportTest extends TestCase
         $routes = new ImpactAnalyzer($graph)->detectChanges([$change])['selectionOnlyEntryPoints'];
         sort($routes);
         $this->assertSame(['route::GET::/api/a', 'route::GET::/api/b'], $routes);
+    }
+
+    #[Test]
+    public function selection_takes_a_test_that_registers_its_own_route_in_the_group(): void
+    {
+        // The route exists only inside the test, so no route node leads to it. It still runs every
+        // middleware of the group.
+        $tests = new TestReferenceIndex();
+        $tests->addSource("<?php Route::middleware('api')->get('_test/tenant', fn () => 'ok');", 'tests/Feature/TenantHeaderTest.php');
+        $tests->addSource("<?php Route::middleware(['web'])->get('_test/page', fn () => 'ok');", 'tests/Feature/PageHeaderTest.php');
+
+        $change = $this->changedMiddleware();
+        $result = new ImpactAnalyzer($this->graph())->detectChanges([$change]);
+
+        $this->assertSame(['api'], $result['selectionMiddlewareGroups']);
+        $this->assertSame(
+            ['tests/Feature/TenantHeaderTest.php'],
+            AffectedTests::select($result, [$change], $tests, unresolvedDispatchSites: [], graph: $this->graph())['tests'],
+        );
     }
 
     private function changedMiddleware(): ChangedFileSymbols

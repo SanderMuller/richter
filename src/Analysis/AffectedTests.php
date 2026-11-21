@@ -313,7 +313,7 @@ final class AffectedTests
     }
 
     /**
-     * @param  array{coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, selectionOnlyEntryPoints?: list<string>, relationOnlyEntryPoints?: list<string>, selectionCallers?: list<array{depth: int, node: string, via: string}>, lowConfidence: bool, callers?: list<array{depth: int, node: string, via: string, file?: string, line?: int}>, dependencies?: list<array{depth: int, node: string, via: string, file?: string, line?: int}>, ...}  $result  an {@see ImpactAnalyzer::detectChanges()} result
+     * @param  array{coverage: array<string, 'analyzed'|'unresolved'>, entryPoints: list<string>, selectionOnlyEntryPoints?: list<string>, selectionMiddlewareGroups?: list<string>, relationOnlyEntryPoints?: list<string>, selectionCallers?: list<array{depth: int, node: string, via: string}>, lowConfidence: bool, callers?: list<array{depth: int, node: string, via: string, file?: string, line?: int}>, dependencies?: list<array{depth: int, node: string, via: string, file?: string, line?: int}>, ...}  $result  an {@see ImpactAnalyzer::detectChanges()} result
      * @param  list<ChangedFileSymbols>  $changed
      * @param  CodeGraph|null  $graph  handed to the test index, which needs it for two entry-point
      *   shapes it cannot answer from `tests/` alone: a `schedule::` node, whose id is an opaque hash
@@ -414,7 +414,7 @@ final class AffectedTests
             $referencingSpecs = $frontendTests?->testsReferencing($entryPoint) ?? [];
             $provenance->referencingEntryPoint($referencingSpecs, $entryPoint);
             $frontendSelected = [...$frontendSelected, ...$referencingSpecs];
-            $referencing = $tests->testsReferencing($entryPoint);
+            $referencing = $tests->testsSelecting($entryPoint);
 
             if ($referencing === null) {
                 $reasons[] = "entry point \"{$entryPoint}\" could not be checked against the test suite";
@@ -447,6 +447,12 @@ final class AffectedTests
 
             $provenance->referencingEntryPoint($runnable, $entryPoint);
             $selected = [...$selected, ...$runnable];
+        }
+
+        foreach ($result['selectionMiddlewareGroups'] ?? [] as $group) {
+            $registering = TestReferenceIndex::runnableOnly($tests->testsRegisteringRoutesIn($group));
+            $provenance->referencingEntryPoint($registering, "middleware::{$group}");
+            $selected = [...$selected, ...$registering];
         }
 
         // The import axis is broad but DIRECTIONAL — every changed class, every class that reaches
