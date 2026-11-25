@@ -7,6 +7,7 @@ use PhpParser\Node\Arg;
 use PhpParser\Node\Expr;
 use PhpParser\Node\Expr\ArrowFunction;
 use PhpParser\Node\Expr\Assign;
+use PhpParser\Node\Expr\BooleanNot;
 use PhpParser\Node\Expr\ClassConstFetch;
 use PhpParser\Node\Expr\Closure;
 use PhpParser\Node\Expr\MethodCall;
@@ -77,8 +78,8 @@ final class AbilityChecks
             return false;
         }
 
-        if ($receiver instanceof Variable) {
-            return $anyVariable || in_array($receiver->name, $users, strict: true);
+        if ($receiver instanceof Variable || $receiver instanceof PropertyFetch) {
+            return $anyVariable || ($receiver instanceof Variable && in_array($receiver->name, $users, strict: true));
         }
 
         return self::isUserCall($receiver);
@@ -161,7 +162,7 @@ final class AbilityChecks
     /**
      * The calls in a method that stand as a statement of their own and only answer. `Gate::inspect('x');`
      * asks and ignores what it hears, so it guards nothing, and reading it as the check it replaced would
-     * hide that.
+     * hide that. So does `Gate::inspect('x')->allowed();`, every call of the chain down to one that throws.
      *
      * @return list<Expr>
      */
@@ -170,12 +171,13 @@ final class AbilityChecks
         $discarded = [];
 
         foreach (HazardSource::within($method, Expression::class) as $statement) {
-            $call = $statement->expr;
+            $call = $statement->expr instanceof BooleanNot ? $statement->expr->expr : $statement->expr;
 
-            if (($call instanceof MethodCall || $call instanceof NullsafeMethodCall || $call instanceof StaticCall)
+            while (($call instanceof MethodCall || $call instanceof NullsafeMethodCall || $call instanceof StaticCall)
                 && $call->name instanceof Identifier
                 && ! in_array($call->name->toString(), self::THROWING_METHODS, strict: true)) {
                 $discarded[] = $call;
+                $call = $call instanceof StaticCall ? null : $call->var;
             }
         }
 

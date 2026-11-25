@@ -477,8 +477,10 @@ final readonly class ImpactAnalyzer
         // findings pass, the reach class from the security annotations, and the entry-point set the
         // verification lane grades. The old breadth score could run early precisely because it needed
         // none of them — it only counted.
+        [$hazards, $movedFindings] = HazardFindings::split($changed, $hazardsEnabled, $parityHazards, new MovedGuards($this->graph, $maxDepth, $this->entryPointsAmong(...)));
+        $findings = [...$findings, ...$movedFindings];
         $hazards = new HazardReach($this->graph, $entryPointPaths, $entryPointSecurity, $entryPointAuthGates, $entryPointAuthMiddleware, $entryPointRuntimeGuards, $maxDepth, $this->entryPointsAmong(...))
-            ->attach(HazardFindings::for($changed, $hazardsEnabled, $parityHazards));
+            ->attach($hazards);
 
         // Runs on what survived suppression, so a silenced column costs no lookup. Evidence only: it
         // names what still refers to a dropped column and moves neither tier nor reach.

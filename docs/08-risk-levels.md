@@ -131,7 +131,8 @@ the route, plus every enclosing `Route::middleware(...)->group()` and `Route::gr
 Wrapping existing routes in a guarded group is the commonest edit these files see, and a file-wide
 comparison would report every one of those routes as newly unguarded while the group above them says
 otherwise. A route the head no longer declares raises nothing. Deleting a route leaves nobody able to
-reach it unguarded. A file that writes middleware on no route richter can read produces a finding.
+reach it unguarded. A file that writes middleware on no route richter can read produces a finding. One that also holds a
+route richter can read produces none, so a route it cannot read there is not compared.
 
 Routes are lined up by verb, URI and action together. Two endpoints mounted at `'/'` under their own
 `prefix()` groups are one key without the action, and their guards would then be read as one set: a
@@ -258,6 +259,29 @@ A guard that moved is not a guard that was removed. Authorization migrates: a co
 `authorize()` becomes a form request's, a policy becomes a gate. Every removal predicate fires only
 when the removed thing is not added somewhere else in the same diff.
 
+A moved authorization check is compared further, because the new place may not run where the old one
+did. Richter takes the controller actions that run the old place and looks for a path from each to the new
+one:
+
+- Every action leads there. The check is a finding, not a hazard. The finding names the check as both
+  places write it, the two places and the actions. A path does not prove that the check runs on every call,
+  or that it refuses. The finding asks a reader to check that, and to compare the objects.
+- An action has no path there. The tier-3 hazard stays, and its evidence names the new place and that action.
+- Richter cannot compare the two, as with a check that moved to a gate closure, a middleware or a
+  constructor, or to a class the graph does not hold. The move is a finding that says so.
+
+A new file answers for a removed check only in the first case, and only with a form request's
+`authorize()` that always refuses on the check, in a class that declares no `passesAuthorization()` or
+`failedAuthorization()`. With any other new file the hazard stays, and names it. A check on a value
+that is not a proven user answers only within its own class. The paths are those of the graph, which is
+built from the checkout. With a `--head` that is not checked out, a move is often not compared. The
+comparison is per action, because the graph links a route to its controller class. A route is named
+where its controller has one action. A moved middleware and a removed policy method are not compared,
+and raise nothing.
+
+A form request whose `authorize()` moved this way still reports the method itself, as a tier-2 contract
+break.
+
 The lanes do not double-report, and a removal is reported once. A removed public policy method is the
 `auth` lane's at tier 3, because it is a guard and not only a contract, and never also a tier-2
 contract break. A queued class's changed constructor is the `boundary` lane's at tier 2, never also a
@@ -272,8 +296,10 @@ tier-3 hazard even though the member survives.
 
 Deleting one whole ranks no lower. A form request's deleted `authorize()` is the `auth` lane's at tier 3,
 because Laravel authorizes a request without one, and a model's deleted `$hidden` is the `model` lane's at
-tier 3. Where the class newly uses a trait, or a model hides its columns another way, the deletion stays a
-tier-2 contract break. A parent class that declares the member is not read.
+tier 3. Where the class newly uses a trait, a request newly declares `passesAuthorization()`, or a model newly hides its
+columns another way (`$visible`, an attribute, `getHidden()`, or `setHidden()` and its siblings in its own code), the deletion stays a
+tier-2 contract break. A parent class that declares the member is not read, and a request that extends a
+project base request, not `FormRequest` itself, stays a contract break too.
 
 A check is read on the `Gate` facade, `Gate::forUser()` and `Gate::inspect()` included, on `$this`, on a
 `->user()` call, and on a variable that holds a user: a parameter typed as `User` or `Authorizable`, or

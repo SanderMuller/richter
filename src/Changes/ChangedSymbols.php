@@ -4,6 +4,7 @@ namespace SanderMuller\Richter\Changes;
 
 use Illuminate\Support\Facades\Process;
 use RuntimeException;
+use SanderMuller\Richter\Analysis\Hazards\GuardCalls;
 use SanderMuller\Richter\Analysis\Hazards\GuardMiddleware;
 use SanderMuller\Richter\Analysis\Hazards\HazardLanes;
 use SanderMuller\Richter\Analysis\Hazards\ModelTables;
@@ -352,7 +353,7 @@ final class ChangedSymbols
         $inlineRequestFields = RequestFieldParser::inlineDiffFor($file, $isNew, $headSrc, $baseSrc);
         [$hazards, $addedHazardTokens, $hazardFindings] = HazardLanes::for($file, $isNew, $headSrc, $baseSrc);
 
-        return new ChangedFileSymbols($file, Fqcn::fromPath($file), $members, $members === [], findings: [...self::sourceFindings($members, $head['members'], $headSrc, $eagerLoadChecker, $featureGateChecker, $inertiaPageChecker), ...$hazardFindings], modelFieldSet: $modelFieldSet, addedModelFields: $addedModelFields, isNewFile: $isNew, removedResourceKeys: $removedResourceKeys, addedResourceKeys: $addedResourceKeys, removedRequestFields: $removedRequestFields, addedRequestFields: $addedRequestFields, inlineRequestFields: $inlineRequestFields, hazards: $hazards, addedHazardTokens: $addedHazardTokens, siblingReads: SiblingReads::forChangedMembers($file, $headSrc, $members));
+        return new ChangedFileSymbols($file, Fqcn::fromPath($file), $members, $members === [], findings: [...self::sourceFindings($members, $head['members'], $headSrc, $eagerLoadChecker, $featureGateChecker, $inertiaPageChecker), ...$hazardFindings], modelFieldSet: $modelFieldSet, addedModelFields: $addedModelFields, isNewFile: $isNew, removedResourceKeys: $removedResourceKeys, addedResourceKeys: $addedResourceKeys, removedRequestFields: $removedRequestFields, addedRequestFields: $addedRequestFields, inlineRequestFields: $inlineRequestFields, hazards: $hazards, addedHazardTokens: $addedHazardTokens, siblingReads: SiblingReads::forChangedMembers($file, $headSrc, $members), guardArrivals: GuardCalls::arrivals($file, $headSrc, $baseSrc, $isNew));
     }
 
     /**

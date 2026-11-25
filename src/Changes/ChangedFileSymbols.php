@@ -4,6 +4,7 @@ namespace SanderMuller\Richter\Changes;
 
 use SanderMuller\Richter\Analysis\Hazard;
 use SanderMuller\Richter\Analysis\HazardFindings;
+use SanderMuller\Richter\Analysis\Hazards\GuardArrival;
 use SanderMuller\Richter\Analysis\Hazards\HazardLanes;
 use SanderMuller\Richter\Analysis\ImpactAnalyzer;
 use SanderMuller\Richter\Analysis\PayloadParityChecker;
@@ -79,6 +80,8 @@ final readonly class ChangedFileSymbols
         public array $siblingReads = [],
         /** @var array<string, list<string>> route node the head still calls => send-shaped field names a changed frontend file sent at base and no longer sends ({@see SentFields}); empty when either side is missing or the head sends opaquely */
         public array $droppedSentFields = [],
+        /** @var list<GuardArrival> where this file gained a guard, so a removal it answers can name the place */
+        public array $guardArrivals = [],
     ) {}
 
     /** @return list<MemberChange> */

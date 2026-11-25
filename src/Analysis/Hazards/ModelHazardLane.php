@@ -2,10 +2,18 @@
 
 namespace SanderMuller\Richter\Analysis\Hazards;
 
+use PhpParser\Node;
+use PhpParser\Node\Arg;
+use PhpParser\Node\Expr;
 use PhpParser\Node\Expr\Array_;
+use PhpParser\Node\Expr\Assign;
+use PhpParser\Node\Expr\MethodCall;
+use PhpParser\Node\Expr\PropertyFetch;
+use PhpParser\Node\Identifier;
 use PhpParser\Node\PropertyItem;
 use PhpParser\Node\Stmt\ClassLike;
 use PhpParser\Node\Stmt\Property;
+use PhpParser\NodeFinder;
 use SanderMuller\Richter\Analysis\Hazard;
 use SanderMuller\Richter\Changes\EloquentConfig;
 use SanderMuller\Richter\Changes\MemberChange;
@@ -27,6 +35,10 @@ final class ModelHazardLane implements HazardLane
         'Illuminate\Database\Eloquent\Attributes\Hidden',
         'Illuminate\Database\Eloquent\Attributes\Visible',
     ];
+
+    private const array HIDING_OVERRIDES = ['getHidden', 'getVisible'];
+
+    private const array HIDING_CALLS = ['setHidden', 'makeHidden', 'makeHiddenIf', 'mergeHidden', 'setVisible'];
 
     public static function for(string $file, string $headSrc, string $baseSrc): array
     {
@@ -122,7 +134,7 @@ final class ModelHazardLane implements HazardLane
     /**
      * Whether a surviving model lost a `$hidden` that named columns, with nothing on the head class that
      * could hide them instead: a `$visible` list, the attribute form of either, a trait or a parent the
-     * base did not have. Where one of those is there, the property is only a member that went away, and
+     * base did not have, or the class's own code ({@see hidesNewlyInCode()}). Where one of those is there, the property is only a member that went away, and
      * the contract lane says so.
      */
     public static function losesHidden(string $file, ClassLike $head, ClassLike $base): bool
@@ -132,6 +144,7 @@ final class ModelHazardLane implements HazardLane
             && ! $head->getProperty('hidden') instanceof Property
             && ! $head->getProperty('visible') instanceof Property
             && ! self::hidesByAttribute($head)
+            && ! self::hidesNewlyInCode($head, $base)
             && HazardSource::parentOf($head) === HazardSource::parentOf($base)
             && array_diff(HazardSource::traitsOf($head), HazardSource::traitsOf($base)) === [];
     }
@@ -159,6 +172,40 @@ final class ModelHazardLane implements HazardLane
         }
 
         return false;
+    }
+
+    /** Whether the class now overrides the list's getter, or sets a list in code, where the base did not. */
+    private static function hidesNewlyInCode(ClassLike $head, ClassLike $base): bool
+    {
+        return array_any(self::HIDING_OVERRIDES, static fn (string $method): bool => HazardSource::overridesNewly($method, $head, $base))
+            || array_diff(self::hidingCode($head), self::hidingCode($base)) !== [];
+    }
+
+    /**
+     * Every place the class's own code sets a list that names something, as written.
+     *
+     * @return list<string>
+     */
+    private static function hidingCode(ClassLike $class): array
+    {
+        $written = [];
+
+        foreach (new NodeFinder()->find($class->getMethods(), static fn (Node $node): bool => $node instanceof MethodCall || $node instanceof Assign) as $node) {
+            $target = $node instanceof Assign ? $node->var : $node;
+
+            if ((! $target instanceof MethodCall && ! $target instanceof PropertyFetch) || ! HazardSource::isThis($target->var) || ! $target->name instanceof Identifier) {
+                continue;
+            }
+
+            $value = $node instanceof Assign ? $node->expr : ($target instanceof MethodCall && ($target->args[0] ?? null) instanceof Arg ? $target->args[0]->value : null);
+            $names = $node instanceof Assign ? ['hidden', 'visible'] : self::HIDING_CALLS;
+
+            if ($value instanceof Expr && in_array($target->name->toString(), $names, strict: true) && (! $value instanceof Array_ || $value->items !== [])) {
+                $written[] = HazardSource::print($node);
+            }
+        }
+
+        return $written;
     }
 
     /**

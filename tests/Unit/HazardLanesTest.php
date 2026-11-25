@@ -5,6 +5,7 @@ namespace SanderMuller\Richter\Tests\Unit;
 use PHPUnit\Framework\Attributes\Test;
 use SanderMuller\Richter\Analysis\Hazard;
 use SanderMuller\Richter\Analysis\HazardFindings;
+use SanderMuller\Richter\Analysis\Hazards\GuardCalls;
 use SanderMuller\Richter\Analysis\Hazards\HazardLanes;
 use SanderMuller\Richter\Analysis\Hazards\MiddlewareGroupHazards;
 use SanderMuller\Richter\Analysis\ValidationRules;
@@ -435,10 +436,11 @@ final class HazardLanesTest extends TestCase
             $this->formRequest("    public function authorize(): bool { return Gate::allows('create'); }"),
         );
 
-        $this->assertSame([], HazardFindings::for([
+        // The guard arrived somewhere, and the member is still gone.
+        $this->assertSame([['contract', 2, 'the public method is gone']], array_map(static fn (Hazard $hazard): array => [$hazard->lane, $hazard->tier, $hazard->evidence], HazardFindings::for([
             new ChangedFileSymbols('app/Http/Requests/StorePostRequest.php', 'App\Http\Requests\StorePostRequest', [], cosmeticOnly: false, hazards: $hazards),
             new ChangedFileSymbols('app/Http/Controllers/PostController.php', 'App\Http\Controllers\PostController', [], cosmeticOnly: false, addedHazardTokens: ['ability:create']),
-        ], enabledOverride: true));
+        ], enabledOverride: true)));
     }
 
     #[Test]
@@ -464,6 +466,51 @@ final class HazardLanesTest extends TestCase
         );
 
         $this->assertSame(['contract'], array_column($hazards, 'lane'));
+    }
+
+    #[Test]
+    public function a_check_on_a_user_this_lane_cannot_prove_is_where_a_removed_one_moved_to(): void
+    {
+        $source = static fn (string $members): string => "<?php\nnamespace App\\Http\\Controllers;\nuse App\\Models\\User;\nclass PostController\n{\n{$members}\n}\n";
+        $base = $source("public function update(User \$user) { abort_unless(\$user->can('publish'), 403); }");
+
+        foreach ([
+            'public function update(User $user) { $this->guard($user); } private function guard($user) { abort_unless($user->can(\'publish\'), 403); }',
+            'public function update(User $user) { $this->user = $user; abort_unless($this->user->can(\'publish\'), 403); }',
+        ] as $members) {
+            $path = 'app/Http/Controllers/PostController.php';
+            [$hazards, $added] = HazardLanes::for($path, false, $source($members), $base);
+
+            $this->assertSame([], HazardFindings::for([
+                new ChangedFileSymbols($path, '', [], cosmeticOnly: false, hazards: $hazards, addedHazardTokens: $added, guardArrivals: GuardCalls::arrivals($path, $source($members), $base)),
+            ], enabledOverride: true), $members);
+        }
+    }
+
+    #[Test]
+    public function an_authorize_replaced_by_the_hook_that_calls_it_stays_a_contract_hazard(): void
+    {
+        $hazards = $this->lanes(
+            'app/Http/Requests/StorePostRequest.php',
+            $this->formRequest("    protected function passesAuthorization(): bool { return Gate::allows('create'); }"),
+            $this->formRequest("    public function authorize(): bool { return Gate::allows('create'); }"),
+        );
+
+        $this->assertSame(['contract'], array_column($hazards, 'lane'));
+    }
+
+    #[Test]
+    public function an_authorize_hook_that_replaces_nothing_leaves_the_deletion_a_removed_guard(): void
+    {
+        $hook = "    protected function passesAuthorization(): bool { return Gate::allows('view'); }\n";
+        $authorize = "    public function authorize(): bool { return Gate::allows('create'); }";
+        $parent = "    protected function passesAuthorization(): bool { return parent::passesAuthorization(); }\n";
+
+        foreach ([[$hook, $hook . $authorize], [$parent, $authorize]] as [$head, $base]) {
+            $hazards = $this->lanes('app/Http/Requests/StorePostRequest.php', $this->formRequest($head), $this->formRequest($base));
+
+            $this->assertSame([3], array_column($hazards, 'tier'), $head);
+        }
     }
 
     #[Test]
@@ -581,6 +628,8 @@ final class HazardLanesTest extends TestCase
             ["Gate::forUser(\$author)->authorize('publish', \$post);", "Gate::forUser(\$author)->inspect('publish', \$post);"],
             ["Gate::inspect('publish', \$post)->authorize();", "Gate::inspect('publish', \$post);"],
             ["abort_unless(\$request->user()->can('publish', \$post), 403);", "\$request->user()->can('publish', \$post);"],
+            ["Gate::authorize('publish', \$post);", "Gate::inspect('publish', \$post)->allowed();"],
+            ["Gate::authorize('publish', \$post);", "! Gate::allows('publish', \$post);"],
             ["\$this->authorize('publish', \$post);", "\$this->can('publish', \$post);"],
         ] as [$before, $after]) {
             $hazards = $this->lanes('app/Http/Controllers/PostController.php', $this->controller("        {$after}\n        return \$post;"), $this->controller("        {$before}\n        return \$post;"));
@@ -616,6 +665,8 @@ final class HazardLanesTest extends TestCase
         $tokens = fn (string $body): array => $this->addedTokens('app/Http/Controllers/PostController.php', $this->controller("        {$body}"), $this->controller(''));
 
         $this->assertSame([], $tokens("Gate::inspect('publish', \$post);"));
+        $this->assertSame([], $tokens("Gate::inspect('publish', \$post)->allowed();"));
+        $this->assertSame(['ability:publish'], $tokens("Gate::inspect('publish', \$post)->authorize();"));
         $this->assertSame(['ability:publish'], $tokens("Gate::authorize('publish', \$post);"));
         $this->assertSame(['ability:publish'], $tokens("return Gate::inspect('publish', \$post);"));
     }
@@ -816,11 +867,33 @@ final class HazardLanesTest extends TestCase
         foreach ([
             $this->model("    protected \$visible = ['title'];"),
             $this->model('    use HidesSecrets;'),
+            $this->model("    protected function initializePost(): void { \$this->hidden = ['secret']; }"),
+            $this->model("    public function getHidden(): array { return ['secret']; }"),
+            $this->model("    public function __construct(array \$attributes = []) { parent::__construct(\$attributes); \$this->makeHidden(['secret']); }"),
+            $this->model("    protected function initializePost(): void { \$this->setHidden(['secret']); }"),
             "<?php\nnamespace App\\Models;\nuse Illuminate\\Database\\Eloquent\\Attributes\\Hidden;\n#[Hidden(['secret'])]\nclass Post\n{\n}\n",
             "<?php\nnamespace App\\Models;\nuse Illuminate\\Database\\Eloquent\\Attributes\\Visible;\n#[Visible(['title'])]\nclass Post\n{\n}\n",
             "<?php\nnamespace App\\Models;\nclass Post extends SecretModel\n{\n}\n",
         ] as $head) {
             $this->assertSame(['contract'], array_column($this->lanes('app/Models/Post.php', $head, $base), 'lane'));
+        }
+    }
+
+    #[Test]
+    public function a_deleted_hidden_next_to_code_that_does_not_replace_it_is_tier_three(): void
+    {
+        $hidden = "    protected \$hidden = ['secret'];\n";
+        $export = "    public function forExport(): array { return \$this->makeHidden('notes')->toArray(); }";
+        $getter = '    public function getHidden(): array { return parent::getHidden(); }';
+
+        foreach ([
+            [$export, $hidden . $export],
+            [$getter, $hidden],
+            ['    private function reset(): void { $this->setHidden([]); }', $hidden],
+        ] as [$head, $base]) {
+            $hazards = $this->lanes('app/Models/Post.php', $this->model($head), $this->model($base));
+
+            $this->assertContains(['model', 3], array_map(static fn (Hazard $hazard): array => [$hazard->lane, $hazard->tier], $hazards), $head);
         }
     }
 

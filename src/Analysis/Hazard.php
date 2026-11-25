@@ -58,6 +58,8 @@ final readonly class Hazard
      * @param  string|null  $route  the route a route-file hazard is about, as a report prints it
      * @param  string|null  $sharedEvidence  the evidence for every route that lost the same thing, so a
      *   printed report can name it once ({@see HazardRows}); null where each hazard stands alone
+     * @param  string|null  $guard  the removed check as written, where the hazard is about one check
+     * @param  self|null  $whenMoved  what remains to report where the guard moved rather than left
      */
     public function __construct(
         public string $lane,
@@ -73,11 +75,13 @@ final readonly class Hazard
         public ?string $field = null,
         public ?string $route = null,
         public ?string $sharedEvidence = null,
+        public ?string $guard = null,
+        public ?self $whenMoved = null,
     ) {}
 
     public function withReach(string $reach, bool $viaDeclaringClass = false): self
     {
-        return new self($this->lane, $this->tier, $this->cwe, $this->member, $this->evidence, $this->removedTokens, $reach, $this->ignoreKey, $viaDeclaringClass, $this->alsoIgnoredBy, $this->field, $this->route, $this->sharedEvidence);
+        return new self($this->lane, $this->tier, $this->cwe, $this->member, $this->evidence, $this->removedTokens, $reach, $this->ignoreKey, $viaDeclaringClass, $this->alsoIgnoredBy, $this->field, $this->route, $this->sharedEvidence, $this->guard, $this->whenMoved);
     }
 
     /**
@@ -86,7 +90,7 @@ final readonly class Hazard
      */
     public function withEvidence(string $evidence): self
     {
-        return new self($this->lane, $this->tier, $this->cwe, $this->member, $evidence, $this->removedTokens, $this->reach, $this->ignoreKey, $this->reachViaDeclaringClass, $this->alsoIgnoredBy, $this->field, $this->route, $this->sharedEvidence);
+        return new self($this->lane, $this->tier, $this->cwe, $this->member, $evidence, $this->removedTokens, $this->reach, $this->ignoreKey, $this->reachViaDeclaringClass, $this->alsoIgnoredBy, $this->field, $this->route, $this->sharedEvidence, $this->guard, $this->whenMoved);
     }
 
     /**

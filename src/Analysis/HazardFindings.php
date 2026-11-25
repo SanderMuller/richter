@@ -2,6 +2,7 @@
 
 namespace SanderMuller\Richter\Analysis;
 
+use SanderMuller\Richter\Analysis\Hazards\GuardArrival;
 use SanderMuller\Richter\Changes\ChangedFileSymbols;
 use SanderMuller\Richter\Support\RichterConfig;
 
@@ -33,63 +34,105 @@ final class HazardFindings
      */
     public static function for(array $changed, ?bool $enabledOverride = null, array $also = []): array
     {
-        if (! ($enabledOverride ?? RichterConfig::hazardsEnabled())) {
-            return self::worstFirst($also);
-        }
-
-        $added = self::addedTokens($changed);
-        $ignore = RichterConfig::hazardsIgnore();
-        $hazards = [];
-
-        foreach ($changed as $file) {
-            foreach ($file->hazards as $hazard) {
-                if (self::suppressed($hazard, $added, $ignore)) {
-                    continue;
-                }
-
-                $hazards[] = $hazard;
-            }
-        }
-
-        return self::worstFirst([...$hazards, ...$also]);
+        return self::split($changed, $enabledOverride, $also)[0];
     }
 
     /**
-     * The whole diff's added tokens. Unioned across every changed file precisely because the guard's
-     * whole point is cross-file: the removal is in one file and the arrival is in another.
+     * {@see for()}, plus a finding for each removed check that moved rather than left. With no
+     * {@see MovedGuards} to compare the two places, every move is taken at its word and says nothing.
      *
      * @param  list<ChangedFileSymbols>  $changed
-     * @return list<string>
+     * @param  list<Hazard>  $also
+     * @return array{0: list<Hazard>, 1: list<string>}
      */
-    private static function addedTokens(array $changed): array
+    public static function split(array $changed, ?bool $enabledOverride = null, array $also = [], ?MovedGuards $moved = null): array
     {
-        $tokens = [];
-
-        foreach ($changed as $file) {
-            $tokens = [...$tokens, ...$file->addedHazardTokens];
+        if (! ($enabledOverride ?? RichterConfig::hazardsEnabled())) {
+            return [self::worstFirst($also), []];
         }
 
-        return array_values(array_unique($tokens));
+        $ignore = RichterConfig::hazardsIgnore();
+        $hazards = [];
+        $findings = [];
+        $remaining = [];
+
+        foreach ($changed as $file) {
+            foreach ($file->hazards as $hazard) {
+                // Silenced by name: nothing about it is worth a line either.
+                if (array_intersect($hazard->suppressionKeys(), $ignore) !== []) {
+                    continue;
+                }
+
+                [$kept, $finding] = self::afterMoves($hazard, $changed, $moved);
+                $hazards = [...$hazards, ...($kept instanceof Hazard ? [$kept] : [])];
+                $findings = [...$findings, ...($finding === null ? [] : [$finding])];
+
+                if (! $kept instanceof Hazard && $hazard->whenMoved instanceof Hazard) {
+                    $remaining[$hazard->whenMoved->member] = $hazard->whenMoved;
+                }
+            }
+        }
+
+        // A member that still reports a guard of its own says it already.
+        $hazards = [...$hazards, ...array_values(array_diff_key($remaining, array_flip(array_map(static fn (Hazard $hazard): string => $hazard->member, $hazards))))];
+
+        return [self::worstFirst([...$hazards, ...$also]), $findings];
     }
 
     /**
      * A hazard is suppressed when the thing it says was removed is added somewhere else in the same
-     * diff, or when the project has named it in `hazards.ignore`.
+     * diff. An authorization check is compared further ({@see MovedGuards}): the new place may not run
+     * where the old one did. A middleware is not, because one move to a group is a move for every route
+     * in it.
      *
      * An EMPTY token list never matches. That is the lane's way of saying "nothing was named here, so
      * nothing elsewhere can be this same thing arriving" — a neutered `authorize()` body names no
      * ability, and must not be silenced by an unrelated `authorize()` added in another file.
      *
-     * @param  list<string>  $added
-     * @param  list<string>  $ignore
+     * @param  list<ChangedFileSymbols>  $changed
+     * @return array{0: Hazard|null, 1: string|null}
      */
-    private static function suppressed(Hazard $hazard, array $added, array $ignore): bool
+    private static function afterMoves(Hazard $hazard, array $changed, ?MovedGuards $moved): array
     {
-        if (array_intersect($hazard->removedTokens, $added) !== []) {
-            return true;
+        $arrivals = self::arrivalsOf($hazard, $changed);
+
+        if ($moved instanceof MovedGuards && $hazard->guard !== null && $arrivals !== []) {
+            return $moved->judge($hazard, $arrivals);
         }
 
-        return array_intersect($hazard->suppressionKeys(), $ignore) !== [];
+        return [array_any($arrivals, static fn (GuardArrival $arrival): bool => ! $arrival->inNewFile) ? null : $hazard, null];
+    }
+
+    /**
+     * Everywhere the diff added what this hazard says was removed. Read over every changed file
+     * precisely because the guard's whole point is cross-file: the removal is in one file and the
+     * arrival is in another.
+     *
+     * A new file counts only for a check the hazard names and the ability is written out. Anything
+     * looser would let an unrelated new file answer for it. An arrival whose receiver is no proven user
+     * counts in its own class only.
+     *
+     * @param  list<ChangedFileSymbols>  $changed
+     * @return list<GuardArrival>
+     */
+    private static function arrivalsOf(Hazard $hazard, array $changed): array
+    {
+        $arrivals = [];
+
+        foreach ($changed as $file) {
+            foreach (array_intersect($hazard->removedTokens, [...$file->addedHazardTokens, ...array_column($file->guardArrivals, 'token')]) as $token) {
+                $named = array_values(array_filter($file->guardArrivals, static fn (GuardArrival $arrival): bool => $arrival->token === $token));
+                $usable = array_values(array_filter(
+                    $named === [] ? [new GuardArrival($token, $file->file)] : $named,
+                    static fn (GuardArrival $arrival): bool => $arrival->canAnswerFor($hazard->member)
+                        && (! $arrival->inNewFile || ($hazard->guard !== null && str_starts_with($token, 'ability:'))),
+                ));
+
+                $arrivals = [...$arrivals, ...$usable];
+            }
+        }
+
+        return $arrivals;
     }
 
     /**

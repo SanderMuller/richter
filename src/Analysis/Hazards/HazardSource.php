@@ -222,6 +222,25 @@ final class HazardSource
         return $traits;
     }
 
+    /** Whether the head declares a method the base did not, with more in it than a call to its parent's. */
+    public static function overridesNewly(string $method, ClassLike $head, ClassLike $base): bool
+    {
+        $override = $head->getMethod($method);
+
+        if (! $override instanceof ClassMethod || $base->getMethod($method) instanceof ClassMethod) {
+            return false;
+        }
+
+        $only = count($override->stmts ?? []) === 1 ? ($override->stmts[0] ?? null) : null;
+
+        return ! ($only instanceof Return_
+            && $only->expr instanceof StaticCall
+            && $only->expr->class instanceof Name
+            && $only->expr->class->toLowerString() === 'parent'
+            && $only->expr->name instanceof Identifier
+            && $only->expr->name->toString() === $method);
+    }
+
     /**
      * The one statement of a method that always allows — the shape a neutered `authorize()` takes — as
      * source, or null. `return true;`, `return Response::allow();` and, where the caller knows `$this`
