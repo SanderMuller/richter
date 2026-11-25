@@ -525,7 +525,7 @@ final class MarkdownFormatter
 
             if ($row->runtimeGuards !== []) {
                 $lines[] = '  - ℹ️ richter: the booted router shows `' . implode('`, `', $row->runtimeGuardLabels())
-                    . '` on this route, so the finding above is likely wrong — runtime router evidence the static middleware surface cannot see.';
+                    . "` on this route, so {$row->contradictedByRuntime()} is likely wrong — runtime router evidence the static middleware surface cannot see.";
             }
 
             if ($row->authGates !== []) {

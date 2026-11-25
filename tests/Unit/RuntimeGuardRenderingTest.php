@@ -62,6 +62,19 @@ final class RuntimeGuardRenderingTest extends TestCase
     }
 
     #[Test]
+    public function the_note_names_the_finding_only_where_the_row_shows_one(): void
+    {
+        $result = $this->impactResult();
+        $withoutFinding = [...$result, 'entryPointSecurity' => ['route::POST::/pay' => ['exposure' => 'public', 'riskLevel' => 'medium', 'issues' => []]]];
+
+        foreach ([ImpactFormatter::impact(...), MarkdownFormatter::impact(...)] as $format) {
+            $this->assertStringContainsString('so the PUBLIC_WRITE finding above is likely wrong', $format($result));
+            $this->assertStringContainsString('so its public exposure is likely wrong', $format($withoutFinding));
+            $this->assertStringNotContainsString('finding above', $format($withoutFinding));
+        }
+    }
+
+    #[Test]
     public function the_html_report_renders_the_runtime_note_beside_brains_finding(): void
     {
         $result = [
@@ -87,5 +100,6 @@ final class RuntimeGuardRenderingTest extends TestCase
 
         $this->assertStringContainsString('via middleware group &#039;web&#039;', $html);
         $this->assertStringContainsString('applied directly', $html);
+        $this->assertStringContainsString('so the PUBLIC_WRITE finding above is likely wrong', $html);
     }
 }

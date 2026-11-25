@@ -185,7 +185,7 @@ final class HtmlFormatter
                 . ($meta === '' ? '' : '<p class="entry-meta">' . $meta . '</p>')
                 . self::securityIssues($row->security, $editor)
                 . self::authMiddlewareNote($row->authMiddleware)
-                . self::runtimeGuardsNote($row->runtimeGuardLabels())
+                . self::runtimeGuardsNote($row)
                 . self::authGatesNote($row->authGates)
                 . '</li>';
         }
@@ -230,13 +230,11 @@ final class HtmlFormatter
      * The third evidence lane: guards the BOOTED ROUTER proves on the route, group expansion
      * included — the one surface the static analyses cannot see. Rendered beside, never replacing,
      * Brain's finding.
-     *
-     * @param  list<string>  $labels  {@see EntryPointRow::runtimeGuardLabels()}
      */
-    private static function runtimeGuardsNote(array $labels): string
+    private static function runtimeGuardsNote(EntryPointRow $row): string
     {
-        return self::evidenceNote($labels, 'the booted router shows ', ' on this route, so the '
-            . 'finding above is likely wrong — runtime router evidence the static middleware '
+        return self::evidenceNote($row->runtimeGuardLabels(), 'the booted router shows ', ' on this route, so '
+            . Html::e($row->contradictedByRuntime()) . ' is likely wrong — runtime router evidence the static middleware '
             . 'surface cannot see.');
     }
 

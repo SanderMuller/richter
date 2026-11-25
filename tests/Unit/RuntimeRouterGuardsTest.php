@@ -6,6 +6,7 @@ use Illuminate\Auth\Middleware\Authenticate;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Router;
+use Illuminate\Support\Facades\File;
 use LaraMint\LaravelBrain\Analysis\SecurityAnalyzer;
 use PHPUnit\Framework\Attributes\Test;
 use ReflectionClassConstant;
@@ -17,6 +18,16 @@ use SanderMuller\Richter\Tests\TestCase;
 
 final class RuntimeRouterGuardsTest extends TestCase
 {
+    /** @var list<string> */
+    private array $written = [];
+
+    protected function tearDown(): void
+    {
+        File::delete($this->written);
+
+        parent::tearDown();
+    }
+
     private function router(): Router
     {
         $router = $this->app?->make('router');
@@ -419,6 +430,90 @@ final class RuntimeRouterGuardsTest extends TestCase
         $this->assertSame(base_path(), RichterConfig::runtimeEvidenceRoot('HEAD'));
         $this->assertNull(RichterConfig::runtimeEvidenceRoot('abc1234def5678'));
         $this->assertNull(RichterConfig::runtimeEvidenceRoot(''));
+    }
+
+    /**
+     * Written to a file, because the check reads the source of the class and code this odd would not
+     * survive the tools that read the tests.
+     */
+    private function middleware(string $members, string $extends = '\\' . Authenticate::class): string
+    {
+        $class = 'GuestMiddleware' . hash('crc32b', $members . $extends);
+        $path = sys_get_temp_dir() . "/{$class}.php";
+
+        File::put($path, "<?php\nnamespace Acme\\Guests;\nclass {$class} extends {$extends}\n{\n{$members}\n}\n");
+
+        $this->written[] = $path;
+
+        require_once $path;
+
+        $this->assertTrue(class_exists("Acme\\Guests\\{$class}"));
+
+        return "Acme\\Guests\\{$class}";
+    }
+
+    private function handling(string $body): string
+    {
+        return $this->middleware("public function handle(\$request, \\Closure \$next, ...\$guards) { {$body} return \$next(\$request); }");
+    }
+
+    #[Test]
+    public function a_descendant_that_lets_a_guest_through_is_no_guard(): void
+    {
+        $silent = $this->middleware('protected function unauthenticated($request, array $guards) {}');
+
+        foreach ([
+            $this->handling('try { $this->authenticate($request, $guards); } catch (\Illuminate\Auth\AuthenticationException) {}'),
+            $this->handling('try { return parent::handle($request, $next); } catch (\Throwable) {}'),
+            $this->handling('$login = fn () => parent::handle($request, $next);'),
+            $this->handling('$login = $this->authenticate(...);'),
+            $this->handling(''),
+            $silent,
+            // The method it calls up to lets the guest through.
+            $this->middleware('protected function unauthenticated($request, array $guards) { parent::unauthenticated($request, $guards); }', '\\' . $silent),
+        ] as $class) {
+            $this->assertFalse(AuthMiddlewareVocabulary::extendsAuthMiddleware($class), $class);
+            $this->assertTrue(AuthMiddlewareVocabulary::letsGuestsThrough($class), $class);
+        }
+    }
+
+    #[Test]
+    public function a_descendant_that_refuses_a_guest_in_its_own_way_is_a_guard(): void
+    {
+        foreach ([
+            $this->handling('return parent::handle(...func_get_args());'),
+            $this->handling('$this->authenticate($request, $guards);'),
+            $this->handling('try { $this->authenticate($request, $guards); } catch (\Throwable $e) { throw $e; }'),
+            $this->handling('try { $this->authenticate($request, $guards); } finally { logger("seen"); }'),
+            $this->middleware('protected function unauthenticated($request, array $guards) { abort(401); }'),
+            $this->middleware('protected function redirectTo($request) { return "/login"; }'),
+            ...AuthMiddlewareVocabulary::AUTH_MIDDLEWARE_BASES,
+        ] as $class) {
+            $this->assertTrue(AuthMiddlewareVocabulary::extendsAuthMiddleware($class), $class);
+            $this->assertFalse(AuthMiddlewareVocabulary::letsGuestsThrough($class), $class);
+        }
+
+        // Nothing to read, so nothing that says it refuses.
+        $gone = $this->handling('$this->authenticate($request, $guards); $seen = true;');
+        File::delete((string) array_pop($this->written));
+        $this->assertFalse(AuthMiddlewareVocabulary::extendsAuthMiddleware($gone));
+
+        // No descendant at all is neither.
+        $this->assertFalse(AuthMiddlewareVocabulary::letsGuestsThrough(PlainTokenMiddleware::class));
+    }
+
+    #[Test]
+    public function an_optional_login_is_no_guard_on_a_route_whatever_its_alias(): void
+    {
+        $optional = $this->handling('');
+        $this->router()->aliasMiddleware('auth', $optional);
+        $this->router()->post('optional', static fn (): string => 'ok')->middleware('auth');
+        $this->router()->post('optional-class', static fn (): string => 'ok')->middleware($optional);
+
+        $this->assertSame([], $this->guards()->guardsByEntryPoint([
+            'route::POST::/optional' => $this->publicSurface(publicWrite: true),
+            'route::POST::/optional-class' => $this->publicSurface(publicWrite: true),
+        ]));
     }
 
     #[Test]

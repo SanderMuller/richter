@@ -57,7 +57,8 @@ final class AuthMiddlewareVocabulary
     ];
 
     /**
-     * Whether the class is, or descends from, one of Laravel's authentication middlewares. Reflection
+     * Whether the class is, or descends from, one of Laravel's authentication middlewares, and refuses a
+     * guest as they do ({@see GuestRefusal}). Reflection
      * rather than the graph: the ancestry may run through vendor classes richter never scans, and this
      * runs at analysis time where the checkout is already autoloadable. A name that does not resolve
      * to a class (an unresolved alias, a middleware from a package that is not installed) is not
@@ -66,14 +67,17 @@ final class AuthMiddlewareVocabulary
      */
     public static function extendsAuthMiddleware(string $fqcn): bool
     {
-        try {
-            if (! class_exists($fqcn)) {
-                return false;
-            }
-        } catch (Throwable) {
-            return false;
-        }
+        return self::loadable($fqcn) && self::descends($fqcn) && GuestRefusal::by($fqcn);
+    }
 
+    /** Whether the class extends an auth middleware and lets a guest through, whatever its alias is called. */
+    public static function letsGuestsThrough(string $fqcn): bool
+    {
+        return self::loadable($fqcn) && self::descends($fqcn) && ! GuestRefusal::by($fqcn);
+    }
+
+    private static function descends(string $fqcn): bool
+    {
         return array_any(
             self::AUTH_MIDDLEWARE_BASES,
             static fn (string $base): bool => $fqcn === $base || is_subclass_of($fqcn, $base),
@@ -85,6 +89,8 @@ final class AuthMiddlewareVocabulary
      * leaves an UNREGISTERED alias unchanged in the expanded stack, so an unresolved `sanctum`
      * token would otherwise survive expansion as itself, match the built-in pattern, and lower a
      * hazard's reach on a middleware that does not exist.
+     *
+     * @phpstan-assert-if-true class-string $fqcn
      */
     public static function loadable(string $fqcn): bool
     {

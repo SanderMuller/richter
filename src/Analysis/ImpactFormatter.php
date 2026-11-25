@@ -452,7 +452,7 @@ final class ImpactFormatter
 
             if ($row->runtimeGuards !== []) {
                 $lines[] = '      richter: the booted router shows ' . implode(', ', $row->runtimeGuardLabels())
-                    . ' on this route, so the finding above is likely wrong — runtime router evidence '
+                    . " on this route, so {$row->contradictedByRuntime()} is likely wrong — runtime router evidence "
                     . 'the static middleware surface cannot see.';
             }
 

@@ -256,6 +256,7 @@ final class RuntimeRouterGuards
         $recognized = AuthMiddlewareVocabulary::extendsAuthMiddleware($class)
             || (
                 AuthMiddlewareVocabulary::loadable($class)
+                && ! AuthMiddlewareVocabulary::letsGuestsThrough($class)
                 && (AuthMiddlewareVocabulary::matchesBrainAuthPattern($token) || AuthMiddlewareVocabulary::matchesBrainAuthPattern($name))
             );
 

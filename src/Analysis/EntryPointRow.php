@@ -64,6 +64,17 @@ final readonly class EntryPointRow
     }
 
     /**
+     * What the runtime guards speak against: Brain's finding where the row shows one, and else the
+     * exposure alone, because a `[public]` route that writes nothing carries no finding.
+     */
+    public function contradictedByRuntime(): string
+    {
+        $finding = array_any($this->security['issues'] ?? [], static fn (array $issue): bool => $issue['type'] === 'PUBLIC_WRITE');
+
+        return $finding ? 'the PUBLIC_WRITE finding above' : 'its public exposure';
+    }
+
+    /**
      * One row per entry point, in the order every formatter renders and cuts at its cap.
      *
      * With an ATTRIBUTION map the order is how specifically the diff explains each surface
