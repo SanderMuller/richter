@@ -11,6 +11,8 @@ return Architecture::define()
         Psr4Preset::CLASSES_MUST_MATCH_COMPOSER => [
             // multiple classes on single file
             __DIR__ . '/tests/Unit/RuntimeRouterGuardsTest.php',
+            // the fixture app's own factory namespace
+            __DIR__ . '/tests/Fixtures/project/database/factories',
         ],
     ])
     ->withPresets(Preset::PSR4(), Preset::CODEQUALITY())
