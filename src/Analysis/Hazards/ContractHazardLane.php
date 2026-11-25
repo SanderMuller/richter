@@ -47,7 +47,7 @@ final class ContractHazardLane implements HazardLane
             }
 
             if (! isset($head[$id])) {
-                $hazards = [...$hazards, ...self::removed($file, $id, $member)];
+                $hazards = [...$hazards, ...self::removed($file, $id, $member, $headClasses[$class], $baseClasses[$class] ?? null)];
 
                 continue;
             }
@@ -62,7 +62,7 @@ final class ContractHazardLane implements HazardLane
      * @param  array{visibility: string, kind: string, node: Stmt}  $member
      * @return list<Hazard>
      */
-    private static function removed(string $file, string $id, array $member): array
+    private static function removed(string $file, string $id, array $member, ClassLike $class, ?ClassLike $baseClass): array
     {
         if ($member['visibility'] === 'private') {
             return [];
@@ -71,6 +71,16 @@ final class ContractHazardLane implements HazardLane
         // A removed policy method is already reported by the auth lane at tier 3, where it belongs:
         // it is a guard, not just a contract. Reporting it twice at two tiers reads as two problems.
         if (str_starts_with($file, 'app/Policies/') && $member['kind'] === 'method' && $member['visibility'] === 'public') {
+            return [];
+        }
+
+        // A form request's `authorize()` and a model's `$hidden` are the same case: what they held back
+        // is the hazard, and the lane that owns it has already reported it at tier 3.
+        if ($member['node'] instanceof ClassMethod && AuthHazardLane::losesRequestAuthorize($member['node'], $class, $baseClass)) {
+            return [];
+        }
+
+        if (str_ends_with($id, '::$hidden') && $baseClass instanceof ClassLike && ModelHazardLane::losesHidden($file, $class, $baseClass)) {
             return [];
         }
 

@@ -2,9 +2,14 @@
 
 namespace SanderMuller\Richter\Analysis\Hazards;
 
+use PhpParser\Node\Expr\Array_;
+use PhpParser\Node\PropertyItem;
+use PhpParser\Node\Stmt\ClassLike;
+use PhpParser\Node\Stmt\Property;
 use SanderMuller\Richter\Analysis\Hazard;
 use SanderMuller\Richter\Changes\EloquentConfig;
 use SanderMuller\Richter\Changes\MemberChange;
+use SanderMuller\Richter\Support\AppFiles;
 
 /**
  * A model's write and read surface. `$hidden` narrowed is tier 3 — a field that was never serialised
@@ -17,6 +22,12 @@ use SanderMuller\Richter\Changes\MemberChange;
  */
 final class ModelHazardLane implements HazardLane
 {
+    /** Named as strings: Laravel 12, which this package supports, does not ship them. */
+    private const array HIDING_ATTRIBUTES = [
+        'Illuminate\Database\Eloquent\Attributes\Hidden',
+        'Illuminate\Database\Eloquent\Attributes\Visible',
+    ];
+
     public static function for(string $file, string $headSrc, string $baseSrc): array
     {
         if (! str_starts_with($file, 'app/Models/')) {
@@ -33,6 +44,7 @@ final class ModelHazardLane implements HazardLane
             ...self::widened($fqcn, $headSrc, $baseSrc, 'fillable', 'CWE-915', '$fillable gained'),
             ...self::narrowed($fqcn, $headSrc, $baseSrc, 'guarded', 2, 'CWE-915', '$guarded no longer blocks'),
             ...self::narrowed($fqcn, $headSrc, $baseSrc, 'hidden', 3, 'CWE-200', '$hidden no longer hides'),
+            ...self::hiddenDeleted($file, $headSrc, $baseSrc),
             ...self::castsChanged($fqcn, $headSrc, $baseSrc),
         ], []];
     }
@@ -80,6 +92,73 @@ final class ModelHazardLane implements HazardLane
         return $lost === []
             ? []
             : [new Hazard('model', $tier, $cwe, "{$fqcn}::\${$name}", "{$label} " . self::readable($lost), ignoreKey: "{$fqcn}::\${$name}")];
+    }
+
+    /**
+     * `$hidden` deleted whole discloses every column it named, where {@see narrowed()} has no head list
+     * to compare. The same hazard as one entry leaving it, so the same tier.
+     *
+     * `$fillable` and `$guarded` have no counterpart: without either, Eloquent guards every column.
+     *
+     * @return list<Hazard>
+     */
+    private static function hiddenDeleted(string $file, string $headSrc, string $baseSrc): array
+    {
+        $baseClasses = HazardSource::classLikes($baseSrc);
+        $hazards = [];
+
+        // Every class in the file, because the contract lane leaves every one of them to this lane.
+        foreach (HazardSource::classLikes($headSrc) as $fqcn => $head) {
+            $base = $baseClasses[$fqcn] ?? null;
+
+            if ($base instanceof ClassLike && self::losesHidden($file, $head, $base)) {
+                $hazards[] = new Hazard('model', 3, 'CWE-200', "{$fqcn}::\$hidden", '$hidden is gone, and it hid ' . self::readable(self::hiddenColumns($base)), ignoreKey: "{$fqcn}::\$hidden");
+            }
+        }
+
+        return $hazards;
+    }
+
+    /**
+     * Whether a surviving model lost a `$hidden` that named columns, with nothing on the head class that
+     * could hide them instead: a `$visible` list, the attribute form of either, a trait or a parent the
+     * base did not have. Where one of those is there, the property is only a member that went away, and
+     * the contract lane says so.
+     */
+    public static function losesHidden(string $file, ClassLike $head, ClassLike $base): bool
+    {
+        return str_starts_with($file, 'app/Models/')
+            && self::hiddenColumns($base) !== []
+            && ! $head->getProperty('hidden') instanceof Property
+            && ! $head->getProperty('visible') instanceof Property
+            && ! self::hidesByAttribute($head)
+            && HazardSource::parentOf($head) === HazardSource::parentOf($base)
+            && array_diff(HazardSource::traitsOf($head), HazardSource::traitsOf($base)) === [];
+    }
+
+    /**
+     * The columns a class's own `$hidden` names, canonical, or none where the list cannot be read whole.
+     *
+     * @return list<string>
+     */
+    private static function hiddenColumns(ClassLike $class): array
+    {
+        $default = array_find($class->getProperty('hidden')->props ?? [], static fn (PropertyItem $prop): bool => $prop->name->toString() === 'hidden')?->default;
+
+        return $default instanceof Array_ ? array_keys(EloquentConfig::mapOf($default) ?? []) : [];
+    }
+
+    private static function hidesByAttribute(ClassLike $class): bool
+    {
+        foreach ($class->attrGroups as $group) {
+            foreach ($group->attrs as $attribute) {
+                if (in_array(AppFiles::resolveName($attribute->name), self::HIDING_ATTRIBUTES, strict: true)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     /**

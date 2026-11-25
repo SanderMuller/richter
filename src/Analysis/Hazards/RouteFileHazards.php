@@ -101,7 +101,23 @@ final class RouteFileHazards
         // it. Two different routes are two different surfaces, not one guard moving. An arrival that
         // stands alone still suppresses, which is the case this file's tokens exist for: a guard moved
         // out of a controller constructor or a middleware group and onto a route.
-        return [$hazards, array_values(array_diff(array_unique($added), $lost)), []];
+        return [$hazards, array_values(array_diff(array_unique($added), $lost)), self::unread($file, ['base' => [$base, $baseSrc], 'head' => [$head, $headSrc]])];
+    }
+
+    /**
+     * A side that writes middleware and yields no route was not compared, and a comparison of nothing
+     * is the one result that cannot report a removal. It has to say so rather than read as clean.
+     *
+     * @param  array<string, array{0: array<string, RouteRecord>, 1: string}>  $sides
+     * @return list<string>
+     */
+    private static function unread(string $file, array $sides): array
+    {
+        $unread = array_keys(array_filter($sides, static fn (array $side): bool => $side[0] === [] && RouteDeclarations::writesMiddleware($side[1])));
+
+        return $unread === []
+            ? []
+            : ["{$file} writes middleware but no route in it could be read at " . implode(' or ', $unread) . ' — route middleware was not compared'];
     }
 
     /**

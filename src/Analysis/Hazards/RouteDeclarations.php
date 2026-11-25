@@ -4,6 +4,7 @@ namespace SanderMuller\Richter\Analysis\Hazards;
 
 use PhpParser\Node;
 use PhpParser\Node\Arg;
+use PhpParser\Node\ArrayItem;
 use PhpParser\Node\Expr;
 use PhpParser\Node\Expr\Array_;
 use PhpParser\Node\Expr\ArrowFunction;
@@ -22,8 +23,10 @@ use PhpParser\Node\Stmt\Expression;
 use PhpParser\Node\Stmt\For_;
 use PhpParser\Node\Stmt\Foreach_;
 use PhpParser\Node\Stmt\If_;
+use PhpParser\Node\Stmt\Namespace_;
 use PhpParser\Node\Stmt\TryCatch;
 use PhpParser\Node\Stmt\While_;
+use PhpParser\NodeFinder;
 use SanderMuller\Richter\Support\AppFiles;
 
 /**
@@ -78,6 +81,20 @@ final class RouteDeclarations
         self::collect($ast, [], $routes);
 
         return $routes;
+    }
+
+    /**
+     * Whether a side writes `middleware` anywhere — as a call, or as a group array's key. A file that
+     * does and yields no route is one {@see of()} could not read, where a file that does not
+     * (`routes/console.php`, `routes/channels.php`) has nothing to read.
+     */
+    public static function writesMiddleware(string $source): bool
+    {
+        return new NodeFinder()->findFirst(AppFiles::parse($source) ?? [], static fn (Node $node): bool => match (true) {
+            $node instanceof MethodCall, $node instanceof StaticCall => $node->name instanceof Identifier && $node->name->toString() === 'middleware',
+            $node instanceof ArrayItem => $node->key instanceof String_ && $node->key->value === 'middleware',
+            default => false,
+        }) instanceof Node;
     }
 
     /**
@@ -208,8 +225,8 @@ final class RouteDeclarations
     }
 
     /**
-     * The statements nested inside a control structure. A route registered under an `if` or in a
-     * `foreach` is still a route, and reading only the top level would report it as deleted the
+     * The statements nested inside a control structure or a `namespace`, which holds every statement
+     * after it. A route registered under an `if` or in a `foreach` is still a route, and reading only the top level would report it as deleted the
      * moment the surrounding condition moved.
      *
      * @return array<Node>
@@ -231,7 +248,8 @@ final class RouteDeclarations
             $node instanceof While_,
             $node instanceof Do_,
             $node instanceof For_,
-            $node instanceof Block => $node->stmts,
+            $node instanceof Block,
+            $node instanceof Namespace_ => $node->stmts,
             default => [],
         };
     }

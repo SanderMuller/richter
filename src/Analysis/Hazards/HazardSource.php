@@ -6,6 +6,8 @@ use PhpParser\Node;
 use PhpParser\Node\Arg;
 use PhpParser\Node\Expr;
 use PhpParser\Node\Expr\ConstFetch;
+use PhpParser\Node\Expr\MethodCall;
+use PhpParser\Node\Expr\StaticCall;
 use PhpParser\Node\Expr\Variable;
 use PhpParser\Node\Identifier;
 use PhpParser\Node\IntersectionType;
@@ -36,6 +38,9 @@ use SanderMuller\Richter\Support\AppFiles;
  */
 final class HazardSource
 {
+    /** Named as a string: `illuminate/auth` is not a dependency of this package. */
+    private const string ACCESS_RESPONSE = 'Illuminate\Auth\Access\Response';
+
     private static ?Standard $printer = null;
 
     /**
@@ -202,20 +207,52 @@ final class HazardSource
     }
 
     /**
-     * Whether a method body is exactly `return true;` — the shape a neutered `authorize()` takes. A
-     * body with anything else in it, or an abstract/interface method with no body at all, is not.
+     * The traits a class-like uses, fully qualified.
+     *
+     * @return list<string>
      */
-    public static function returnsTrueOnly(ClassMethod $method): bool
+    public static function traitsOf(ClassLike $classLike): array
     {
-        if ($method->stmts === null || count($method->stmts) !== 1) {
-            return false;
+        $traits = [];
+
+        foreach ($classLike->getTraitUses() as $use) {
+            $traits = [...$traits, ...array_values(array_map(AppFiles::resolveName(...), $use->traits))];
         }
 
-        $only = $method->stmts[0];
+        return $traits;
+    }
 
-        return $only instanceof Return_
-            && $only->expr instanceof ConstFetch
-            && strtolower($only->expr->name->toString()) === 'true';
+    /**
+     * The one statement of a method that always allows — the shape a neutered `authorize()` takes — as
+     * source, or null. `return true;`, `return Response::allow();` and, where the caller knows `$this`
+     * has the framework's `allow()`, `return $this->allow();` are the same answer. A body with anything
+     * else in it, or an abstract/interface method with no body at all, is not one.
+     */
+    public static function unconditionalAllow(ClassMethod $method, bool $thisAllows): ?string
+    {
+        $only = count($method->stmts ?? []) === 1 ? ($method->stmts[0] ?? null) : null;
+
+        if (! $only instanceof Return_ || ! $only->expr instanceof Expr) {
+            return null;
+        }
+
+        $expr = $only->expr;
+
+        $allows = match (true) {
+            $expr instanceof ConstFetch => strtolower($expr->name->toString()) === 'true',
+            $expr instanceof StaticCall => $expr->class instanceof Name
+                && AppFiles::resolveName($expr->class) === self::ACCESS_RESPONSE
+                && self::isNamedAllow($expr),
+            $expr instanceof MethodCall => $thisAllows && self::isThis($expr->var) && self::isNamedAllow($expr),
+            default => false,
+        };
+
+        return $allows ? 'return ' . self::print($expr) . ';' : null;
+    }
+
+    private static function isNamedAllow(StaticCall|MethodCall $call): bool
+    {
+        return $call->name instanceof Identifier && $call->name->toString() === 'allow' && ! $call->isFirstClassCallable();
     }
 
     /** A node printed back to source, for an evidence line. Single-lined so it fits one report row. */

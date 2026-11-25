@@ -875,6 +875,64 @@ final class RouteFileHazardsTest extends TestCase
         ));
     }
 
+    #[Test]
+    public function a_route_file_that_declares_a_namespace_is_compared_like_any_other(): void
+    {
+        // A namespaced file is one statement holding all the others. Reading past it finds no route on
+        // either side, and nothing compared with nothing reports no removal.
+        $file = static fn (string $head, string $middleware): string => "<?php\n{$head}\nuse App\\Http\\Controllers\\PostController;\nuse Illuminate\\Support\\Facades\\Route;\nRoute::middleware([{$middleware}])->group(function (): void {\n    Route::get('/posts', [PostController::class, 'index']);\n});\n";
+
+        foreach (['namespace App\Http\Controllers;', 'namespace Routes;'] as $namespace) {
+            [$hazards, , $findings] = RouteFileHazards::for(self::FILE, $file($namespace, ''), $file($namespace, "'auth'"));
+
+            $this->assertSame(['App\Http\Controllers\PostController::index'], array_column($hazards, 'member'));
+            $this->assertSame([['middleware:auth']], array_column($hazards, 'removedTokens'));
+            $this->assertSame([], $findings);
+        }
+    }
+
+    #[Test]
+    public function adding_a_namespace_line_is_not_a_removal(): void
+    {
+        $file = static fn (string $head): string => "<?php\n{$head}\nuse App\\Http\\Controllers\\PostController;\nuse Illuminate\\Support\\Facades\\Route;\nRoute::get('/posts', [PostController::class, 'index'])->middleware('auth');\n";
+
+        $this->assertSame([[], [], []], RouteFileHazards::for(self::FILE, $file('namespace Routes;'), $file('')));
+    }
+
+    #[Test]
+    public function a_file_that_writes_middleware_on_no_readable_route_reports_a_finding(): void
+    {
+        // `0 routes` is the one reading that cannot lose a guard, so it has to say that it read nothing.
+        $file = static fn (string $middleware): string => "<?php\nuse Acme\\Endpoint;\nEndpoint::web('/tools')->middleware([{$middleware}]);\n";
+
+        [$hazards, $added, $findings] = RouteFileHazards::for(self::FILE, $file(''), $file("'auth'"));
+
+        $this->assertSame([], $hazards);
+        $this->assertSame([], $added);
+        $this->assertSame(['routes/web.php writes middleware but no route in it could be read at base or head — route middleware was not compared'], $findings);
+    }
+
+    #[Test]
+    public function a_file_rewritten_into_a_shape_this_reader_cannot_see_names_the_side(): void
+    {
+        $findings = RouteFileHazards::for(
+            self::FILE,
+            "<?php\n\$router->group(['middleware' => ['web']], function (\$router): void {\n    \$router->get('/posts', 'PostController@index');\n});\n",
+            $this->routes("Route::get('/posts', [PostController::class, 'index'])->middleware('auth');"),
+        )[2];
+
+        $this->assertSame(['routes/web.php writes middleware but no route in it could be read at head — route middleware was not compared'], $findings);
+    }
+
+    #[Test]
+    public function a_file_that_declares_no_route_and_no_middleware_reports_nothing(): void
+    {
+        // `routes/channels.php` and `routes/console.php` hold no routes by design.
+        $file = static fn (string $name): string => "<?php\nuse Illuminate\\Support\\Facades\\Broadcast;\nBroadcast::channel('{$name}', static fn (): bool => true);\n";
+
+        $this->assertSame([[], [], []], RouteFileHazards::for('routes/channels.php', $file('orders'), $file('posts')));
+    }
+
     // ---------------------------------------------------- whole-diff guard
 
     #[Test]

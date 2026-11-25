@@ -139,8 +139,16 @@ final class EloquentConfig
             return null;
         }
 
-        $array = self::arrayOf($node, $name);
+        return self::mapOf(self::arrayOf($node, $name));
+    }
 
+    /**
+     * One config array's canonical key→value map, or null when anything in it is non-enumerable.
+     *
+     * @return array<string, string>|null
+     */
+    public static function mapOf(Array_ $array): ?array
+    {
         // A spread hides an unknown number of entries behind one element. {@see toMap()} canonicalises
         // the spread's own expression as if it were a value, which is harmless for the addition-only
         // question this class was built for but not for a caller comparing CONTENTS: the entries

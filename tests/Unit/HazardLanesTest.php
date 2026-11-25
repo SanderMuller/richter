@@ -68,7 +68,7 @@ final class HazardLanesTest extends TestCase
         // comparing CALL SHAPES rather than abilities would report a removal that never happened.
         $hazards = $this->lanes(
             'app/Http/Controllers/PostController.php',
-            $this->controller("        \$post->user()->cannot('publish', \$post);\n        return \$post;"),
+            $this->controller("        abort_if(\$post->user()->cannot('publish', \$post), 403);\n        return \$post;"),
             $this->controller("        abort_if(Gate::denies('publish', \$post), 403);\n        return \$post;"),
         );
 
@@ -219,7 +219,7 @@ final class HazardLanesTest extends TestCase
         [$controllerHazards, $controllerTokens] = HazardLanes::for(
             'app/Http/Controllers/PostController.php',
             isNew: false,
-            headSrc: $controller('$this->user()->can(PostPolicy::DELETE, $post);'),
+            headSrc: $controller('abort_unless($this->user()->can(PostPolicy::DELETE, $post), 403);'),
             baseSrc: $controller(''),
         );
 
@@ -390,6 +390,287 @@ final class HazardLanesTest extends TestCase
         $this->assertSame('the class is gone', $hazards[0]->evidence);
     }
 
+    private function formRequest(string $members): string
+    {
+        return "<?php\nnamespace App\\Http\\Requests;\nuse Illuminate\\Auth\\Access\\Response;\nuse Illuminate\\Foundation\\Http\\FormRequest;\nuse Illuminate\\Support\\Facades\\Gate;\nclass StorePostRequest extends FormRequest\n{\n{$members}\n    public function rules(): array { return []; }\n}\n";
+    }
+
+    #[Test]
+    public function a_form_request_authorize_deleted_is_a_removed_guard(): void
+    {
+        // Without the method Laravel authorizes the request, so the deletion is `return true;` by
+        // another route and cannot rank below it.
+        $hazards = $this->lanes(
+            'app/Http/Requests/StorePostRequest.php',
+            $this->formRequest(''),
+            $this->formRequest("    public function authorize(): bool { return Gate::allows('create'); }"),
+        );
+
+        $this->assertSame(['auth'], array_column($hazards, 'lane'));
+        $this->assertSame([3], array_column($hazards, 'tier'));
+        $this->assertSame('CWE-862', $hazards[0]->cwe);
+        $this->assertSame('App\Http\Requests\StorePostRequest::authorize', $hazards[0]->member);
+        $this->assertSame(['ability:create'], $hazards[0]->removedTokens);
+    }
+
+    #[Test]
+    public function a_deleted_authorize_that_names_no_ability_is_never_suppressed(): void
+    {
+        $hazards = $this->lanes(
+            'app/Http/Requests/StorePostRequest.php',
+            $this->formRequest(''),
+            $this->formRequest('    public function authorize(): bool { return $this->user()->is_admin; }'),
+        );
+
+        $this->assertSame(['auth'], array_column($hazards, 'lane'));
+        $this->assertSame([], $hazards[0]->removedTokens);
+    }
+
+    #[Test]
+    public function a_deleted_authorize_whose_ability_arrives_elsewhere_moved(): void
+    {
+        $hazards = $this->lanes(
+            'app/Http/Requests/StorePostRequest.php',
+            $this->formRequest(''),
+            $this->formRequest("    public function authorize(): bool { return Gate::allows('create'); }"),
+        );
+
+        $this->assertSame([], HazardFindings::for([
+            new ChangedFileSymbols('app/Http/Requests/StorePostRequest.php', 'App\Http\Requests\StorePostRequest', [], cosmeticOnly: false, hazards: $hazards),
+            new ChangedFileSymbols('app/Http/Controllers/PostController.php', 'App\Http\Controllers\PostController', [], cosmeticOnly: false, addedHazardTokens: ['ability:create']),
+        ], enabledOverride: true));
+    }
+
+    #[Test]
+    public function a_deleted_authorize_that_guarded_nothing_stays_a_contract_hazard(): void
+    {
+        $hazards = $this->lanes(
+            'app/Http/Requests/StorePostRequest.php',
+            $this->formRequest(''),
+            $this->formRequest('    public function authorize(): bool { return true; }'),
+        );
+
+        $this->assertSame(['contract'], array_column($hazards, 'lane'));
+    }
+
+    #[Test]
+    public function an_authorize_that_may_now_come_from_a_trait_stays_a_contract_hazard(): void
+    {
+        // The trait is in another file. The method may be in it, and this lane cannot say it is gone.
+        $hazards = $this->lanes(
+            'app/Http/Requests/StorePostRequest.php',
+            $this->formRequest('    use AuthorizesEditors;'),
+            $this->formRequest("    public function authorize(): bool { return Gate::allows('create'); }"),
+        );
+
+        $this->assertSame(['contract'], array_column($hazards, 'lane'));
+    }
+
+    #[Test]
+    public function an_authorize_deleted_from_a_class_that_is_no_form_request_stays_a_contract_hazard(): void
+    {
+        $source = static fn (string $method): string => "<?php\nnamespace App\\Support;\nclass Publisher\n{\n{$method}\n}\n";
+
+        $hazards = $this->lanes('app/Support/Publisher.php', $source(''), $source('    public function authorize(): bool { return $this->ready(); }'));
+
+        $this->assertSame(['contract'], array_column($hazards, 'lane'));
+    }
+
+    private function policy(string $body, string $members = ''): string
+    {
+        return "<?php\nnamespace App\\Policies;\nuse Illuminate\\Auth\\Access\\HandlesAuthorization;\nuse Illuminate\\Auth\\Access\\Response;\nclass PostPolicy\n{\n    use HandlesAuthorization;\n{$members}\n    public function update(\$user, \$post) { {$body} }\n}\n";
+    }
+
+    #[Test]
+    public function a_policy_method_that_always_allows_is_neutered_however_it_says_so(): void
+    {
+        foreach (['return true;', 'return $this->allow();', 'return Response::allow();', "return Response::allow('ok');", 'return \Illuminate\Auth\Access\Response::allow();'] as $body) {
+            $hazards = $this->lanes('app/Policies/PostPolicy.php', $this->policy($body), $this->policy('return $post->user_id === $user->id;'));
+
+            $this->assertSame([['auth', 3, "the body is now exactly `{$body}`, where it was not"]], array_map(
+                static fn (Hazard $hazard): array => [$hazard->lane, $hazard->tier, $hazard->evidence],
+                $hazards,
+            ));
+        }
+    }
+
+    #[Test]
+    public function rewriting_one_unconditional_allow_as_another_draws_nothing(): void
+    {
+        $this->assertSame([], $this->lanes('app/Policies/PostPolicy.php', $this->policy('return true;'), $this->policy('return $this->allow();')));
+        $this->assertSame([], $this->lanes('app/Policies/PostPolicy.php', $this->policy('return Response::allow();'), $this->policy('return true;')));
+    }
+
+    #[Test]
+    public function a_conditional_allow_or_a_denial_is_not_neutered(): void
+    {
+        foreach (['return $post->draft ? $this->allow() : $this->deny();', 'return $this->deny();', 'return Response::deny();'] as $body) {
+            $this->assertSame([], $this->lanes('app/Policies/PostPolicy.php', $this->policy($body), $this->policy('return $post->user_id === $user->id;')));
+        }
+    }
+
+    #[Test]
+    public function a_policys_own_allow_method_is_not_the_frameworks(): void
+    {
+        $own = '    private function allow(): bool { return $this->ready; }';
+
+        $this->assertSame([], $this->lanes('app/Policies/PostPolicy.php', $this->policy('return $this->allow();', $own), $this->policy('return $post->user_id === $user->id;', $own)));
+    }
+
+    #[Test]
+    public function a_form_request_authorize_that_returns_an_allow_response_is_neutered(): void
+    {
+        $hazards = $this->lanes(
+            'app/Http/Requests/StorePostRequest.php',
+            $this->formRequest('    public function authorize(): Response { return Response::allow(); }'),
+            $this->formRequest("    public function authorize(): Response { return Gate::inspect('create'); }"),
+        );
+
+        $this->assertSame(['the body is now exactly `return Response::allow();`, where it was not'], array_column($hazards, 'evidence'));
+    }
+
+    #[Test]
+    public function gate_checks_for_another_user_and_inspections_are_guards(): void
+    {
+        foreach (["Gate::forUser(\$author)->authorize('publish', \$post);", "Gate::inspect('publish', \$post)->authorize();", "Gate::forUser(\$author)->inspect('publish', \$post);", "abort_if(Gate::forUser(\$author)->denies('publish', \$post), 403);"] as $check) {
+            $hazards = $this->lanes('app/Http/Controllers/PostController.php', $this->controller('        return $post;'), $this->controller("        {$check}\n        return \$post;"));
+
+            $this->assertSame([['ability:publish']], array_column($hazards, 'removedTokens'), $check);
+            $this->assertSame([3], array_column($hazards, 'tier'));
+        }
+    }
+
+    #[Test]
+    public function rewriting_between_gate_shapes_draws_nothing(): void
+    {
+        $this->assertSame([], $this->lanes(
+            'app/Http/Controllers/PostController.php',
+            $this->controller("        Gate::inspect('publish', \$post)->authorize();\n        return \$post;"),
+            $this->controller("        Gate::forUser(\$author)->authorize('publish', \$post);\n        return \$post;"),
+        ));
+    }
+
+    #[Test]
+    public function an_enum_case_and_its_value_name_the_same_ability(): void
+    {
+        $policy = static fn (string $ability): string => "<?php\nnamespace App\\Policies;\nuse App\\Enums\\Ability;\nuse Illuminate\\Support\\Facades\\Gate;\nclass PostPolicy\n{\n    public const UPDATE = 'update';\n    public function create(\$user) { return Gate::forUser(\$user)->inspect({$ability}); }\n}\n";
+
+        $this->assertSame([], $this->lanes('app/Policies/PostPolicy.php', $policy('Ability::MANAGE'), $policy('Ability::MANAGE->value')));
+        $this->assertSame(
+            [['ability:App\Enums\Ability::MANAGE']],
+            array_column($this->lanes('app/Policies/PostPolicy.php', $policy('Ability::VIEW'), $policy('Ability::MANAGE->value')), 'removedTokens'),
+        );
+    }
+
+    #[Test]
+    public function a_policys_own_constant_is_the_same_ability_however_the_class_is_named(): void
+    {
+        $policy = static fn (string $ability): string => "<?php\nnamespace App\\Policies;\nuse Illuminate\\Support\\Facades\\Gate;\nclass PostPolicy\n{\n    public const UPDATE = 'update';\n    public function publish(\$user, \$post) { return Gate::forUser(\$user)->inspect({$ability}, \$post); }\n}\n";
+
+        $this->assertSame([], $this->lanes('app/Policies/PostPolicy.php', $policy('PostPolicy::UPDATE'), $policy('self::UPDATE')));
+        $this->assertSame([], $this->lanes('app/Policies/PostPolicy.php', $policy('self::UPDATE'), $policy('static::UPDATE')));
+    }
+
+    #[Test]
+    public function a_check_whose_answer_is_thrown_away_is_not_a_check(): void
+    {
+        // `authorize()` throws. The others only answer, so a bare call enforces nothing.
+        foreach ([
+            ["Gate::authorize('publish', \$post);", "Gate::inspect('publish', \$post);"],
+            ["Gate::authorize('publish', \$post);", "Gate::allows('publish', \$post);"],
+            ["Gate::forUser(\$author)->authorize('publish', \$post);", "Gate::forUser(\$author)->inspect('publish', \$post);"],
+            ["Gate::inspect('publish', \$post)->authorize();", "Gate::inspect('publish', \$post);"],
+            ["abort_unless(\$request->user()->can('publish', \$post), 403);", "\$request->user()->can('publish', \$post);"],
+            ["\$this->authorize('publish', \$post);", "\$this->can('publish', \$post);"],
+        ] as [$before, $after]) {
+            $hazards = $this->lanes('app/Http/Controllers/PostController.php', $this->controller("        {$after}\n        return \$post;"), $this->controller("        {$before}\n        return \$post;"));
+
+            $this->assertSame([['ability:publish']], array_column($hazards, 'removedTokens'), "{$before} -> {$after}");
+        }
+    }
+
+    #[Test]
+    public function a_check_whose_answer_is_used_is_still_a_check(): void
+    {
+        foreach ([
+            "if (Gate::denies('publish', \$post)) { abort(403); }",
+            "Gate::allows('publish', \$post) || abort(403);",
+            "\$answer = Gate::inspect('publish', \$post);",
+            "\$this->authorizeForUser(\$author, 'publish');",
+        ] as $after) {
+            $hazards = $this->lanes('app/Http/Controllers/PostController.php', $this->controller("        {$after}\n        return \$post;"), $this->controller("        {$after}\n        \$x = 1;\n        return \$post;"));
+
+            $this->assertSame([], $hazards, $after);
+        }
+
+        $this->assertSame([], $this->lanes(
+            'app/Http/Controllers/PostController.php',
+            $this->controller("        Gate::allows('publish', \$post) || abort(403);"),
+            $this->controller("        Gate::authorize('publish', \$post);"),
+        ));
+    }
+
+    #[Test]
+    public function a_discarded_check_is_not_where_a_removed_one_moved_to(): void
+    {
+        $tokens = fn (string $body): array => $this->addedTokens('app/Http/Controllers/PostController.php', $this->controller("        {$body}"), $this->controller(''));
+
+        $this->assertSame([], $tokens("Gate::inspect('publish', \$post);"));
+        $this->assertSame(['ability:publish'], $tokens("Gate::authorize('publish', \$post);"));
+        $this->assertSame(['ability:publish'], $tokens("return Gate::inspect('publish', \$post);"));
+    }
+
+    private function userMethod(string $params, string $body): string
+    {
+        return "<?php\nnamespace App\\Http\\Controllers;\nuse App\\Models\\User;\nuse App\\Support\\Encoder;\nclass PostController\n{\n    public function update({$params})\n    {\n        {$body}\n        return \$post;\n    }\n}\n";
+    }
+
+    /** @return list<string> */
+    private function removedFromUserMethod(string $params, string $check, ?string $headParams = null, string $headBody = ''): array
+    {
+        return array_column(array_filter(
+            $this->lanes('app/Http/Controllers/PostController.php', $this->userMethod($headParams ?? $params, $headBody), $this->userMethod($params, $check)),
+            static fn (Hazard $hazard): bool => $hazard->lane === 'auth',
+        ), 'evidence');
+    }
+
+    #[Test]
+    public function a_can_call_on_a_variable_that_is_known_to_be_a_user_is_a_guard(): void
+    {
+        $evidence = ['the authorization check `ability:publish` is gone from the body'];
+
+        $this->assertSame($evidence, $this->removedFromUserMethod('User $user, $post', "abort_unless(\$user->can('publish', \$post), 403);"));
+        $this->assertSame($evidence, $this->removedFromUserMethod('?User $user, $post', "abort_if(\$user?->cannot('publish', \$post), 403);"));
+        $this->assertSame($evidence, $this->removedFromUserMethod('User|null $user, $post', "abort_unless(\$user->can('publish', \$post), 403);"));
+        $this->assertSame($evidence, $this->removedFromUserMethod('\Illuminate\Contracts\Auth\Access\Authorizable $actor, $post', "abort_unless(\$actor->can('publish', \$post), 403);"));
+        $this->assertSame($evidence, $this->removedFromUserMethod('$request, $post', "\$actor = \$request->user(); abort_unless(\$actor->can('publish', \$post), 403);"));
+        $this->assertSame($evidence, $this->removedFromUserMethod('$post', "\$allow = fn (User \$user): bool => \$user->can('publish', \$post);"));
+    }
+
+    #[Test]
+    public function a_can_call_on_a_variable_not_proven_to_be_a_user_is_not_a_guard(): void
+    {
+        $check = "abort_unless(\$user->can('publish', \$post), 403);";
+
+        $this->assertSame([], $this->removedFromUserMethod('$user, $post', $check));
+        $this->assertSame([], $this->removedFromUserMethod('Encoder $user, $post', $check));
+        $this->assertSame([], $this->removedFromUserMethod('User|Encoder $user, $post', $check));
+        // One name bound twice is proven only when every binding is a user.
+        $this->assertSame([], $this->removedFromUserMethod('User $user, $post', "\$user = new Encoder(); {$check}"));
+        $this->assertSame([], $this->removedFromUserMethod('User $user, $post, $all', "foreach (\$all as \$user) { {$check} }"));
+        $this->assertSame([], $this->removedFromUserMethod('User $user, $post', "\$f = fn (Encoder \$user): bool => \$user->can('publish');"));
+    }
+
+    #[Test]
+    public function a_surviving_check_whose_receiver_lost_its_type_is_not_a_removal(): void
+    {
+        // Proof of a user is needed to claim a removal. It is not needed to see that the check is
+        // still there.
+        $check = "abort_unless(\$user->can('publish', \$post), 403);";
+
+        $this->assertSame([], $this->removedFromUserMethod('User $user, $post', $check, '$user, $post', $check));
+    }
+
     // --------------------------------------------------------------- model
 
     private function model(string $members): string
@@ -502,6 +783,65 @@ final class HazardLanesTest extends TestCase
             $this->model("    protected \$fillable = [...self::BASE, 'status'];"),
             $this->model('    protected $fillable = [...self::BASE];'),
         ));
+    }
+
+    #[Test]
+    public function hidden_deleted_whole_is_the_model_lanes_at_tier_three(): void
+    {
+        $hazards = $this->lanes('app/Models/Post.php', $this->model(''), $this->model("    protected \$hidden = ['secret', 'internal_note'];"));
+
+        $this->assertSame(['model'], array_column($hazards, 'lane'));
+        $this->assertSame([3], array_column($hazards, 'tier'));
+        $this->assertSame('CWE-200', $hazards[0]->cwe);
+        $this->assertSame('App\Models\Post::$hidden', $hazards[0]->suppressionKey());
+        $this->assertSame('$hidden is gone, and it hid internal_note, secret', $hazards[0]->evidence);
+    }
+
+    #[Test]
+    public function hidden_deleted_from_a_second_class_in_the_file_is_reported_once(): void
+    {
+        $file = static fn (string $hidden): string => "<?php\nnamespace App\\Models;\nclass Post\n{\n}\nclass Comment\n{\n{$hidden}\n}\n";
+
+        $hazards = $this->lanes('app/Models/Post.php', $file(''), $file("    protected \$hidden = ['secret'];"));
+
+        $this->assertSame([['model', 'App\Models\Comment::$hidden']], array_map(static fn (Hazard $hazard): array => [$hazard->lane, $hazard->member], $hazards));
+    }
+
+    #[Test]
+    public function a_deleted_hidden_that_may_be_declared_another_way_stays_a_contract_hazard(): void
+    {
+        $base = $this->model("    protected \$hidden = ['secret'];");
+
+        // Each of these can still hide the column, and only the contract lane's claim is exact.
+        foreach ([
+            $this->model("    protected \$visible = ['title'];"),
+            $this->model('    use HidesSecrets;'),
+            "<?php\nnamespace App\\Models;\nuse Illuminate\\Database\\Eloquent\\Attributes\\Hidden;\n#[Hidden(['secret'])]\nclass Post\n{\n}\n",
+            "<?php\nnamespace App\\Models;\nuse Illuminate\\Database\\Eloquent\\Attributes\\Visible;\n#[Visible(['title'])]\nclass Post\n{\n}\n",
+            "<?php\nnamespace App\\Models;\nclass Post extends SecretModel\n{\n}\n",
+        ] as $head) {
+            $this->assertSame(['contract'], array_column($this->lanes('app/Models/Post.php', $head, $base), 'lane'));
+        }
+    }
+
+    #[Test]
+    public function a_deleted_hidden_that_hid_nothing_stays_a_contract_hazard(): void
+    {
+        $this->assertSame(['contract'], array_column($this->lanes('app/Models/Post.php', $this->model(''), $this->model('    protected $hidden = [];')), 'lane'));
+    }
+
+    #[Test]
+    public function a_hidden_rewritten_into_a_shape_this_lane_cannot_read_is_not_a_deletion(): void
+    {
+        $this->assertSame([], $this->lanes('app/Models/Post.php', $this->model('    protected $hidden = self::SECRETS;'), $this->model("    protected \$hidden = ['secret'];")));
+    }
+
+    #[Test]
+    public function guarded_deleted_whole_tightens_and_stays_a_contract_hazard(): void
+    {
+        // Without `$guarded` Eloquent guards every column, so the deletion is the opposite of a
+        // widened write surface.
+        $this->assertSame(['contract'], array_column($this->lanes('app/Models/Post.php', $this->model(''), $this->model("    protected \$guarded = ['id'];")), 'lane'));
     }
 
     // ------------------------------------------------------------ contract

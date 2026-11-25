@@ -122,7 +122,7 @@ Two cases read as a loss although nothing weakened: `min` and `max` replaced by 
 string rule replaced by an equivalent one under another name. A builder-family change the other way
 is missed: `string()->max(10)` changed to `numeric()->max(10)` keeps `max` on both sides.
 
-Route files are read route by route. `routes/*.php` declares no class, so the lanes above cannot reach
+Route files are read route by route, with or without a `namespace` line. `routes/*.php` declares no class, so the lanes above cannot reach
 it. Its own reader compares each route's effective guard set on both sides: the middleware written on
 the route, plus every enclosing `Route::middleware(...)->group()` and `Route::group(['middleware' =>
 ...], ...)` wrapper, minus its own `->withoutMiddleware()`.
@@ -130,7 +130,7 @@ the route, plus every enclosing `Route::middleware(...)->group()` and `Route::gr
 Wrapping existing routes in a guarded group is the commonest edit these files see, and a file-wide
 comparison would report every one of those routes as newly unguarded while the group above them says
 otherwise. A route the head no longer declares raises nothing. Deleting a route leaves nobody able to
-reach it unguarded.
+reach it unguarded. A file that writes middleware on no route richter can read produces a finding.
 
 Routes are lined up by verb, URI and action together. Two endpoints mounted at `'/'` under their own
 `prefix()` groups are one key without the action, and their guards would then be read as one set: a
@@ -255,7 +255,19 @@ signature change is skipped while the member stays private on both sides.
 A class the diff deletes whole is reported once (`the class is gone`) rather than once per member,
 and a deleted policy class is the `auth` lane's, once at tier 3 with every ability it held. A guard
 can also be gutted without being removed: a policy method or form request `authorize()` whose body
-becomes exactly `return true;` is a tier-3 hazard even though the member survives.
+becomes exactly `return true;`, `return Response::allow();` or, in a policy, `return $this->allow();` is a
+tier-3 hazard even though the member survives.
+
+Deleting one whole ranks no lower. A form request's deleted `authorize()` is the `auth` lane's at tier 3,
+because Laravel authorizes a request without one, and a model's deleted `$hidden` is the `model` lane's at
+tier 3. Where the class newly uses a trait, or a model hides its columns another way, the deletion stays a
+tier-2 contract break. A parent class that declares the member is not read.
+
+A check is read on the `Gate` facade, `Gate::forUser()` and `Gate::inspect()` included, on `$this`, on a
+`->user()` call, and on a variable that holds a user: a parameter typed as `User` or `Authorizable`, or
+the result of a `->user()` call. `can()` on any other variable is not an authorization check richter can
+prove. A check whose answer nothing uses, such as a bare `Gate::inspect('publish');`, guards nothing: it does
+not count as the place a removed check moved to, and a check that becomes one is a tier-3 hazard.
 
 The ability is what is compared, not the call shape, so `Gate::denies('publish')` rewritten as
 `$user->cannot('publish')` draws nothing. A policy constant counts as an ability. A project following

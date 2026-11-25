@@ -3,29 +3,25 @@
 namespace SanderMuller\Richter\Analysis\Hazards;
 
 use PhpParser\Node\Arg;
-use PhpParser\Node\Expr;
 use PhpParser\Node\Expr\Array_;
-use PhpParser\Node\Expr\ClassConstFetch;
 use PhpParser\Node\Expr\MethodCall;
 use PhpParser\Node\Expr\NullsafeMethodCall;
 use PhpParser\Node\Expr\StaticCall;
 use PhpParser\Node\Identifier;
-use PhpParser\Node\Name;
 use PhpParser\Node\Scalar\String_;
 use PhpParser\Node\Stmt\ClassConst;
 use PhpParser\Node\Stmt\ClassLike;
 use PhpParser\Node\Stmt\ClassMethod;
 use SanderMuller\Richter\Analysis\Hazard;
-use SanderMuller\Richter\Support\AppFiles;
 
 /**
  * A guard the change removed: tier 3, the top of the scale, because someone can now do what they
  * could not.
  *
- * The lane only ever compares a member that EXISTS ON BOTH SIDES — a member that went away entirely
- * is the contract lane's business, and calling its lost `authorize()` an authorization removal would
- * report the same deletion twice. The one exception is a policy class deleted wholesale, which is
- * reported once, class-level (Edge Cases).
+ * The lane compares a member that EXISTS ON BOTH SIDES — a member that went away entirely is the
+ * contract lane's business. The exceptions are members that ARE the guard: a policy method, a policy
+ * class deleted wholesale, reported once, class-level (Edge Cases), and a form request's
+ * `authorize()`. The contract lane leaves those to this one, so the deletion is reported once.
  *
  * Neither route files nor the middleware Kernel are this lane's business. A guard leaves a route by
  * leaving the route ({@see RouteFileHazards}) or by leaving the group the route runs in
@@ -38,27 +34,14 @@ use SanderMuller\Richter\Support\AppFiles;
  */
 final class AuthHazardLane implements HazardLane
 {
-    /** Facade methods that decide an ability. `abort_if(Gate::denies(…))` is caught by the inner call. */
-    private const array GATE_METHODS = ['authorize', 'allows', 'denies', 'check', 'any', 'none'];
-
-    /**
-     * Ability checks, by the receiver that carries them. The receiver is CHECKED, never assumed:
-     * `$encoder->can('json')` is not an authorization guard, and reporting its removal as a tier-3
-     * hazard is exactly the false positive that trains a reader to ignore the report.
-     *
-     * `$this->…` covers the `AuthorizesRequests` trait a controller or form request uses.
-     */
-    private const array THIS_ABILITY_METHODS = ['authorize', 'authorizeForUser', 'can', 'cannot', 'canAny'];
-
-    /** The same abilities on something the AST can name as a user: any `->user()` call. */
-    private const array USER_ABILITY_METHODS = ['can', 'cannot', 'canAny'];
-
     public static function for(string $file, string $headSrc, string $baseSrc): array
     {
         if (! str_starts_with($file, 'app/')) {
             return [[], []];
         }
 
+        $headClasses = HazardSource::classLikes($headSrc);
+        $baseClasses = HazardSource::classLikes($baseSrc);
         $headMethods = HazardSource::methods($headSrc);
         $baseMethods = HazardSource::methods($baseSrc);
 
@@ -83,14 +66,18 @@ final class AuthHazardLane implements HazardLane
             $headMethod = $headMethods[$id] ?? null;
 
             if ($headMethod === null) {
-                $hazards = [...$hazards, ...self::removedPolicyMethod($file, $id, $baseMethod, $baseSrc)];
+                $hazards = [
+                    ...$hazards,
+                    ...self::removedPolicyMethod($file, $id, $baseMethod, $baseSrc),
+                    ...self::removedRequestAuthorize($id, $baseMethod, $headClasses[$class] ?? null, $baseClasses[$class] ?? null),
+                ];
 
                 continue;
             }
 
             // A body reduced to `return true;` already SAYS the guard is gone, and the abilities it
             // dropped on the way are the same fact told twice. The narrower statement wins.
-            $neutered = self::neuteredAuthorize($file, $id, $baseMethod, $headMethod, $headSrc);
+            $neutered = self::neuteredAuthorize($file, $id, $baseMethod, $headMethod, $headClasses[$class] ?? null);
 
             $hazards = [...$hazards, ...($neutered === [] ? self::lostGuards($id, $baseMethod, $headMethod) : $neutered)];
         }
@@ -111,8 +98,8 @@ final class AuthHazardLane implements HazardLane
         $gained = [];
 
         foreach ($headMethods as $id => $method) {
-            $before = isset($baseMethods[$id]) ? self::guardTokens($baseMethods[$id]) : [];
-            $gained = [...$gained, ...array_diff(self::guardTokens($method), $before)];
+            $before = isset($baseMethods[$id]) ? self::guardTokens($id, $baseMethods[$id], enforced: true) : [];
+            $gained = [...$gained, ...array_diff(self::guardTokens($id, $method, enforced: true), $before)];
         }
 
         return array_values(array_unique($gained));
@@ -127,17 +114,28 @@ final class AuthHazardLane implements HazardLane
      */
     private static function lostGuards(string $id, ClassMethod $base, ClassMethod $head): array
     {
-        $headTokens = self::guardTokens($head);
-        $gone = array_values(array_diff(self::guardTokens($base), $headTokens));
+        $headTokens = self::guardTokens($id, $head, anyVariable: true);
+        $gone = array_values(array_diff(self::guardTokens($id, $base), $headTokens));
 
         // A constructor's rate limit reads exactly as a route's: the guard survives at a different
         // value, so only a RAISED limit is a weakening and a tightened one is nothing at all.
-        $hazards = self::rateChange($id, self::guardTokens($base), $headTokens);
+        $hazards = self::rateChange($id, self::guardTokens($id, $base), $headTokens);
 
         foreach (GuardMiddleware::removals($gone, $headTokens) as $token) {
             $hazards[] = str_starts_with($token, 'middleware:')
                 ? new Hazard('auth', 3, GuardMiddleware::cweFor($token), $id, "the `{$token}` middleware is gone from the constructor", [$token])
                 : new Hazard('auth', 3, 'CWE-862', $id, "the authorization check `{$token}` is gone from the body", [$token]);
+        }
+
+        // The check is still written and its answer no longer decides anything. A base that already
+        // ignored it has nothing to lose.
+        $unused = array_intersect(
+            array_diff(self::guardTokens($id, $base, enforced: true), self::guardTokens($id, $head, anyVariable: true, enforced: true)),
+            $headTokens,
+        );
+
+        foreach ($unused as $token) {
+            $hazards[] = new Hazard('auth', 3, 'CWE-862', $id, "nothing uses the answer of the authorization check `{$token}` any more", [$token]);
         }
 
         return $hazards;
@@ -170,24 +168,22 @@ final class AuthHazardLane implements HazardLane
      * falls back to the call's own shape, which matches only an identical call elsewhere — the safe
      * direction, since a guard that fails to match merely reports the removal it saw.
      *
+     * @param  bool  $enforced  whether a check whose answer nothing uses is left out
+     * @param  bool  $anyVariable  see {@see AbilityChecks::isCheck()}
      * @return list<string>
      */
-    private static function guardTokens(ClassMethod $method): array
+    private static function guardTokens(string $id, ClassMethod $method, bool $anyVariable = false, bool $enforced = false): array
     {
         $tokens = [];
 
+        $class = explode('::', $id, 2)[0];
+        $discarded = $enforced ? AbilityChecks::discardedCalls($method) : [];
+        $users = $anyVariable ? [] : AbilityChecks::userVariables($method);
+
         foreach (HazardSource::within($method, StaticCall::class) as $call) {
-            if (! $call->name instanceof Identifier || ! $call->class instanceof Name) {
-                continue;
+            if ($call->name instanceof Identifier && AbilityChecks::isGateCheck($call) && ! in_array($call, $discarded, strict: true)) {
+                $tokens[] = AbilityChecks::token($class, $call->name->toString(), $call->args[0] ?? null);
             }
-
-            // `AppFiles::resolveName()`, not `toString()`: an imported `Gate` stays the bare token in
-            // the AST, and matching on that would miss every file that imports the facade.
-            if (! str_ends_with(AppFiles::resolveName($call->class), '\\Gate') || ! in_array($call->name->toString(), self::GATE_METHODS, strict: true)) {
-                continue;
-            }
-
-            $tokens[] = self::abilityToken($call->name->toString(), $call->args[0] ?? null);
         }
 
         foreach ([MethodCall::class, NullsafeMethodCall::class] as $shape) {
@@ -204,40 +200,13 @@ final class AuthHazardLane implements HazardLane
                     continue;
                 }
 
-                if (self::isAbilityCheck($name, $call->var)) {
-                    $tokens[] = self::abilityToken($name, $call->args[0] ?? null);
+                if (AbilityChecks::isCheck($name, $call->var, $users, $anyVariable) && ! in_array($call, $discarded, strict: true)) {
+                    $tokens[] = AbilityChecks::token($class, $name, $call->args[0] ?? null);
                 }
             }
         }
 
         return array_values(array_unique($tokens));
-    }
-
-    /**
-     * Whether this call is an authorization check, decided from the RECEIVER as well as the name.
-     *
-     * Two receivers qualify, and nothing else. `$this->` is the `AuthorizesRequests` trait's own
-     * surface. A `->user()` call is the only other receiver an AST can name as a user without
-     * inferring a type — `$request->user()->can(…)`, `auth()->user()->cannot(…)`,
-     * `Auth::user()->canAny(…)` all take that shape.
-     *
-     * A bare `$user->can(…)` is deliberately NOT matched. The variable's name is a convention, not a
-     * proof, and this lane would rather miss a real removal than invent one. Under-firing is the
-     * direction every predicate in this family leans.
-     */
-    private static function isAbilityCheck(string $name, Expr $receiver): bool
-    {
-        if (HazardSource::isThis($receiver)) {
-            return in_array($name, self::THIS_ABILITY_METHODS, strict: true);
-        }
-
-        if (! in_array($name, self::USER_ABILITY_METHODS, strict: true)) {
-            return false;
-        }
-
-        return ($receiver instanceof MethodCall || $receiver instanceof NullsafeMethodCall || $receiver instanceof StaticCall)
-            && $receiver->name instanceof Identifier
-            && $receiver->name->toString() === 'user';
     }
 
     /**
@@ -267,70 +236,77 @@ final class AuthHazardLane implements HazardLane
     }
 
     /**
-     * The ability a check names, as a token comparable across call shapes — which is the whole basis of
-     * the moved-not-removed guard: `Gate::denies('publish')` rewritten as `$user->cannot('publish')`
-     * must produce the same token, or a rewrite reads as a removal.
-     *
-     * A POLICY CONSTANT counts, not only a string literal. `$user->can(PostPolicy::UPDATE, $post)` is
-     * the form Laravel's own docs steer projects toward, and a codebase that follows that convention
-     * consistently has NO string-literal abilities at all — so keying only on literals turned the guard
-     * off entirely for it, and every rewritten check read as a removed guard at tier 3. The constant is
-     * tokenised on its resolved class and its own name, which needs no value resolution: two references
-     * to the same constant produce the same token wherever they are written.
-     *
-     * A computed ability still falls back to the call's own shape, which matches only an identical call
-     * elsewhere. That is the safe direction — a token that fails to match merely reports the removal the
-     * lane actually saw.
-     */
-    private static function abilityToken(string $call, mixed $firstArgument): string
-    {
-        if (! $firstArgument instanceof Arg) {
-            return "call:{$call}";
-        }
-
-        $value = $firstArgument->value;
-
-        if ($value instanceof String_) {
-            return "ability:{$value->value}";
-        }
-
-        if ($value instanceof ClassConstFetch && $value->class instanceof Name && $value->name instanceof Identifier) {
-            return 'ability:' . AppFiles::resolveName($value->class) . '::' . $value->name->toString();
-        }
-
-        return "call:{$call}";
-    }
-
-    /**
-     * A policy or form-request `authorize()` reduced to `return true;`. The base body must have been
-     * something else — a method that always returned true still does, and reporting it would be
+     * A policy or form-request `authorize()` reduced to an unconditional allow. The base body must have
+     * been something else — a method that always allowed still does, and reporting it would be
      * reporting the status quo.
      *
      * @return list<Hazard>
      */
-    private static function neuteredAuthorize(string $file, string $id, ClassMethod $base, ClassMethod $head, string $headSrc): array
+    private static function neuteredAuthorize(string $file, string $id, ClassMethod $base, ClassMethod $head, ?ClassLike $headClass): array
     {
-        if (! HazardSource::returnsTrueOnly($head) || HazardSource::returnsTrueOnly($base)) {
-            return [];
-        }
-
         $isPolicyMethod = str_starts_with($file, 'app/Policies/');
-        $isRequestAuthorize = $head->name->toString() === 'authorize' && self::isFormRequest($id, $headSrc);
+        $isRequestAuthorize = $head->name->toString() === 'authorize' && self::isFormRequest($headClass);
 
         if (! $isPolicyMethod && ! $isRequestAuthorize) {
             return [];
         }
 
+        // `$this->allow()` is the `HandlesAuthorization` trait's, unless the policy wrote its own.
+        $thisAllows = $isPolicyMethod && ! $headClass?->getMethod('allow') instanceof ClassMethod;
+        $allow = HazardSource::unconditionalAllow($head, $thisAllows);
+
+        if ($allow === null || HazardSource::unconditionalAllow($base, $thisAllows) !== null) {
+            return [];
+        }
+
         // No guard token: nothing was named, so nothing elsewhere in the diff can be the same guard
         // arriving. An empty token is what tells HazardFindings never to suppress this one.
-        return [new Hazard('auth', 3, 'CWE-862', $id, 'the body is now exactly `return true;`, where it was not')];
+        return [new Hazard('auth', 3, 'CWE-862', $id, "the body is now exactly `{$allow}`, where it was not")];
     }
 
-    private static function isFormRequest(string $id, string $headSrc): bool
+    private static function isFormRequest(?ClassLike $class): bool
     {
-        $class = HazardSource::classLikes($headSrc)[explode('::', $id, 2)[0]] ?? null;
-
         return $class instanceof ClassLike && str_ends_with((string) HazardSource::parentOf($class), '\\FormRequest');
+    }
+
+    /**
+     * Whether a form request that survives lost the `authorize()` that decided it. Laravel authorizes a
+     * request without the method, so this is a guard removed and not only a contract broken.
+     *
+     * A trait the head newly uses may hold the method, and an `authorize()` that always allowed guarded
+     * nothing. Neither is this lane's to claim, and both stay with the contract lane.
+     */
+    public static function losesRequestAuthorize(ClassMethod $base, ?ClassLike $headClass, ?ClassLike $baseClass): bool
+    {
+        return $base->name->toString() === 'authorize'
+            && self::isFormRequest($headClass)
+            && $headClass instanceof ClassLike
+            && $baseClass instanceof ClassLike
+            && ! $headClass->getMethod('authorize') instanceof ClassMethod
+            && array_diff(HazardSource::traitsOf($headClass), HazardSource::traitsOf($baseClass)) === []
+            && HazardSource::unconditionalAllow($base, thisAllows: false) === null;
+    }
+
+    /**
+     * One hazard per ability the method asserted, so each can be matched where it arrives; a single one
+     * naming nothing, which is never suppressed, where it asserted none.
+     *
+     * @return list<Hazard>
+     */
+    private static function removedRequestAuthorize(string $id, ClassMethod $base, ?ClassLike $headClass, ?ClassLike $baseClass): array
+    {
+        if (! self::losesRequestAuthorize($base, $headClass, $baseClass)) {
+            return [];
+        }
+
+        $tokens = self::guardTokens($id, $base);
+
+        return $tokens === []
+            ? [new Hazard('auth', 3, 'CWE-862', $id, 'the form request `authorize()` is gone')]
+            : array_map(
+                static fn (string $token): Hazard => new Hazard('auth', 3, 'CWE-862', $id, "the authorization check `{$token}` is gone with the form request `authorize()`", [$token]),
+                $tokens,
+            );
     }
 
     /**
