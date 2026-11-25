@@ -10,6 +10,7 @@ use PhpParser\Node\Expr\Assign;
 use PhpParser\Node\Expr\Closure;
 use PhpParser\Node\Expr\MethodCall;
 use PhpParser\Node\Expr\NullsafeMethodCall;
+use PhpParser\Node\Expr\NullsafePropertyFetch;
 use PhpParser\Node\Expr\PropertyFetch;
 use PhpParser\Node\Expr\StaticCall;
 use PhpParser\Node\Expr\Variable;
@@ -31,7 +32,8 @@ use SanderMuller\Richter\Support\AppFiles;
  * The receiver is proven, as everywhere in this family: `$service->delete()` names no rows. A chain
  * counts when it starts at `DB::table(…)`, at a model under `app/Models`, or at a variable bound to one
  * of those — by assignment, by a `foreach`, or as the parameter of a callback the chain takes. A
- * variable two bindings disagree on is not read.
+ * variable two bindings disagree on is not read. A relation is named from its model and read no
+ * further: a variable that holds what one answered, or a second relation behind it, draws nothing.
  *
  * Read in `up()` and in the methods of the same class it calls, because a backfill is commonly its own
  * method. A job, a command or a service it starts draws nothing, and neither does a `DB::connection(…)`
@@ -39,7 +41,7 @@ use SanderMuller\Richter\Support\AppFiles;
  *
  * @internal
  *
- * @phpstan-type DataRoot array{table: string|null, model: string|null, record: bool}
+ * @phpstan-type DataRoot array{table: string|null, model: string|null, record: bool, relation: string|null}
  * @phpstan-type DataOperation array{table: string, column: null, evidence: string, member?: string}
  */
 final class MigrationDataOperations
@@ -60,15 +62,24 @@ final class MigrationDataOperations
     private const array PIVOT_METHODS = ['sync', 'syncWithPivotValues', 'detach', 'toggle', 'updateExistingPivot'];
 
     /** Methods that answer one record, after which a call is a relation and no longer the same table. */
-    private const array RECORD_METHODS = ['find', 'findOrFail', 'first', 'firstOrFail', 'firstWhere', 'sole'];
+    private const array RECORD_METHODS = ['find', 'findOrFail', 'first', 'firstOrFail', 'firstWhere', 'sole', 'firstOrNew', 'firstOrCreate', 'updateOrCreate', 'findOrNew'];
+
+    /** Methods a record answers itself from, so a call on one is no relation. */
+    private const array SELF_METHODS = ['fill', 'forceFill', 'fresh', 'refresh', 'load', 'loadMissing', 'tap', 'when', 'unless', 'newQuery', 'makeHidden', 'makeVisible', 'append', 'setAttribute', 'setRawAttributes', 'setConnection', 'unsetRelations', 'withoutRelations'];
+
+    /** Methods that answer a record with no row yet, or something other than the rows. */
+    private const array OTHER_ROWS = ['make', 'create', 'createQuietly', 'forceCreate', 'forceCreateQuietly', 'newInstance', 'replicate', 'factory', 'map', 'mapInto', 'mapWithKeys', 'flatMap', 'pluck', 'value', 'reduce', 'pipe'];
+
+    /** Methods whose callback gets one record at a time. */
+    private const array RECORD_CALLBACKS = ['each', 'eachById', 'map', 'flatMap', 'mapWithKeys', 'filter', 'reject'];
 
     /** Raw-statement methods that name their own verb, so an unreadable statement still has one. */
-    private const array RAW_METHODS = ['statement' => null, 'unprepared' => null, 'affectingStatement' => null, 'update' => 'updated', 'delete' => 'deleted'];
+    private const array RAW_METHODS = ['statement' => null, 'unprepared' => null, 'affectingStatement' => null, 'insert' => null, 'update' => 'updated', 'delete' => 'deleted'];
 
     /** @var array<string, DataRoot|null> variable => what it holds, null where two bindings disagree */
     private array $variables = [];
 
-    /** @param  list<string>  $created  the tables this migration creates */
+    /** @param  array<string, list<array{int, int}>>  $created  see {@see MigrationMethods::createdTables()} */
     private function __construct(
         private readonly ClassMethod $method,
         private readonly ?ClassLike $class,
@@ -107,13 +118,18 @@ final class MigrationDataOperations
             }
 
             foreach ($this->operationsOf($call) as $key => $operation) {
-                if (! in_array($operation['table'], $this->created, strict: true)) {
+                if (! $this->isCreated($operation['table'], $call)) {
                     $operations[$key] = $operation;
                 }
             }
         }
 
         return $operations;
+    }
+
+    private function isCreated(string $table, Node $call): bool
+    {
+        return array_any($this->created[$table] ?? [], static fn (array $range): bool => $range[0] <= $call->getStartFilePos() && $call->getEndFilePos() <= $range[1]);
     }
 
     /** @return array<string, DataOperation> */
@@ -140,25 +156,20 @@ final class MigrationDataOperations
             return [];
         }
 
-        // `$post->comments()->delete()` changes the rows behind the relation, and one file does not say
-        // which table that is. The model it hangs off is named, and the relation beside it.
-        $relation = $root['record'] && ! $call instanceof StaticCall ? $this->relationOf($call->var) : null;
-
-        return $this->operation($verb, $root, $relation);
+        return $this->operation($verb, $root);
     }
 
     /** @return array<string, DataOperation> */
     private function pivotOperation(MethodCall|NullsafeMethodCall|StaticCall $call, string $method): array
     {
-        $relation = $call instanceof StaticCall ? null : $call->var;
-        $root = $relation instanceof Expr ? $this->rootOf($relation) : null;
+        $root = $call instanceof StaticCall ? null : $this->rootOf($call->var);
+        $name = $root['relation'] ?? null;
 
-        if (! $relation instanceof MethodCall || ! $relation->name instanceof Identifier || $root === null || $root['model'] === null) {
+        if ($root === null || $root['model'] === null || $name === null) {
             return [];
         }
 
         $table = $this->ignoreKey($root);
-        $name = $relation->name->toString();
 
         return ["data-pivot\0{$root['model']}\0{$name}\0{$method}" => [
             'table' => $table,
@@ -172,9 +183,10 @@ final class MigrationDataOperations
      * @param  DataRoot  $root
      * @return array<string, DataOperation>
      */
-    private function operation(string $verb, array $root, ?string $relation = null): array
+    private function operation(string $verb, array $root): array
     {
         $table = $this->ignoreKey($root);
+        $relation = $root['relation'];
 
         $rows = match (true) {
             $relation !== null && $root['model'] !== null => "rows of `{$root['model']}::{$relation}()`",
@@ -201,26 +213,67 @@ final class MigrationDataOperations
     // ---------------------------------------------------------------- roots
 
     /**
-     * Whose rows a chain is about, or null when it starts at nothing proven.
+     * Whose rows a chain is about, or null when it starts at nothing proven or leads to rows it does not
+     * name.
      *
      * @return DataRoot|null
      */
     private function rootOf(Expr $expr): ?array
     {
-        $record = false;
-
-        while ($expr instanceof MethodCall || $expr instanceof NullsafeMethodCall || $expr instanceof PropertyFetch) {
-            $record = $record || ($expr->name instanceof Identifier && in_array($expr->name->toString(), self::RECORD_METHODS, strict: true));
-            $expr = $expr->var;
+        if ($expr instanceof Variable) {
+            return is_string($expr->name) ? $this->variables[$expr->name] ?? null : null;
         }
 
-        $root = match (true) {
-            $expr instanceof Variable && is_string($expr->name) => $this->variables[$expr->name] ?? null,
-            $expr instanceof StaticCall => $this->staticRoot($expr),
-            default => null,
-        };
+        if ($expr instanceof StaticCall) {
+            return $this->staticRoot($expr);
+        }
 
-        return $root === null ? null : [...$root, 'record' => $root['record'] || $record];
+        $isProperty = $expr instanceof PropertyFetch || $expr instanceof NullsafePropertyFetch;
+
+        if (! $isProperty && ! $expr instanceof MethodCall && ! $expr instanceof NullsafeMethodCall) {
+            return null;
+        }
+
+        $root = $this->rootOf($expr->var);
+
+        if ($root === null || ! $expr->name instanceof Identifier) {
+            return null;
+        }
+
+        $name = $expr->name->toString();
+
+        // `->each->delete()` calls the method on every record.
+        if ($isProperty && $name === 'each') {
+            return [...$root, 'record' => true];
+        }
+
+        return $isProperty ? $this->throughProperty($root, $name) : $this->throughMethod($root, $name);
+    }
+
+    /**
+     * @param  DataRoot  $root
+     * @return DataRoot|null
+     */
+    private function throughProperty(array $root, string $name): ?array
+    {
+        return $root['record'] && $root['relation'] === null ? [...$root, 'relation' => $name] : null;
+    }
+
+    /**
+     * A call on a record is a relation, whose rows are those of another model. One file does not say
+     * which, so the model it hangs off is named, and the relation beside it.
+     *
+     * @param  DataRoot  $root
+     * @return DataRoot|null
+     */
+    private function throughMethod(array $root, string $name): ?array
+    {
+        return match (true) {
+            in_array($name, self::SELF_METHODS, strict: true) => $root,
+            in_array($name, self::OTHER_ROWS, strict: true) => null,
+            $root['record'] => $root['relation'] === null ? [...$root, 'record' => false, 'relation' => $name] : null,
+            default => [...$root, 'record' => in_array($name, self::RECORD_METHODS, strict: true)],
+        };
     }
 
     /** @return DataRoot|null */
@@ -229,43 +282,14 @@ final class MigrationDataOperations
         $method = $call->name instanceof Identifier ? $call->name->toString() : '';
 
         if ($this->isDbFacade($call)) {
-            return $method === 'table' ? ['table' => MigrationLiterals::string($call->args[0] ?? null, $this->class), 'model' => null, 'record' => false] : null;
+            return $method === 'table' ? ['table' => MigrationLiterals::string($call->args[0] ?? null, $this->class), 'model' => null, 'record' => false, 'relation' => null] : null;
         }
 
         $class = $call->class instanceof Name ? AppFiles::resolveName($call->class) : '';
 
-        return ModelTables::isModelClass($class, $this->projectRoot)
-            ? ['table' => ModelTables::tableFor($class, $this->projectRoot), 'model' => $class, 'record' => in_array($method, self::RECORD_METHODS, strict: true)]
+        return ModelTables::isModelClass($class, $this->projectRoot) && ! in_array($method, self::OTHER_ROWS, strict: true)
+            ? ['table' => ModelTables::tableFor($class, $this->projectRoot), 'model' => $class, 'record' => in_array($method, self::RECORD_METHODS, strict: true), 'relation' => null]
             : null;
-    }
-
-    /**
-     * The relation a record's chain goes through: `comments` in `$post->comments()->where(…)`. Every call
-     * before the one that answers a record is still a builder's, so it is not looked at.
-     */
-    private function relationOf(Expr $expr): ?string
-    {
-        $calls = [];
-
-        while ($expr instanceof MethodCall || $expr instanceof NullsafeMethodCall || $expr instanceof PropertyFetch) {
-            if (! $expr instanceof PropertyFetch && $expr->name instanceof Identifier) {
-                array_unshift($calls, $expr->name->toString());
-            }
-
-            $expr = $expr->var;
-        }
-
-        if ($expr instanceof StaticCall && $expr->name instanceof Identifier) {
-            array_unshift($calls, $expr->name->toString());
-        }
-
-        if ($expr instanceof Variable && is_string($expr->name) && ($this->variables[$expr->name]['record'] ?? false)) {
-            return $calls[0] ?? null;
-        }
-
-        $answers = array_find_key($calls, static fn (string $name): bool => in_array($name, self::RECORD_METHODS, strict: true));
-
-        return $answers === null ? null : ($calls[$answers + 1] ?? null);
     }
 
     private function isDbFacade(StaticCall $call): bool
@@ -305,7 +329,9 @@ final class MigrationDataOperations
      */
     private function bindCallbacks(MethodCall|StaticCall $call): array
     {
-        $root = $this->rootOf($call);
+        // Not through the call itself: `->map(fn ($post) => …)` hands the rows over before it answers others.
+        $root = $this->rootOf($call instanceof StaticCall ? $call : $call->var);
+        $method = $call->name instanceof Identifier ? $call->name->toString() : '';
         $bound = [];
 
         if ($root === null) {
@@ -314,7 +340,7 @@ final class MigrationDataOperations
 
         foreach ($call->args as $arg) {
             if ($arg instanceof Arg && ($arg->value instanceof Closure || $arg->value instanceof ArrowFunction)) {
-                $this->bindParameters($arg->value, $root, record: $call->name instanceof Identifier && str_starts_with($call->name->toString(), 'each'));
+                $this->bindParameters($arg->value, $root, record: in_array($method, self::RECORD_CALLBACKS, strict: true));
                 $bound[] = $arg->value;
             }
         }
@@ -330,7 +356,7 @@ final class MigrationDataOperations
 
             // A typed parameter says what it holds, whoever calls the closure.
             $this->bind($param->var, match (true) {
-                ModelTables::isModelClass($class, $this->projectRoot) => ['table' => ModelTables::tableFor($class, $this->projectRoot), 'model' => $class, 'record' => true],
+                ModelTables::isModelClass($class, $this->projectRoot) => ['table' => ModelTables::tableFor($class, $this->projectRoot), 'model' => $class, 'record' => true, 'relation' => null],
                 $position === 0 => $root,
                 default => null,
             }, $record);
@@ -344,7 +370,8 @@ final class MigrationDataOperations
             return;
         }
 
-        $root = $root === null ? null : [...$root, 'record' => $root['record'] || $record];
+        // What a relation answered is another model's, and nothing here says which.
+        $root = $root === null || $root['relation'] !== null ? null : [...$root, 'record' => $root['record'] || $record];
 
         // Kept as null rather than forgotten: a later binding must not make a disagreeing name readable.
         $this->variables[$variable->name] = ! array_key_exists($variable->name, $this->variables) || $this->variables[$variable->name] === $root
@@ -368,7 +395,7 @@ final class MigrationDataOperations
         $operations = [];
 
         foreach ($changes as $change) {
-            $operations = [...$operations, ...$this->operation($change['verb'], ['table' => $change['table'], 'model' => null, 'record' => false])];
+            $operations = [...$operations, ...$this->operation($change['verb'], ['table' => $change['table'], 'model' => null, 'record' => false, 'relation' => null])];
         }
 
         return $operations;

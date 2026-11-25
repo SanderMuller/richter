@@ -155,7 +155,10 @@ Existing rows change through an `update`, an `upsert`, a `delete` or a `truncate
 on a model under `app/Models`, through a pivot `sync()`, `detach()`, `toggle()` or
 `updateExistingPivot()`, and through raw SQL that starts with `UPDATE`, `DELETE`, `TRUNCATE`, `REPLACE`
 or an `INSERT` that updates on conflict. Inserting rows raises nothing, and neither does a write to a
-table the same migration creates. The change is read in `up()` and in the methods of the migration class
+table the same migration creates, where the write follows the create in the same branch. A relation is named from its model
+(`App\Models\Post::comments()`), and what a relation answered is not followed into a variable or a second
+relation. SQL is read where the call writes it: a variable, `DB::raw()`, `sprintf()` and the body of a
+trigger or a procedure are not. The change is read in `up()` and in the methods of the migration class
 it calls. A parent class, a job, a command or a service, a `DB::connection(...)` chain and a variable richter
 cannot trace to a table or a model are not read.
 

@@ -132,6 +132,13 @@ final class MigrationHazardsTest extends TestCase
             'Post::query()->each(fn ($post) => $post->comments()->first()->delete());' => 'rows of `App\Models\Post::comments()` deleted',
             '$query = Post::query(); $query->first()->comments()->delete();' => 'rows of `App\Models\Post::comments()` deleted',
             'resolve("x")->each(fn (Post $post) => $post->delete());' => 'rows of `posts` deleted',
+            'Post::first()->fill([])->save();' => 'rows of `posts` updated',
+            '$post = Post::first(); $post->forceFill([])->save();' => 'rows of `posts` updated',
+            '$post = Post::first()->fresh(); $post->delete();' => 'rows of `posts` deleted',
+            'Post::all()->map(fn ($post) => $post->update([]));' => 'rows of `posts` updated',
+            'Post::first()->author->update([]);' => 'rows of `App\Models\Post::author()` updated',
+            'Post::first()->comments->each->delete();' => 'rows of `App\Models\Post::comments()` deleted',
+            'Post::query()->each(fn ($post) => $post->author->update([]));' => 'rows of `App\Models\Post::author()` updated',
         ] as $up => $evidence) {
             $this->assertSame([$evidence], $this->rowEvidence($up), $up);
         }
@@ -152,9 +159,18 @@ final class MigrationHazardsTest extends TestCase
             'DB::statement("INSERT INTO posts (id) VALUES (1) ON CONFLICT (id) DO UPDATE SET id = 1");' => 'rows of `posts` upserted',
             'DB::statement("-- backfill\n/* once */ UPDATE posts SET a = 1");' => 'rows of `posts` updated',
             'DB::statement("UPDATE {$table} SET a = 1");' => 'rows of a table richter could not read were updated',
+            'DB::insert("INSERT INTO posts (id) VALUES (1) ON DUPLICATE KEY UPDATE id = 1");' => 'rows of `posts` upserted',
+            'DB::insert("REPLACE INTO posts(id,name) VALUES (1, 2)");' => 'rows of `posts` upserted',
+            'DB::statement("UPDATE posts,users SET a = 1");' => 'rows of `posts` updated',
+            "DB::unprepared(\"INSERT INTO notes (body) VALUES ('it''s; fine'); UPDATE posts SET a = 1\");" => 'rows of `posts` updated',
+            // A column or an index may be called what a declaration is.
+            'DB::unprepared("CREATE TABLE logs (event varchar(9)); UPDATE posts SET a = 1");' => 'rows of `posts` updated',
+            'DB::unprepared("CREATE INDEX i ON logs (`event`); DELETE FROM posts");' => 'rows of `posts` deleted',
+            // One literal longer than the pattern can match.
+            "DB::unprepared(\"INSERT INTO notes (body) VALUES ('" . str_repeat("it''s ", 600_000) . "'); UPDATE posts SET a = 1\");" => 'rows of `posts` updated',
             'DB::update($sql);' => 'rows of a table richter could not read were updated',
         ] as $up => $evidence) {
-            $this->assertSame([$evidence], $this->rowEvidence($up), $up);
+            $this->assertSame([$evidence], $this->rowEvidence($up), mb_substr($up, 0, 200));
         }
     }
 
@@ -186,6 +202,25 @@ final class MigrationHazardsTest extends TestCase
             'DB::statement("SET foreign_key_checks = 0");',
             'DB::statement($sql);',
             "Schema::create('posts', fn (\$table) => \$table->id()); DB::table('posts')->update(['a' => 1]);",
+            'DB::insert("INSERT INTO posts (id) VALUES (1)");',
+            "DB::statement(\"INSERT INTO notes (body) VALUES ('hello; delete from posts')\");",
+            "DB::statement(\"INSERT INTO notes (body) VALUES ('it\\\\'s; delete from posts')\");",
+            'DB::statement("SET x = 1; -- one; DELETE FROM posts");',
+            // Declares statements, and runs none of them.
+            'DB::unprepared("CREATE TRIGGER t AFTER INSERT ON posts FOR EACH ROW BEGIN SET @a = 1; DELETE FROM users WHERE id = 1; END");',
+            'DB::unprepared("CREATE DEFINER=`root`@`%` PROCEDURE p() BEGIN SET @a = 1; UPDATE posts SET a = 1; END");',
+            'DB::unprepared("CREATE OR REPLACE FUNCTION f() RETURNS trigger AS $$ BEGIN DELETE FROM posts; END; $$ LANGUAGE plpgsql");',
+            // A record the migration has just made.
+            'Post::make([])->save();',
+            '$post = Post::make([]); $post->save();',
+            '$post = Post::query()->create([]); $post->save();',
+            // The rows of another model, reached through one.
+            'foreach (Post::all() as $post) { foreach ($post->comments as $comment) { $comment->delete(); } }',
+            'foreach (Post::first()->comments()->get() as $comment) { $comment->delete(); }',
+            '$author = Post::first()->author; $author->delete();',
+            'Post::first()->author->roles()->sync([1]);',
+            'Post::all()->map(fn ($post) => $post->author)->each(fn ($author) => $author->update([]));',
+            'Post::all()->pluck("author")->each->delete();',
             // Not proven to be rows.
             '$service->delete();',
             '$service->tags()->sync([1]);',
@@ -202,6 +237,8 @@ final class MigrationHazardsTest extends TestCase
         $members = "    private function backfill(): void { \$this->clear(); }\n    private function clear(): void { DB::table('posts')->delete(); }\n    private function unused(): void { DB::table('users')->delete(); }";
 
         $this->assertSame(['rows of `posts` deleted'], $this->rowEvidence('$this->backfill();', $members));
+        $this->assertSame(['rows of `posts` deleted'], $this->rowEvidence('self::backfill();', $members));
+        $this->assertSame(['rows of `posts` deleted'], $this->rowEvidence('static::backfill();', $members));
         $this->assertSame([], $this->rowEvidence('', $members, '$this->backfill();'));
     }
 
@@ -211,6 +248,41 @@ final class MigrationHazardsTest extends TestCase
         $members = "    private const TABLE = 'posts';\n    private function createTable(): void { Schema::create(self::TABLE, fn (\$table) => \$table->id()); }";
 
         $this->assertSame([], $this->rowEvidence("\$this->createTable(); DB::table('posts')->update(['a' => 1]);", $members));
+    }
+
+    #[Test]
+    public function a_table_created_only_when_it_is_missing_may_hold_rows(): void
+    {
+        $create = "Schema::create('posts', fn (\$table) => \$table->id());";
+        $has = "Schema::hasTable('posts')";
+        $make = "    private function makeMissing(): void { if ({$has}) { return; } {$create} }\n    private function make(): void { {$create} }\n    private function fill(): void { DB::table('posts')->update(['a' => 1]); }\n";
+
+        foreach ([
+            "if (! {$has}) { {$create} } DB::table('posts')->update(['a' => 1]);",
+            "if (! {$has}) { {$create} } else { DB::table('posts')->update(['a' => 1]); }",
+            "if ({$has}) { DB::table('posts')->update(['a' => 1]); } else { {$create} }",
+            "if (! {$has}) { {$create} } elseif (\$x) { DB::table('posts')->update(['a' => 1]); }",
+            "if ({$has}) { DB::table('posts')->update(['a' => 1]); return; } {$create}",
+            "! {$has} && " . $create . " DB::table('posts')->update(['a' => 1]);",
+            "if (! {$has}) { \$this->make(); } DB::table('posts')->update(['a' => 1]);",
+            "if (! {$has}) { \$this->make(); \$this->fill(); } \$this->fill();",
+            '$this->makeMissing(); $this->fill();',
+            "try { {$create} } catch (\\Throwable) { DB::table('posts')->update(['a' => 1]); }",
+            "foreach (\$missing as \$x) { {$create} } DB::table('posts')->update(['a' => 1]);",
+            "match (true) { ! {$has} => Schema::create('posts', fn (\$table) => \$table->id()), default => null }; DB::table('posts')->update(['a' => 1]);",
+            "match (true) { ! {$has} => \$this->make(), default => null }; DB::table('posts')->update(['a' => 1]);",
+        ] as $up) {
+            $this->assertSame(['rows of `posts` updated'], $this->rowEvidence($up, $make), $up);
+        }
+
+        foreach ([
+            "if (! {$has}) { {$create} DB::table('posts')->update(['a' => 1]); }",
+            "if (! {$has}) { {$create} \$this->fill(); }",
+            '$this->make(); $this->fill();',
+            "if ({$has}) { return; } \$this->make(); \$this->fill();",
+        ] as $up) {
+            $this->assertSame([], $this->rowEvidence($up, $make), $up);
+        }
     }
 
     #[Test]

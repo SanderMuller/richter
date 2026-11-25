@@ -25,12 +25,20 @@ final class MigrationSql
 
     /** @var array<string, string> the pattern a statement starts with => what it does to the rows */
     private const array STATEMENTS = [
-        '/^update\s+(?:low_priority\s+|ignore\s+|only\s+)*(\S+)/i' => 'updated',
-        '/^delete\s+(?:[^;]*?\s)??from\s+(?:only\s+)?(\S+)/i' => 'deleted',
-        '/^truncate\s+(?:table\s+)?(?:only\s+)?(\S+)/i' => 'deleted',
-        '/^replace\s+(?:low_priority\s+|delayed\s+)?into\s+(\S+)/i' => 'upserted',
+        '/^update\s+(?:low_priority\s+|ignore\s+|only\s+)*([^\s(,]+)/i' => 'updated',
+        '/^delete\s+(?:[^;]*?\s)??from\s+(?:only\s+)?([^\s(,]+)/i' => 'deleted',
+        '/^truncate\s+(?:table\s+)?(?:only\s+)?([^\s(,]+)/i' => 'deleted',
+        '/^replace\s+(?:low_priority\s+|delayed\s+)?into\s+([^\s(]+)/i' => 'upserted',
         '/^insert\s+(?:ignore\s+)?into\s+([^\s(]+).*\bon\s+(?:duplicate\s+key\s+update|conflict\b.*\bdo\s+update)\b/is' => 'upserted',
     ];
+
+    /** One statement: a `;` inside a quoted value or a comment does not end it. */
+    private const string STATEMENT = <<<'REGEX'
+        ~(?:'(?:[^'\\]++|\\.)*+'|"(?:[^"\\]++|\\.)*+"|`[^`]*+`|--[^\n]*+|/\*.*?\*/|[^;'"`/-]++|[^;])++~s
+        REGEX;
+
+    /** A statement whose own body holds statements, which it declares and does not run. */
+    private const string DECLARATION = '/^create\s+(?:or\s+replace\s+)?(?:definer\s*=\s*\S+\s+)?(?:(?:aggregate|constraint)\s+)?(?:trigger|procedure|function|event)\b/i';
 
     /** @return list<array{verb: string, table: string|null}> */
     public static function changes(Expr $sql): array
@@ -38,8 +46,16 @@ final class MigrationSql
         $changes = [];
 
         // `unprepared()` takes several statements at once.
-        foreach (explode(';', self::text($sql)) as $statement) {
+        $text = self::text($sql);
+        $statements = preg_match_all(self::STATEMENT, $text, $matches) === false ? explode(';', $text) : $matches[0];
+
+        foreach ($statements as $statement) {
             $statement = (string) preg_replace('~^(?:\s+|--[^\n]*(?:\n|$)|/\*.*?\*/)+~s', '', $statement);
+
+            // Where its body ends is not read, so nor is anything after it.
+            if (preg_match(self::DECLARATION, $statement) === 1) {
+                break;
+            }
 
             foreach (self::STATEMENTS as $pattern => $verb) {
                 if (preg_match($pattern, $statement, $match) === 1) {
@@ -73,7 +89,7 @@ final class MigrationSql
             return null;
         }
 
-        $segments = explode('.', str_replace(['`', '"', '[', ']', ',', '(', ')'], '', $written));
+        $segments = explode('.', str_replace(['`', '"', '[', ']'], '', $written));
         $table = end($segments);
 
         return $table === '' ? null : $table;
