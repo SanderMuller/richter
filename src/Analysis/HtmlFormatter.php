@@ -335,11 +335,13 @@ final class HtmlFormatter
 
         $rows = '';
 
-        foreach ($hazards as $hazard) {
+        foreach (HazardRows::of($hazards) as ['hazard' => $hazard, 'subject' => $subject, 'evidence' => $evidence, 'routes' => $routes]) {
             $cwe = $hazard->cwe === null ? '' : ' ' . Html::e($hazard->cwe);
             $rows .= '<li><strong>[tier ' . $hazard->tier . ' ' . Html::e($hazard->lane) . $cwe . ']</strong> '
-                . Html::e($hazard->member) . ' — ' . Html::e($hazard->evidence)
-                . ' <em>reach: ' . Html::e($hazard->reachLabel()) . '</em></li>';
+                . Html::e($subject) . ' — ' . Html::e($evidence)
+                . ' <em>reach: ' . Html::e($hazard->reachLabel()) . '</em>'
+                . ($routes === [] ? '' : '<ul><li>' . implode('</li><li>', array_map(Html::e(...), $routes)) . '</li></ul>')
+                . '</li>';
         }
 
         return '<div class="card"><h3>Hazards (' . count($hazards) . ')</h3><ul>' . $rows . '</ul></div>';

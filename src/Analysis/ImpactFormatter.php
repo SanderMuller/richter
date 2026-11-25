@@ -289,10 +289,18 @@ final class ImpactFormatter
 
         $lines = ['', 'Hazards (' . count($hazards) . '):'];
 
-        foreach ($hazards as $hazard) {
+        foreach (HazardRows::of($hazards) as ['hazard' => $hazard, 'subject' => $subject, 'evidence' => $evidence, 'routes' => $routes]) {
             $cwe = $hazard->cwe === null ? '' : " {$hazard->cwe}";
-            $lines[] = "  ! [tier {$hazard->tier} {$hazard->lane}{$cwe}] {$hazard->member} — {$hazard->evidence}";
+            $lines[] = "  ! [tier {$hazard->tier} {$hazard->lane}{$cwe}] {$subject} — {$evidence}";
             $lines[] = '      reach: ' . $hazard->reachLabel();
+
+            foreach (array_slice($routes, 0, self::LIST_CAP) as $route) {
+                $lines[] = "      - {$route}";
+            }
+
+            if (count($routes) > self::LIST_CAP) {
+                $lines[] = '      … and ' . (count($routes) - self::LIST_CAP) . ' more, all in --json';
+            }
         }
 
         return $lines;

@@ -91,6 +91,8 @@ final class RouteFileHazards
                     $headRoute['member'],
                     sprintf('the `%s` middleware is gone from the %s route in %s', substr($token, strlen('middleware:')), self::label($route), $file),
                     [$token],
+                    route: self::label($route),
+                    sharedEvidence: sprintf('the `%s` middleware is gone from these routes in %s', substr($token, strlen('middleware:')), $file),
                 );
             }
         }

@@ -76,6 +76,19 @@ final class HazardFindingsTest extends TestCase
     }
 
     #[Test]
+    public function a_model_hazard_reads_before_a_contract_hazard_of_the_same_tier(): void
+    {
+        $hazards = array_map(
+            static fn (string $lane): Hazard => new Hazard($lane, 2, null, 'App\A::a', 'x'),
+            ['parity', 'contract', 'model', 'migration', 'boundary', 'auth'],
+        );
+
+        $sorted = HazardFindings::for([$this->file('app/A.php', [...$hazards, new Hazard('contract', 3, null, 'App\A::a', 'x')])], enabledOverride: true);
+
+        $this->assertSame(['contract', 'auth', 'boundary', 'model', 'contract', 'migration', 'parity'], array_column($sorted, 'lane'));
+    }
+
+    #[Test]
     public function disabling_the_family_silences_the_lanes_but_not_the_parity_hazards(): void
     {
         // `--no-hazards` gates the lanes this family owns. The parity results keep their own

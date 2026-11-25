@@ -239,9 +239,12 @@ final class MarkdownFormatter
 
         $lines = ['', '### Hazards (' . count($hazards) . ')', '', '| Tier | Lane | Member | What changed | Reach |', '|---:|---|---|---|---|'];
 
-        foreach ($hazards as $hazard) {
+        foreach (HazardRows::of($hazards) as ['hazard' => $hazard, 'subject' => $subject, 'evidence' => $evidence, 'routes' => $routes]) {
             $lane = $hazard->cwe === null ? $hazard->lane : "{$hazard->lane} ({$hazard->cwe})";
-            $lines[] = "| {$hazard->tier} | {$lane} | `{$hazard->member}` | {$hazard->evidence} | {$hazard->reachLabel()} |";
+            $member = $routes === []
+                ? "`{$subject}`"
+                : "<details><summary>{$subject}</summary>" . implode('<br>', array_map(static fn (string $route): string => "`{$route}`", $routes)) . '</details>';
+            $lines[] = "| {$hazard->tier} | {$lane} | {$member} | {$evidence} | {$hazard->reachLabel()} |";
         }
 
         return $lines;

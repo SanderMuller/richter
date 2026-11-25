@@ -33,7 +33,7 @@ A named `--head` therefore does not check test references: entry points carry no
 - The entry points the change can reach, each tagged `[test-referenced]` or `[⚠ no test references this]`: routes, commands, jobs, listeners, middleware, and Livewire/Filament/Nova component classes. A Blade-mounted component, a Filament resource, page or widget, and a Nova resource are each a user-facing surface even without a `route::` node.
 - Findings in the changed source itself, such as an eager-load or relation string that names no relation on any model. A missing comma between two relation constants is the classic case: `Post::OWNER . User::PROFILE` concatenates to `ownerprofile`, a name Eloquent silently never resolves.
 - The [risk level](08-risk-levels.md) (`low` / `medium` / `high`), always with the reason for it.
-- The [hazards](08-risk-levels.md#hazards) the change carries, worst tier first.
+- The [hazards](08-risk-levels.md#hazards) the change carries, worst tier first. One middleware lost by several routes of a file is one entry that lists them, per reach class; `--json` keeps one hazard per route.
 - Honest degradation. A change that cannot be placed in the graph reads `UNRESOLVED` rather than "no impact", and an unfollowable dispatch makes a queue job read "unknown" rather than "none". A file that resolved to no graph node also echoes the FQCN its path derived to (`app/Services/Inspector.php → App\Services\Inspector`), which is what separates a coverage gap from a wrong root namespace.
 
 ```text

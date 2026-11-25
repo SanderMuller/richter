@@ -101,8 +101,19 @@ final class HazardFindings
      */
     private static function worstFirst(array $hazards): array
     {
-        usort($hazards, static fn (Hazard $a, Hazard $b): int => [$b->tier, $a->lane, $a->member, $a->evidence] <=> [$a->tier, $b->lane, $b->member, $b->evidence]);
+        usort($hazards, static fn (Hazard $a, Hazard $b): int => [$b->tier, self::laneRank($a->lane), $a->member, $a->evidence] <=> [$a->tier, self::laneRank($b->lane), $b->member, $b->evidence]);
 
         return $hazards;
+    }
+
+    /**
+     * Lanes sort by name, except that `model` reads just before `contract`: widened data exposure comes
+     * before a changed member of the same tier.
+     *
+     * @return array{0: string, 1: int}
+     */
+    private static function laneRank(string $lane): array
+    {
+        return $lane === 'model' ? ['contract', 0] : [$lane, 1];
     }
 }
