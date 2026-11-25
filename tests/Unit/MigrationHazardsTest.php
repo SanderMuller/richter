@@ -78,6 +78,155 @@ final class MigrationHazardsTest extends TestCase
         );
     }
 
+    // ------------------------------------------------------------ changed rows
+
+    /** @return list<string> */
+    private function rowEvidence(string $up, string $members = '', ?string $down = null): array
+    {
+        $source = "<?php\nuse App\\Models\\Post;\nuse App\\Services\\PostArchiver;\nuse Illuminate\\Database\\Migrations\\Migration;\nuse Illuminate\\Support\\Facades\\DB;\nuse Illuminate\\Support\\Facades\\Schema;\nreturn new class extends Migration\n{\n{$members}\n    public function up(): void\n    {\n{$up}\n    }\n    public function down(): void\n    {\n{$down}\n    }\n};\n";
+
+        return array_column(MigrationHazards::for(self::FILE, $source, null, self::PROJECT)[0], 'evidence');
+    }
+
+    #[Test]
+    public function rows_changed_by_a_table_query_are_a_tier_two_hazard_on_the_owning_model(): void
+    {
+        $hazards = $this->hazards("\Illuminate\Support\Facades\DB::table('posts')->whereNull('status')->update(['status' => 'draft']);");
+
+        $this->assertCount(1, $hazards);
+        $this->assertSame(['migration', 2, 'App\Models\Post', 'posts', 'rows of `posts` updated'], [$hazards[0]->lane, $hazards[0]->tier, $hazards[0]->member, $hazards[0]->suppressionKey(), $hazards[0]->evidence]);
+    }
+
+    #[Test]
+    public function every_way_to_change_existing_rows_is_named(): void
+    {
+        foreach ([
+            "DB::table('posts')->where('id', 1)->delete();" => 'rows of `posts` deleted',
+            "DB::table('posts')->truncate();" => 'rows of `posts` deleted',
+            "DB::table('posts')->upsert([['id' => 1]], ['id']);" => 'rows of `posts` upserted',
+            "DB::table('posts')->updateOrInsert(['id' => 1], []);" => 'rows of `posts` upserted',
+            "DB::table('posts')->increment('views');" => 'rows of `posts` updated',
+            "DB::transaction(function () { DB::table('posts')->update(['a' => 1]); });" => 'rows of `posts` updated',
+            "Post::query()->whereNull('a')->update(['a' => 1]);" => 'rows of `posts` updated',
+            "Post::where('a', 1)->delete();" => 'rows of `posts` deleted',
+            'Post::truncate();' => 'rows of `posts` deleted',
+            'Post::destroy([1, 2]);' => 'rows of `posts` deleted',
+            "Post::all()->each->update(['a' => 1]);" => 'rows of `posts` updated',
+            'Post::find(1)->tags()->sync([1]);' => 'pivot rows of `App\Models\Post::tags()` changed by `sync()`',
+            'Post::find(1)->comments()->delete();' => 'rows of `App\Models\Post::comments()` deleted',
+            'Post::find(1)->delete();' => 'rows of `posts` deleted',
+        ] as $up => $evidence) {
+            $this->assertSame([$evidence], $this->rowEvidence($up), $up);
+        }
+    }
+
+    #[Test]
+    public function rows_changed_through_a_variable_the_chain_bound_are_read(): void
+    {
+        foreach ([
+            "\$query = DB::table('posts'); \$query->where('a', 1)->delete();" => 'rows of `posts` deleted',
+            "foreach (Post::lazy() as \$post) { \$post->title = 'x'; \$post->save(); }" => 'rows of `posts` updated',
+            "Post::chunkById(100, function (\$posts) { foreach (\$posts as \$post) { \$post->update(['a' => 1]); } });" => 'rows of `posts` updated',
+            'Post::query()->each(fn ($post) => $post->tags()->detach());' => 'pivot rows of `App\Models\Post::tags()` changed by `detach()`',
+            'Post::query()->each(fn ($post) => $post->comments()->where("a", 1)->delete());' => 'rows of `App\Models\Post::comments()` deleted',
+            'Post::query()->each(fn ($post) => $post->comments()->first()->delete());' => 'rows of `App\Models\Post::comments()` deleted',
+            '$query = Post::query(); $query->first()->comments()->delete();' => 'rows of `App\Models\Post::comments()` deleted',
+            'resolve("x")->each(fn (Post $post) => $post->delete());' => 'rows of `posts` deleted',
+        ] as $up => $evidence) {
+            $this->assertSame([$evidence], $this->rowEvidence($up), $up);
+        }
+    }
+
+    #[Test]
+    public function raw_sql_that_changes_rows_is_read(): void
+    {
+        foreach ([
+            'DB::statement("UPDATE posts SET a = 1");' => 'rows of `posts` updated',
+            'DB::statement("update `posts` p join users u on u.id = p.user_id set p.a = 1");' => 'rows of `posts` updated',
+            'DB::statement("UPDATE posts SET a = " . $value);' => 'rows of `posts` updated',
+            'DB::update("update public.posts set a = ?", [1]);' => 'rows of `posts` updated',
+            'DB::delete("DELETE FROM posts WHERE a = 1");' => 'rows of `posts` deleted',
+            'DB::unprepared("SET x = 1; DELETE p FROM posts p WHERE 1");' => 'rows of `posts` deleted',
+            'DB::statement("TRUNCATE TABLE posts");' => 'rows of `posts` deleted',
+            'DB::statement("INSERT INTO posts (id) VALUES (1) ON DUPLICATE KEY UPDATE id = 1");' => 'rows of `posts` upserted',
+            'DB::statement("INSERT INTO posts (id) VALUES (1) ON CONFLICT (id) DO UPDATE SET id = 1");' => 'rows of `posts` upserted',
+            'DB::statement("-- backfill\n/* once */ UPDATE posts SET a = 1");' => 'rows of `posts` updated',
+            'DB::statement("UPDATE {$table} SET a = 1");' => 'rows of a table richter could not read were updated',
+            'DB::update($sql);' => 'rows of a table richter could not read were updated',
+        ] as $up => $evidence) {
+            $this->assertSame([$evidence], $this->rowEvidence($up), $up);
+        }
+    }
+
+    #[Test]
+    public function a_table_the_migration_class_names_is_read(): void
+    {
+        $this->assertSame(['rows of `posts` updated'], $this->rowEvidence("DB::table(\$this->table)->update(['a' => 1]);", "    private string \$table = 'posts';"));
+        $this->assertSame(['rows of `posts` deleted'], $this->rowEvidence('DB::table(self::TABLE)->delete();', "    private const TABLE = 'posts';"));
+    }
+
+    #[Test]
+    public function a_table_name_built_at_runtime_still_reports_the_change_under_the_migration(): void
+    {
+        $hazards = $this->hazards("\Illuminate\Support\Facades\DB::table(\$name)->delete();");
+
+        $this->assertSame(['rows of a table richter could not read were deleted'], array_column($hazards, 'evidence'));
+        $this->assertSame('2026_01_01_000000_adjust_articles', $hazards[0]->suppressionKey());
+    }
+
+    #[Test]
+    public function writes_that_change_no_existing_row_draw_nothing(): void
+    {
+        foreach ([
+            "DB::table('posts')->insert([['id' => 1]]);",
+            "DB::table('posts')->insertOrIgnore([['id' => 1]]);",
+            "Post::create(['title' => 'x']);",
+            'DB::statement("INSERT INTO posts (id) VALUES (1)");',
+            'DB::statement("ALTER TABLE posts ADD a INT");',
+            'DB::statement("SET foreign_key_checks = 0");',
+            'DB::statement($sql);',
+            "Schema::create('posts', fn (\$table) => \$table->id()); DB::table('posts')->update(['a' => 1]);",
+            // Not proven to be rows.
+            '$service->delete();',
+            '$service->tags()->sync([1]);',
+            "PostArchiver::where('a', 1)->delete();",
+            '$post = Post::first(); $post = new PostArchiver(); $post->delete();',
+        ] as $up) {
+            $this->assertSame([], $this->rowEvidence($up), $up);
+        }
+    }
+
+    #[Test]
+    public function a_backfill_method_that_up_calls_is_read(): void
+    {
+        $members = "    private function backfill(): void { \$this->clear(); }\n    private function clear(): void { DB::table('posts')->delete(); }\n    private function unused(): void { DB::table('users')->delete(); }";
+
+        $this->assertSame(['rows of `posts` deleted'], $this->rowEvidence('$this->backfill();', $members));
+        $this->assertSame([], $this->rowEvidence('', $members, '$this->backfill();'));
+    }
+
+    #[Test]
+    public function a_table_created_by_a_method_that_up_calls_has_no_rows_to_change(): void
+    {
+        $members = "    private const TABLE = 'posts';\n    private function createTable(): void { Schema::create(self::TABLE, fn (\$table) => \$table->id()); }";
+
+        $this->assertSame([], $this->rowEvidence("\$this->createTable(); DB::table('posts')->update(['a' => 1]);", $members));
+    }
+
+    #[Test]
+    public function rows_changed_in_down_draw_nothing(): void
+    {
+        $this->assertSame([], $this->rowEvidence('', down: "DB::table('posts')->delete();"));
+    }
+
+    #[Test]
+    public function a_migration_that_already_changed_those_rows_does_not_report_them_again(): void
+    {
+        $update = "\Illuminate\Support\Facades\DB::table('posts')->update(['a' => 1]);";
+
+        $this->assertSame([], $this->evidence("{$update} \$x = 1;", $update));
+    }
+
     // ------------------------------------------------------------ dropped columns
 
     #[Test]

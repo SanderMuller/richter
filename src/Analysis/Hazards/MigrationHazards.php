@@ -12,6 +12,7 @@ use PhpParser\Node\Expr\Variable;
 use PhpParser\Node\Identifier;
 use PhpParser\Node\Name;
 use PhpParser\Node\Scalar\String_;
+use PhpParser\Node\Stmt\ClassLike;
 use PhpParser\Node\Stmt\ClassMethod;
 use PhpParser\NodeFinder;
 use SanderMuller\Richter\Analysis\Hazard;
@@ -20,8 +21,8 @@ use SanderMuller\Richter\Changes\MigrationChanges;
 use SanderMuller\Richter\Support\AppFiles;
 
 /**
- * The destructive schema operations a migration's `up()` performs: a dropped table, a dropped column,
- * a renamed column. Each is a hazard whether or not anything still names the column — losing the data
+ * The destructive operations a migration's `up()` performs: a dropped table, a dropped column, a renamed
+ * column, and existing rows changed ({@see MigrationDataOperations}). Each is a hazard whether or not anything still names the column — losing the data
  * is the break, and richter cannot see the rows.
  *
  * **Not a {@see HazardLane}, and it cannot become one.** Every lane compares two sides of one file and
@@ -100,13 +101,13 @@ final class MigrationHazards
      */
     public static function for(string $file, string $headSrc, ?string $baseSrc, ?string $projectRoot = null): array
     {
-        $head = self::operations($headSrc);
+        $head = self::operations($file, $headSrc, $projectRoot);
 
         if ($head === []) {
             return [[], [], []];
         }
 
-        $base = $baseSrc === null ? [] : self::operations($baseSrc);
+        $base = $baseSrc === null ? [] : self::operations($file, $baseSrc, $projectRoot);
 
         $hazards = [];
 
@@ -122,20 +123,20 @@ final class MigrationHazards
     }
 
     /**
-     * Every destructive operation `up()` performs, keyed by a canonical signature so the head-minus-base
+     * Every destructive operation `up()` performs, on the schema and on the rows, keyed by a canonical signature so the head-minus-base
      * comparison never depends on formatting or on statement order.
      *
-     * @return array<string, array{table: string, column: string|null, evidence: string}>
+     * @return array<string, array{table: string, column: string|null, evidence: string, member?: string}>
      */
-    private static function operations(string $source): array
+    private static function operations(string $file, string $source, ?string $projectRoot): array
     {
-        $up = self::upMethod($source);
+        [$up, $class] = self::upMethod($source);
 
         if (! $up instanceof ClassMethod) {
             return [];
         }
 
-        $operations = [];
+        $operations = MigrationDataOperations::in($up, $class, $file, $projectRoot);
 
         foreach (new NodeFinder()->findInstanceOf($up, StaticCall::class) as $call) {
             $table = self::literalArgument($call, 0);
@@ -299,7 +300,7 @@ final class MigrationHazards
      * Whether a static call is on the `Schema` facade. The AST is name-resolved, so an aliased import
      * resolves to the same FQCN; a call on anything else is not a schema operation.
      */
-    private static function isSchemaFacade(StaticCall $call): bool
+    public static function isSchemaFacade(StaticCall $call): bool
     {
         return $call->class instanceof Name && AppFiles::resolveName($call->class) === self::SCHEMA_FACADE;
     }
@@ -351,15 +352,20 @@ final class MigrationHazards
         return ($call->args[$index] ?? null) !== null;
     }
 
-    /** The `up()` body. Null when the file declares no `up()`, or more than one — an ambiguity to refuse. */
-    private static function upMethod(string $source): ?ClassMethod
+    /**
+     * The `up()` body and the class it is in. Null when the file declares no `up()`, or more than one —
+     * an ambiguity to refuse.
+     *
+     * @return array{0: ClassMethod|null, 1: ClassLike|null}
+     */
+    private static function upMethod(string $source): array
     {
         // Name-resolved: the receiver of a destructive call has to be checked, and `Schema` as written
         // is only a facade alias until the `use` statements are applied.
         $ast = AppFiles::parseResolved($source);
 
         if ($ast === null) {
-            return null;
+            return [null, null];
         }
 
         $methods = array_values(array_filter(
@@ -367,7 +373,14 @@ final class MigrationHazards
             static fn (ClassMethod $method): bool => $method->name->toString() === 'up',
         ));
 
-        return count($methods) === 1 ? $methods[0] : null;
+        if (count($methods) !== 1) {
+            return [null, null];
+        }
+
+        return [$methods[0], array_find(
+            new NodeFinder()->findInstanceOf($ast, ClassLike::class),
+            static fn (ClassLike $class): bool => in_array($methods[0], $class->getMethods(), strict: true),
+        )];
     }
 
     /** A plain string argument at `$index`, or null when absent or built at runtime. */
@@ -388,7 +401,7 @@ final class MigrationHazards
      * reaches it. The ignore key is always the table (or `table.column`), so a project silences a
      * framework or pivot table through `hazards.ignore` without richter curating a list of them.
      *
-     * @param  array{table: string, column: string|null, evidence: string}  $operation
+     * @param  array{table: string, column: string|null, evidence: string, member?: string}  $operation
      */
     private static function hazard(array $operation, ?string $projectRoot): Hazard
     {
@@ -399,7 +412,7 @@ final class MigrationHazards
             lane: 'migration',
             tier: 2,
             cwe: null,
-            member: ModelTables::modelFor($table, $projectRoot) ?? $table,
+            member: $operation['member'] ?? ModelTables::modelFor($table, $projectRoot) ?? $table,
             evidence: $operation['evidence'],
             ignoreKey: $column === null ? $table : "{$table}.{$column}",
             alsoIgnoredBy: $column === null ? [] : [$table],

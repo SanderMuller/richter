@@ -80,6 +80,7 @@ none.
 | 2 | a column dropped by a migration | `migration` |, |
 | 2 | a table dropped by a migration | `migration` |, |
 | 2 | a column renamed by a migration | `migration` |, |
+| 2 | existing rows changed by a migration | `migration` |, |
 | 1 | a surviving member's signature changed | `contract` |, |
 
 The tiers are fixed: no config re-tiers a hazard. You can silence one with `hazards.ignore` or skip
@@ -145,12 +146,20 @@ entry point whenever the declared URI is the registered one, and grades `no-know
 prefix made it something else.
 
 Migrations are read for the destructive operations their `up()` performs: a dropped column, a dropped
-table, a renamed column. Laravel's shorthand helpers are read as the column drops they are, so
+table, a renamed column, and existing rows changed. Laravel's shorthand helpers are read as the column drops they are, so
 `dropTimestamps()`, `dropSoftDeletes()`, `dropRememberToken()` and `dropMorphs()` each report the
 columns the framework removes for them. Each is tier 2 whether or not anything still names the column. Losing the data
 is the break, and richter cannot see the rows.
 
-Only `up()` is read. A conventional `down()` reverses `up()`, so it holds a `dropColumn` for every
+Existing rows change through an `update`, an `upsert`, a `delete` or a `truncate`, on `DB::table(...)` or
+on a model under `app/Models`, through a pivot `sync()`, `detach()`, `toggle()` or
+`updateExistingPivot()`, and through raw SQL that starts with `UPDATE`, `DELETE`, `TRUNCATE`, `REPLACE`
+or an `INSERT` that updates on conflict. Inserting rows raises nothing, and neither does a write to a
+table the same migration creates. The change is read in `up()` and in the methods of the migration class
+it calls. A parent class, a job, a command or a service, a `DB::connection(...)` chain and a variable richter
+cannot trace to a table or a model are not read.
+
+Schema operations are read in `up()` only. A conventional `down()` reverses `up()`, so it holds a `dropColumn` for every
 column `up()` adds, and reading the whole file would report a destructive operation on every migration
 ever written. The comparison is the head's operations minus the base's, so a new migration reports
 everything it does and a migration edited for an unrelated reason does not re-report what it already

@@ -57,6 +57,9 @@ final class ModelTables
     /** @var array<string, string|null>|null table => model FQCN, null where two models claim it */
     private static ?array $byTable = null;
 
+    /** @var list<string> every class the scan takes for a model, whether or not its table is known */
+    private static array $models = [];
+
     /** The model FQCN owning `$table`, or null when none does or more than one does. */
     public static function modelFor(string $table, ?string $projectRoot = null): ?string
     {
@@ -65,10 +68,33 @@ final class ModelTables
         return self::$byTable[$table] ?? null;
     }
 
+    /** The table only this model owns, or null where that is not known. */
+    public static function tableFor(string $model, ?string $projectRoot = null): ?string
+    {
+        self::$byTable ??= self::scan($projectRoot);
+        $table = array_search($model, self::$byTable, strict: true);
+
+        return $table === false ? null : (string) $table;
+    }
+
+    /** Whether a class is a concrete Eloquent model under `app/Models`. */
+    public static function isModelClass(string $fqcn, ?string $projectRoot = null): bool
+    {
+        // A migration types its blueprint on every schema call. That is never worth the scan.
+        if ($fqcn === '' || str_starts_with($fqcn, 'Illuminate\\')) {
+            return false;
+        }
+
+        self::$byTable ??= self::scan($projectRoot);
+
+        return in_array($fqcn, self::$models, strict: true);
+    }
+
     /** Drops the memo so the next run rescans. Called once per {@see ChangedSymbols::resolve()}. */
     public static function flush(): void
     {
         self::$byTable = null;
+        self::$models = [];
     }
 
     /**
@@ -87,6 +113,11 @@ final class ModelTables
         }
 
         $byTable = [];
+        self::$models = array_keys(array_filter(
+            $declarations,
+            static fn (?array $declaration, string $fqcn): bool => $declaration !== null && ! $declaration['abstract'] && self::isModel($fqcn, $declarations),
+            ARRAY_FILTER_USE_BOTH,
+        ));
 
         foreach (array_keys($declarations) as $fqcn) {
             $table = self::tableOf($fqcn, $declarations);
