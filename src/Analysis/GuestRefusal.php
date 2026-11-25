@@ -67,6 +67,18 @@ final class GuestRefusal
     /** @return array{own: bool, parent: bool} */
     private static function refusals(ReflectionMethod $method): array
     {
+        $node = self::sourceOf($method);
+        $nodes = $node instanceof ClassMethod ? self::uncaught($node) : [];
+
+        return [
+            'own' => array_any($nodes, static fn (Node $node): bool => self::refuses($node, $method->getName())),
+            'parent' => array_any($nodes, static fn (Node $node): bool => self::isCallTo($node, 'parent', [$method->getName()])),
+        ];
+    }
+
+    /** The method as written, or null where its source cannot be read. */
+    public static function sourceOf(ReflectionMethod $method): ?ClassMethod
+    {
         $file = (string) $method->getFileName();
         $source = is_file($file) ? file_get_contents($file) : false;
         $ast = $source === false ? null : AppFiles::parseResolved($source);
@@ -76,12 +88,7 @@ final class GuestRefusal
             && $node->name->toString() === $method->getName()
             && $node->getEndLine() === $method->getEndLine());
 
-        $nodes = $node instanceof ClassMethod ? self::uncaught($node) : [];
-
-        return [
-            'own' => array_any($nodes, static fn (Node $node): bool => self::refuses($node, $method->getName())),
-            'parent' => array_any($nodes, static fn (Node $node): bool => self::isCallTo($node, 'parent', [$method->getName()])),
-        ];
+        return $node instanceof ClassMethod ? $node : null;
     }
 
     private static function refuses(Node $node, string $within): bool

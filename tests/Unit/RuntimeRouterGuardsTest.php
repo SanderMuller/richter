@@ -5,6 +5,7 @@ namespace SanderMuller\Richter\Tests\Unit;
 use Illuminate\Auth\Middleware\Authenticate;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controllers\HasMiddleware;
+use Illuminate\Routing\Middleware\ValidateSignature;
 use Illuminate\Routing\Router;
 use Illuminate\Support\Facades\File;
 use LaraMint\LaravelBrain\Analysis\SecurityAnalyzer;
@@ -12,7 +13,13 @@ use PHPUnit\Framework\Attributes\Test;
 use ReflectionClassConstant;
 use ReflectionMethod;
 use SanderMuller\Richter\Analysis\AuthMiddlewareVocabulary;
+use SanderMuller\Richter\Analysis\Hazard;
+use SanderMuller\Richter\Analysis\ImpactAnalyzer;
+use SanderMuller\Richter\Analysis\OptionalLogin;
 use SanderMuller\Richter\Analysis\RuntimeRouterGuards;
+use SanderMuller\Richter\Changes\ChangedFileSymbols;
+use SanderMuller\Richter\Changes\MemberChange;
+use SanderMuller\Richter\Graph\CodeGraph;
 use SanderMuller\Richter\Support\RichterConfig;
 use SanderMuller\Richter\Tests\TestCase;
 
@@ -441,7 +448,7 @@ final class RuntimeRouterGuardsTest extends TestCase
         $class = 'GuestMiddleware' . hash('crc32b', $members . $extends);
         $path = sys_get_temp_dir() . "/{$class}.php";
 
-        File::put($path, "<?php\nnamespace Acme\\Guests;\nclass {$class} extends {$extends}\n{\n{$members}\n}\n");
+        File::put($path, "<?php\nnamespace Acme\\Guests;\nuse Illuminate\\Auth\\AuthenticationException;\nclass {$class} extends {$extends}\n{\n{$members}\n}\n");
 
         $this->written[] = $path;
 
@@ -516,6 +523,191 @@ final class RuntimeRouterGuardsTest extends TestCase
         ]));
     }
 
+    /** The optional login as an application writes it. */
+    private function optionalLogin(): string
+    {
+        return $this->handling('try { $this->authenticate($request, $guards); } catch (AuthenticationException) { /* a guest */ }');
+    }
+
+    /**
+     * @param  array{exposure: string, riskLevel: string, issues: list<array{type: string, severity: string, message: string}>}|null  $surface
+     * @return array{exposure: string, riskLevel: string, issues: list<array{type: string, severity: string, message: string, file?: string, line?: int}>}
+     */
+    private function surfaceAfter(string $entryPoint, ?array $surface = null): array
+    {
+        return $this->guards()->withoutOptionalLogins([$entryPoint => $surface ?? $this->authedSurface()])[$entryPoint];
+    }
+
+    /** @return array{exposure: string, riskLevel: string, issues: list<array{type: string, severity: string, message: string}>} */
+    private function authedSurface(): array
+    {
+        return ['exposure' => 'authed', 'riskLevel' => 'none', 'issues' => []];
+    }
+
+    #[Test]
+    public function a_login_that_provably_lets_every_guest_through_is_optional(): void
+    {
+        foreach ([
+            $this->optionalLogin(),
+            $this->handling('try { return parent::handle($request, $next, ...$guards); } catch (\Throwable) {}'),
+            $this->handling('try { $user = auth("api")->authenticate(); } catch (\Exception $e) { report($e); } finally { }'),
+            $this->handling('if ($this->auth->guard("api")->check()) { $this->auth->shouldUse("api"); return $next($request); }'),
+            $this->handling('$request->setUserResolver(fn () => abort(401));'),
+            $this->handling(''),
+            $this->middleware('protected function unauthenticated($request, array $guards) { /* a guest */ }'),
+            $this->middleware('', '\\' . $this->optionalLogin()),
+        ] as $class) {
+            $this->assertTrue(OptionalLogin::by($class), $class);
+        }
+    }
+
+    #[Test]
+    public function a_login_that_may_refuse_a_guest_is_not_optional(): void
+    {
+        foreach ([
+            // A helper of its own can refuse, whatever it is called.
+            $this->handling('$this->refuseGuests($request);'),
+            $this->handling('$this->check($request);'),
+            $this->handling('self::guard($request);'),
+            $this->handling('\Acme\Tokens::verify($request);'),
+            $this->handling('$this->authenticate($request, $guards);'),
+            $this->handling('try { $this->authenticate($request, $guards); } catch (\Throwable $e) { throw $e; }'),
+            $this->handling('try { $this->authenticate($request, $guards); } catch (\Throwable) { abort(401); }'),
+            $this->handling('try { $this->authenticate($request, $guards); } catch (\RuntimeException) {}'),
+            $this->handling('try { abort(401); } catch (\Illuminate\Auth\AuthenticationException) {}'),
+            $this->handling('if (! $request->user()) { return redirect("/login"); }'),
+            $this->handling('if (! $request->user()) { throw new \RuntimeException(); }'),
+            $this->middleware('public function handle($request, \Closure $next, ...$guards) { if ($request->user()) { return $next($request); } }'),
+            $this->middleware('protected function unauthenticated($request, array $guards) { abort(401); }'),
+            // Two methods that decide it together.
+            $this->middleware('public function handle($request, \Closure $next, ...$guards) { try { $this->authenticate($request, $guards); } catch (\Illuminate\Auth\AuthenticationException) {} return $next($request); } protected function authenticate($request, array $guards) { abort(401); }'),
+            // Not a login: what it replaces refuses with another exception.
+            $this->middleware('public function handle($request, \Closure $next, ...$relative) { return $next($request); }', '\\' . ValidateSignature::class),
+            DescendantAuthMiddleware::class,
+            ...AuthMiddlewareVocabulary::AUTH_MIDDLEWARE_BASES,
+        ] as $class) {
+            $this->assertFalse(OptionalLogin::by($class), $class);
+        }
+    }
+
+    #[Test]
+    public function a_write_behind_an_optional_login_alone_is_public(): void
+    {
+        $login = $this->optionalLogin();
+        $this->router()->aliasMiddleware('auth', $login);
+        $this->router()->middlewareGroup('members', ['throttle:api', "{$login}:api"]);
+        $this->router()->post('class', static fn (): string => 'ok')->middleware($login);
+        $this->router()->post('alias', static fn (): string => 'ok')->middleware('auth:api');
+        $this->router()->post('group', static fn (): string => 'ok')->middleware('members');
+
+        foreach (['class', 'alias', 'group'] as $uri) {
+            $this->assertSame([
+                'exposure' => 'public',
+                'riskLevel' => 'medium',
+                'issues' => [['type' => 'PUBLIC_WRITE', 'severity' => 'medium', 'message' => "Mutating `POST /{$uri}` requires no authentication — its only auth middleware, {$login}, lets a guest through."]],
+            ], $this->surfaceAfter("route::POST::/{$uri}"), $uri);
+        }
+    }
+
+    #[Test]
+    public function an_optional_login_keeps_what_brain_found_besides(): void
+    {
+        $this->router()->delete('notes', static fn (): string => 'ok')->middleware($this->optionalLogin());
+        $this->router()->get('notes', static fn (): string => 'ok')->middleware($this->optionalLogin());
+        $issue = ['type' => 'MASS_ASSIGNMENT', 'severity' => 'critical', 'message' => 'x'];
+
+        $deleted = $this->surfaceAfter('route::DELETE::/notes', ['exposure' => 'authed', 'riskLevel' => 'critical', 'issues' => [$issue]]);
+
+        $this->assertSame('critical', $deleted['riskLevel']);
+        $this->assertSame(['MASS_ASSIGNMENT', 'PUBLIC_WRITE'], array_column($deleted['issues'], 'type'));
+        $this->assertSame('high', $deleted['issues'][1]['severity'] ?? null);
+        $this->assertSame(['exposure' => 'public'] + $this->authedSurface(), $this->surfaceAfter('route::GET::/notes'));
+    }
+
+    #[Test]
+    public function a_route_the_project_trusts_gets_no_public_write(): void
+    {
+        config(['laravel-brain.security.trusted_route_names' => ['Hooks.*'], 'laravel-brain.security.trusted_route_uris' => ['/callbacks/*']]);
+        $this->router()->post('named', static fn (): string => 'ok')->middleware($this->optionalLogin())->name('hooks.store');
+        $this->router()->post('callbacks/one', static fn (): string => 'ok')->middleware($this->optionalLogin());
+
+        foreach (['route::POST::/named', 'route::POST::/callbacks/one'] as $entryPoint) {
+            $this->assertSame(['exposure' => 'public'] + $this->authedSurface(), $this->surfaceAfter($entryPoint));
+        }
+    }
+
+    #[Test]
+    public function brains_word_stands_where_the_optional_login_is_not_proven_to_be_all(): void
+    {
+        config(['laravel-brain.security.auth_middleware' => ['partners']]);
+        $login = $this->optionalLogin();
+        $this->router()->middlewareGroup('secure', [Authenticate::class]);
+        $this->router()->middlewareGroup('partners', [PlainTokenMiddleware::class]);
+        $this->router()->middlewareGroup('looping', ['looping', $login]);
+        $this->router()->post('guarded', static fn (): string => 'ok')->middleware([$login, Authenticate::class]);
+        $this->router()->post('guarded-group', static fn (): string => 'ok')->middleware(['secure', $login]);
+        $this->router()->post('named-group', static fn (): string => 'ok')->middleware(['partners', $login]);
+        $this->router()->post('looping', static fn (): string => 'ok')->middleware('looping');
+        $this->router()->post('excluded', static fn (): string => 'ok')->middleware($login)->withoutMiddleware($login);
+        $this->router()->post('unclear', static fn (): string => 'ok')->middleware($this->handling('$this->refuseGuests($request);'));
+        $this->router()->post('plain', static fn (): string => 'ok')->middleware(PlainTokenMiddleware::class);
+        $this->router()->post('optional', static fn (): string => 'ok')->middleware($login);
+        $this->router()->group(['domain' => 'one.example.test'], function () use ($login): void {
+            $this->router()->post('twins', static fn (): string => 'ok')->middleware($login);
+        });
+        $this->router()->group(['domain' => 'two.example.test'], function (): void {
+            $this->router()->post('twins', static fn (): string => 'ok')->middleware(Authenticate::class);
+        });
+
+        foreach (['guarded', 'guarded-group', 'named-group', 'looping', 'excluded', 'unclear', 'plain', 'twins', 'unregistered'] as $uri) {
+            $this->assertSame($this->authedSurface(), $this->surfaceAfter("route::POST::/{$uri}"), $uri);
+        }
+
+        $admin = ['exposure' => 'admin'] + $this->authedSurface();
+        $this->assertSame($admin, $this->surfaceAfter('route::POST::/optional', $admin));
+
+        foreach ([null, '/another/checkout'] as $root) {
+            $surfaces = ['route::POST::/optional' => $this->authedSurface()];
+            $this->assertSame($surfaces, new RuntimeRouterGuards($root)->withoutOptionalLogins($surfaces));
+        }
+    }
+
+    #[Test]
+    public function an_optional_login_route_is_public_in_a_report_and_for_its_hazards(): void
+    {
+        $this->router()->post('notes', static fn (): string => 'ok')->middleware($this->optionalLogin());
+        $analyzer = new ImpactAnalyzer(new CodeGraph(
+            [['source' => 'route::POST::/notes', 'target' => 'App\Services\Publisher::publish', 'type' => 'route-to-controller']],
+            hasUnparseableFiles: false,
+            nodeMetadata: ['route::POST::/notes' => ['security' => $this->authedSurface()]],
+        ));
+        $changed = [new ChangedFileSymbols(
+            'app/Services/Publisher.php',
+            'App\Services\Publisher',
+            [new MemberChange('publish', MemberChange::KIND_METHOD, MemberChange::CHANGE_MODIFIED, resolvable: true)],
+            cosmeticOnly: false,
+            hazards: [new Hazard('contract', 2, null, 'App\Services\Publisher::publish', 'the return type changed')],
+        )];
+
+        foreach ([[base_path(), 'public', Hazard::REACH_PUBLIC_WRITE], [null, 'authed', Hazard::REACH_GATED]] as [$root, $exposure, $reach]) {
+            $result = $analyzer->detectChanges($changed, runtimeEvidenceRoot: $root);
+            $impact = $analyzer->impact('App\Services\Publisher::publish', runtimeEvidenceRoot: $root);
+
+            $this->assertSame($exposure, $impact['entryPointSecurity']['route::POST::/notes']['exposure']);
+            $this->assertSame($exposure, $result['entryPointSecurity']['route::POST::/notes']['exposure']);
+            $this->assertSame([$reach], array_column($result['hazards'], 'reach'));
+        }
+    }
+
+    #[Test]
+    public function a_route_with_no_optional_login_never_builds_its_controller(): void
+    {
+        $this->router()->post('built', [UnbuildableController::class, 'store'])->middleware(Authenticate::class);
+
+        $this->assertSame($this->authedSurface(), $this->surfaceAfter('route::POST::/built'));
+        $this->assertFalse(UnbuildableController::$built);
+    }
+
     #[Test]
     public function the_shared_ancestry_predicate_serves_both_lanes(): void
     {
@@ -532,6 +724,21 @@ final class PlainTokenMiddleware
     public function handle(Request $request, callable $next): mixed
     {
         return $next($request);
+    }
+}
+
+final class UnbuildableController
+{
+    public static bool $built = false;
+
+    public function __construct()
+    {
+        self::$built = true;
+    }
+
+    public function store(): string
+    {
+        return 'ok';
     }
 }
 

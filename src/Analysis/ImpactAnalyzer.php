@@ -166,6 +166,8 @@ final readonly class ImpactAnalyzer
         $entryPoints = $this->callReachedEntryPoints($seeds, $maxDepth);
         $associationEntryPoints = array_values(array_diff($this->entryPointsAmong($callers), $entryPoints));
         [$entryPointLocations, $entryPointSecurity, $entryPointGates] = $this->entryPointAnnotations($entryPoints);
+        $router = new RuntimeRouterGuards($runtimeEvidenceRoot);
+        $entryPointSecurity = $router->withoutOptionalLogins($entryPointSecurity);
         $crossCheck = new PublicWriteAuthCrossCheck($this->graph);
 
         return [
@@ -181,7 +183,7 @@ final readonly class ImpactAnalyzer
             'entryPointGates' => $entryPointGates,
             'entryPointAuthGates' => $crossCheck->gatesByEntryPoint($entryPointSecurity, $maxDepth),
             'entryPointAuthMiddleware' => $crossCheck->authMiddlewareByEntryPoint($entryPointSecurity),
-            'entryPointRuntimeGuards' => new RuntimeRouterGuards($runtimeEvidenceRoot)->guardsByEntryPoint($entryPointSecurity),
+            'entryPointRuntimeGuards' => $router->guardsByEntryPoint($entryPointSecurity),
             // Only on a miss: a hit needs no lead, and the token scan is not free.
             'suggestions' => $seeds === [] ? $this->graph->nearestNodes($symbol) : [],
             'graphNodeCount' => $this->graph->nodeCount(),
@@ -466,12 +468,14 @@ final readonly class ImpactAnalyzer
         }
 
         [$entryPointLocations, $entryPointSecurity, $entryPointGates] = $this->entryPointAnnotations($entryPoints);
+        $router = new RuntimeRouterGuards($runtimeEvidenceRoot);
+        $entryPointSecurity = $router->withoutOptionalLogins($entryPointSecurity);
         $crossCheck = new PublicWriteAuthCrossCheck($this->graph);
         $entryPointAuthGates = $crossCheck->gatesByEntryPoint($entryPointSecurity, $maxDepth);
         $entryPointAuthMiddleware = $crossCheck->authMiddlewareByEntryPoint($entryPointSecurity);
         // Fail-closed: a null root means "not analysing the booted working tree" (a named head, a
         // benchmark replay, a caller that never opted in), and the lane stays silent.
-        $entryPointRuntimeGuards = new RuntimeRouterGuards($runtimeEvidenceRoot)->guardsByEntryPoint($entryPointSecurity);
+        $entryPointRuntimeGuards = $router->guardsByEntryPoint($entryPointSecurity);
 
         // The level is decided LAST, because it needs all three of the above: the hazards from the
         // findings pass, the reach class from the security annotations, and the entry-point set the

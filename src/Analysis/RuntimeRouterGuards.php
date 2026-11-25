@@ -45,7 +45,7 @@ final class RuntimeRouterGuards
      */
     public function guardsByEntryPoint(array $security): array
     {
-        if ($this->analyzedRoot === null || ! RunningApplication::isProject($this->analyzedRoot)) {
+        if (! $this->describesTheAnalyzedCode()) {
             return [];
         }
 
@@ -67,7 +67,7 @@ final class RuntimeRouterGuards
             foreach ($matched as $route) {
                 $routeGuards = $this->recognizedGuards($route);
 
-                if ($routeGuards === []) {
+                if ($routeGuards === null || $routeGuards === []) {
                     // One unguarded registration sharing the node makes the evidence ambiguous:
                     // attaching a twin's guard is the one failure worse than silence.
                     continue 2;
@@ -101,6 +101,81 @@ final class RuntimeRouterGuards
         }
 
         return $guards;
+    }
+
+    /**
+     * The surfaces with Brain's `authed` withdrawn where an optional login is all that route has. Brain
+     * takes any class that extends Laravel's `Authenticate` for a guard and does not read what it does.
+     * A route that writes gets the `PUBLIC_WRITE` issue Brain raises for a public one.
+     *
+     * The route is read the way {@see guardsByEntryPoint()} reads it, and every doubt keeps Brain's word:
+     * every registered route that shares the node must have the optional login and no guard.
+     *
+     * @param  array<string, SecurityShape>  $security  keyed by entry-point node; routes only
+     * @return array<string, SecurityShape>
+     */
+    public function withoutOptionalLogins(array $security): array
+    {
+        if (! $this->describesTheAnalyzedCode()) {
+            return $security;
+        }
+
+        foreach ($security as $entryPoint => $surface) {
+            $routes = $surface['exposure'] === 'authed' ? $this->registered()[$entryPoint] ?? [] : [];
+            $logins = array_map($this->optionalLoginOnly(...), $routes);
+
+            if ($logins !== [] && $logins[0] !== null && ! in_array(null, $logins, strict: true)) {
+                $security[$entryPoint] = OptionalLoginSurface::of($surface, $entryPoint, $logins[0], $routes);
+            }
+        }
+
+        return $security;
+    }
+
+    private function describesTheAnalyzedCode(): bool
+    {
+        return $this->analyzedRoot !== null && RunningApplication::isProject($this->analyzedRoot);
+    }
+
+    /** The optional login a registered route runs, where nothing else on it is a guard. */
+    private function optionalLoginOnly(RoutingRoute $route): ?string
+    {
+        try {
+            // Its own middleware first: the full list asks the controller, and that builds the
+            // controller. Brain reads no controller middleware for its exposure either.
+            $tokens = array_values(array_filter((array) $route->middleware(), is_string(...)));
+            $login = array_find(array_merge(...array_map($this->classesOf(...), $tokens)), OptionalLogin::by(...));
+
+            // A group the project itself names as a guard stays one.
+            return $login !== null
+                && ! array_any($tokens, fn (string $token): bool => isset($this->router()->getMiddlewareGroups()[$token]) && AuthMiddlewareVocabulary::matchesBrainAuthPattern($token))
+                && in_array($login, array_map($this->classOf(...), array_filter($this->router()->gatherRouteMiddleware($route), is_string(...))), strict: true)
+                && $this->recognizedGuards($route) === [] ? $login : null;
+        } catch (Throwable) {
+            return null;
+        }
+    }
+
+    /**
+     * The classes a middleware stands for, groups expanded and aliases resolved.
+     *
+     * @param  list<string>  $seen  group names, cycle guard
+     * @return list<string>
+     */
+    private function classesOf(string $token, array $seen = []): array
+    {
+        $name = explode(':', $token, 2)[0];
+        $members = $this->router()->getMiddlewareGroups()[$name] ?? null;
+
+        if (is_array($members)) {
+            $members = in_array($name, $seen, strict: true) ? [] : array_values(array_filter($members, is_string(...)));
+
+            return array_merge(...array_map(fn (string $member): array => $this->classesOf($member, [...$seen, $name]), $members));
+        }
+
+        $resolved = $this->router()->getMiddleware()[ltrim($name, '\\')] ?? $name;
+
+        return is_string($resolved) ? [$this->classOf($resolved)] : [];
     }
 
     /**
@@ -166,9 +241,9 @@ final class RuntimeRouterGuards
      * its resolved class survives the effective `gatherRouteMiddleware()` stack, so a
      * `withoutMiddleware()` exclusion is never evidence.
      *
-     * @return array<string, string|null>
+     * @return array<string, string|null>|null  null where the route could not be read
      */
-    private function recognizedGuards(RoutingRoute $route): array
+    private function recognizedGuards(RoutingRoute $route): ?array
     {
         try {
             $router = $this->router();
@@ -185,7 +260,7 @@ final class RuntimeRouterGuards
                 $name = explode(':', $token, 2)[0];
 
                 if (isset($groups[$name]) && self::groupReachesItself($name, $groups, [])) {
-                    return [];
+                    return null;
                 }
             }
 
@@ -205,7 +280,7 @@ final class RuntimeRouterGuards
 
             return $guards;
         } catch (Throwable) {
-            return [];
+            return null;
         }
     }
 
