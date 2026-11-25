@@ -8,6 +8,8 @@ namespace SanderMuller\Richter\Analysis;
  * inside it, so one edited line is one hazard per route, and a reader answers it once.
  *
  * For the printed reports only. `--json`, the gate and the risk level see every hazard on its own.
+ *
+ * @internal
  */
 final class HazardRows
 {

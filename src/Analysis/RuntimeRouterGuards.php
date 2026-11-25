@@ -14,7 +14,8 @@ use Throwable;
  * the one shape the graph-based lanes document as out of reach — a guard applied through a *named*
  * middleware group ({@see PublicWriteAuthCrossCheck::authMiddlewareByEntryPoint()}). Evidence
  * beside Brain's finding, never a suppression; {@see HazardReach} consumes it through the same
- * overturn door as the two existing cross-check maps.
+ * overturn door as the two existing cross-check maps. It also withdraws Brain's `authed` where an
+ * optional login is a route's only auth middleware ({@see withoutOptionalLogins()}).
  *
  * Fail-closed everywhere. The lane runs only when the analyzed root IS the booted application
  * (a null root reads as "unknown", not as "assume yes" — a wrong guard is a wrong level, unlike
@@ -108,8 +109,8 @@ final class RuntimeRouterGuards
      * takes any class that extends Laravel's `Authenticate` for a guard and does not read what it does.
      * A route that writes gets the `PUBLIC_WRITE` issue Brain raises for a public one.
      *
-     * The route is read the way {@see guardsByEntryPoint()} reads it, and every doubt keeps Brain's word:
-     * every registered route that shares the node must have the optional login and no guard.
+     * Every registered route that shares the node must have an optional login and no guard. Every doubt
+     * keeps Brain's word.
      *
      * @param  array<string, SecurityShape>  $security  keyed by entry-point node; routes only
      * @return array<string, SecurityShape>
@@ -124,7 +125,7 @@ final class RuntimeRouterGuards
             $routes = $surface['exposure'] === 'authed' ? $this->registered()[$entryPoint] ?? [] : [];
             $logins = array_map($this->optionalLoginOnly(...), $routes);
 
-            if ($logins !== [] && $logins[0] !== null && ! in_array(null, $logins, strict: true)) {
+            if ($logins !== [] && ! in_array(null, $logins, strict: true)) {
                 $security[$entryPoint] = OptionalLoginSurface::of($surface, $entryPoint, $logins[0], $routes);
             }
         }
@@ -144,16 +145,25 @@ final class RuntimeRouterGuards
             // Its own middleware first: the full list asks the controller, and that builds the
             // controller. Brain reads no controller middleware for its exposure either.
             $tokens = array_values(array_filter((array) $route->middleware(), is_string(...)));
-            $login = array_find(array_merge(...array_map($this->classesOf(...), $tokens)), OptionalLogin::by(...));
+            $classes = array_merge(...array_map($this->classesOf(...), $tokens));
+            $login = array_find($classes, OptionalLogin::by(...));
 
-            // A group the project itself names as a guard stays one.
+            // The guards before Laravel's own expansion, which recurses forever on a group cycle that
+            // only the guard read catches.
             return $login !== null
-                && ! array_any($tokens, fn (string $token): bool => isset($this->router()->getMiddlewareGroups()[$token]) && AuthMiddlewareVocabulary::matchesBrainAuthPattern($token))
-                && in_array($login, array_map($this->classOf(...), array_filter($this->router()->gatherRouteMiddleware($route), is_string(...))), strict: true)
-                && $this->recognizedGuards($route) === [] ? $login : null;
+                && ! $this->namesAGuardGroup($tokens)
+                && ! array_any($classes, static fn (string $class): bool => $class !== $login && AuthMiddlewareVocabulary::matchesBrainAuthPattern($class))
+                && $this->recognizedGuards($route) === []
+                && in_array($login, array_map($this->classOf(...), array_filter($this->router()->gatherRouteMiddleware($route), is_string(...))), strict: true) ? $login : null;
         } catch (Throwable) {
             return null;
         }
+    }
+
+    /** @param  list<string>  $tokens */
+    private function namesAGuardGroup(array $tokens): bool
+    {
+        return array_any($tokens, fn (string $token): bool => isset($this->router()->getMiddlewareGroups()[$token]) && AuthMiddlewareVocabulary::matchesBrainAuthPattern($token));
     }
 
     /**
@@ -241,7 +251,7 @@ final class RuntimeRouterGuards
      * its resolved class survives the effective `gatherRouteMiddleware()` stack, so a
      * `withoutMiddleware()` exclusion is never evidence.
      *
-     * @return array<string, string|null>|null  null where the route could not be read
+     * @return array<string, string|null>|null  null where the route could not be read, a group cycle included
      */
     private function recognizedGuards(RoutingRoute $route): ?array
     {

@@ -296,6 +296,16 @@ final class RuntimeRouterGuardsTest extends TestCase
     }
 
     #[Test]
+    public function an_indirect_group_cycle_around_an_optional_login_keeps_brains_word(): void
+    {
+        $this->router()->middlewareGroup('a', ['b', $this->optionalLogin()]);
+        $this->router()->middlewareGroup('b', ['a']);
+        $this->router()->post('/cyclic', static fn (): string => 'ok')->middleware('a');
+
+        $this->assertSame($this->authedSurface(), $this->surfaceAfter('route::POST::/cyclic'));
+    }
+
+    #[Test]
     public function a_cycle_in_an_unrelated_group_does_not_silence_other_routes(): void
     {
         $router = $this->router();
@@ -552,7 +562,6 @@ final class RuntimeRouterGuardsTest extends TestCase
             $this->handling('try { return parent::handle($request, $next, ...$guards); } catch (\Throwable) {}'),
             $this->handling('try { $user = auth("api")->authenticate(); } catch (\Exception $e) { report($e); } finally { }'),
             $this->handling('if ($this->auth->guard("api")->check()) { $this->auth->shouldUse("api"); return $next($request); }'),
-            $this->handling('$request->setUserResolver(fn () => abort(401));'),
             $this->handling(''),
             $this->middleware('protected function unauthenticated($request, array $guards) { /* a guest */ }'),
             $this->middleware('', '\\' . $this->optionalLogin()),
@@ -570,6 +579,10 @@ final class RuntimeRouterGuardsTest extends TestCase
             $this->handling('$this->check($request);'),
             $this->handling('self::guard($request);'),
             $this->handling('\Acme\Tokens::verify($request);'),
+            // A name on the list says nothing on a receiver that is not the request or the auth manager.
+            $this->handling('$this->keys->check($request);'),
+            $this->handling('\Acme\ApiKey::check($request);'),
+            $this->handling('$request->user()->check();'),
             $this->handling('$this->authenticate($request, $guards);'),
             $this->handling('try { $this->authenticate($request, $guards); } catch (\Throwable $e) { throw $e; }'),
             $this->handling('try { $this->authenticate($request, $guards); } catch (\Throwable) { abort(401); }'),
@@ -577,6 +590,10 @@ final class RuntimeRouterGuardsTest extends TestCase
             $this->handling('try { abort(401); } catch (\Illuminate\Auth\AuthenticationException) {}'),
             $this->handling('if (! $request->user()) { return redirect("/login"); }'),
             $this->handling('if (! $request->user()) { throw new \RuntimeException(); }'),
+            $this->handling('if (! $request->user()) { exit; }'),
+            $this->handling('include "guests.php";'),
+            // A resolver runs later, wherever the user is read.
+            $this->handling('$request->setUserResolver(fn () => abort(401));'),
             $this->middleware('public function handle($request, \Closure $next, ...$guards) { if ($request->user()) { return $next($request); } }'),
             $this->middleware('protected function unauthenticated($request, array $guards) { abort(401); }'),
             // Two methods that decide it together.
@@ -599,13 +616,15 @@ final class RuntimeRouterGuardsTest extends TestCase
         $this->router()->post('class', static fn (): string => 'ok')->middleware($login);
         $this->router()->post('alias', static fn (): string => 'ok')->middleware('auth:api');
         $this->router()->post('group', static fn (): string => 'ok')->middleware('members');
+        $this->router()->put('put', static fn (): string => 'ok')->middleware($login);
+        $this->router()->patch('patch', static fn (): string => 'ok')->middleware($login);
 
-        foreach (['class', 'alias', 'group'] as $uri) {
+        foreach (['class' => 'POST', 'alias' => 'POST', 'group' => 'POST', 'put' => 'PUT', 'patch' => 'PATCH'] as $uri => $method) {
             $this->assertSame([
                 'exposure' => 'public',
                 'riskLevel' => 'medium',
-                'issues' => [['type' => 'PUBLIC_WRITE', 'severity' => 'medium', 'message' => "Mutating `POST /{$uri}` requires no authentication — its only auth middleware, {$login}, lets a guest through."]],
-            ], $this->surfaceAfter("route::POST::/{$uri}"), $uri);
+                'issues' => [['type' => 'PUBLIC_WRITE', 'severity' => 'medium', 'message' => "Mutating `{$method} /{$uri}` requires no authentication — its only auth middleware, {$login}, lets a guest through."]],
+            ], $this->surfaceAfter("route::{$method}::/{$uri}"), $uri);
         }
     }
 
@@ -622,6 +641,9 @@ final class RuntimeRouterGuardsTest extends TestCase
         $this->assertSame(['MASS_ASSIGNMENT', 'PUBLIC_WRITE'], array_column($deleted['issues'], 'type'));
         $this->assertSame('high', $deleted['issues'][1]['severity'] ?? null);
         $this->assertSame(['exposure' => 'public'] + $this->authedSurface(), $this->surfaceAfter('route::GET::/notes'));
+
+        $this->router()->post('notes', static fn (): string => 'ok')->middleware($this->optionalLogin());
+        $this->assertSame('high', $this->surfaceAfter('route::POST::/notes', ['riskLevel' => 'high'] + $this->authedSurface())['riskLevel']);
     }
 
     #[Test]
@@ -634,12 +656,18 @@ final class RuntimeRouterGuardsTest extends TestCase
         foreach (['route::POST::/named', 'route::POST::/callbacks/one'] as $entryPoint) {
             $this->assertSame(['exposure' => 'public'] + $this->authedSurface(), $this->surfaceAfter($entryPoint));
         }
+
+        // A trusted twin does not answer for the other.
+        $this->router()->group(['domain' => 'one.example.test'], fn () => $this->router()->post('twins', static fn (): string => 'ok')->middleware($this->optionalLogin())->name('hooks.twin'));
+        $this->router()->group(['domain' => 'two.example.test'], fn () => $this->router()->post('twins', static fn (): string => 'ok')->middleware($this->optionalLogin()));
+        $this->assertSame(['PUBLIC_WRITE'], array_column($this->surfaceAfter('route::POST::/twins')['issues'], 'type'));
     }
 
     #[Test]
     public function brains_word_stands_where_the_optional_login_is_not_proven_to_be_all(): void
     {
-        config(['laravel-brain.security.auth_middleware' => ['partners']]);
+        config(['laravel-brain.security.auth_middleware' => ['partners', PlainTokenMiddleware::class]]);
+        $this->router()->aliasMiddleware('token', PlainTokenMiddleware::class);
         $login = $this->optionalLogin();
         $this->router()->middlewareGroup('secure', [Authenticate::class]);
         $this->router()->middlewareGroup('partners', [PlainTokenMiddleware::class]);
@@ -651,7 +679,9 @@ final class RuntimeRouterGuardsTest extends TestCase
         $this->router()->post('excluded', static fn (): string => 'ok')->middleware($login)->withoutMiddleware($login);
         $this->router()->post('unclear', static fn (): string => 'ok')->middleware($this->handling('$this->refuseGuests($request);'));
         $this->router()->post('plain', static fn (): string => 'ok')->middleware(PlainTokenMiddleware::class);
+        $this->router()->post('configured-alias', static fn (): string => 'ok')->middleware([$login, 'token']);
         $this->router()->post('optional', static fn (): string => 'ok')->middleware($login);
+        $this->router()->post('controller-guarded', [AuthenticatedController::class, 'store'])->middleware($login);
         $this->router()->group(['domain' => 'one.example.test'], function () use ($login): void {
             $this->router()->post('twins', static fn (): string => 'ok')->middleware($login);
         });
@@ -659,7 +689,7 @@ final class RuntimeRouterGuardsTest extends TestCase
             $this->router()->post('twins', static fn (): string => 'ok')->middleware(Authenticate::class);
         });
 
-        foreach (['guarded', 'guarded-group', 'named-group', 'looping', 'excluded', 'unclear', 'plain', 'twins', 'unregistered'] as $uri) {
+        foreach (['guarded', 'guarded-group', 'named-group', 'controller-guarded', 'configured-alias', 'looping', 'excluded', 'unclear', 'plain', 'twins', 'unregistered'] as $uri) {
             $this->assertSame($this->authedSurface(), $this->surfaceAfter("route::POST::/{$uri}"), $uri);
         }
 
@@ -743,6 +773,19 @@ final class UnbuildableController
 }
 
 final class DescendantAuthMiddleware extends Authenticate {}
+
+final class AuthenticatedController implements HasMiddleware
+{
+    public static function middleware(): array
+    {
+        return [Authenticate::class];
+    }
+
+    public function store(): string
+    {
+        return 'ok';
+    }
+}
 
 final class GuardedTestController implements HasMiddleware
 {

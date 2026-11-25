@@ -20,6 +20,8 @@ use SanderMuller\Richter\Graph\CodeGraph;
  * - No longer runs: the new place is one richter can place, and no path of any kind leads to it.
  * - Not compared: everything else. A gate closure, a middleware and a constructor are run by the
  *   framework with no call richter traces, so an absent path says nothing about them.
+ *
+ * @internal
  */
 final readonly class MovedGuards
 {

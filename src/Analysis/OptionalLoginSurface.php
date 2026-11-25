@@ -28,7 +28,7 @@ final class OptionalLoginSurface
 
         $surface['exposure'] = 'public';
 
-        if (! in_array($method, self::WRITES, strict: true) || array_any($routes, self::isTrusted(...))) {
+        if (! in_array($method, self::WRITES, strict: true) || array_all($routes, self::isTrusted(...))) {
             return $surface;
         }
 
@@ -47,7 +47,7 @@ final class OptionalLoginSurface
         return $surface;
     }
 
-    /** Brain's own `trusted_route_names` and `trusted_route_uris`, matched as Brain matches them. */
+    /** Brain's own `trusted_route_names` and `trusted_route_uris`, matched with `fnmatch` as Brain does, a leading `/` aside. */
     private static function isTrusted(Route $route): bool
     {
         $name = $route->getName();

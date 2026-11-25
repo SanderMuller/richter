@@ -3,12 +3,14 @@
 namespace SanderMuller\Richter\Analysis;
 
 use PhpParser\Node;
+use PhpParser\Node\Expr;
 use PhpParser\Node\Expr\CallLike;
 use PhpParser\Node\Expr\Exit_;
 use PhpParser\Node\Expr\FuncCall;
 use PhpParser\Node\Expr\Include_;
 use PhpParser\Node\Expr\MethodCall;
 use PhpParser\Node\Expr\NullsafeMethodCall;
+use PhpParser\Node\Expr\PropertyFetch;
 use PhpParser\Node\Expr\StaticCall;
 use PhpParser\Node\Expr\Throw_;
 use PhpParser\Node\Expr\Variable;
@@ -31,8 +33,8 @@ use SanderMuller\Richter\Support\AppFiles;
  * burden of proof from {@see GuestRefusal}: that one withholds evidence of a guard, so a doubt reads as
  * no refusal. This one contradicts a guard Brain found, so a doubt reads as not optional.
  *
- * Proven by an empty `unauthenticated()`, or by a `handle()` whose last statement is `$next($request)`,
- * that returns nothing else, throws nothing, and calls only what reads the current user. What refuses
+ * Proven by a lone empty `unauthenticated()` override, or by a lone `handle()` override whose last
+ * statement is `return $next($request)`, that returns nothing else, throws nothing, and calls only what reads the current user. What refuses
  * is allowed where a `catch` swallows it.
  *
  * @internal
@@ -41,8 +43,10 @@ final class OptionalLogin
 {
     private const string BASE = 'Illuminate\Auth\Middleware\Authenticate';
 
-    /** Calls that read or set the current user and refuse nobody. */
-    private const array READS = ['auth', 'guard', 'check', 'guest', 'user', 'id', 'hasuser', 'viaremember', 'shoulduse', 'setuser', 'setuserresolver', 'bearertoken', 'report'];
+    /** Calls that refuse nobody: they read or set the current user, or `report()` an exception. */
+    private const array READS = ['auth', 'guard', 'check', 'guest', 'user', 'id', 'hasuser', 'viaremember', 'shoulduse', 'setuser', 'bearertoken', 'report'];
+
+    private const array AUTH_FACADES = ['Illuminate\Support\Facades\Auth', 'Auth'];
 
     private const array CATCH_AUTHENTICATION = ['Illuminate\Auth\AuthenticationException', 'Exception', 'Throwable'];
 
@@ -74,19 +78,25 @@ final class OptionalLogin
 
     private static function alwaysContinues(ClassMethod $handle): bool
     {
-        $parameter = ($handle->params[1] ?? null)?->var;
-        $next = $parameter instanceof Variable ? $parameter->name : null;
+        [$request, $next] = [self::parameterName($handle, 0), self::parameterName($handle, 1)];
         $statements = self::statementsOf($handle);
         $last = array_last($statements);
 
-        return is_string($next)
+        return is_string($request) && is_string($next)
             && $last instanceof Return_
             && self::isNext($last->expr, $next)
-            && self::refusesNobody($statements, $next);
+            && self::refusesNobody($statements, $request, $next);
+    }
+
+    private static function parameterName(ClassMethod $method, int $position): ?string
+    {
+        $variable = ($method->params[$position] ?? null)?->var;
+
+        return $variable instanceof Variable && is_string($variable->name) ? $variable->name : null;
     }
 
     /**
-     * Without the statement a comment on its own reads as.
+     * Skips `Nop`, which php-parser makes of a comment on its own line.
      *
      * @return list<Stmt>
      */
@@ -96,7 +106,7 @@ final class OptionalLogin
     }
 
     /** @param  list<Stmt>  $statements */
-    private static function refusesNobody(array $statements, string $next): bool
+    private static function refusesNobody(array $statements, string $request, string $next): bool
     {
         $nodes = new NodeFinder()->find($statements, static fn (Node $node): bool => true);
 
@@ -105,7 +115,7 @@ final class OptionalLogin
         $tries = array_filter($nodes, self::catchesRefusal(...));
 
         return array_all($nodes, static fn (Node $node): bool => array_any($closures, static fn (Node $closure): bool => self::encloses([$closure], $node))
-            || self::isHarmless($node, $next, array_any($tries, static fn (TryCatch $try): bool => self::encloses($try->stmts, $node))));
+            || self::isHarmless($node, $request, $next, array_any($tries, static fn (TryCatch $try): bool => self::encloses($try->stmts, $node))));
     }
 
     /** @phpstan-assert-if-true TryCatch $node */
@@ -128,12 +138,12 @@ final class OptionalLogin
             && $inner->getEndFilePos() <= $last->getEndFilePos();
     }
 
-    private static function isHarmless(Node $node, string $next, bool $caught): bool
+    private static function isHarmless(Node $node, string $request, string $next, bool $caught): bool
     {
         return match (true) {
             $node instanceof Throw_, $node instanceof Exit_, $node instanceof Include_ => false,
             $node instanceof Return_ => self::isNext($node->expr, $next) || ($caught && self::isParentHandle($node->expr)),
-            $node instanceof CallLike => self::isNext($node, $next) || self::isRead($node) || ($caught && (self::isParentHandle($node) || self::isRefusal($node))),
+            $node instanceof CallLike => self::isNext($node, $next) || self::isRead($node, $request) || ($caught && (self::isParentHandle($node) || self::isRefusal($node))),
             default => true,
         };
     }
@@ -143,15 +153,32 @@ final class OptionalLogin
         return $node instanceof FuncCall && $node->name instanceof Variable && $node->name->name === $next && ! $node->isFirstClassCallable();
     }
 
-    /** A method of the middleware itself can do anything, whatever it is called. */
-    private static function isRead(CallLike $call): bool
+    /** A call of a name on the list, made on the request or the auth manager. Anything else can do anything. */
+    private static function isRead(CallLike $call, string $request): bool
     {
         return match (true) {
-            $call instanceof MethodCall, $call instanceof NullsafeMethodCall => ! HazardSource::isThis($call->var) && self::isNamed($call->name, self::READS),
-            $call instanceof StaticCall => ! self::isOwnClass($call) && self::isNamed($call->name, self::READS),
-            $call instanceof FuncCall => self::isNamed($call->name, self::READS),
+            $call instanceof MethodCall, $call instanceof NullsafeMethodCall => self::isNamed($call->name, self::READS) && self::isAuthReceiver($call->var, $request),
+            $call instanceof StaticCall => self::isAuthFacade($call) && self::isNamed($call->name, self::READS),
+            $call instanceof FuncCall => self::isNamed($call->name, ['auth', 'report']),
             default => false,
         };
+    }
+
+    private static function isAuthReceiver(Expr $receiver, string $request): bool
+    {
+        return match (true) {
+            $receiver instanceof Variable => $receiver->name === $request,
+            $receiver instanceof FuncCall => self::isNamed($receiver->name, ['auth']),
+            $receiver instanceof PropertyFetch => HazardSource::isThis($receiver->var) && self::isNamed($receiver->name, ['auth']),
+            // A guard is the auth manager too; a user is a model, and a model's method can do anything.
+            $receiver instanceof MethodCall, $receiver instanceof NullsafeMethodCall, $receiver instanceof StaticCall => self::isNamed($receiver->name, ['guard']) && self::isRead($receiver, $request),
+            default => false,
+        };
+    }
+
+    private static function isAuthFacade(StaticCall $call): bool
+    {
+        return $call->class instanceof Name && in_array(AppFiles::resolveName($call->class), self::AUTH_FACADES, strict: true);
     }
 
     private static function isRefusal(CallLike $call): bool
@@ -165,11 +192,6 @@ final class OptionalLogin
             && $node->class instanceof Name
             && $node->class->toLowerString() === 'parent'
             && self::isNamed($node->name, ['handle']);
-    }
-
-    private static function isOwnClass(StaticCall $call): bool
-    {
-        return ! $call->class instanceof Name || in_array($call->class->toLowerString(), ['self', 'static', 'parent'], strict: true);
     }
 
     /** @param  list<string>  $names */

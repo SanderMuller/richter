@@ -9,7 +9,9 @@ use Throwable;
  * by both cross-check lanes ({@see PublicWriteAuthCrossCheck} on graph edges,
  * {@see RuntimeRouterGuards} on the booted router) so the security vocabulary cannot fork:
  *
- * - {@see extendsAuthMiddleware()} — ancestry against the four framework bases, by reflection.
+ * - {@see extendsAuthMiddleware()} — ancestry against the four framework bases, by reflection, where
+ *   the class still refuses a guest ({@see GuestRefusal}). {@see letsGuestsThrough()} is the
+ *   descendant that richter cannot show refuses one.
  * - {@see matchesBrainAuthPattern()} — Brain's own pattern semantics over its complete effective
  *   auth set (built-ins plus `laravel-brain.security.auth_middleware`). Brain's matcher is private
  *   upstream, so this is a mirror; `BrainSecurityContractTest` pins it against upstream behaviour.
@@ -19,7 +21,8 @@ use Throwable;
 final class AuthMiddlewareVocabulary
 {
     /**
-     * The framework middlewares whose descendants authenticate a request. Laravel's whole set.
+     * The framework middlewares whose descendants authenticate a request, unless they override the
+     * refusal ({@see GuestRefusal}). Laravel's whole set.
      * Brain 2.6 walks the `extends` chain to all four bases itself, so on the supported floor this
      * ancestry test mostly CORROBORATES Brain rather than out-reaching it — kept pointed at all
      * four regardless, because a base Brain resolves makes a lane silent for that shape, never
@@ -58,8 +61,7 @@ final class AuthMiddlewareVocabulary
 
     /**
      * Whether the class is, or descends from, one of Laravel's authentication middlewares, and refuses a
-     * guest as they do ({@see GuestRefusal}). Reflection
-     * rather than the graph: the ancestry may run through vendor classes richter never scans, and this
+     * guest as they do ({@see GuestRefusal}). Reflection rather than the graph: the ancestry may run through vendor classes richter never scans, and this
      * runs at analysis time where the checkout is already autoloadable. A name that does not resolve
      * to a class (an unresolved alias, a middleware from a package that is not installed) is not
      * evidence of anything, so it reads false — Brain's finding then stands unchallenged, which is the
@@ -70,7 +72,10 @@ final class AuthMiddlewareVocabulary
         return self::loadable($fqcn) && self::descends($fqcn) && GuestRefusal::by($fqcn);
     }
 
-    /** Whether the class extends an auth middleware and lets a guest through, whatever its alias is called. */
+    /**
+     * Whether the class extends an auth middleware that richter cannot show refuses a guest, whatever
+     * its alias is called. No proof that it lets one through: that is {@see OptionalLogin}.
+     */
     public static function letsGuestsThrough(string $fqcn): bool
     {
         return self::loadable($fqcn) && self::descends($fqcn) && ! GuestRefusal::by($fqcn);

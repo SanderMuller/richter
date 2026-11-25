@@ -72,7 +72,7 @@ final class GuestRefusal
 
         return [
             'own' => array_any($nodes, static fn (Node $node): bool => self::refuses($node, $method->getName())),
-            'parent' => array_any($nodes, static fn (Node $node): bool => self::isCallTo($node, 'parent', [$method->getName()])),
+            'parent' => array_any($nodes, static fn (Node $node): bool => self::isParentCall($node, [$method->getName()])),
         ];
     }
 
@@ -97,16 +97,16 @@ final class GuestRefusal
             $node instanceof Throw_ => true,
             $node instanceof FuncCall => $node->name instanceof Name && in_array($node->name->getLast(), self::ABORTS, strict: true),
             $node instanceof MethodCall => HazardSource::isThis($node->var) && self::isNamed($node, array_diff(['authenticate', 'unauthenticated'], [$within])),
-            default => self::isCallTo($node, 'parent', array_diff(['authenticate', 'unauthenticated'], [$within])),
+            default => self::isParentCall($node, array_diff(['authenticate', 'unauthenticated'], [$within])),
         };
     }
 
     /** @param  array<int, string>  $methods */
-    private static function isCallTo(Node $node, string $class, array $methods): bool
+    private static function isParentCall(Node $node, array $methods): bool
     {
         return $node instanceof StaticCall
             && $node->class instanceof Name
-            && $node->class->toLowerString() === $class
+            && $node->class->toLowerString() === 'parent'
             && self::isNamed($node, $methods);
     }
 

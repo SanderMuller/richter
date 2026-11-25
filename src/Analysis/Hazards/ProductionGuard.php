@@ -38,6 +38,7 @@ final class ProductionGuard
         return $first instanceof If_
             && count($first->stmts) === 1
             && $first->stmts[0] instanceof Return_
+            && $first->stmts[0]->expr === null
             && self::holdsInProduction($first->cond, expected: true);
     }
 

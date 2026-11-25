@@ -296,6 +296,7 @@ final class MigrationHazardsTest extends TestCase
             "if (app()->environment('prod*')) { return; }",
             'if (app()->isProduction()) { return; }',
             "if (\\Illuminate\\Support\\Facades\\App::environment('production')) { return; }",
+            "if (App::environment('production')) { return; }",
             "if (\$done || app()->environment('production')) { return; }",
             "if (! app()->environment(['local', 'staging'])) { return; }",
         ] as $guard) {
@@ -311,7 +312,10 @@ final class MigrationHazardsTest extends TestCase
             "if (\$done && app()->environment('production')) { return; }",
             'if (! app()->isProduction()) { return; }',
             "if (app()->environment('production')) { echo 1; }",
+            "if (app()->environment('production')) { return DB::table('posts')->update(['b' => 1]); }",
             "if (\$service->environment('production')) { return; }",
+            "if (\\Acme\\Env::environment('production')) { return; }",
+            "if (app('cache')->environment('production')) { return; }",
         ] as $guard) {
             $this->assertSame(['rows of `posts` updated'], $this->rowEvidence($guard . $write), $guard);
         }
