@@ -286,6 +286,41 @@ final class MigrationHazardsTest extends TestCase
     }
 
     #[Test]
+    public function rows_changed_by_an_up_that_returns_in_production_draw_nothing(): void
+    {
+        $write = " DB::table('posts')->update(['a' => 1]);";
+
+        foreach ([
+            "if (app()->environment(['production', 'testing'])) { return; }",
+            "if (app()->environment('local', 'production')) { return; }",
+            "if (app()->environment('prod*')) { return; }",
+            'if (app()->isProduction()) { return; }',
+            "if (\\Illuminate\\Support\\Facades\\App::environment('production')) { return; }",
+            "if (\$done || app()->environment('production')) { return; }",
+            "if (! app()->environment(['local', 'staging'])) { return; }",
+        ] as $guard) {
+            $this->assertSame([], $this->rowEvidence($guard . $write), $guard);
+            $this->assertSame(['rows of `posts` updated'], $this->rowEvidence($write . $guard), $guard);
+        }
+
+        foreach ([
+            "if (app()->environment('testing')) { return; }",
+            "if (! app()->environment(['local', 'production'])) { return; }",
+            'if (app()->environment($names)) { return; }',
+            "if (! app()->environment(['local', \$name])) { return; }",
+            "if (\$done && app()->environment('production')) { return; }",
+            'if (! app()->isProduction()) { return; }',
+            "if (app()->environment('production')) { echo 1; }",
+            "if (\$service->environment('production')) { return; }",
+        ] as $guard) {
+            $this->assertSame(['rows of `posts` updated'], $this->rowEvidence($guard . $write), $guard);
+        }
+
+        // What it does to the schema is read all the same.
+        $this->assertCount(1, $this->evidence("if (app()->isProduction()) { return; } Schema::table('posts', fn (\$table) => \$table->dropColumn('subtitle'));" . $write));
+    }
+
+    #[Test]
     public function rows_changed_in_down_draw_nothing(): void
     {
         $this->assertSame([], $this->rowEvidence('', down: "DB::table('posts')->delete();"));

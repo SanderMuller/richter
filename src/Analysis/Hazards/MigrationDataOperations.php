@@ -35,6 +35,8 @@ use SanderMuller\Richter\Support\AppFiles;
  * variable two bindings disagree on is not read. A relation is named from its model and read no
  * further: a variable that holds what one answered, or a second relation behind it, draws nothing.
  *
+ * An `up()` that starts by returning in production changes no production row ({@see ProductionGuard}).
+ *
  * Read in `up()` and in the methods of the same class it calls, because a backfill is commonly its own
  * method. A job, a command or a service it starts draws nothing, and neither does a `DB::connection(…)`
  * chain.
@@ -93,6 +95,10 @@ final class MigrationDataOperations
      */
     public static function in(ClassMethod $up, ?ClassLike $class, string $file, ?string $projectRoot): array
     {
+        if (ProductionGuard::opens($up)) {
+            return [];
+        }
+
         $methods = MigrationMethods::calledFrom($up, $class);
         $created = MigrationMethods::createdTables($methods, $class);
         $operations = [];
