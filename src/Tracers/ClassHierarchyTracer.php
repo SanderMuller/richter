@@ -48,11 +48,26 @@ use SanderMuller\Richter\Support\AppFiles;
  */
 final class ClassHierarchyTracer
 {
+    /** Past this many members a family is treated as unlistable: one shared trait can pull in most of an app. */
+    private const int FAMILY_CAP = 200;
+
     /** @var array<string, array{parent: string|null, interfaces: list<string>, methods: list<string>, declared: list<string>, concrete: bool}> keyed by FQCN */
     private array $records = [];
 
     /** @var array<string, true> types an anonymous class extends or implements directly */
     private array $anonymouslyExtended = [];
+
+    /** @var array<string, list<string>> named class-like (a trait included) => the traits it uses directly */
+    private array $traitsUsed = [];
+
+    /** @var array<string, true> traits declared in the scanned tree */
+    private array $traits = [];
+
+    /**
+     * @var array<string, true> class-likes whose callers cannot be listed from their names: a trait an
+     *   anonymous class uses, and a class-like that renames or re-exposes a trait method (`as`, `insteadof`)
+     */
+    private array $openToUnnamedCallers = [];
 
     /**
      * Record every class-like in one file. Fed per file by the consolidated AST loop in
@@ -63,6 +78,8 @@ final class ClassHierarchyTracer
     public function collect(array $classLikes): void
     {
         foreach ($classLikes as $node) {
+            $this->collectTraitUse($node);
+
             // Anonymous classes carry no namespacedName and can be neither an override source nor a
             // target (nothing statically refers to them by name). Traits are copied, not dispatched.
             if ($node instanceof Trait_) {
@@ -95,6 +112,104 @@ final class ClassHierarchyTracer
                 'concrete' => ($node instanceof Class_ && ! $node->isAbstract()) || $node instanceof Enum_,
             ];
         }
+    }
+
+    /** Which traits a class-like uses, for {@see closedFamilyOf()}. Separate from the override records, which leave traits out. */
+    private function collectTraitUse(ClassLike $node): void
+    {
+        $fqcn = $node->namespacedName?->toString();
+        $used = [];
+
+        foreach ($node->getTraitUses() as $traitUse) {
+            foreach ($traitUse->traits as $trait) {
+                $used[] = AppFiles::resolveName($trait);
+            }
+
+            if ($traitUse->adaptations !== [] && $fqcn !== null) {
+                $this->openToUnnamedCallers[$fqcn] = true;
+            }
+        }
+
+        if ($fqcn === null) {
+            foreach ($used as $trait) {
+                $this->openToUnnamedCallers[$trait] = true;
+            }
+
+            return;
+        }
+
+        $this->traitsUsed[$fqcn] = $used;
+
+        if ($node instanceof Trait_) {
+            $this->traits[$fqcn] = true;
+        }
+    }
+
+    /**
+     * Every class-like whose code can call a non-public method `$start` declares, or null when that
+     * set cannot be listed.
+     *
+     * A private method is callable from the class that holds it. A trait's method is held by every
+     * class that uses the trait, and a class holds the methods of every trait it uses, so the set
+     * follows trait use in both directions. A protected method is callable from the ancestors and
+     * descendants as well, so `$withHierarchy` adds the parent chain and the subclasses of each class.
+     *
+     * The set is a superset on purpose: following trait use both ways can pull in a class that only
+     * shares a trait. A caller that reads every member errs toward "cannot prove", never toward a
+     * caller it did not read.
+     *
+     * Null when a member was never scanned (a vendor parent or trait, a file that did not parse),
+     * when an anonymous class extends or uses one, and when one renames a trait method: each of those
+     * has code, or a name, this set cannot list. Null past {@see self::FAMILY_CAP} members too.
+     *
+     * @return list<string>|null
+     */
+    public function closedFamilyOf(string $start, bool $withHierarchy): ?array
+    {
+        $children = [];
+        $users = [];
+
+        foreach ($this->records as $fqcn => $record) {
+            if ($record['parent'] !== null) {
+                $children[$record['parent']][] = $fqcn;
+            }
+        }
+
+        foreach ($this->traitsUsed as $fqcn => $traits) {
+            foreach ($traits as $trait) {
+                $users[$trait][] = $fqcn;
+            }
+        }
+
+        $family = [];
+        $queue = [$start];
+
+        for ($head = 0; isset($queue[$head]); ++$head) {
+            $member = $queue[$head];
+
+            if (isset($family[$member])) {
+                continue;
+            }
+
+            $isClass = isset($this->records[$member]);
+
+            if ((! $isClass && ! isset($this->traits[$member]))
+                || isset($this->openToUnnamedCallers[$member])
+                || isset($this->anonymouslyExtended[$member])
+                || count($family) >= self::FAMILY_CAP
+            ) {
+                return null;
+            }
+
+            $family[$member] = true;
+            array_push($queue, ...$this->traitsUsed[$member] ?? [], ...$users[$member] ?? []);
+
+            if ($withHierarchy && $isClass) {
+                array_push($queue, ...array_filter([$this->records[$member]['parent']]), ...$children[$member] ?? []);
+            }
+        }
+
+        return array_keys($family);
     }
 
     /** @return list<array{source: string, target: string, type: string}> */

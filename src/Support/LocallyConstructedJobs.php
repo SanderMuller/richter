@@ -172,6 +172,17 @@ final class LocallyConstructedJobs
     }
 
     /**
+     * Whether the method reaches its locals by name, or writes one this pass cannot read. A value a
+     * local holds can then change, or be handed out, with no mention of the local to count.
+     */
+    public static function exposesLocals(ClassMethod $method): bool
+    {
+        $counts = self::variableCounts($method);
+
+        return $counts === null || $counts['exposesLocals'];
+    }
+
+    /**
      * The jobs a dispatched variable provably holds, or null when this pass cannot say.
      *
      * @param  array<string, array{pos: int, jobs: list<string>}>  $localJobs

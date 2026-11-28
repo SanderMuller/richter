@@ -159,8 +159,13 @@ final class GraphCache
      * to the app code that model factory runs. A 31 entry lacks that as well, and the
      * `livewire-embed` edge from a Blade view to the Livewire components it embeds. The payload
      * also carries `routeUrlHelpers`, which a 31 entry lacks.
+     *
+     * 32 → 33: a closure wrapped in `CallQueuedClosure::create()` is read as the queued closure it
+     * is, and a dispatch of a non-public method's own parameter is followed to the callers that fill
+     * it (`Bus::batch($jobs)` in a helper). A 32 entry still lists both as unfollowable sites and
+     * lacks the `action-to-job` edges the second one draws.
      */
-    private const int FORMAT_VERSION = 32;
+    private const int FORMAT_VERSION = 33;
 
     private ?CodeGraph $memoized = null;
 

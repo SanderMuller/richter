@@ -34,6 +34,7 @@ use SanderMuller\Richter\Support\DispatchTarget;
 use SanderMuller\Richter\Support\FactoryReturnType;
 use SanderMuller\Richter\Support\LocallyConstructedJobs;
 use SanderMuller\Richter\Support\MappedCollectionJobs;
+use SanderMuller\Richter\Support\ParameterDispatches;
 
 /**
  * Brain resolves the standard dispatch forms — `Job::dispatch()`, `dispatch()`, and, since v2.3.1, the
@@ -107,13 +108,13 @@ final readonly class DispatchEdgeTracer
         );
     }
 
-    /** @return array{edges: list<array{source: string, target: string, type: string}>, unresolvedSites: list<array{line: int, dispatcher: string}>, families: list<array{line: int, dispatcher: string, type: string}>} */
+    /** @return array{edges: list<array{source: string, target: string, type: string}>, unresolvedSites: list<array{line: int, dispatcher: string}>, families: list<array{line: int, dispatcher: string, type: string}>, parameterDispatches: list<array{line: int, dispatcher: string, position: int, mode: 'single'|'array', protected: bool}>} */
     public function edgesForSource(string $source, string $classFqcn): array
     {
         $ast = AppFiles::parseResolved($source);
 
         if ($ast === null) {
-            return ['edges' => [], 'unresolvedSites' => [], 'families' => []];
+            return ['edges' => [], 'unresolvedSites' => [], 'families' => [], 'parameterDispatches' => []];
         }
 
         return $this->edgesForResolvedAst($ast, $classFqcn);
@@ -121,7 +122,7 @@ final readonly class DispatchEdgeTracer
 
     /**
      * @param  list<Node\Stmt>  $ast  a name-resolved AST ({@see AppFiles::parseResolved()})
-     * @return array{edges: list<array{source: string, target: string, type: string}>, unresolvedSites: list<array{line: int, dispatcher: string}>, families: list<array{line: int, dispatcher: string, type: string}>}
+     * @return array{edges: list<array{source: string, target: string, type: string}>, unresolvedSites: list<array{line: int, dispatcher: string}>, families: list<array{line: int, dispatcher: string, type: string}>, parameterDispatches: list<array{line: int, dispatcher: string, position: int, mode: 'single'|'array', protected: bool}>}
      */
     public function edgesForResolvedAst(array $ast, string $classFqcn): array
     {
@@ -203,7 +204,7 @@ final readonly class DispatchEdgeTracer
      * @param  list<ClassMethod>  $classMethods  every ClassMethod in the file, any depth
      * @param  list<ClassLike>  $classLikes  the file's class-likes, read for the string constants that
      *   let `self::SOME_EVENT` be resolved the same way a bare literal is
-     * @return array{edges: list<array{source: string, target: string, type: string}>, unresolvedSites: list<array{line: int, dispatcher: string}>, families: list<array{line: int, dispatcher: string, type: string}>}
+     * @return array{edges: list<array{source: string, target: string, type: string}>, unresolvedSites: list<array{line: int, dispatcher: string}>, families: list<array{line: int, dispatcher: string, type: string}>, parameterDispatches: list<array{line: int, dispatcher: string, position: int, mode: 'single'|'array', protected: bool}>}
      */
     public function edgesForMethods(array $classMethods, string $classFqcn, array $classLikes = []): array
     {
@@ -215,6 +216,7 @@ final readonly class DispatchEdgeTracer
         $edges = [];
         $unresolvedSites = [];
         $families = [];
+        $parameterDispatches = [];
 
         foreach ($classMethods as $method) {
             $dispatcher = ltrim($classFqcn, '\\') . '::' . $method->name->toString();
@@ -261,15 +263,44 @@ final readonly class DispatchEdgeTracer
             // to `__invoke` only when `handle` is absent), so an `__invoke`-only self-handling command
             // draws an edge to a `::handle` node that may not exist — a narrow residual, not a
             // regression: before this widening it drew no edge at all, so selection is no worse.
+            // A dispatch of the method's own PARAMETER names no job here, but the callers of a
+            // non-public method can be listed. It is set aside for {@see ParameterDispatches}, which
+            // reads them once every class is collected, rather than recorded as a site now.
+            $passThrough = $methodDispatches ? ParameterDispatches::passThroughParameters($method) : [];
+            $passedOn = [];
+
             foreach ($calls as $call) {
                 // The whole dispatch statement is the site, not the opaque sub-expression inside it:
                 // that is the line a reader opens to see why the target could not be followed, and it
                 // keeps two opaque items of one `chain()` from reading as two separate places to look.
                 $origin = ['line' => $call->getStartLine(), 'dispatcher' => $dispatcher];
+                $parameter = $passThrough === [] ? null : $this->dispatchedParameter($call, $ownConstants, $passThrough);
+
+                if ($parameter !== null) {
+                    $passedOn[$parameter['name']][] = $origin + ['position' => $parameter['position'], 'mode' => $parameter['mode'], 'protected' => $method->isProtected()];
+
+                    continue;
+                }
 
                 foreach ($this->jobsFromCall($call, $origin, $unresolvedSites, $families, $factoryScope, $ownConstants, $locals) as $jobFqcn) {
                     $target = $this->withDeclaringClass($jobFqcn, $declaringClass);
                     $edges[] = ['source' => $dispatcher, 'target' => $target . '::handle', 'type' => 'action-to-job'];
+                }
+            }
+
+            foreach ($passedOn as $name => $records) {
+                // Passed straight through: the declaration and the dispatch reads are the only
+                // mentions. One more, and something in this method can change what the name holds.
+                $mentions = count(new NodeFinder()->find([$method], static fn (Node $node): bool => $node instanceof Variable && $node->name === $name));
+
+                if ($mentions === 1 + count($records)) {
+                    array_push($parameterDispatches, ...$records);
+
+                    continue;
+                }
+
+                foreach ($records as $record) {
+                    $unresolvedSites[] = ['line' => $record['line'], 'dispatcher' => $record['dispatcher']];
                 }
             }
 
@@ -316,7 +347,33 @@ final readonly class DispatchEdgeTracer
 
         // De-duplicated on the whole record, so a count reads as distinct sites rather than as
         // increments — a `chain()` of two opaque items is one place to look, not two.
-        return ['edges' => AppFiles::dedupeEdges($edges), 'unresolvedSites' => $this->dedupeSites($unresolvedSites), 'families' => array_values(array_unique($families, SORT_REGULAR))];
+        return ['edges' => AppFiles::dedupeEdges($edges), 'unresolvedSites' => $this->dedupeSites($unresolvedSites), 'families' => array_values(array_unique($families, SORT_REGULAR)), 'parameterDispatches' => array_values(array_unique($parameterDispatches, SORT_REGULAR))];
+    }
+
+    /**
+     * The parameter a dispatch call sends, when its argument is one of the method's pass-through
+     * parameters and nothing else: a plain variable, not spread, not named.
+     *
+     * @param  array<string, true>  $stringConstants
+     * @param  array<string, int>  $passThrough  {@see ParameterDispatches::passThroughParameters()}
+     * @return array{name: string, position: int, mode: 'single'|'array'}|null
+     */
+    private function dispatchedParameter(Node $call, array $stringConstants, array $passThrough): ?array
+    {
+        if ($call instanceof CallLike && $call->isFirstClassCallable()) {
+            return null;
+        }
+
+        $site = $this->dispatchSite($call, $stringConstants);
+        $arg = $site !== null && $site['mode'] !== 'class' ? $site['arg'] : null;
+
+        if (! $arg instanceof Arg || $arg->unpack || $arg->name instanceof Identifier || ! $arg->value instanceof Variable || ! is_string($arg->value->name)) {
+            return null;
+        }
+
+        $position = $passThrough[$arg->value->name] ?? null;
+
+        return $position === null ? null : ['name' => $arg->value->name, 'position' => $position, 'mode' => $site['mode']];
     }
 
     /**

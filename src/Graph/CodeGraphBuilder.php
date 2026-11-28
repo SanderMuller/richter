@@ -18,6 +18,7 @@ use SanderMuller\Richter\Support\AppNamespace;
 use SanderMuller\Richter\Support\DispatchFamilies;
 use SanderMuller\Richter\Support\FrameworkHooks;
 use SanderMuller\Richter\Support\HydrationSurface;
+use SanderMuller\Richter\Support\ParameterDispatches;
 use SanderMuller\Richter\Support\ProviderBindings;
 use SanderMuller\Richter\Support\RelationIndex;
 use SanderMuller\Richter\Support\RichterConfig;
@@ -465,6 +466,8 @@ final class CodeGraphBuilder
         $unparseableFiles = 0;
         $unresolvedDispatchSites = [];
         $dispatchFamilies = [];
+        $parameterDispatches = [];
+        $classLikeFiles = [];
 
         foreach (AppFiles::phpClasses($projectRoot . '/app', $projectRoot) as $class) {
             $source = (string) file_get_contents($class['path']);
@@ -502,7 +505,7 @@ final class CodeGraphBuilder
             // bounded to "a dispatchable" (S2), so unlike S1 above this IS change-scopeable.
             $dispatch = $dispatchTracer->mayMatch($source)
                 ? $dispatchTracer->edgesForMethods($collector->classMethods, $class['fqcn'], $collector->classLikes)
-                : ['edges' => [], 'unresolvedSites' => [], 'families' => []];
+                : ['edges' => [], 'unresolvedSites' => [], 'families' => [], 'parameterDispatches' => []];
 
             // The tracer knows the dispatching member and the line; only this loop knows the file, so
             // it stamps the project-relative path the reports print everywhere else.
@@ -514,6 +517,16 @@ final class CodeGraphBuilder
 
             foreach ($dispatch['families'] as $family) {
                 $dispatchFamilies[] = ['file' => $relativePath, ...$family];
+            }
+
+            foreach ($dispatch['parameterDispatches'] as $parameterDispatch) {
+                $parameterDispatches[] = ['file' => $relativePath, ...$parameterDispatch];
+            }
+
+            foreach ($collector->classLikes as $classLike) {
+                if ($classLike->namespacedName !== null) {
+                    $classLikeFiles[$classLike->namespacedName->toString()] = $class['path'];
+                }
             }
 
             array_push($edges, ...$dispatch['edges']);
@@ -553,6 +566,14 @@ final class CodeGraphBuilder
         $families = DispatchFamilies::expand($dispatchFamilies, $hierarchyTracer);
         array_push($edges, ...$families['edges']);
         array_push($unresolvedDispatchSites, ...$families['unresolvedSites']);
+
+        // A dispatched parameter is filled by the callers of its method, which span files too. Read
+        // here for the same reason, and only when a method dispatches one: the callers are parsed again.
+        if ($parameterDispatches !== []) {
+            $passedOn = ParameterDispatches::resolve($parameterDispatches, $hierarchyTracer, $classLikeFiles);
+            array_push($edges, ...$passedOn['edges']);
+            array_push($unresolvedDispatchSites, ...$passedOn['unresolvedSites']);
+        }
 
         // Constant/enum-case member nodes + reader edges — likewise flushed after the loop, because
         // declaring-class resolution spans files.
