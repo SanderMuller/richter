@@ -75,12 +75,6 @@ final class McpServerTracer
      */
     private array $filledInCode = [];
 
-    /** A superset gate: a file that names no MCP class can declare no server and no registration. */
-    public static function mayMatch(string $source): bool
-    {
-        return str_contains($source, 'Mcp');
-    }
-
     /** The server class an `mcp::` node names, or null for any other node. */
     public static function serverOf(string $node): ?string
     {

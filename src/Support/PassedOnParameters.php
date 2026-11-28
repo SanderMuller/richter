@@ -89,7 +89,7 @@ final class PassedOnParameters
      * can be rewritten by the callee's callee, a variadic collects several arguments, and a default
      * is a value no caller passed. And not in a method that hands its locals out by name.
      *
-     * {@see passedOnBy()} still has to show the parameter is passed straight through.
+     * {@see in()} still has to show the parameter is passed straight through.
      *
      * @return array<string, int>
      */

@@ -71,7 +71,8 @@ final class McpRegistrations extends NodeVisitorAbstract
 
         foreach (Finder::create()->files()->in($routes)->name('*.php')->sortByName() as $file) {
             $source = $file->getContents();
-            $ast = McpServerTracer::mayMatch($source) ? AppFiles::parseResolved($source) : null;
+            // A file that names no MCP class holds no registration.
+            $ast = str_contains($source, 'Mcp') ? AppFiles::parseResolved($source) : null;
 
             if ($ast === null) {
                 continue;

@@ -94,16 +94,15 @@ final class UnreadFileImpact
      * @param  Closure(): TestReferenceIndex  $tests  resolved only when a file can be mapped
      * @param  Closure(): CodeGraph  $graph  resolved only for a changed factory or a file with readers
      * @param  Closure(string): ?string  $sourceOf  a file's source on disk, or null when it is gone
-     * @param  string|null  $projectRoot  where {@see NamedFileImpact} reads who names a file; without
-     *   it, a file that is neither a support file nor a factory withdraws the selection
+     * @param  string  $projectRoot  where {@see NamedFileImpact} reads who names a file
      * @param  list<string>  $changedTests  the runnable tests the diff changed, which other tests may extend
      * @return UnreadImpact
      */
-    public static function assess(array $files, Closure $tests, Closure $graph, Closure $sourceOf, ?string $projectRoot = null, array $changedTests = []): array
+    public static function assess(array $files, Closure $tests, Closure $graph, Closure $sourceOf, string $projectRoot, array $changedTests = []): array
     {
         $impact = self::none();
         $named = [];
-        $impactOf = $projectRoot === null ? null : new NamedFileImpact($projectRoot);
+        $impactOf = new NamedFileImpact($projectRoot);
         /** @var array<string, string> $seederOf a seeder that builds through a changed factory => that factory's file */
         $seederOf = [];
 
@@ -133,7 +132,7 @@ final class UnreadFileImpact
             self::record($impact, $file, 'factory', $factory['tests'] ?? null);
 
             // A seeder that builds through the factory runs it too, for every test that runs the seeder.
-            foreach ($factory === null || $impactOf === null ? [] : $impactOf->seedersBuilding($factory['classes']) as $seeder) {
+            foreach ($factory === null ? [] : $impactOf->seedersBuilding($factory['classes']) as $seeder) {
                 $seederOf[$seeder] ??= $file;
             }
         }
@@ -144,9 +143,7 @@ final class UnreadFileImpact
             return $impact;
         }
 
-        $answers = $impactOf === null
-            ? array_fill_keys($named, null)
-            : $impactOf->of($named, static fn (array $support): ?array => $tests()->runnableUsersOf($support));
+        $answers = $impactOf->of($named, static fn (array $support): ?array => $tests()->runnableUsersOf($support));
 
         foreach ($answers as $file => $answer) {
             // What a seeder reaches because it builds through a changed factory is the factory's reach.

@@ -38,6 +38,8 @@ final class UnreadFileImpactTest extends TestCase
             static fn (): TestReferenceIndex => $index,
             static fn (): CodeGraph => new CodeGraph($edges, hasUnparseableFiles: false),
             static fn (string $file): ?string => $sources[$file] ?? null,
+            // No project behind these tests: nothing names a file, and nothing autoloads one.
+            sys_get_temp_dir() . '/richter-no-such-project',
         );
     }
 
@@ -208,6 +210,7 @@ final class UnreadFileImpactTest extends TestCase
             static fn (): TestReferenceIndex => $index,
             static fn (): CodeGraph => new CodeGraph([], hasUnparseableFiles: false),
             static fn (string $file): ?string => null,
+            sys_get_temp_dir() . '/richter-no-such-project',
             changedTests: ['tests/Feature/BaseApiTest.php', 'tests/Feature/PlainTest.php'],
         );
 
@@ -306,9 +309,9 @@ final class UnreadFileImpactTest extends TestCase
     #[Test]
     public function a_file_with_no_mapping_withdraws_the_selection_whether_it_exists_or_not(): void
     {
-        $impact = $this->assess(['config/services.php', 'composer.lock', 'tests/Fixtures/orders.json', 'helpers/strings.php']);
+        $impact = $this->assess(['config/services.php', 'composer.lock', 'tests/Fixtures/orders.json']);
 
-        $this->assertSame(['composer.lock', 'config/services.php', 'helpers/strings.php', 'tests/Fixtures/orders.json'], $impact['vetoed']);
+        $this->assertSame(['composer.lock', 'config/services.php', 'tests/Fixtures/orders.json'], $impact['vetoed']);
     }
 
     #[Test]
