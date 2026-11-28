@@ -20,7 +20,7 @@ It fails safe, and the exit code is the contract:
 | Exit | Meaning |
 |---|---|
 | `0` | Selection determined (possibly empty). |
-| `2` | **Not determinable: run the full suite.** The tests the run did name are still printed, under a heading that calls them a floor rather than the selection, and `--plain` stdout stays empty so a shell fallback still runs everything. Any UNRESOLVED file, low-confidence seed, an unparseable app file, an unfollowable dispatch *that a possible dispatch target in the change's reach could hide*, an uncheckable entry point, or an untracked relevant file `git diff` cannot see trips this. The reasons are printed (text) or carried in `reasons` (JSON). An unfollowable dispatch names each site as `file:line (Dispatcher::method)` so it can be restructured rather than only lived with, though [some shapes cannot be](#unfollowable-dispatches); a low-confidence seed names each member it could not pin as `file (Class::member, kind)`, and the kind is the part that says what to do, a `property` or a `class declaration` has no member node by design, so the verdict is right and there is nothing to restructure. |
+| `2` | **Not determinable: run the full suite.** The tests the run did name are still printed, under a heading that calls them a floor rather than the selection, and `--plain` stdout stays empty so a shell fallback still runs everything. Any UNRESOLVED file, low-confidence seed, an unparseable app file, an unfollowable dispatch *that a possible dispatch target in the change's reach could hide*, an uncheckable entry point, [a changed file no analysis reads](#changed-files-no-analysis-reads), an [MCP server richter only half read](#mcp-servers), or an untracked relevant file `git diff` cannot see trips this. The reasons are printed (text) or carried in `reasons` (JSON). An unfollowable dispatch names each site as `file:line (Dispatcher::method)` so it can be restructured rather than only lived with, though [some shapes cannot be](#unfollowable-dispatches); a low-confidence seed names each member it could not pin as `file (Class::member, kind)`, and the kind is the part that says what to do, a `property` or a `class declaration` has no member node by design, so the verdict is right and there is nothing to restructure. |
 | `1` | Usage or unexpected error. |
 
 The simple form only ever errs toward running more: both an undetermined selection and a determined-but-empty one leave `$(…)` empty, and an argument-less runner executes the full suite.
@@ -45,6 +45,12 @@ A test can drive a route through an app method that returns its URL, such as `$p
 A test that calls `route($page)` takes the name from a variable, usually a data provider. In such a file, every string literal that equals a registered route name references that route.
 
 A test that runs `scramble:export` or `scramble:analyze` reads every route under Scramble's `api_path` (`api` by default). It is selected for a change that reaches one of those routes, but it does not count as a reference in the report.
+
+### MCP servers
+
+A `laravel/mcp` server is an entry surface. `Mcp::web('/mcp', OrderServer::class)` gives the change two entry points: `mcp::App\Mcp\Servers\OrderServer` and `route::POST::/mcp`. A test that names the server class, as the package's helper does in `OrderServer::tool(FindOrderTool::class)`, references the first. A test that posts to the URL references the second. `Mcp::local()` gives the server node alone.
+
+The selection is not determinable when the change reaches a server whose URL richter could not read, because a test that posts to it cannot be matched. It is also not determinable when a server's tools could not be read and the change is, or is called by, a class that can be one. [Coverage](16-coverage.md#known-limits) says which registrations and lists are read.
 
 Only conventionally-named `*Test.php` files are selected; helpers and fixtures under `tests/` never end up as runner arguments, and an entry point that no test names, but a support trait or base class does, selects each test that uses that support file: a test class that `use`s the trait, extends the base class or imports the class (a browser test's page object), directly or through another support file, or a Pest file that names it in `uses()`. When a Pest `uses()->in()` call applies it to a directory, the tests cannot be mapped, so determination is blocked rather than silently dropping them. Selection is reference-based recall, not proof of coverage: reached entry points nothing references contribute nothing, and the report says how many those are.
 
@@ -112,8 +118,25 @@ it. The declared type must name one app class, nullable or not. A union, a built
 such as `ShouldQueue`, or a missing type keeps the site. So does a type with no known dispatch target
 under it. To clear a factory site, declare the factory's return type.
 
-Five shapes look unfollowable and are not counted, because none of them hides anything:
+Seven shapes look unfollowable and are not counted, because none of them hides anything:
 
+- A closure wrapped in the framework's own job. `dispatch(CallQueuedClosure::create(function () { … })->name('rebuild'))`
+  queues the closure that is written there: `create()` only wraps it, and `name()`, `onQueue()`,
+  `onConnection()`, `onGroup()`, `delay()`, `withoutDelay()`, `afterCommit()` and `beforeCommit()` return
+  the same job. A closure that arrives in a variable keeps the site, and so does `chain()`, which adds jobs.
+- A parameter that every caller fills with named jobs. A helper such as
+  `protected function configureBatch(array $jobs) { return Bus::batch($jobs); }` names no job itself.
+  Its callers do, and a private or protected method has a closed set of them: its class, the traits
+  involved and, when protected, the parent classes and subclasses. The site goes when every mention of
+  the method in that set is a plain `$this->configureBatch(...)` call, and each call passes an array
+  richter can read. That is an array written at the call, an accumulator, a mapped collection, or the
+  result of another `$this->` helper whose every declaration returns one of those.
+
+  The bar is the accumulator's. The method must pass its parameter straight to the dispatch and
+  mention it nowhere else. A public or static method keeps the site, because code that names no
+  `$this` can call it. So does a first-class callable, a callable array, a call whose method name is
+  computed, a renamed trait method, and a parent class or trait outside `app/`. A helper that returns
+  another helper's result is not followed.
 - An inline closure. `dispatch(function () { … })` queues the closure itself, and its body sits in the
   same source the tracers already read, so its work already appears as edges out of the dispatching
   member. There is no target to name. The same holds for a closure inside a `Bus::chain([...])`.
@@ -201,6 +224,29 @@ Five shapes look unfollowable and are not counted, because none of them hides an
   `static::` reference whose value a subclass can replace. Each of those would need what this pass
   cannot see, and guessing risks dropping a genuine unfollowable dispatch, so they stay listed.
 
+## Changed files no analysis reads
+
+The analysis reads PHP under `app/`, routes, migrations, Blade views and the configured frontend roots. A diff can change other files that decide a test's result: the base test case, a model factory, `config/services.php`, `composer.lock`. Such a file gets one of three answers.
+
+| The changed file is | Result |
+|---|---|
+| a support class under `tests/` (a trait, a base class, a page object) | the tests that use it are selected |
+| a model factory under `database/factories` | the tests that name its model or the factory class are selected, and those of every model whose factory builds it |
+| anything else | not determinable, unless the path is inert |
+
+A support class maps only when richter can list its users. A file of helper functions, `tests/Pest.php`, a class no test is seen to use, and a class that a Pest directory call binds (`pest()->extend(TestCase::class)->in('Feature')`) all make the selection not determinable. So does a factory richter cannot tie to a model, and a factory that application code builds models through.
+
+Inert paths are files that cannot change a PHP test's result. The built-in list holds prose (`*.md`, `docs/*`), CI definitions, static-analysis and style config, editor and agent settings, and the frontend's packages, build config and assets. Add your own:
+
+```php
+// config/richter.php
+'tests' => [
+    'inert_paths' => ['tools/*', 'resources/api-docs/*'],
+],
+```
+
+**An unknown file is not inert.** Richter cannot tell a helpers file outside `app/` from a script, so the reason names every file that withdrew the selection, and you list the ones that are harmless. Never list a file a test can read or load: config, an `.env` file, `phpunit.xml`, `composer.*`, seeders, language files or fixtures. A wrong entry drops tests with nothing to say so.
+
 ## Tests the runner cannot execute
 
 Richter reads nothing from `phpunit.xml`. It scans the whole `tests/` tree, so a Dusk case is discovered like any other test — and a selection that names one hands `php artisan test` a file that dies in `DuskTestCase`, because passing explicit paths bypasses your testsuite definitions. One consumer measured 482 failures from a change that broke nothing.
@@ -247,6 +293,8 @@ tests/Feature/PostTest.php IS in the selection.
   - it references entry point route::PATCH::/api/posts/{post}
   - it imports App\Services\PostPublisher (a caller of the change)
 ```
+
+A test reached from a changed support file or factory names that file: `it uses the changed support file tests/Support/BuildsPosts.php`.
 
 Every reason is listed, not the first one that matched — the useful question is usually whether *one* of the reasons is the weak one. An import reason says whether the class changed or merely calls the change, because those warrant different amounts of trust.
 
