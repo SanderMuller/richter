@@ -24,7 +24,8 @@ use SanderMuller\Richter\Tracers\McpServerTracer;
  * UNRESOLVED file, a coarse low-confidence seed, an unfollowable dispatch, an uncheckable entry
  * point, references that live only in non-runnable support files, a changed file nothing can map,
  * an MCP server that was only half read), the verdict is "not determinable — run the full suite",
- * never a silently smaller set. Over-selection is the acceptable error; under-selection is the one
+ * never a silently smaller set. An UNRESOLVED class that only tests can reach is the one exception
+ * ({@see WireOnlyClasses}). Over-selection is the acceptable error; under-selection is the one
  * this tool exists to prevent.
  *
  * Two things narrow or describe the result without touching that verdict. Paths the runner cannot
@@ -194,7 +195,7 @@ final class AffectedTests
 
         // An application file that names a changed config key or seeder runs differently, so it is
         // analysed as changed, for the selection only: the document a caller asked for describes
-        // the diff. Without readers the two are one run.
+        // the diff.
         $selectionChanges = UnreadFileImpact::readersAsChanges($unread, $changed, $graph);
         $selectionAnalysis = $unread['readers'] === [] ? $analysisUsed : new ImpactAnalyzer($graph)->detectChanges(
             $selectionChanges,
@@ -203,9 +204,7 @@ final class AffectedTests
             runtimeEvidenceRoot: RichterConfig::runtimeEvidenceRoot($head),
         );
 
-        // A class that only describes a frontend shape has no node, and no PHP outside `tests/` names
-        // it. The selection reads it as placed and takes the tests it reaches; the document still
-        // says UNRESOLVED.
+        // For the selection only: the document the caller gets still reads the class UNRESOLVED.
         $wireOnly = WireOnlyClasses::in($selectionAnalysis['coverage'], $selectionChanges, $sourceOf, base_path(), $selectionTests);
 
         foreach ($wireOnly['placed'] as $file) {

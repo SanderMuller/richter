@@ -26,8 +26,9 @@ use SanderMuller\Richter\Support\AppFiles;
  * A helper file with top-level code is not followed. That code runs wherever the file is loaded, and
  * Pest loads `tests/Helpers.php` and `tests/Datasets/` with no include to find.
  *
- * A regex scan, like the rest of {@see TestReferenceIndex}. Names resolve against the file's
- * namespace and its `use` imports.
+ * A regex scan, like the rest of {@see TestReferenceIndex}. Class names resolve against the file's
+ * namespace and its `use` imports. Function calls match on the last part of the name, and only a
+ * file that declares functions is parsed.
  *
  * @internal
  */
@@ -50,9 +51,6 @@ final class TestSupportUsers
 
     /** @var array<string, list<string>> lower-case name => the files that call it, or name it in a string */
     private array $callers = [];
-
-    /** Call-shaped words that are no function call. */
-    private const array NOT_CALLS = ['array', 'catch', 'declare', 'elseif', 'empty', 'fn', 'for', 'foreach', 'function', 'if', 'include', 'include_once', 'isset', 'list', 'match', 'require', 'require_once', 'return', 'switch', 'unset', 'use', 'while'];
 
     public function add(string $source, string $file): void
     {
@@ -179,13 +177,11 @@ final class TestSupportUsers
 
     /**
      * Indexes the function calls and string callables in a file, and the functions it declares. The
-     * calls are read as words: a call through a variable or a method of the same name is no call,
-     * and a function name in a string can be a callable.
+     * calls are read as words: a call through a variable, `->` or `::` is no call, and a function
+     * name in a string can be a callable.
      */
     private function addFunctionUse(string $source, string $file): void
     {
-        // A call, not a method or a call through a variable, and the last part of a namespaced
-        // string callable.
         if (preg_match_all('/(?<!->)(?<!::)(?<![\w$\\\\])(?:[\w\\\\]+\\\\)?(\w+)\s*\(|[\'"](?:[\w\\\\]+\\\\)?(\w+)[\'"]/', $source, $words, PREG_SET_ORDER) > 0) {
             $called = [];
 
@@ -200,7 +196,7 @@ final class TestSupportUsers
                 }
             }
 
-            foreach (array_keys(array_diff_key($called, array_flip(self::NOT_CALLS))) as $name) {
+            foreach (array_keys($called) as $name) {
                 $this->callers[(string) $name][] = $file;
             }
         }
@@ -236,8 +232,13 @@ final class TestSupportUsers
         $runs = false;
 
         foreach ($statements as $statement) {
+            if ($statement instanceof Function_) {
+                $functions[] = $statement->name->toLowerString();
+
+                continue;
+            }
+
             $runs = match (true) {
-                $statement instanceof Function_ => self::declares($functions, $statement) || $runs,
                 $statement instanceof Namespace_ => self::runsCode($statement->stmts, $functions) || $runs,
                 $statement instanceof If_ && self::isFunctionExistsGuard($statement) => self::runsCode($statement->stmts, $functions) || $runs,
                 $statement instanceof Use_, $statement instanceof GroupUse, $statement instanceof Declare_, $statement instanceof ClassLike, $statement instanceof Nop => $runs,
@@ -246,17 +247,6 @@ final class TestSupportUsers
         }
 
         return $runs;
-    }
-
-    /**
-     * @param  list<string>  $functions
-     * @param-out list<string>  $functions
-     */
-    private static function declares(array &$functions, Function_ $function): bool
-    {
-        $functions[] = $function->name->toLowerString();
-
-        return false;
     }
 
     /** `if (! function_exists('x')) { function x() … }`, with no other branch. */

@@ -68,8 +68,8 @@ final class McpMetadataChangeTest extends TestCase
     public static function editsThatStayCoarse(): Iterator
     {
         yield 'a modifier changed on the same line' => [
-            self::HEADER . "#[Description('Before')] final class StatusTool extends Tool\n{\n" . self::HANDLE . "}\n",
-            self::HEADER . "#[Description('After')] class StatusTool extends Tool\n{\n" . self::HANDLE . "}\n",
+            self::HEADER . "#[Description('Before')] class StatusTool extends Tool\n{\n" . self::HANDLE . "}\n",
+            self::HEADER . "#[Description('After')] final class StatusTool extends Tool\n{\n" . self::HANDLE . "}\n",
         ];
         yield 'a trait use changed too' => [
             self::HEADER . "#[Description('Before')]\nfinal class StatusTool extends Tool\n{\n    use \\App\\Concerns\\First;\n" . self::HANDLE . "}\n",

@@ -2,6 +2,7 @@
 
 namespace SanderMuller\Richter\Changes;
 
+use PhpParser\Node\Attribute;
 use PhpParser\Node\AttributeGroup;
 use PhpParser\Node\Name;
 use PhpParser\Node\Stmt;
@@ -23,9 +24,11 @@ use SanderMuller\Richter\Tracers\McpServerTracer;
  * `#[Description]`, `#[Name]`, `#[Uri]` and the rest are read by the server when it lists the
  * primitive or calls it. The server reaches the primitive through `handle()`
  * ({@see McpServerTracer}), so an edit to that metadata changes what `handle()`'s callers get.
+ * Pinning the edit to `handle()` keeps the server, its route and the tests behind them in the
+ * selection, where a coarse class seed withdraws it at low confidence.
+ *
  * Only on a final class: `laravel/mcp` reads the attributes up the parent chain, so a subclass that
- * declares its own `handle()` would show the edit through a `handle()` this pin does not reach. Pinning it there keeps the server, its route and the tests behind them in the
- * selection, where a coarse class seed would withdraw the selection at low confidence.
+ * declares its own `handle()` would show the edit through a `handle()` this pin does not reach.
  *
  * @internal
  */
@@ -49,7 +52,7 @@ final class McpMetadataChange
      */
     public static function pinnedTo(array $members, string $headSrc, string $baseSrc): ?array
     {
-        if (! str_contains($headSrc, self::ATTRIBUTES) && ! str_contains($baseSrc, self::ATTRIBUTES)) {
+        if (! str_contains($headSrc, 'Laravel\\Mcp\\') && ! str_contains($baseSrc, 'Laravel\\Mcp\\')) {
             return null;
         }
 
@@ -80,8 +83,8 @@ final class McpMetadataChange
     }
 
     /**
-     * The parent decides it. A class that cannot be loaded cannot be shown to be a primitive, so
-     * only a direct `laravel/mcp` parent counts then.
+     * The parent decides it. When the parent cannot be loaded, only a direct `laravel/mcp` parent
+     * counts.
      */
     private static function isPrimitive(Class_ $class): bool
     {
@@ -112,12 +115,6 @@ final class McpMetadataChange
     /** Whether every attribute in the group is a `laravel/mcp` one, read by its resolved name. */
     private static function isMetadata(AttributeGroup $group): bool
     {
-        foreach ($group->attrs as $attribute) {
-            if (! str_starts_with(AppFiles::resolveName($attribute->name), self::ATTRIBUTES)) {
-                return false;
-            }
-        }
-
-        return $group->attrs !== [];
+        return array_all($group->attrs, static fn (Attribute $attribute): bool => str_starts_with(AppFiles::resolveName($attribute->name), self::ATTRIBUTES));
     }
 }

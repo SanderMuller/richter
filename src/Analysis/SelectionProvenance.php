@@ -67,8 +67,9 @@ final class SelectionProvenance
 
     /**
      * @param  'support'|'factory'|'config'|'seeder'|'path'|'class'  $via  how the changed file reaches the test: the
-     *   test uses the support class it declares, imports the model or the factory class, or names
-     *   the config key or the seeder
+     *   test uses the support class or calls the helper functions it declares, imports the model or
+     *   the factory class, names the config key, the seeder or the path, or names the changed
+     *   wire-only class or runs its type generator
      */
     public function reachedFromUnreadFile(string $test, string $file, string $via): void
     {

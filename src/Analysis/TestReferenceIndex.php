@@ -309,8 +309,8 @@ final class TestReferenceIndex
     }
 
     /**
-     * The runnable tests that use a support file from the list: a trait or base class under `tests/`
-     * that a reference was found in. Null when a user cannot be mapped ({@see TestSupportUsers}).
+     * The runnable tests that use a support file from the list: a trait, a base class or a file of
+     * helper functions under `tests/` that a reference was found in. Null when a user cannot be mapped ({@see TestSupportUsers}).
      *
      * @param  list<string>  $files
      * @return list<string>|null

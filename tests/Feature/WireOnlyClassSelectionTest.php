@@ -11,8 +11,8 @@ use SanderMuller\Richter\Tests\TestCase;
 
 /**
  * A class that only describes a shape for the frontend: `#[TypeScript]` generates a type from it,
- * and no application code names it. The graph has no node for it, so the change used to read
- * UNRESOLVED and withdraw the selection, though only the tests that name the class can see it.
+ * and no application code names it, so the graph has no node for it. The tests that name it, use a
+ * support file that names it, or mention the type generator are the ones it can reach.
  */
 final class WireOnlyClassSelectionTest extends TestCase
 {
@@ -99,7 +99,6 @@ final class WireOnlyClassSelectionTest extends TestCase
         $this->assertSame(['tests/Feature/WireShapeTest.php'], $result['tests']);
     }
 
-    /** The scan's own hits select, so every way a test can name the class counts. */
     #[Test]
     public function every_test_that_names_the_class_is_selected(): void
     {
@@ -127,6 +126,57 @@ final class WireOnlyClassSelectionTest extends TestCase
 
         $this->assertTrue($result['determinable']);
         $this->assertSame(['tests/Feature/StringTest.php'], $result['tests']);
+    }
+
+    #[Test]
+    public function a_class_that_nothing_names_selects_nothing_and_is_determinable(): void
+    {
+        $this->write('tests/Feature/UnrelatedTest.php', "<?php\nit('runs', fn () => expect(true)->toBeTrue());\n");
+        $this->changeTheDto();
+
+        $result = $this->select();
+
+        $this->assertTrue($result['determinable']);
+        $this->assertSame([], $result['tests']);
+    }
+
+    /** A trait with no user beside one with users: the empty one is unknown, not unused. */
+    #[Test]
+    public function a_support_file_with_no_users_keeps_it_unresolved_beside_one_with_users(): void
+    {
+        $this->write('tests/Support/BuildsBodies.php', "<?php\nnamespace Tests\\Support;\nuse App\\DataObjects\\StoreOrderBody;\ntrait BuildsBodies\n{\n    public function body(): StoreOrderBody { return new StoreOrderBody('1'); }\n}\n");
+        $this->write('tests/Feature/CheckoutTest.php', "<?php\nuses(Tests\\Support\\BuildsBodies::class);\nit('checks out', fn () => expect(\$this->body())->not->toBeNull());\n");
+        $this->write('tests/Support/MakesBodies.php', "<?php\nnamespace Tests\\Support;\nuse App\\DataObjects\\StoreOrderBody;\ntrait MakesBodies\n{\n    public function make(): StoreOrderBody { return new StoreOrderBody('2'); }\n}\n");
+        $this->changeTheDto();
+
+        $result = $this->select();
+
+        $this->assertFalse($result['determinable']);
+        $this->assertContains('changed file(s) could not be placed in the graph (UNRESOLVED)', $result['reasons']);
+    }
+
+    #[Test]
+    public function application_code_that_runs_the_generator_keeps_it_unresolved(): void
+    {
+        $this->write('app/Console/Commands/SyncTypesCommand.php', "<?php\nnamespace App\\Console\\Commands;\n\nuse Illuminate\\Console\\Command;\nuse Illuminate\\Support\\Facades\\Artisan;\n\nfinal class SyncTypesCommand extends Command\n{\n    protected \$signature = 'app:sync-types';\n\n    public function handle(): int\n    {\n        return Artisan::call('typescript:transform');\n    }\n}\n");
+        $this->changeTheDto();
+
+        $result = $this->select();
+
+        $this->assertFalse($result['determinable']);
+        $this->assertContains('changed file(s) could not be placed in the graph (UNRESOLVED)', $result['reasons']);
+    }
+
+    #[Test]
+    public function a_file_with_a_second_class_keeps_it_unresolved(): void
+    {
+        $this->changeTheDto();
+        $this->write(self::DTO, $this->dto('public string $id, public ?int $quantity = null') . "\nfinal class StoreOrderLine {}\n");
+
+        $result = $this->select();
+
+        $this->assertFalse($result['determinable']);
+        $this->assertContains('changed file(s) could not be placed in the graph (UNRESOLVED)', $result['reasons']);
     }
 
     #[Test]

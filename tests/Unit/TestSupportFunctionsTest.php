@@ -88,6 +88,17 @@ final class TestSupportFunctionsTest extends TestCase
         $this->assertSame(['tests/Feature/MaintenanceTest.php'], $selection['tests']);
     }
 
+    #[Test]
+    public function a_function_a_test_declares_is_followed_to_its_callers(): void
+    {
+        $index = new TestReferenceIndex();
+        $index->addSource("<?php\nfunction buildPayload(): array { return []; }\nit('builds', fn () => expect(buildPayload())->toBe([]));\n", 'tests/Feature/PayloadTest.php');
+        $index->addSource("<?php\nit('posts', fn () => expect(buildPayload())->toBeArray());\n", 'tests/Feature/PostTest.php');
+        $index->addSource("<?php\nit('runs', fn () => expect(true)->toBeTrue());\n", 'tests/Feature/OtherTest.php');
+
+        $this->assertSame(['tests/Feature/PostTest.php'], $index->runnableUsersOf(['tests/Feature/PayloadTest.php']));
+    }
+
     /** @return Iterator<string, array{string}> */
     public static function otherCallForms(): Iterator
     {
@@ -132,7 +143,6 @@ final class TestSupportFunctionsTest extends TestCase
         $this->assertSame(['tests referencing "' . self::ENTRY . '" live only in non-test support files — cannot map them to runnable tests'], $selection['reasons']);
     }
 
-    /** Pest loads `tests/Helpers.php` and `tests/Datasets/` itself, so an include is no list of where the code runs. */
     #[Test]
     public function a_helper_with_top_level_code_keeps_the_veto(): void
     {
