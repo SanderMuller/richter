@@ -66,7 +66,7 @@ final class SelectionProvenance
     }
 
     /**
-     * @param  'support'|'factory'|'config'|'seeder'|'path'  $via  how the changed file reaches the test: the
+     * @param  'support'|'factory'|'config'|'seeder'|'path'|'class'  $via  how the changed file reaches the test: the
      *   test uses the support class it declares, imports the model or the factory class, or names
      *   the config key or the seeder
      */

@@ -278,6 +278,7 @@ final class AffectedTestsCommand extends Command
                 'config' => "it names a key of the changed config file {$file}",
                 'seeder' => "it runs the changed seeder {$file}",
                 'path' => "it names the path of the changed file {$file}",
+                'class' => "it names, or runs the type generator for, the changed class in {$file}, which no application code names",
                 default => "it uses the changed support file {$file}",
             };
         }

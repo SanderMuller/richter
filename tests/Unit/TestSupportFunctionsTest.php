@@ -2,6 +2,8 @@
 
 namespace SanderMuller\Richter\Tests\Unit;
 
+use Iterator;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use SanderMuller\Richter\Analysis\AffectedTests;
 use SanderMuller\Richter\Analysis\TestReferenceIndex;
@@ -84,6 +86,38 @@ final class TestSupportFunctionsTest extends TestCase
         ]);
 
         $this->assertSame(['tests/Feature/MaintenanceTest.php'], $selection['tests']);
+    }
+
+    /** @return Iterator<string, array{string}> */
+    public static function otherCallForms(): Iterator
+    {
+        yield 'an aliased import' => ["<?php\nuse function Tests\\Support\\runMaintenance as maintain;\nit('runs', fn () => maintain());\n"];
+        yield 'a grouped aliased import' => ["<?php\nuse function Tests\\Support\\{runMaintenance as maintain};\nit('runs', fn () => maintain());\n"];
+        yield 'a namespaced string callable' => ["<?php\nit('runs', fn () => call_user_func('Tests\\\\Support\\\\runMaintenance'));\n"];
+        yield 'a call right after an arrow' => ["<?php\nit('runs', fn () =>runMaintenance());\n"];
+        yield 'a fully qualified call' => ["<?php\nit('runs', fn () => \\Tests\\Support\\runMaintenance());\n"];
+    }
+
+    #[Test]
+    #[DataProvider('otherCallForms')]
+    public function other_call_forms_select_the_test(string $source): void
+    {
+        $selection = $this->select(['tests/Feature/MaintenanceTest.php' => $source]);
+
+        $this->assertSame(['tests/Feature/MaintenanceTest.php'], $selection['tests']);
+    }
+
+    /** A sibling reference that cannot be followed must not be dropped because the helper maps. */
+    #[Test]
+    public function an_unfollowable_reference_beside_the_helper_keeps_the_veto(): void
+    {
+        $selection = $this->select([
+            'tests/Pest.php' => "<?php\nuses()->beforeEach(fn () => Illuminate\\Support\\Facades\\Artisan::call('demo:maintain'))->in('Feature');\n",
+            'tests/Feature/MaintenanceTest.php' => "<?php\nit('runs maintenance', fn () => runMaintenance());\n",
+            'tests/Feature/OtherTest.php' => "<?php\nit('runs', fn () => expect(true)->toBeTrue());\n",
+        ]);
+
+        $this->assertFalse($selection['determinable']);
     }
 
     #[Test]

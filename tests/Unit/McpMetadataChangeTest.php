@@ -91,6 +91,10 @@ final class McpMetadataChangeTest extends TestCase
             str_replace('Server\\Tool;', 'Server;', self::HEADER) . "#[Description('Before')]\nfinal class StatusServer extends Server\n{\n" . self::HANDLE . "}\n",
             str_replace('Server\\Tool;', 'Server;', self::HEADER) . "#[Description('After')]\nfinal class StatusServer extends Server\n{\n" . self::HANDLE . "}\n",
         ];
+        yield 'a tool that is not final' => [
+            self::HEADER . "#[Description('Before')]\nclass StatusTool extends Tool\n{\n" . self::HANDLE . "}\n",
+            self::HEADER . "#[Description('After')]\nclass StatusTool extends Tool\n{\n" . self::HANDLE . "}\n",
+        ];
         yield 'a class that is no primitive' => [
             self::HEADER . "#[Description('Before')]\nfinal class StatusTool\n{\n" . self::HANDLE . "}\n",
             self::HEADER . "#[Description('After')]\nfinal class StatusTool\n{\n" . self::HANDLE . "}\n",

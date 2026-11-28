@@ -27,7 +27,7 @@ use SanderMuller\Richter\Tracers\FactoryModels;
  * changed: a class that reads a changed config key runs differently, and what that reaches is the
  * ordinary question the analysis already answers.
  *
- * @phpstan-type UnreadReason array{file: string, via: 'support'|'factory'|'config'|'seeder'|'path'}
+ * @phpstan-type UnreadReason array{file: string, via: 'support'|'factory'|'config'|'seeder'|'path'|'class'}
  * @phpstan-type UnreadImpact array{selected: array<string, list<UnreadReason>>, vetoed: list<string>, readers: array<string, list<UnreadReason>>}
  *
  * @internal
@@ -306,10 +306,8 @@ final class UnreadFileImpact
      * The tests that use a changed support file, or null when that cannot be said.
      *
      * Two answers from {@see TestSupportUsers} are not a mapping. A null is its own "cannot map".
-     * And an empty list is unknown, not unused. A file that declares no class (helper functions,
-     * `tests/Pest.php`) has no class to follow, so it always answers empty. A class with no user can
-     * be used by a convention no scan reads: a request factory that a library finds by the form
-     * request's name.
+     * And an empty list is unknown, not unused. A class with no user can be used by a convention no
+     * scan reads: a request factory that a library finds by the form request's name.
      *
      * @return list<string>|null
      */
@@ -377,8 +375,8 @@ final class UnreadFileImpact
         $support = array_values(array_diff($found, $runnable));
         $users = $tests->runnableUsersOf($support);
 
-        // A support file that declares no class and no function has users this scan cannot follow.
-        if ($users === null || array_any($support, static fn (string $file): bool => ! $tests->canFollowSupportFile($file))) {
+        // A support file whose users cannot be followed answers null.
+        if ($users === null) {
             return null;
         }
 

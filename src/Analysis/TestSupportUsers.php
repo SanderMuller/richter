@@ -98,10 +98,20 @@ final class TestSupportUsers
         $this->addFunctionUse($source, $file);
     }
 
-    /** Whether the file declares a class, a trait or a function, so that its users can be followed. */
-    public function canFollow(string $file): bool
+    /** Whether the file declares a class or trait, so that its users can be followed. */
+    public function declaresClass(string $file): bool
     {
-        return in_array($file, $this->declaredIn, strict: true) || isset($this->functionsIn[$file]);
+        return in_array($file, $this->declaredIn, strict: true);
+    }
+
+    /** Whether a file is a test, or declares a class, a trait or a function whose users can be followed. */
+    private function followable(string $file): bool
+    {
+        if (isset($this->classless[$file])) {
+            return false;
+        }
+
+        return TestReferenceIndex::runnableOnly([$file]) !== [] || $this->declaresClass($file) || isset($this->functionsIn[$file]);
     }
 
     /**
@@ -109,13 +119,17 @@ final class TestSupportUsers
      * the given files declares, or call a function one of them declares. Null when a user cannot be
      * mapped to test files: a file that is no test and declares nothing to follow, such as a Pest
      * `uses()->in()` call in `tests/Pest.php` or a Pest dataset file, applies to tests this scan does
-     * not resolve.
+     * not resolve. That holds for a given file as much as for a user found on the way.
      *
      * @param  list<string>  $files
      * @return list<string>|null
      */
     public function runnableUsersOf(array $files): ?array
     {
+        if (array_any($files, fn (string $file): bool => ! $this->followable($file))) {
+            return null;
+        }
+
         $pending = $files;
         $seen = [];
         $users = [];
@@ -130,7 +144,7 @@ final class TestSupportUsers
             $seen[$file] = true;
 
             foreach ($this->dependentsOf($file) as $user) {
-                if (isset($this->classless[$user]) || (TestReferenceIndex::runnableOnly([$user]) === [] && ! $this->canFollow($user))) {
+                if (! $this->followable($user)) {
                     return null;
                 }
 
@@ -164,16 +178,26 @@ final class TestSupportUsers
     }
 
     /**
-     * Indexes the function calls and string callables in a file, and the functions it declares. The calls are read as words: a call through a variable or a method of the same name
-     * is no call, and a function name in a string can be a callable.
+     * Indexes the function calls and string callables in a file, and the functions it declares. The
+     * calls are read as words: a call through a variable or a method of the same name is no call,
+     * and a function name in a string can be a callable.
      */
     private function addFunctionUse(string $source, string $file): void
     {
-        if (preg_match_all('/(?<![\w$>:])(\w+)\s*\(|[\'"](\w+)[\'"]/', $source, $words, PREG_SET_ORDER) > 0) {
+        // A call, not a method or a call through a variable, and the last part of a namespaced
+        // string callable.
+        if (preg_match_all('/(?<!->)(?<!::)(?<![\w$\\\\])(?:[\w\\\\]+\\\\)?(\w+)\s*\(|[\'"](?:[\w\\\\]+\\\\)?(\w+)[\'"]/', $source, $words, PREG_SET_ORDER) > 0) {
             $called = [];
 
             foreach ($words as $word) {
-                $called[strtolower(($word[1] ?? '') !== '' ? $word[1] : ($word[2] ?? ''))] = true;
+                $called[strtolower(implode('', array_slice($word, 1)))] = true;
+            }
+
+            // Every name in a `use function` statement, so an alias or a group still counts.
+            if (preg_match_all('/^use\s+function\s+([^;]+);/m', $source, $imports) > 0 && preg_match_all('/\w+/', implode(' ', $imports[1]), $names) > 0) {
+                foreach ($names[0] as $name) {
+                    $called[strtolower($name)] = true;
+                }
             }
 
             foreach (array_keys(array_diff_key($called, array_flip(self::NOT_CALLS))) as $name) {

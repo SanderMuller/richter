@@ -99,6 +99,48 @@ final class WireOnlyClassSelectionTest extends TestCase
         $this->assertSame(['tests/Feature/WireShapeTest.php'], $result['tests']);
     }
 
+    /** The scan's own hits select, so every way a test can name the class counts. */
+    #[Test]
+    public function every_test_that_names_the_class_is_selected(): void
+    {
+        $this->write('tests/Feature/NamespaceTest.php', "<?php\nuse App\\DataObjects;\nit('maps', fn () => expect(DataObjects\\StoreOrderBody::class)->toBeString());\n");
+        $this->write('tests/Feature/StringTest.php', "<?php\nit('maps', fn () => expect(class_exists('App\\\\DataObjects\\\\StoreOrderBody'))->toBeTrue());\n");
+        $this->write('tests/Support/BuildsBodies.php', "<?php\nnamespace Tests\\Support;\nuse App\\DataObjects\\StoreOrderBody;\ntrait BuildsBodies\n{\n    public function body(): StoreOrderBody { return new StoreOrderBody('1'); }\n}\n");
+        $this->write('tests/Feature/CheckoutTest.php', "<?php\nuses(Tests\\Support\\BuildsBodies::class);\nit('checks out', fn () => expect(\$this->body())->not->toBeNull());\n");
+        $this->write('tests/Feature/TypesTest.php', "<?php\nit('keeps the types current', fn () => \$this->artisan('typescript:transform')->assertSuccessful());\n");
+        $this->write('tests/Feature/UnrelatedTest.php', "<?php\nit('runs', fn () => expect(true)->toBeTrue());\n");
+        $this->changeTheDto();
+
+        $result = $this->select();
+
+        $this->assertTrue($result['determinable']);
+        $this->assertSame(['tests/Feature/CheckoutTest.php', 'tests/Feature/NamespaceTest.php', 'tests/Feature/StringTest.php', 'tests/Feature/TypesTest.php'], $result['tests']);
+    }
+
+    #[Test]
+    public function a_test_that_names_the_class_in_a_string_is_selected(): void
+    {
+        $this->write('tests/Feature/StringTest.php', "<?php\nit('maps', fn () => expect(class_exists('App\\\\DataObjects\\\\StoreOrderBody'))->toBeTrue());\n");
+        $this->changeTheDto();
+
+        $result = $this->select();
+
+        $this->assertTrue($result['determinable']);
+        $this->assertSame(['tests/Feature/StringTest.php'], $result['tests']);
+    }
+
+    #[Test]
+    public function a_support_file_whose_users_cannot_be_listed_keeps_it_unresolved(): void
+    {
+        $this->write('tests/Datasets/Bodies.php', "<?php\nuse App\\DataObjects\\StoreOrderBody;\ndataset('bodies', [[StoreOrderBody::class]]);\n");
+        $this->changeTheDto();
+
+        $result = $this->select();
+
+        $this->assertFalse($result['determinable']);
+        $this->assertContains('changed file(s) could not be placed in the graph (UNRESOLVED)', $result['reasons']);
+    }
+
     #[Test]
     public function a_wire_class_that_application_code_names_stays_unresolved(): void
     {

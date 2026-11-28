@@ -22,8 +22,9 @@ use SanderMuller\Richter\Tracers\McpServerTracer;
  *
  * `#[Description]`, `#[Name]`, `#[Uri]` and the rest are read by the server when it lists the
  * primitive or calls it. The server reaches the primitive through `handle()`
- * ({@see McpServerTracer}), so an edit to that metadata changes what `handle()`'s callers get and
- * nothing else. Pinning it there keeps the server, its route and the tests behind them in the
+ * ({@see McpServerTracer}), so an edit to that metadata changes what `handle()`'s callers get.
+ * Only on a final class: `laravel/mcp` reads the attributes up the parent chain, so a subclass that
+ * declares its own `handle()` would show the edit through a `handle()` this pin does not reach. Pinning it there keeps the server, its route and the tests behind them in the
  * selection, where a coarse class seed would withdraw the selection at low confidence.
  *
  * @internal
@@ -36,8 +37,8 @@ final class McpMetadataChange
 
     /**
      * The changed members with `handle()` among them, standing for the class-level edit. Null when
-     * anything else at class level changed too, or the class is not a primitive that declares its
-     * own `handle()`.
+     * anything else at class level changed too, or the class is not a final primitive that declares
+     * its own `handle()`.
      *
      * The declarations are compared as code, with the metadata attributes and the members taken
      * out. Members are diffed on their own, so only the class header and its non-member statements,
@@ -48,10 +49,14 @@ final class McpMetadataChange
      */
     public static function pinnedTo(array $members, string $headSrc, string $baseSrc): ?array
     {
+        if (! str_contains($headSrc, self::ATTRIBUTES) && ! str_contains($baseSrc, self::ATTRIBUTES)) {
+            return null;
+        }
+
         $head = self::declaration($headSrc);
         $base = self::declaration($baseSrc);
 
-        if (! $head instanceof Class_ || ! $base instanceof Class_ || ! $head->getMethod('handle') instanceof ClassMethod || ! self::isPrimitive($head)) {
+        if (! $head instanceof Class_ || ! $head->isFinal() || ! $base instanceof Class_ || ! $head->getMethod('handle') instanceof ClassMethod || ! self::isPrimitive($head)) {
             return null;
         }
 

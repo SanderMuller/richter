@@ -204,9 +204,16 @@ final class AffectedTests
         );
 
         // A class that only describes a frontend shape has no node, and no PHP outside `tests/` names
-        // it. The selection reads it as placed; the document still says UNRESOLVED.
-        foreach (WireOnlyClasses::in($selectionAnalysis['coverage'], $selectionChanges, $sourceOf, base_path()) as $file) {
+        // it. The selection reads it as placed and takes the tests it reaches; the document still
+        // says UNRESOLVED.
+        $wireOnly = WireOnlyClasses::in($selectionAnalysis['coverage'], $selectionChanges, $sourceOf, base_path(), $selectionTests);
+
+        foreach ($wireOnly['placed'] as $file) {
             $selectionAnalysis['coverage'][$file] = 'analyzed';
+        }
+
+        foreach ($wireOnly['selected'] as $test => $reasons) {
+            $unread['selected'][$test] = [...$unread['selected'][$test] ?? [], ...$reasons];
         }
 
         $selection = self::select(
