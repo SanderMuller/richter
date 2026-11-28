@@ -320,6 +320,12 @@ final class TestReferenceIndex
         return $this->supportUsers->runnableUsersOf($files);
     }
 
+    /** Whether a file under `tests/` declares a class or trait, so that its users can be followed. */
+    public function declaresSupportClass(string $file): bool
+    {
+        return $this->supportUsers->declaresClass($file);
+    }
+
     /**
      * The test files that name a model factory class, by import or by qualified name. A test can
      * build a model through `PostFactory::new()` and never import the model.

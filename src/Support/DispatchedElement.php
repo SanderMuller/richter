@@ -16,9 +16,10 @@ use SanderMuller\Richter\Tracers\DispatchEdgeTracer;
 /**
  * What one element of a dispatched array provably holds, plus the one guess {@see namedConstructorTarget()}.
  *
- * Two readers ask this. {@see DispatchEdgeTracer} reads a literal written in the dispatch call, and
- * {@see AccumulatedArrayJobs} reads the literal that starts a local and every append to it. Both
- * claim what the array holds, so they ask here and cannot read one element two ways.
+ * Three readers ask this. {@see DispatchEdgeTracer} reads a literal written in the dispatch call,
+ * {@see AccumulatedArrayJobs} reads the literal that starts a local and every append to it, and
+ * {@see ParameterDispatches} reads what a caller passes or a helper returns. Each claims what the
+ * array holds, so they ask here and cannot read one element two ways.
  *
  * @internal
  */

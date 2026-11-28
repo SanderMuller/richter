@@ -190,6 +190,8 @@ final class ParameterDispatchBuildTest extends TestCase
         yield 'a method name that is not written out' => ['$method = "configure" . "Batch"; $this->{$method}($unknown);', ''];
         yield 'a second call in another letter case' => ['$this->configureBatch($this->buildJobs($orders))->dispatch(); $this->CONFIGUREBATCH($unknown)->dispatch();', ''];
         yield 'a callable array in another letter case' => ['$this->configureBatch($this->buildJobs($orders))->dispatch(); call_user_func([$this, "ConfigureBatch"], $unknown);', ''];
+        yield 'a static call of the method' => ['$this->configureBatch($this->buildJobs($orders))->dispatch(); self::configureBatch($unknown);', ''];
+        yield 'a nullsafe call of the method' => ['$this->configureBatch($this->buildJobs($orders))->dispatch(); $this?->configureBatch($unknown);', ''];
         yield 'a call on another object' => ['$other = new self(); $other->configureBatch($unknown)->dispatch();', ''];
         yield 'a helper that returns something unproven' => ['$this->configureBatch($this->loadJobs())->dispatch();', 'protected function loadJobs(): array { return cache()->get("jobs"); }'];
         yield "a helper that returns another helper's result" => ['$this->configureBatch($this->wrap($orders))->dispatch();', 'protected function wrap(array $orders): array { return $this->buildJobs($orders); }'];

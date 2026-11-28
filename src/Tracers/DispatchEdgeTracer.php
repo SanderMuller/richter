@@ -45,7 +45,10 @@ use SanderMuller\Richter\Support\PassedOnParameters;
  * signal for a variable or factory-call argument, so such a job reads as "unknown", not "none".
  * A factory call with an app return type is the exception: it is returned as a `families` entry, which
  * {@see CodeGraphBuilder} fans out to edges, or turns back into a site, once every class is collected.
- * An inline closure and a string literal are deliberately NOT that signal — see {@see dispatchSite()}.
+ * A dispatch of a non-public method's own parameter is the other exception: it is returned as a
+ * `parameterDispatches` entry, which {@see ParameterDispatches} resolves against the method's callers.
+ * An inline closure, bare or wrapped in the framework's queued-closure job, and a string literal are
+ * deliberately NOT that signal — see {@see dispatchSite()} and {@see DispatchedElement}.
  * Dev/CI tooling only.
  *
  * A resolved target is recognised via the shared {@see DispatchTarget} predicate (plan 043), so the

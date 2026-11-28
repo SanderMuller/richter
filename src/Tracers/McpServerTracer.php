@@ -27,7 +27,7 @@ use SanderMuller\Richter\Support\AppFiles;
  *
  * - `route::POST::{uri}` to `mcp::{server}`, for a web registration whose URI can be read;
  * - `mcp::{server}` to `{primitive}::handle`, for every class in the server's `$tools`,
- *   `$resources` and `$prompts`.
+ *   `$resources` and `$prompts`. A server that lists a `$skills` entry is marked unread.
  *
  * Static, like every other tracer: it reads the route files ({@see McpRegistrations}) and the
  * server classes {@see CodeGraphBuilder} already parsed, and loads no class.
@@ -96,7 +96,7 @@ final class McpServerTracer
                 continue;
             }
 
-            if ($classLike->getTraitUses() !== [] || $this->touchesAList($classLike)) {
+            if ($classLike->getTraitUses() !== [] || $this->touchesAList($classLike) || $this->listsSkills($classLike)) {
                 $this->filledInCode[$fqcn] = true;
             }
 
@@ -174,6 +174,18 @@ final class McpServerTracer
         }
 
         return array_values(array_unique(array_merge(...array_values($found))));
+    }
+
+    /**
+     * Whether the class lists a skill. A skill is a class or a directory of prose, and the package
+     * serves it without a `handle()` this could draw an edge to, so a server that lists one is not
+     * read in full.
+     */
+    private function listsSkills(Class_ $class): bool
+    {
+        $skills = $class->getProperty('skills')?->props[0]->default;
+
+        return $skills instanceof Expr && (! $skills instanceof Array_ || $skills->items !== []);
     }
 
     /** Whether a method of the class names one of the lists: `$this->tools[] = …`, `array_merge($this->tools, …)`. */

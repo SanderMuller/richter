@@ -94,10 +94,13 @@ final class NamedFileImpactTest extends TestCase
             'tests/Feature/UnrelatedTest.php' => "<?php\nconfig(['planning.mode' => 'x']);\n",
             'tests/Feature/WordTest.php' => "<?php\n\$menu = ['plans' => 'Plans'];\n",
             'tests/Feature/FacadeTest.php' => "<?php\n\$all = \\Config::get('plans');\n",
+            'tests/Feature/RepositoryTest.php' => "<?php\n\$all = config()->array('plans');\n",
+            'tests/Feature/InjectedTest.php' => "<?php\n\$all = \$this->config->get('plans');\n",
+            'bootstrap/cache/config.php' => "<?php\nreturn ['plans' => ['basic' => 1], 'x' => 'plans.basic'];\n",
         ]);
 
         $this->assertSame([], $impact['vetoed']);
-        $this->assertEqualsCanonicalizing(['tests/Feature/PlanTest.php', 'tests/Feature/WholeFileTest.php', 'tests/Feature/FacadeTest.php'], $impact['selected']);
+        $this->assertEqualsCanonicalizing(['tests/Feature/PlanTest.php', 'tests/Feature/WholeFileTest.php', 'tests/Feature/FacadeTest.php', 'tests/Feature/RepositoryTest.php', 'tests/Feature/InjectedTest.php'], $impact['selected']);
         $this->assertEqualsCanonicalizing([self::READER, 'app/Services/Typed.php'], $impact['readers']);
     }
 
@@ -132,6 +135,15 @@ final class NamedFileImpactTest extends TestCase
             self::READER => $reader,
             'composer.json' => '{"autoload": {"psr-4": {"Modules\\\\": "modules/"}}}',
             'modules/Billing/Plan.php' => "<?php\nnamespace Modules\\Billing;\nfinal class Plan\n{\n    public function price(): int { return config('plans.basic'); }\n}\n",
+        ]];
+        yield 'a Composer files entry names the key' => [[
+            self::READER => $reader,
+            'composer.json' => '{"autoload": {"files": ["helpers/plans.php"]}}',
+            'helpers/plans.php' => "<?php\nfunction basicPlan(): int { return config('plans.basic'); }\n",
+        ]];
+        yield 'a view in a directory called cache names the key' => [[
+            self::READER => $reader,
+            'resources/views/cache/plans.blade.php' => "<p>{{ config('plans.basic') }}</p>\n",
         ]];
         yield 'nothing names the key' => [[
             self::READER => "<?php\nnamespace App\\Services;\nfinal class Pricing\n{\n    public function handle(): mixed { return config(\$this->key); }\n}\n",

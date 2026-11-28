@@ -117,7 +117,8 @@ final class RichterConfig
     /**
      * Globs for changed files that cannot change the result of a PHP test: the built-in list plus
      * `richter.tests.inert_paths`. The config only ever ADDS. A project cannot take a built-in entry
-     * away, and has no reason to: a file on the list is one no PHP test reads.
+     * away. A project whose tests do read one, a README for example, has that test named by path
+     * elsewhere: the list only says the file is not loaded.
      *
      * @return list<string>
      */

@@ -35,12 +35,13 @@ use SanderMuller\Richter\Tracers\FactoryModels;
 final class UnreadFileImpact
 {
     /**
-     * Files that cannot change the result of a PHP test: prose, CI definitions, static-analysis and
-     * style configuration, editor and agent settings, and the frontend's packages, build
-     * configuration and assets. `phpunit.xml`, every `.env` file and `composer.*` are deliberately
-     * absent: each one can.
+     * Files that by convention do not change the result of a PHP test: prose, CI definitions,
+     * static-analysis and style configuration, editor and agent settings, and the frontend's
+     * packages, build configuration and sources. `phpunit.xml`, every `.env` file and `composer.*`
+     * are deliberately absent: each one can.
      *
-     * `fnmatch()`'s default flags, where `*` crosses `/`, as `tests.unrunnable_paths` reads its globs.
+     * A glob with a `/` crosses directories. A glob without one matches a file in the project root
+     * only ({@see matches()}), which `tests.unrunnable_paths` does not do.
      */
     public const array DEFAULT_INERT = [
         '*.md', 'docs/*', '.github/*', '.gitlab/*', 'LICENSE*', 'CHANGELOG*',
@@ -192,10 +193,11 @@ final class UnreadFileImpact
     /**
      * Whether a reader can be analysed as changed.
      *
-     * An application class always can. Every node of an application class that is in an edge
-     * carries its file, so a class the graph holds no node for is one nothing calls: it reaches
-     * nothing, and the tests that import it are still selected by its name. A route file or a view
-     * needs its nodes, and any other file (another config file, a provider's bootstrap) has none.
+     * A PHP file under `app/` always can. Every node of an application class that is in an edge
+     * carries its file, so a file the graph holds no node for is one nothing in the graph calls: it
+     * reaches no entry point there, and the tests that import its class are still selected by name.
+     * Code the framework runs with no edge to it (a provider's `boot()`) is the gap this leaves. A
+     * route file or a view needs its nodes, and any other file (another config file) has none.
      *
      * @param  Closure(): CodeGraph  $graph
      */
@@ -372,8 +374,14 @@ final class UnreadFileImpact
         $runnable = TestReferenceIndex::runnableOnly($found);
         // A support trait that builds the model stands for the tests that use the trait: they need
         // not import the model themselves.
-        $users = $tests->runnableUsersOf(array_values(array_diff($found, $runnable)));
+        $support = array_values(array_diff($found, $runnable));
+        $users = $tests->runnableUsersOf($support);
 
-        return $users === null ? null : ['tests' => array_values(array_unique([...$runnable, ...$users])), 'classes' => $classes];
+        // A file of helper functions that builds the model has callers no class relation shows.
+        if ($users === null || array_any($support, static fn (string $file): bool => ! $tests->declaresSupportClass($file))) {
+            return null;
+        }
+
+        return ['tests' => array_values(array_unique([...$runnable, ...$users])), 'classes' => $classes];
     }
 }

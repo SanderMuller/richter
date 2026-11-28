@@ -161,6 +161,8 @@ final class McpServerBuildTest extends TestCase
         yield 'a prefix in the attribute array' => ["Route::group(['prefix' => 'v2', 'middleware' => 'auth'], function (): void { Mcp::web('/mcp', OrderServer::class); });", '/v2/mcp'];
         yield 'nested literal prefixes' => ["Route::prefix('api')->group(function (): void { Route::prefix('v2')->group(function (): void { Mcp::web('/mcp', OrderServer::class); }); });", '/api/v2/mcp'];
         yield 'a group with no prefix' => ["Route::middleware('auth')->group(function (): void { Mcp::web('/mcp', OrderServer::class)->middleware('throttle'); });", '/mcp'];
+        yield 'after a group with a prefix has closed' => ["Route::prefix('api')->group(function (): void { Route::get('/ping', fn () => 'pong'); });\nMcp::web('/mcp', OrderServer::class);", '/mcp'];
+        yield 'a group written as an arrow function' => ["Route::prefix('api')->group(fn () => Mcp::web('/mcp', OrderServer::class));", '/api/mcp'];
         yield 'inside a condition' => ["if (config('mcp.enabled')) { Mcp::web('/mcp', OrderServer::class); }", '/mcp'];
     }
 
@@ -216,6 +218,7 @@ final class McpServerBuildTest extends TestCase
             'app/Mcp/Servers/OrderServer.php' => self::server('protected array $tools = [FindOrderTool::class];', 'BaseServer'),
             'app/Mcp/Servers/BaseServer.php' => self::server('protected function boot(): void {}', class: 'BaseServer'),
         ]];
+        yield 'a listed skill' => [['app/Mcp/Servers/OrderServer.php' => self::server('protected array $tools = [FindOrderTool::class]; protected array $skills = ["resources/skills/orders"];')]];
         yield 'a list filled in the constructor' => [['app/Mcp/Servers/OrderServer.php' => self::server('protected array $tools = [FindOrderTool::class]; public function __construct() { $this->tools[] = ListOrdersTool::class; }')]];
         yield 'a trait on the server' => [['app/Mcp/Servers/OrderServer.php' => self::server('use \App\Mcp\Servers\Concerns\RegistersTools; protected array $tools = [FindOrderTool::class];')]];
         yield 'a parent outside the scanned tree' => [['app/Mcp/Servers/OrderServer.php' => self::server('protected array $tools = [FindOrderTool::class];', '\Vendor\Package\SharedServer')]];
@@ -230,6 +233,17 @@ final class McpServerBuildTest extends TestCase
         $edges = $this->mcpEdges(['routes/ai.php' => $this->routes("Mcp::local('orders', OrderServer::class);")] + $files);
 
         $this->assertSame([self::NODE . ' -[mcp-primitives-unread]-> mcp-unread::' . self::SERVER], $this->rendered($edges));
+    }
+
+    #[Test]
+    public function a_server_named_by_a_variable_is_marked_as_one_this_cannot_read(): void
+    {
+        $edges = $this->mcpEdges(['routes/ai.php' => $this->routes("Mcp::web('/mcp', \$server);")]);
+
+        $this->assertSame(
+            ['mcp::(unknown) -[mcp-primitives-unread]-> mcp-unread::(unknown)'],
+            array_values(array_filter($this->rendered($edges), static fn (string $edge): bool => str_contains($edge, 'primitives-unread'))),
+        );
     }
 
     #[Test]

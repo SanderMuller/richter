@@ -173,7 +173,7 @@ final class UnreadFileImpactTest extends TestCase
             'tests/Feature/GroupedTest.php' => "<?php\nuse Database\\Factories\\{CommentFactory, PostFactory};\n",
             'tests/Feature/QualifiedTest.php' => "<?php\n\\Database\\Factories\\PostFactory::new();\n",
             'tests/Feature/UnrelatedTest.php' => "<?php\nuse App\\Models\\Tag;\n",
-            'tests/Support/PostFixtures.php' => "<?php\nuse App\\Models\\Post;\n",
+            'tests/Support/PostFixtures.php' => "<?php\nnamespace Tests\\Support;\nuse App\\Models\\Post;\nfinal class PostFixtures {}\n",
         ], sources: ['database/factories/PostFactory.php' => self::POST_FACTORY]);
 
         $this->assertSame([], $impact['vetoed']);
@@ -195,6 +195,18 @@ final class UnreadFileImpactTest extends TestCase
 
         $this->assertSame([], $impact['vetoed']);
         $this->assertSame(['tests/Feature/UsesTraitTest.php'], array_keys($impact['selected']));
+    }
+
+    #[Test]
+    public function a_file_of_helper_functions_that_builds_the_model_withdraws_the_selection(): void
+    {
+        // `createPost()` is called by tests that import neither the model nor the file.
+        $impact = $this->assess(['database/factories/PostFactory.php'], [
+            'tests/Helpers.php' => "<?php\nuse App\\Models\\Post;\nfunction createPost(): Post { return Post::factory()->create(); }\n",
+            'tests/Feature/PostTest.php' => "<?php\nuse App\\Models\\Post;\n",
+        ], sources: ['database/factories/PostFactory.php' => self::POST_FACTORY]);
+
+        $this->assertSame(['database/factories/PostFactory.php'], $impact['vetoed']);
     }
 
     #[Test]

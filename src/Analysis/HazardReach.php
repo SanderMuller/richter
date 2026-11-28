@@ -47,7 +47,7 @@ final readonly class HazardReach
      *   consumed through the same overturn door as the two graph-based ones
      * @param  (callable(list<array{depth: int, node: string, via: string}>): list<string>)|null  $entryPointsAmong
      *   the analyzer's own entry-point classification. Passed in rather than reimplemented because
-     *   the vocabulary is wider than the `route::`/`command::`/`schedule::` prefixes: a Livewire,
+     *   the vocabulary is wider than the `route::`/`command::`/`schedule::`/`mcp::` prefixes: a Livewire,
      *   Filament or Nova CLASS is an entry surface too, and a prefix filter would drop those — sending
      *   a removed member reached only through one of them to `no-known-path`, and a tier-1 hazard on
      *   it to LOW.

@@ -5,7 +5,7 @@ namespace SanderMuller\Richter\Analysis;
 /**
  * Which test classes use a support file under `tests/`: a trait or base class the tests `use` or
  * extend, a class they import (a browser test's page object), or one they name in a Pest `uses()`
- * call. A route that only such a file names is still driven by
+ * call or a `pest()->extend()->use()` chain. A route that only such a file names is still driven by
  * each test that uses it, so {@see AffectedTests} can select those tests instead of the whole suite.
  *
  * A regex scan, like the rest of {@see TestReferenceIndex}. Names resolve against the file's
@@ -67,6 +67,12 @@ final class TestSupportUsers
         if (! $declares && $used !== [] && TestReferenceIndex::runnableOnly([$file]) === []) {
             $this->classless[$file] = true;
         }
+    }
+
+    /** Whether the file declares a class or trait, so that its users can be followed. */
+    public function declaresClass(string $file): bool
+    {
+        return in_array($file, $this->declaredIn, strict: true);
     }
 
     /**

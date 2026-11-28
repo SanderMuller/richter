@@ -21,6 +21,9 @@ use SanderMuller\Richter\Support\ComposerAutoloadPaths;
  * reads it, and code that reads a file names its path. So what names its top-level directory as a
  * path is what can read it, and a file nothing names is inert.
  *
+ * Only a path written as a literal that starts with the name is found. A path put together at
+ * runtime (`"{$root}/stubs/x"`), and one that only package code names, reads as inert.
+ *
  * Each answer is the tests to select and the files to analyse as if they had changed, or null when
  * the file withdraws the selection. A reader is any file that names the changed one and is no
  * test: application code, a route file, a view, another config file. Whether the graph can place
@@ -40,8 +43,8 @@ final class NamedFileImpact
 
     /**
      * Code that runs the default seeder: the test property, the bare call, or the artisan forms.
-     * Read in tests, application code and route files only. A migration or another seeder that
-     * holds one of these words does not run when a test runs.
+     * Read in `tests/`, `app/` and `routes/` only: a migration or another seeder that holds one of
+     * these words is not what decides whether a test seeds.
      */
     private const string RUNS_DEFAULT_SEEDER = '/\$seed\s*=\s*true|function\s+shouldSeed\b|->seed\(\s*\)|[\'"]db:seed[\'"]|--seed\b/';
 
@@ -120,11 +123,12 @@ final class NamedFileImpact
 
             $key = preg_quote($key, '/');
 
-            // A dotted key under the file, or the whole file asked for by name. The bare word is not
-            // enough: `'site'` is also an array key.
+            // A dotted key under the file, or the whole file asked for by name through `config()`,
+            // the facade or the repository: `config()->array('plans')`, `$config->get('plans')`.
+            // The bare word alone is not enough: `'site'` is also an array key.
             return $this->shippedByAPackage($file)
                 ? null
-                : "/['\"]{$key}\.[^'\"]*['\"]|\bconfig\(\s*['\"]{$key}['\"]|\bConfig::\w+\(\s*['\"]{$key}['\"]/i";
+                : "/['\"]{$key}\.[^'\"]*['\"]|(?:\bconfig|(?:->|::)\w+)\(\s*['\"]{$key}['\"]/i";
         }
 
         if (str_starts_with($file, self::SEEDERS) && str_ends_with($file, '.php')) {
@@ -264,6 +268,7 @@ final class NamedFileImpact
      * Whether a package reads this config file: it ships one of the same name under its own
      * `config/`, or one of its service providers merges a file under this key or publishes one to
      * this name. The framework and the package then read the published copy in code this never scans.
+     * A provider is found in the package's `src/` or one directory below it, by its file name.
      */
     private function shippedByAPackage(string $file): bool
     {

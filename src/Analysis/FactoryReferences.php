@@ -9,8 +9,9 @@ namespace SanderMuller\Richter\Analysis;
  * factory has to find its tests by the factory class as well ({@see UnreadFileImpact}). Kept apart
  * from {@see TestReferenceIndex}'s class map, which holds application classes only.
  *
- * A regex scan, like the rest of the index. Strings and comments can over-match, which only ever
- * selects a test too many.
+ * A regex scan, like the rest of the index, for names under `Database\Factories\` only. Strings
+ * and comments can over-match, which selects a test too many, or withdraws the selection when the
+ * match sits in a support file whose users cannot be listed.
  *
  * @internal
  */

@@ -19,9 +19,11 @@ use SanderMuller\Richter\Tracers\McpServerTracer;
  * Inverts the test-reference mapping into a test selection: which test files exercise the surface
  * a diff can reach? Selection runs on two axes — tests referencing any reached entry point, and
  * tests importing any changed class or any class that REACHES it (a unit test never touches an
- * entry point) — and fails safe: whenever the analysis cannot vouch for completeness (an UNRESOLVED file, a coarse
- * low-confidence seed, an unfollowable dispatch, an uncheckable entry point, references that live
- * only in non-runnable support files), the verdict is "not determinable — run the full suite",
+ * entry point) — plus the tests a changed file outside every analysis lane reaches
+ * ({@see UnreadFileImpact}). It fails safe: whenever the analysis cannot vouch for completeness (an
+ * UNRESOLVED file, a coarse low-confidence seed, an unfollowable dispatch, an uncheckable entry
+ * point, references that live only in non-runnable support files, a changed file nothing can map,
+ * an MCP server that was only half read), the verdict is "not determinable — run the full suite",
  * never a silently smaller set. Over-selection is the acceptable error; under-selection is the one
  * this tool exists to prevent.
  *
@@ -130,8 +132,8 @@ final class AffectedTests
         $unreadFiles = UnreadFileImpact::candidates($outOfScope, RichterConfig::inertTestPaths());
         $sourceOf = static fn (string $file): ?string => is_file(base_path($file)) ? (string) file_get_contents(base_path($file)) : null;
 
-        // Neither the graph nor the test index is built unless an unread file needs one: a
-        // docs-only diff must stay as cheap as it was.
+        // Neither the graph nor the test index is built unless an unread file or a changed test
+        // needs one: a docs-only diff must stay as cheap as it was.
         $graphOnce = self::once(static fn (): CodeGraph => $graphs->graph(fresh: $fresh));
         $unread = $unreadFiles === [] && $changedTests === [] ? UnreadFileImpact::none() : UnreadFileImpact::assess(
             $unreadFiles,
@@ -587,8 +589,9 @@ final class AffectedTests
      *
      * @param  array{entryPoints: list<string>, selectionCallers?: list<array{depth: int, node: string, via: string}>, ...}  $result
      * @param  list<ChangedFileSymbols>  $changed
-     * @param  list<string>  $readers  classes analysed as changed because they name a changed config
-     *   file or seeder, so `--explain` does not call them part of the diff
+     * @param  list<string>  $readers  classes that name a changed file no analysis reads (a config
+     *   file, a seeder, a path). One that the diff did not change itself is labelled `reader`, so
+     *   `--explain` does not call it part of the diff
      * @return array<string, 'changed'|'caller'|'reader'>
      */
     private static function classesToMatch(array $result, array $changed, array $readers = []): array
@@ -597,7 +600,8 @@ final class AffectedTests
 
         foreach ($changed as $file) {
             if ($file->fqcn !== '') {
-                $classes[$file->fqcn] = in_array($file->fqcn, $readers, strict: true) ? 'reader' : 'changed';
+                // A reader the diff also changed keeps its members, and stays `changed`.
+                $classes[$file->fqcn] = $file->members === [] && in_array($file->fqcn, $readers, strict: true) ? 'reader' : 'changed';
             }
 
             foreach ($file->directSeeds as $seed) {
@@ -719,8 +723,8 @@ final class AffectedTests
 
     /**
      * The class FQCN a graph node id refers to, or null for a node whose structural prefix is never
-     * a bus-dispatch target (a route/view/command/schedule/middleware/model surface, or an ambiguous
-     * short controller/action id). A plain `Class::method` id yields its class segment.
+     * a bus-dispatch target (a route/view/command/schedule/middleware/model/MCP-server surface, or an
+     * ambiguous short controller/action id). A plain `Class::method` id yields its class segment.
      */
     private static function classOfNode(string $node): ?string
     {

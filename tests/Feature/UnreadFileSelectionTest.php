@@ -170,6 +170,20 @@ final class UnreadFileSelectionTest extends TestCase
     }
 
     #[Test]
+    public function a_changed_abstract_test_selects_the_tests_that_extend_it(): void
+    {
+        $this->write('tests/Feature/BaseApiTest.php', "<?php\nnamespace Tests\\Feature;\nabstract class BaseApiTest {}\n");
+        $this->write('tests/Feature/OrderApiTest.php', "<?php\nnamespace Tests\\Feature;\nfinal class OrderApiTest extends BaseApiTest {}\n");
+        $this->write('tests/Feature/PlainTest.php', "<?php\nnamespace Tests\\Feature;\nfinal class PlainTest {}\n");
+        $this->fakeDiffOf(['tests/Feature/BaseApiTest.php']);
+
+        $result = $this->select();
+
+        $this->assertSame(0, $result['exit']);
+        $this->assertSame(['tests/Feature/BaseApiTest.php', 'tests/Feature/OrderApiTest.php'], $result['document']['tests']);
+    }
+
+    #[Test]
     public function a_directory_bound_base_test_case_withdraws_the_selection(): void
     {
         // The measured failure: a base case that `pest()->extend()->in()` applies to a directory

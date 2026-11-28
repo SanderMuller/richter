@@ -117,7 +117,8 @@ return [
         // (docs, CI workflows, static-analysis and style config, editor settings, frontend
         // packages and assets). Most files need no entry: a file outside the directories Laravel
         // loads is already inert when no code names it. Use this for a path richter treats as
-        // loaded and that no test reads, such as 'lang/vendor/*'. Globs as above.
+        // loaded and that no test reads, such as 'lang/vendor/*'. A glob with a `/` crosses
+        // directories, as above. A glob without one names a file in the project root only.
         //
         // Never list a file the tests can read or load: config, `.env.*`, `phpunit.xml`,
         // `composer.*`, language files, fixtures, or PHP outside `app/`. A wrong entry drops

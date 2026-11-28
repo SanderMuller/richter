@@ -44,7 +44,7 @@ final class EntryPointsResource extends Resource
     /**
      * Every statically-known entry surface — the same definition detect-changes reports,
      * via {@see ImpactAnalyzer}'s own predicates (single source): `route::`/`command::`/
-     * `schedule::` nodes plus Livewire/Filament/Nova component classes, member nodes
+     * `schedule::`/`mcp::` nodes plus Livewire/Filament/Nova component classes, member nodes
      * normalised onto the class. A self-listed entry class is diff-relative by nature
      * and cannot appear in a static inventory.
      *
