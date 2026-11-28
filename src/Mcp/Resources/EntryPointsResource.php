@@ -15,7 +15,7 @@ final class EntryPointsResource extends Resource
 
     protected string $mimeType = 'application/json';
 
-    protected string $description = 'Every statically-known entry surface of this app — route::/command::/schedule:: nodes plus Livewire/Filament/Nova component classes — each with its kind and defining file:line when known. The same definition detect-changes reports; diff-relative self-listed entry classes are not part of a static inventory. The first read in a session builds the code graph (cached afterwards).';
+    protected string $description = 'Every statically-known entry surface of this app — route::/command::/schedule::/mcp:: nodes plus Livewire/Filament/Nova component classes — each with its kind and defining file:line when known. The same definition detect-changes reports; diff-relative self-listed entry classes are not part of a static inventory. The first read in a session builds the code graph (cached afterwards).';
 
     public function __construct(private readonly GraphCache $graphs) {}
 

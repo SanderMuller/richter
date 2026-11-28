@@ -188,7 +188,7 @@ final readonly class HazardReach
         // vocabulary, so it can only under-report reach, never over-report it.
         return array_values(array_filter(
             array_column($callers, 'node'),
-            static fn (string $node): bool => str_starts_with($node, 'route::') || str_starts_with($node, 'command::') || str_starts_with($node, 'schedule::'),
+            static fn (string $node): bool => str_starts_with($node, 'route::') || str_starts_with($node, 'command::') || str_starts_with($node, 'schedule::') || str_starts_with($node, 'mcp::'),
         ));
     }
 

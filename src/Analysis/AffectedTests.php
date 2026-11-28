@@ -11,7 +11,9 @@ use SanderMuller\Richter\Graph\CodeGraph;
 use SanderMuller\Richter\Graph\GraphCache;
 use SanderMuller\Richter\Support\AppNamespace;
 use SanderMuller\Richter\Support\DispatchTarget;
+use SanderMuller\Richter\Support\LoadableClass;
 use SanderMuller\Richter\Support\RichterConfig;
+use SanderMuller\Richter\Tracers\McpServerTracer;
 
 /**
  * Inverts the test-reference mapping into a test selection: which test files exercise the surface
@@ -465,6 +467,7 @@ final class AffectedTests
         // Both shapes the `$graph` param documents read unreferenced without it — under-selection.
         if ($graph instanceof CodeGraph) {
             $tests->useGraph($graph);
+            $reasons = [...$reasons, ...self::unreadMcpReasons($graph, $result, $changed)];
         }
 
         $selected = [...$changedTests, ...array_keys($unread['selected'])];
@@ -704,6 +707,69 @@ final class AffectedTests
     }
 
     /**
+     * What an MCP server {@see McpServerTracer} only half read costs this selection.
+     *
+     * A server whose URI could not be read has no `route::` node, so a test that posts to its
+     * endpoint cannot be matched. That matters exactly when the change reaches the server.
+     *
+     * A server whose primitive list could not be read can run a tool the graph draws no edge to. The
+     * hidden edge is `server → someTool::handle`, so it can only hide a caller of the change when the
+     * change is, or is reached from, a class that can be an MCP primitive. The same scoping an
+     * unfollowable dispatch gets ({@see changeReachesDispatchable()}), and it fails the same way: a
+     * class that cannot be loaded counts as one.
+     *
+     * @param  array{entryPoints: list<string>, selectionOnlyEntryPoints?: list<string>, callers?: list<array{node: string, depth: int, via: string, file?: string, line?: int}>, ...}  $result
+     * @param  list<ChangedFileSymbols>  $changed
+     * @return list<string>
+     */
+    private static function unreadMcpReasons(CodeGraph $graph, array $result, array $changed): array
+    {
+        $reasons = [];
+        $reached = array_values(array_filter(
+            [...$result['entryPoints'], ...$result['selectionOnlyEntryPoints'] ?? []],
+            static fn (string $node): bool => str_starts_with($node, McpServerTracer::NODE_PREFIX),
+        ));
+
+        $withoutUri = array_values(array_filter($reached, static fn (string $node): bool => $graph->outgoingTargetsOfType([$node], McpServerTracer::UNREAD_URI_EDGE) !== []));
+
+        if ($withoutUri !== []) {
+            $reasons[] = 'the change reaches an MCP server whose URL could not be read, so tests that post to it cannot be matched: '
+                . implode(', ', array_map(self::mcpServerName(...), $withoutUri));
+        }
+
+        if (! $graph->hasEdgeType(McpServerTracer::UNREAD_PRIMITIVES_EDGE)) {
+            return $reasons;
+        }
+
+        $classes = array_filter(array_map(static fn (ChangedFileSymbols $file): string => $file->fqcn, $changed));
+
+        foreach ($result['callers'] ?? [] as $hop) {
+            $classes[] = self::classOfNode($hop['node']);
+        }
+
+        if (array_any($classes, static fn (?string $class): bool => $class !== null && self::canBeMcpPrimitive($class))) {
+            $servers = array_map(self::mcpServerName(...), array_filter($graph->nodes(), static fn (string $node): bool => str_starts_with($node, McpServerTracer::UNREAD_PREFIX)));
+            sort($servers);
+
+            $reasons[] = 'the tools, resources or prompts of an MCP server could not be read, and one of them can run the change: '
+                . implode(', ', array_values(array_unique($servers)));
+        }
+
+        return $reasons;
+    }
+
+    private static function mcpServerName(string $node): string
+    {
+        return (string) preg_replace('/^mcp(?:-unread)?::/', '', $node);
+    }
+
+    /** Whether a class is, or cannot be shown not to be, a tool, a resource or a prompt. */
+    private static function canBeMcpPrimitive(string $class): bool
+    {
+        return ! LoadableClass::exists($class) || is_subclass_of($class, McpServerTracer::PRIMITIVE);
+    }
+
+    /**
      * The sites as one comma-separated `file:line (Dispatcher::method)` run, capped like every other
      * rendered breadth list in the reports ({@see ImpactFormatter}'s `LIST_CAP`) — a project that
      * dispatches dynamically throughout would otherwise bury the other reasons beside this one.
@@ -730,7 +796,7 @@ final class AffectedTests
      */
     private static function classOfNode(string $node): ?string
     {
-        foreach (['route::', 'view::', 'command::', 'schedule::', 'middleware::', 'model::', 'controller::', 'action::'] as $prefix) {
+        foreach (['route::', 'view::', 'command::', 'schedule::', 'middleware::', 'model::', 'controller::', 'action::', McpServerTracer::NODE_PREFIX, McpServerTracer::UNREAD_PREFIX] as $prefix) {
             if (str_starts_with($node, $prefix)) {
                 return null;
             }

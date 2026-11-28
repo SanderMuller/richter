@@ -8,6 +8,7 @@ use Illuminate\Support\Str;
 use SanderMuller\Richter\Graph\CodeGraph;
 use SanderMuller\Richter\Support\AppNamespace;
 use SanderMuller\Richter\Support\RichterConfig;
+use SanderMuller\Richter\Tracers\McpServerTracer;
 use Symfony\Component\Finder\Finder;
 use Throwable;
 
@@ -380,6 +381,15 @@ final class TestReferenceIndex
 
         if (str_starts_with($entryPointNode, 'schedule::')) {
             return $this->console()->resolveSchedule($entryPointNode);
+        }
+
+        // An MCP server. The package's test helper drives one through its class,
+        // `OrderServer::actingAs($user)->tool(FindOrderTool::class)`, so a test naming the server
+        // references it. A test that posts to the endpoint matches the server's `route::` node instead.
+        if (str_starts_with($entryPointNode, McpServerTracer::NODE_PREFIX)) {
+            $server = substr($entryPointNode, strlen(McpServerTracer::NODE_PREFIX));
+
+            return ['referenced' => isset($this->classes[$server]), 'tests' => $this->classes[$server] ?? []];
         }
 
         // A self-listed entry-point class (a changed listener/job with no app-side caller) — a test

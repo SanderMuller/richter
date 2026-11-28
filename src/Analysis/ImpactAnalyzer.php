@@ -15,6 +15,7 @@ use SanderMuller\Richter\Support\Fqcn;
 use SanderMuller\Richter\Support\HydrationSurface;
 use SanderMuller\Richter\Support\ReachReasons;
 use SanderMuller\Richter\Support\RichterConfig;
+use SanderMuller\Richter\Tracers\McpServerTracer;
 use SanderMuller\Richter\Tracers\ModelFactoryTracer;
 
 /**
@@ -34,7 +35,7 @@ use SanderMuller\Richter\Tracers\ModelFactoryTracer;
 final readonly class ImpactAnalyzer
 {
     /** @internal the prefix vocabulary {@see isEntryPointNode()} matches — shared with richter's own composition (e.g. the MCP entry-points resource's kind labels), not a consumer API */
-    public const array ENTRY_POINT_PREFIXES = ['route::', 'command::', 'schedule::'];
+    public const array ENTRY_POINT_PREFIXES = ['route::', 'command::', 'schedule::', McpServerTracer::NODE_PREFIX];
 
     private const array ENTRY_POINT_NAMESPACES = ['\\Jobs\\', '\\Console\\Commands\\', '\\Listeners\\', '\\Livewire\\', '\\Filament\\', '\\Nova\\', '\\Observers\\', '\\Http\\Middleware\\'];
 
@@ -72,11 +73,13 @@ final readonly class ImpactAnalyzer
      * all of them. Counting that would let one edit to the resolver saturate the level on breadth,
      * while the reach it carries — which is what gives a registry-dispatched class any caller at all
      * — is exactly what must keep flowing.
+     * The `mcp-*` edges link an MCP server to every primitive it lists, and to the marker for what
+     * could not be read. A server lists all its tools, so the link says a tool can run, not that it does.
      * `factory` links a model's factory to the code it runs. The factory is test code, so what it
      * reaches is not production impact; it is there for test selection.
      * Reach, coverage, and entry-point discovery still flow through these edges.
      */
-    public const array RISK_EXCLUDED_EDGE_TYPES = ['model-relationship', 'declares', 'uses-trait', 'override', 'model-to-policy', 'config-registry', 'config-registry-fanout', 'factory'];
+    public const array RISK_EXCLUDED_EDGE_TYPES = ['model-relationship', 'declares', 'uses-trait', 'override', 'model-to-policy', 'config-registry', 'config-registry-fanout', 'factory', McpServerTracer::ROUTE_EDGE, McpServerTracer::PRIMITIVE_EDGE, McpServerTracer::UNREAD_URI_EDGE, McpServerTracer::UNREAD_PRIMITIVES_EDGE];
 
     /**
      * Edges that carry CONTEXT rather than a call, for the purpose of finding entry points.
@@ -1139,7 +1142,7 @@ final readonly class ImpactAnalyzer
     }
 
     /**
-     * Whether the node id is an entry-point node by prefix (`route::`/`command::`/`schedule::`).
+     * Whether the node id is an entry-point node by prefix (`route::`/`command::`/`schedule::`/`mcp::`).
      *
      * @internal the entry-surface vocabulary richter's own composition shares (e.g. the MCP
      *   entry-points resource) — not a consumer API

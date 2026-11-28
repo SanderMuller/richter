@@ -86,7 +86,7 @@ final class ImpactTool extends Tool
             // The map-shaped fields are plain object() rather than an object|array anyOf:
             // anyOf() is missing from Illuminate\JsonSchema on this package's framework floor, and
             // an empty PHP map JSON-encodes as [] — the description carries that caveat instead.
-            'entryPoints' => $schema->array()->items($schema->string())->description('Entry surfaces among the callers: route::/command::/schedule:: nodes and Livewire/Filament/Nova component classes. Capped at 15; entryPointsTotal carries the full count, entries: [...] keeps named nodes visible past the cap, full: true lifts it.'),
+            'entryPoints' => $schema->array()->items($schema->string())->description('Entry surfaces among the callers: route::/command::/schedule::/mcp:: nodes and Livewire/Filament/Nova component classes. Capped at 15; entryPointsTotal carries the full count, entries: [...] keeps named nodes visible past the cap, full: true lifts it.'),
             'associationEntryPoints' => $schema->array()->items($schema->string())
                 ->description('Entry surfaces connected to the symbol only by a model relation or a registry lookup. Associated with it, not callers of it. Capped at 15; associationEntryPointsTotal carries the full count, and full: true lifts the cap.'),
             'associationEntryPointsVia' => $schema->object()

@@ -54,7 +54,7 @@ final class Html
             return NodeLabel::commandName($node);
         }
 
-        foreach (['schedule::', 'view::', 'model::'] as $prefix) {
+        foreach (['schedule::', 'view::', 'model::', 'mcp::'] as $prefix) {
             if (str_starts_with($node, $prefix)) {
                 $name = substr($node, strlen($prefix));
 

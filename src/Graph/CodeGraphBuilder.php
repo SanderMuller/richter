@@ -32,6 +32,7 @@ use SanderMuller\Richter\Tracers\EntryPointTracer;
 use SanderMuller\Richter\Tracers\FacadeEdgeTracer;
 use SanderMuller\Richter\Tracers\InstanceCallEdgeTracer;
 use SanderMuller\Richter\Tracers\LivewireEmbedTracer;
+use SanderMuller\Richter\Tracers\McpServerTracer;
 use SanderMuller\Richter\Tracers\ModelFactoryTracer;
 use SanderMuller\Richter\Tracers\PolicyEdgeTracer;
 use SanderMuller\Richter\Tracers\ReferenceEdgeTracer;
@@ -450,6 +451,7 @@ final class CodeGraphBuilder
         // The Livewire components a view embeds. The methods that name a component by `::class` are
         // collected across files, for a view that picks its component at runtime.
         $livewireTracer = new LivewireEmbedTracer();
+        $mcpTracer = new McpServerTracer();
         // Methods that return a named route's URL, which a test calls instead of naming the route.
         // Every file counts: a name is kept only when no other app method declares it.
         $urlHelpers = new RouteUrlHelpers();
@@ -554,6 +556,10 @@ final class CodeGraphBuilder
                 $livewireTracer->collect($collector->classMethods);
             }
 
+            if (McpServerTracer::mayMatch($source)) {
+                $mcpTracer->collect($collector->classLikes);
+            }
+
             $urlHelpers->collect($collector->classMethods);
         }
 
@@ -607,6 +613,10 @@ final class CodeGraphBuilder
         // A view to the Livewire components it embeds. Needs every app class collected, to tell a
         // component from another class a method names.
         array_push($edges, ...$livewireTracer->edges($projectRoot, $hierarchyTracer->inheritanceMap()));
+
+        // An MCP server is registered in a route file and lists its tools on the class, so the two
+        // are joined here, where every class is collected.
+        array_push($edges, ...$mcpTracer->edges($projectRoot, $hierarchyTracer->inheritanceMap()));
 
         // Sorted before it leaves the branch: a report that names sites must not reorder between
         // runs, and the cached payload has to be byte-stable or the fingerprint starts flapping.

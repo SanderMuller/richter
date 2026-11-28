@@ -163,7 +163,9 @@ final class GraphCache
      * 32 → 33: a closure wrapped in `CallQueuedClosure::create()` is read as the queued closure it
      * is, and a dispatch of a non-public method's own parameter is followed to the callers that fill
      * it (`Bus::batch($jobs)` in a helper). A 32 entry still lists both as unfollowable sites and
-     * lacks the `action-to-job` edges the second one draws.
+     * lacks the `action-to-job` edges the second one draws. The same version draws the `mcp-*` edges
+     * of a `laravel/mcp` server: its route to its `mcp::` node, and that node to each tool, resource
+     * and prompt. A 32 entry lacks them, so a tool reaches no entry point.
      */
     private const int FORMAT_VERSION = 33;
 
