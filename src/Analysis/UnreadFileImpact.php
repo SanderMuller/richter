@@ -377,8 +377,8 @@ final class UnreadFileImpact
         $support = array_values(array_diff($found, $runnable));
         $users = $tests->runnableUsersOf($support);
 
-        // A file of helper functions that builds the model has callers no class relation shows.
-        if ($users === null || array_any($support, static fn (string $file): bool => ! $tests->declaresSupportClass($file))) {
+        // A support file that declares no class and no function has users this scan cannot follow.
+        if ($users === null || array_any($support, static fn (string $file): bool => ! $tests->canFollowSupportFile($file))) {
             return null;
         }
 

@@ -320,10 +320,10 @@ final class TestReferenceIndex
         return $this->supportUsers->runnableUsersOf($files);
     }
 
-    /** Whether a file under `tests/` declares a class or trait, so that its users can be followed. */
-    public function declaresSupportClass(string $file): bool
+    /** Whether a file under `tests/` declares a class, a trait or a function, so that its users can be followed. */
+    public function canFollowSupportFile(string $file): bool
     {
-        return $this->supportUsers->declaresClass($file);
+        return $this->supportUsers->canFollow($file);
     }
 
     /**

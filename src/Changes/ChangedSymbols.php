@@ -337,7 +337,7 @@ final class ChangedSymbols
 
         // A new file ($baseSrc === null) is additive as a whole — its class header/braces must not read as a class-level modification.
         if ($baseSrc !== null && self::hasClassLevelChange($hunk, $head, $base)) {
-            $members[] = self::coarseClassChange();
+            $members = McpMetadataChange::pinnedTo($members, $headSrc, $baseSrc) ?? [...$members, self::coarseClassChange()];
         }
 
         // An unparseable changed side must not read as cosmetic — a real change we can't map to a member falls back to a coarse class seed rather than seeding nothing.

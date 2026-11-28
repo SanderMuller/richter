@@ -2,11 +2,29 @@
 
 namespace SanderMuller\Richter\Analysis;
 
+use PhpParser\Node\Expr\BooleanNot;
+use PhpParser\Node\Expr\FuncCall;
+use PhpParser\Node\Name;
+use PhpParser\Node\Stmt;
+use PhpParser\Node\Stmt\ClassLike;
+use PhpParser\Node\Stmt\Declare_;
+use PhpParser\Node\Stmt\Function_;
+use PhpParser\Node\Stmt\GroupUse;
+use PhpParser\Node\Stmt\If_;
+use PhpParser\Node\Stmt\Namespace_;
+use PhpParser\Node\Stmt\Nop;
+use PhpParser\Node\Stmt\Use_;
+use SanderMuller\Richter\Support\AppFiles;
+
 /**
  * Which test classes use a support file under `tests/`: a trait or base class the tests `use` or
  * extend, a class they import (a browser test's page object), or one they name in a Pest `uses()`
  * call or a `pest()->extend()->use()` chain. A route that only such a file names is still driven by
  * each test that uses it, so {@see AffectedTests} can select those tests instead of the whole suite.
+ *
+ * A file of helper functions is used by the files that call its functions: its code runs only then.
+ * A helper file with top-level code is not followed. That code runs wherever the file is loaded, and
+ * Pest loads `tests/Helpers.php` and `tests/Datasets/` with no include to find.
  *
  * A regex scan, like the rest of {@see TestReferenceIndex}. Names resolve against the file's
  * namespace and its `use` imports.
@@ -26,6 +44,15 @@ final class TestSupportUsers
      *   of their own, such as `tests/Pest.php`
      */
     private array $classless = [];
+
+    /** @var array<string, list<string>> file => the functions it declares, lower case */
+    private array $functionsIn = [];
+
+    /** @var array<string, list<string>> lower-case name => the files that call it, or name it in a string */
+    private array $callers = [];
+
+    /** Call-shaped words that are no function call. */
+    private const array NOT_CALLS = ['array', 'catch', 'declare', 'elseif', 'empty', 'fn', 'for', 'foreach', 'function', 'if', 'include', 'include_once', 'isset', 'list', 'match', 'require', 'require_once', 'return', 'switch', 'unset', 'use', 'while'];
 
     public function add(string $source, string $file): void
     {
@@ -67,54 +94,157 @@ final class TestSupportUsers
         if (! $declares && $used !== [] && TestReferenceIndex::runnableOnly([$file]) === []) {
             $this->classless[$file] = true;
         }
+
+        $this->addFunctionUse($source, $file);
     }
 
-    /** Whether the file declares a class or trait, so that its users can be followed. */
-    public function declaresClass(string $file): bool
+    /** Whether the file declares a class, a trait or a function, so that its users can be followed. */
+    public function canFollow(string $file): bool
     {
-        return in_array($file, $this->declaredIn, strict: true);
+        return in_array($file, $this->declaredIn, strict: true) || isset($this->functionsIn[$file]);
     }
 
     /**
      * The runnable test files that use, directly or through another support file, a class one of
-     * the given files declares. Null when a user cannot be mapped to test files: a file that
-     * declares no class, such as a Pest `uses()->in()` call in `tests/Pest.php`, applies the class
-     * to a directory this scan does not resolve.
+     * the given files declares, or call a function one of them declares. Null when a user cannot be
+     * mapped to test files: a file that is no test and declares nothing to follow, such as a Pest
+     * `uses()->in()` call in `tests/Pest.php` or a Pest dataset file, applies to tests this scan does
+     * not resolve.
      *
      * @param  list<string>  $files
      * @return list<string>|null
      */
     public function runnableUsersOf(array $files): ?array
     {
-        $pending = [];
-
-        foreach ($files as $file) {
-            array_push($pending, ...array_keys($this->declaredIn, $file, strict: true));
-        }
-
+        $pending = $files;
         $seen = [];
         $users = [];
 
         while ($pending !== []) {
-            $class = array_shift($pending);
+            $file = array_shift($pending);
 
-            if (isset($seen[$class])) {
+            if (isset($seen[$file])) {
                 continue;
             }
 
-            $seen[$class] = true;
+            $seen[$file] = true;
 
-            foreach ($this->usedBy[$class] ?? [] as $user) {
-                if (isset($this->classless[$user])) {
+            foreach ($this->dependentsOf($file) as $user) {
+                if (isset($this->classless[$user]) || (TestReferenceIndex::runnableOnly([$user]) === [] && ! $this->canFollow($user))) {
                     return null;
                 }
 
                 $users[$user] = true;
-                array_push($pending, ...array_keys($this->declaredIn, $user, strict: true));
+                $pending[] = $user;
             }
         }
 
         return TestReferenceIndex::runnableOnly(array_keys($users));
+    }
+
+    /**
+     * The files whose code runs the given file's code: the users of the classes it declares and the
+     * callers of its functions.
+     *
+     * @return list<string>
+     */
+    private function dependentsOf(string $file): array
+    {
+        $dependents = [];
+
+        foreach (array_keys($this->declaredIn, $file, strict: true) as $class) {
+            array_push($dependents, ...$this->usedBy[$class] ?? []);
+        }
+
+        foreach ($this->functionsIn[$file] ?? [] as $function) {
+            array_push($dependents, ...$this->callers[$function] ?? []);
+        }
+
+        return array_values(array_diff(array_unique($dependents), [$file]));
+    }
+
+    /**
+     * Indexes the function calls and string callables in a file, and the functions it declares. The calls are read as words: a call through a variable or a method of the same name
+     * is no call, and a function name in a string can be a callable.
+     */
+    private function addFunctionUse(string $source, string $file): void
+    {
+        if (preg_match_all('/(?<![\w$>:])(\w+)\s*\(|[\'"](\w+)[\'"]/', $source, $words, PREG_SET_ORDER) > 0) {
+            $called = [];
+
+            foreach ($words as $word) {
+                $called[strtolower(($word[1] ?? '') !== '' ? $word[1] : ($word[2] ?? ''))] = true;
+            }
+
+            foreach (array_keys(array_diff_key($called, array_flip(self::NOT_CALLS))) as $name) {
+                $this->callers[(string) $name][] = $file;
+            }
+        }
+
+        if (preg_match('/^\s*function\s+\w+\s*\(/m', $source) !== 1) {
+            return;
+        }
+
+        $statements = AppFiles::parse($source);
+        $functions = [];
+
+        if ($statements === null) {
+            return;
+        }
+
+        // A test runs its own top-level code, and its callers are followed like any helper's.
+        if ((! self::runsCode($statements, $functions) || TestReferenceIndex::runnableOnly([$file]) !== []) && $functions !== []) {
+            $this->functionsIn[$file] = $functions;
+        }
+    }
+
+    /**
+     * Collects the functions the statements declare, and says whether anything else runs. A
+     * namespace, an import, a declaration, and a function behind a `function_exists()` guard run
+     * nothing on include.
+     *
+     * @param  array<Stmt>  $statements
+     * @param  list<string>  $functions
+     * @param-out list<string>  $functions
+     */
+    private static function runsCode(array $statements, array &$functions): bool
+    {
+        $runs = false;
+
+        foreach ($statements as $statement) {
+            $runs = match (true) {
+                $statement instanceof Function_ => self::declares($functions, $statement) || $runs,
+                $statement instanceof Namespace_ => self::runsCode($statement->stmts, $functions) || $runs,
+                $statement instanceof If_ && self::isFunctionExistsGuard($statement) => self::runsCode($statement->stmts, $functions) || $runs,
+                $statement instanceof Use_, $statement instanceof GroupUse, $statement instanceof Declare_, $statement instanceof ClassLike, $statement instanceof Nop => $runs,
+                default => true,
+            };
+        }
+
+        return $runs;
+    }
+
+    /**
+     * @param  list<string>  $functions
+     * @param-out list<string>  $functions
+     */
+    private static function declares(array &$functions, Function_ $function): bool
+    {
+        $functions[] = $function->name->toLowerString();
+
+        return false;
+    }
+
+    /** `if (! function_exists('x')) { function x() … }`, with no other branch. */
+    private static function isFunctionExistsGuard(If_ $statement): bool
+    {
+        return $statement->elseifs === []
+            && $statement->else === null
+            && $statement->cond instanceof BooleanNot
+            && $statement->cond->expr instanceof FuncCall
+            && $statement->cond->expr->name instanceof Name
+            && $statement->cond->expr->name->toLowerString() === 'function_exists'
+            && array_all($statement->stmts, static fn (Stmt $stmt): bool => $stmt instanceof Function_);
     }
 
     /** @return array<string, string> alias => imported FQCN */

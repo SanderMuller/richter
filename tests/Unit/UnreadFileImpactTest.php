@@ -114,9 +114,14 @@ final class UnreadFileImpactTest extends TestCase
         $user = "<?php\nnamespace Tests\\Feature;\nfinal class PostTest extends \\Tests\\TestCase {}\n";
         $base = "<?php\nnamespace Tests;\nabstract class TestCase {}\n";
 
-        yield 'a file of helper functions declares no class' => ['tests/Support/helpers.php', [
-            'tests/Support/helpers.php' => "<?php\nfunction makePost(): array { return []; }\n",
+        yield 'a file of helper functions with top-level code' => ['tests/Support/helpers.php', [
+            'tests/Support/helpers.php' => "<?php\nfunction makePost(): array { return []; }\ndataset('posts', [[1]]);\n",
             'tests/Feature/PostTest.php' => "<?php\nit('works', fn () => makePost());\n",
+        ]];
+        yield 'a support class a dataset file imports' => ['tests/Support/BuildsPosts.php', [
+            'tests/Support/BuildsPosts.php' => "<?php\nnamespace Tests\\Support;\ntrait BuildsPosts {}\n",
+            'tests/Datasets/Posts.php' => "<?php\nuse Tests\\Support\\BuildsPosts;\ndataset('posts', [[BuildsPosts::class]]);\n",
+            'tests/Feature/PostTest.php' => "<?php\nnamespace Tests\\Feature;\nfinal class PostTest extends \\Tests\\TestCase\n{\n    use \\Tests\\Support\\BuildsPosts;\n}\n",
         ]];
         yield 'the Pest bootstrap declares no class' => ['tests/Pest.php', [
             'tests/Pest.php' => "<?php\npest()->extend(Tests\\TestCase::class)->in('Feature');\n",
@@ -198,15 +203,31 @@ final class UnreadFileImpactTest extends TestCase
     }
 
     #[Test]
-    public function a_file_of_helper_functions_that_builds_the_model_withdraws_the_selection(): void
+    public function a_changed_file_of_helper_functions_selects_the_tests_that_call_them(): void
     {
-        // `createPost()` is called by tests that import neither the model nor the file.
+        $impact = $this->assess(['tests/Support/helpers.php'], [
+            'tests/Support/helpers.php' => "<?php\nfunction makePost(): array { return []; }\n",
+            'tests/Feature/PostTest.php' => "<?php\nit('works', fn () => makePost());\n",
+            'tests/Feature/CommentTest.php' => "<?php\nit('works', fn () => true);\n",
+        ]);
+
+        $this->assertSame([], $impact['vetoed']);
+        $this->assertSame(['tests/Feature/PostTest.php'], array_keys($impact['selected']));
+    }
+
+    #[Test]
+    public function a_file_of_helper_functions_that_builds_the_model_selects_the_tests_that_call_them(): void
+    {
+        // `createPost()` is called by a test that imports neither the model nor the file.
         $impact = $this->assess(['database/factories/PostFactory.php'], [
             'tests/Helpers.php' => "<?php\nuse App\\Models\\Post;\nfunction createPost(): Post { return Post::factory()->create(); }\n",
             'tests/Feature/PostTest.php' => "<?php\nuse App\\Models\\Post;\n",
+            'tests/Feature/CommentTest.php' => "<?php\nit('comments', fn () => createPost());\n",
+            'tests/Feature/OtherTest.php' => "<?php\nit('works', fn () => true);\n",
         ], sources: ['database/factories/PostFactory.php' => self::POST_FACTORY]);
 
-        $this->assertSame(['database/factories/PostFactory.php'], $impact['vetoed']);
+        $this->assertSame([], $impact['vetoed']);
+        $this->assertEqualsCanonicalizing(['tests/Feature/CommentTest.php', 'tests/Feature/PostTest.php'], array_keys($impact['selected']));
     }
 
     #[Test]

@@ -194,6 +194,31 @@ final class DispatchEdgeTracerTest extends TestCase
     }
 
     /**
+     * A job that dispatches itself on a best-effort path: the local is built and dispatched inside
+     * one `try`, and the catch swallows the failure. The `try` body runs in order, so the local is
+     * provably the job.
+     *
+     * @return Iterator<string, array{string}>
+     */
+    public static function selfDispatchesInATry(): Iterator
+    {
+        yield 'new self()' => ['new self()'];
+        yield 'the class by name' => ['new ImportJob()'];
+    }
+
+    #[Test]
+    #[DataProvider('selfDispatchesInATry')]
+    public function a_local_built_and_dispatched_inside_one_try_is_resolved(string $construction): void
+    {
+        $source = "<?php\nnamespace App\\Jobs;\nfinal class ImportJob\n{\n    public static function bestEffort(): void\n    {\n        try {\n            \$job = {$construction};\n            dispatch(\$job);\n        } catch (\\Throwable) {\n        }\n    }\n\n    public function handle(): void\n    {\n    }\n}\n";
+
+        $result = new DispatchEdgeTracer()->edgesForSource($source, 'App\\Jobs\\ImportJob');
+
+        $this->assertSame([], $result['unresolvedSites']);
+        $this->assertSame(['App\\Jobs\\ImportJob::handle'], array_column($result['edges'], 'target'));
+    }
+
+    /**
      * `self` is lexical, so it resolves against whichever class-like encloses it. Methods arrive as
      * one flat list attributed to the file's class, so a file declaring more than one class-like
      * cannot say which one a given `self::` meant — and pointing it at the file's class would be a

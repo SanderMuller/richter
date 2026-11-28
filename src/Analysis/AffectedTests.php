@@ -203,6 +203,12 @@ final class AffectedTests
             runtimeEvidenceRoot: RichterConfig::runtimeEvidenceRoot($head),
         );
 
+        // A class that only describes a frontend shape has no node, and no PHP outside `tests/` names
+        // it. The selection reads it as placed; the document still says UNRESOLVED.
+        foreach (WireOnlyClasses::in($selectionAnalysis['coverage'], $selectionChanges, $sourceOf, base_path()) as $file) {
+            $selectionAnalysis['coverage'][$file] = 'analyzed';
+        }
+
         $selection = self::select(
             $selectionAnalysis,
             $selectionChanges,

@@ -50,9 +50,13 @@ A test that runs `scramble:export` or `scramble:analyze` reads every route under
 
 A `laravel/mcp` server is an entry surface. `Mcp::web('/mcp', OrderServer::class)` gives the change two entry points: `mcp::App\Mcp\Servers\OrderServer` and `route::POST::/mcp`. A test that names the server class, as the package's helper does in `OrderServer::tool(FindOrderTool::class)`, references the first. A test that posts to the URL references the second. `Mcp::local()` gives the server node alone.
 
+An edit to a `laravel/mcp` attribute such as `#[Description]` or `#[Name]` on a tool, resource or prompt counts as a change to its `handle()`, so it reaches the server and the route too. This holds when the class declares `handle()` itself and nothing else in its declaration changed.
+
 The selection is not determinable when the change reaches a server whose URL richter could not read, because a test that posts to it cannot be matched. It is also not determinable when a server's tools could not be read and the change is, or is called by, a class that can be one. [Coverage](16-coverage.md#known-limits) says which registrations and lists are read.
 
-Only conventionally-named `*Test.php` files are selected; helpers and fixtures under `tests/` never end up as runner arguments, and an entry point that no test names, but a support trait or base class does, selects each test that uses that support file: a test class that `use`s the trait, extends the base class or imports the class (a browser test's page object), directly or through another support file, or a Pest file that names it in `uses()`. When a Pest `uses()->in()` call applies it to a directory, the tests cannot be mapped, so determination is blocked rather than silently dropping them. Selection is reference-based recall, not proof of coverage: reached entry points nothing references contribute nothing, and the report says how many those are.
+Only conventionally-named `*Test.php` files are selected; helpers and fixtures under `tests/` never end up as runner arguments, and an entry point that no test names, but a support trait or base class does, selects each test that uses that support file: a test class that `use`s the trait, extends the base class or imports the class (a browser test's page object), directly or through another support file, or a Pest file that names it in `uses()`. A file of helper functions selects each test that calls one of its functions, directly or through another helper or support class. When a Pest `uses()->in()` call applies it to a directory, or a file that is no test and declares nothing, such as a Pest dataset, calls the helper, the tests cannot be mapped, so determination is blocked rather than silently dropping them. Selection is reference-based recall, not proof of coverage: reached entry points nothing references contribute nothing, and the report says how many those are.
+
+A changed class with `#[TypeScript]` that no PHP outside `tests/` names has no graph node, but it does not block determination: only the tests that name it can see the change, and they are selected. Any other mention of the class, even in a comment, keeps it UNRESOLVED.
 
 ## Why the import axis runs one way
 
@@ -242,7 +246,7 @@ A config file is reached through its key. `config/plans.php` is read by `config(
 
 A mapping holds only when richter can list everything it covers. These make the selection not determinable:
 
-- a support file of helper functions, `tests/Pest.php`, a support class no test is seen to use, and one that a Pest directory call binds (`pest()->extend(TestCase::class)->in('Feature')`);
+- a support file of helper functions that also holds top-level code, `tests/Pest.php`, a support class no test is seen to use, and one that a Pest directory call binds (`pest()->extend(TestCase::class)->in('Feature')`);
 - a factory richter cannot tie to a model, and one that application code builds models through;
 - a config key that nothing names, one named by a file richter cannot analyse, such as another config file or a provider's bootstrap, and a config file a package provider merges or publishes;
 - a fixture under `tests/` that no test names;

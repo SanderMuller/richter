@@ -12,6 +12,7 @@ use SanderMuller\Richter\Analysis\AffectedTests;
 use SanderMuller\Richter\Analysis\ImpactAnalyzer;
 use SanderMuller\Richter\Analysis\TestReferenceIndex;
 use SanderMuller\Richter\Changes\ChangedFileSymbols;
+use SanderMuller\Richter\Changes\ChangedSymbols;
 use SanderMuller\Richter\Graph\CodeGraph;
 use SanderMuller\Richter\Graph\CodeGraphBuilder;
 use SanderMuller\Richter\Tests\TestCase;
@@ -318,6 +319,37 @@ final class McpServerBuildTest extends TestCase
 
         $this->assertTrue($selection['determinable']);
         $this->assertSame(['tests/Feature/Mcp/EndpointTest.php', 'tests/Feature/Mcp/ToolsTest.php'], $selection['tests']);
+    }
+
+    /**
+     * The whole path for a metadata edit: the classified change, the analysis over the built graph,
+     * and the selection. A coarse class seed withdrew it at low confidence.
+     */
+    #[Test]
+    public function a_metadata_edit_on_a_listed_tool_selects_the_tests_behind_its_server(): void
+    {
+        $tool = static fn (string $description): string => "<?php\nnamespace App\\Mcp\\Tools;\nuse App\\Services\\OrderFinder;\nuse Laravel\\Mcp\\Server\\Attributes\\Description;\nuse Laravel\\Mcp\\Server\\Tool;\n#[Description('{$description}')]\nfinal class FindOrderTool extends Tool\n{\n    public function handle(): string { return new OrderFinder()->find(); }\n}\n";
+        $this->mcpEdges([
+            'routes/ai.php' => $this->routes("Mcp::web('/mcp', OrderServer::class);"),
+            'app/Mcp/Servers/OrderServer.php' => self::server(),
+            'app/Mcp/Tools/FindOrderTool.php' => $tool('After'),
+        ]);
+        $graph = new CodeGraph(new CodeGraphBuilder()->buildTracerBranch($this->projectRoot)['edges'], hasUnparseableFiles: false);
+        $changed = [ChangedSymbols::classifyFile('app/Mcp/Tools/FindOrderTool.php', $tool('After'), $tool('Before'), [
+            'added' => [['line' => 6, 'text' => "#[Description('After')]"]],
+            'removed' => [['line' => 6, 'text' => "#[Description('Before')]"]],
+        ])];
+        $index = new TestReferenceIndex();
+        $index->addSource("<?php\n\$this->postJson('/mcp', []);\n", 'tests/Feature/Mcp/EndpointTest.php');
+        $index->addSource("<?php\nuse App\\Models\\Post;\n", 'tests/Feature/PostTest.php');
+
+        $result = new ImpactAnalyzer($graph)->detectChanges($changed);
+        $selection = AffectedTests::select($result, $changed, $index, [], $graph);
+
+        $this->assertFalse($result['lowConfidence']);
+        $this->assertSame([], $selection['reasons']);
+        $this->assertTrue($selection['determinable']);
+        $this->assertSame(['tests/Feature/Mcp/EndpointTest.php'], $selection['tests']);
     }
 
     #[Test]
