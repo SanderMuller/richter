@@ -41,6 +41,9 @@ final class TestReferenceIndex
     /** @var array<string, list<string>> imported FQCN => test files importing it */
     private array $classes = [];
 
+    /** @var array<string, list<string>> model factory FQCN => test files naming it */
+    private array $factories = [];
+
     /**
      * @var array<string, bool> test file => whether every assert-ish call the scan finds in its
      *   whole source is provably shallow (or the file has none at all) — graded once, from the
@@ -212,6 +215,27 @@ final class TestReferenceIndex
             }
         }
 
+        // A factory class under the default namespace: imported, qualified in the body, or one of a
+        // grouped import. Recorded apart from `$classes`, which holds application classes only.
+        if (preg_match_all('/(?<![\w$\\\\])\\\\?(Database\\\\Factories\\\\(?:[A-Za-z_]\w*\\\\)*[A-Za-z_]\w*)/', $source, $matches) > 0) {
+            foreach ($matches[1] as $class) {
+                $this->record($this->factories, $class, $file);
+            }
+        }
+
+        if (preg_match_all('/^use\s+(Database\\\\Factories\\\\[^;{]*)\{([^}]+)}\s*;/m', $source, $matches, PREG_SET_ORDER) > 0) {
+            foreach ($matches as $group) {
+                foreach (explode(',', $group[2]) as $member) {
+                    $parts = preg_split('/\s+as\s+/i', trim($member));
+                    $member = $parts === false ? '' : trim($parts[0] ?? '');
+
+                    if ($member !== '') {
+                        $this->record($this->factories, $group[1] . $member, $file);
+                    }
+                }
+            }
+        }
+
         if (preg_match_all('/(?:Livewire::test|(?<![\w$])livewire)\(\s*[\'"]([a-z0-9\-.]+)[\'"]/', $source, $matches) > 0) {
             foreach ($matches[1] as $name) {
                 $this->record($this->classes, $this->livewireClassFor($name), $file);
@@ -313,6 +337,17 @@ final class TestReferenceIndex
     public function runnableUsersOf(array $files): ?array
     {
         return $this->supportUsers->runnableUsersOf($files);
+    }
+
+    /**
+     * The test files that name a model factory class, by import or by qualified name. A test can
+     * build a model through `PostFactory::new()` and never import the model.
+     *
+     * @return list<string>
+     */
+    public function testsImportingFactory(string $fqcn): array
+    {
+        return $this->factories[ltrim($fqcn, '\\')] ?? [];
     }
 
     /**

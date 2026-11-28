@@ -141,7 +141,10 @@ final class TestSupportUsers
             }
         }
 
-        if (preg_match_all('/\buses\(([^;]*?)\)/', $source, $calls) > 0) {
+        // `uses(A::class)`, and the same binding in the chained form: `pest()->extend(A::class)`,
+        // `->use(B::class)`. A file that only binds this way must still read as a user of A, or the
+        // tests under the directory it binds are missing from A's users with nothing to say so.
+        if (preg_match_all('/(?:\buses|->(?:extend|extends|use|uses))\(([^;]*?)\)/', $source, $calls) > 0) {
             foreach ($calls[1] as $arguments) {
                 if (preg_match_all('/([\w\\\\]+)::class/', $arguments, $classes) > 0) {
                     array_push($names, ...$classes[1]);

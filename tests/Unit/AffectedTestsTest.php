@@ -556,6 +556,19 @@ final class AffectedTestsTest extends TestCase
         $this->assertFalse($selection['determinable']);
     }
 
+    #[Test]
+    public function a_support_trait_the_chained_pest_call_applies_blocks_determination_too(): void
+    {
+        // `pest()->extend(...)->use(...)->in()` is the same binding in the current Pest spelling. Read
+        // as no binding at all, the one test that names the trait itself was the whole selection.
+        $selection = $this->selectWithSupport([
+            'tests/Pest.php' => "<?php\npest()->extend(Tests\\TestCase::class)->use(Tests\\Support\\VisitsErrors::class)->in('Feature');\n",
+            'tests/Unit/ExplicitTest.php' => "<?php\nnamespace Tests\\Unit;\nfinal class ExplicitTest\n{\n    use \\Tests\\Support\\VisitsErrors;\n}\n",
+        ]);
+
+        $this->assertFalse($selection['determinable']);
+    }
+
     /**
      * @param  array<string, string>  $sources  test file => source, beside a support trait that visits `/errors/log`
      * @return array{determinable: bool, tests: list<string>, ...}

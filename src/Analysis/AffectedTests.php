@@ -2,6 +2,7 @@
 
 namespace SanderMuller\Richter\Analysis;
 
+use Closure;
 use InvalidArgumentException;
 use RuntimeException;
 use SanderMuller\Richter\Changes\ChangedFileSymbols;
@@ -29,6 +30,7 @@ use SanderMuller\Richter\Support\RichterConfig;
  * "large" and "untrustworthy" are different claims and `determinable` already carries the second.
  *
  * @phpstan-import-type DetectChangesResult from HtmlFormatter
+ * @phpstan-import-type UnreadImpact from UnreadFileImpact
  */
 final class AffectedTests
 {
@@ -121,22 +123,40 @@ final class AffectedTests
         $unrunnable = RichterConfig::unrunnableTestPaths();
         $suiteRunnable = TestReferenceIndex::runnableFiles(base_path('tests'), base_path());
 
+        // The changed files no lane read and no glob calls harmless. Each either names the tests it
+        // reaches or withdraws the selection: ignoring one is a determined answer that is too small.
+        $unreadFiles = UnreadFileImpact::candidates($outOfScope, RichterConfig::inertTestPaths());
+        $sourceOf = static fn (string $file): ?string => is_file(base_path($file)) ? (string) file_get_contents(base_path($file)) : null;
+
         if ($changed === []) {
+            // No lane read anything, so neither the graph nor the test index is built unless an
+            // unread file needs one: a docs-only diff must stay as cheap as it was.
+            $unread = $unreadFiles === [] ? UnreadFileImpact::none() : UnreadFileImpact::assess(
+                $unreadFiles,
+                self::once(static fn (): TestReferenceIndex => TestReferenceIndex::fromTests(base_path('tests'), base_path())),
+                static fn (): CodeGraph => $graphs->graph(fresh: $fresh),
+                $sourceOf,
+            );
+
             // The exclusion applies here too: a diff that edits ONLY a Dusk test never reaches
             // select(), and handing that path to `php artisan test` is the failure this key exists
             // to stop.
-            $partition = self::partitionUnrunnable($changedTests, $unrunnable);
+            $candidates = array_values(array_unique([...$changedTests, ...array_keys($unread['selected'])]));
+            $partition = self::partitionUnrunnable($candidates, $unrunnable);
             $kept = $partition['kept'];
+            sort($kept);
 
             foreach ([...$changedTests, ...$changedFrontendTests] as $file) {
                 $provenance->changedFile($file);
             }
 
+            self::recordUnread($provenance, $unread);
             $provenance->excludedBy($partition['excluded']);
             $provenance->considered(0, 0);
+            $reasons = self::unreadReasons($unread);
 
-            return ['base' => $base, 'determinable' => true, 'reasons' => [], 'tests' => $kept]
-                + self::sizeSignal($kept, $suiteRunnable, $unrunnable, count($changedTests) - count($kept))
+            return ['base' => $base, 'determinable' => $reasons === [], 'reasons' => $reasons, 'tests' => $kept]
+                + self::sizeSignal($kept, $suiteRunnable, $unrunnable, count($candidates) - count($kept))
                 + ['frontendTests' => $changedFrontendTests, 'unreferencedEntryPoints' => 0, 'unresolvedDispatchSites' => [], 'untrackedFiles' => $untracked];
         }
 
@@ -145,6 +165,12 @@ final class AffectedTests
         // one report gives one answer to "is this surface proven". Under a named head the selection
         // still reads it: those are the tests that will run.
         $selectionTests = TestReferenceIndex::forProject($graph);
+        $unread = $unreadFiles === [] ? UnreadFileImpact::none() : UnreadFileImpact::assess(
+            $unreadFiles,
+            static fn (): TestReferenceIndex => $selectionTests,
+            static fn (): CodeGraph => $graph,
+            $sourceOf,
+        );
         $testsUsed = $fullAnalysis && RichterConfig::analysesWorkingTree($head) ? $selectionTests : null;
         // Parity lanes off: they only produce findings, which the selection never reads —
         // and the consumer lane would otherwise pay a whole frontend-tree scan on a CI
@@ -178,9 +204,56 @@ final class AffectedTests
             $suiteRunnable,
             $unrunnable,
             $provenance,
+            $unread,
         );
 
         return ['base' => $base] + $selection + ['untrackedFiles' => $untracked];
+    }
+
+    /**
+     * A resolver that runs its factory at most once. The empty-diff path builds the test index only
+     * when an unread file needs it, and several files then share the one scan.
+     *
+     * @template T
+     *
+     * @param  Closure(): T  $factory
+     * @return Closure(): T
+     */
+    private static function once(Closure $factory): Closure
+    {
+        $resolved = null;
+
+        return static function () use ($factory, &$resolved) {
+            $resolved ??= [$factory()];
+
+            return $resolved[0];
+        };
+    }
+
+    /**
+     * @param  UnreadImpact  $unread
+     * @return list<string>
+     */
+    private static function unreadReasons(array $unread): array
+    {
+        if ($unread['vetoed'] === []) {
+            return [];
+        }
+
+        $shown = array_slice($unread['vetoed'], 0, self::SITE_CAP);
+        $rest = count($unread['vetoed']) - count($shown);
+
+        return ['changed file(s) no analysis reads can change test results: ' . implode(', ', $shown) . ($rest > 0 ? ", … and {$rest} more" : '')];
+    }
+
+    /** @param  UnreadImpact  $unread */
+    private static function recordUnread(SelectionProvenance $provenance, array $unread): void
+    {
+        foreach ($unread['selected'] as $test => $reasons) {
+            foreach ($reasons as $reason) {
+                $provenance->reachedFromUnreadFile($test, $reason['file'], $reason['via']);
+            }
+        }
     }
 
     /**
@@ -348,12 +421,14 @@ final class AffectedTests
      *   afterwards — a second pass deriving "which axis would have matched this" is a second
      *   implementation of the selection rule, and two implementations of one rule drift
      * @param-out SelectionProvenance $provenance
+     * @param  UnreadImpact  $unread  what the changed files no lane read mean for the selection
+     *   ({@see UnreadFileImpact}): the tests they reach, and the files that withdraw the verdict
      * @return array{determinable: bool, reasons: list<string>, tests: list<string>, testsTotal: int, testsShare: float, testsExcluded: int, frontendTests: list<string>, unreferencedEntryPoints: int, unresolvedDispatchSites: list<array{file: string, line: int, dispatcher: string}>}
      */
-    public static function select(array $result, array $changed, TestReferenceIndex $tests, array $unresolvedDispatchSites, ?CodeGraph $graph = null, ?FrontendTestIndex $frontendTests = null, bool $hasUnparseableFiles = false, array $changedTests = [], array $changedFrontendTests = [], array $suiteRunnableFiles = [], array $unrunnablePaths = [], ?SelectionProvenance &$provenance = null): array
+    public static function select(array $result, array $changed, TestReferenceIndex $tests, array $unresolvedDispatchSites, ?CodeGraph $graph = null, ?FrontendTestIndex $frontendTests = null, bool $hasUnparseableFiles = false, array $changedTests = [], array $changedFrontendTests = [], array $suiteRunnableFiles = [], array $unrunnablePaths = [], ?SelectionProvenance &$provenance = null, array $unread = ['selected' => [], 'vetoed' => []]): array
     {
         $provenance ??= new SelectionProvenance();
-        $reasons = [];
+        $reasons = self::unreadReasons($unread);
 
         if (in_array('unresolved', $result['coverage'], strict: true)) {
             $reasons[] = 'changed file(s) could not be placed in the graph (UNRESOLVED)';
@@ -392,13 +467,15 @@ final class AffectedTests
             $tests->useGraph($graph);
         }
 
-        $selected = $changedTests;
+        $selected = [...$changedTests, ...array_keys($unread['selected'])];
         $frontendSelected = $changedFrontendTests;
         $unreferenced = 0;
 
         foreach ([...$changedTests, ...$changedFrontendTests] as $file) {
             $provenance->changedFile($file);
         }
+
+        self::recordUnread($provenance, $unread);
 
         // Selection also walks the entry points only its own walk reaches: registry fan-out
         // surfaces, and routes past the report's depth through free hops. A registry surface is

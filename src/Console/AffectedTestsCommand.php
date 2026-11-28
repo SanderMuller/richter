@@ -208,7 +208,7 @@ final class AffectedTestsCommand extends Command
      * "run the full suite" from an undeterminable run, and asking why one file was picked must never
      * change what the command says about the whole diff.
      *
-     * @param  array{test: string, selected: bool, determinable: bool, reasons?: list<array{axis: string, node?: string, class?: string, origin?: string}>, notSelected?: string, excludedBy?: string, entryPointsConsidered: int, classesConsidered: int}  $explanation
+     * @param  array{test: string, selected: bool, determinable: bool, reasons?: list<array{axis: string, node?: string, class?: string, origin?: string, file?: string, via?: string}>, notSelected?: string, excludedBy?: string, entryPointsConsidered: int, classesConsidered: int}  $explanation
      * @param  array{determinable: bool, ...}  $selection
      */
     private function explain(bool $json, array $explanation, array $selection): int
@@ -257,7 +257,7 @@ final class AffectedTestsCommand extends Command
         return $exit;
     }
 
-    /** @param  array{axis: string, node?: string, class?: string, origin?: string}  $reason */
+    /** @param  array{axis: string, node?: string, class?: string, origin?: string, file?: string, via?: string}  $reason */
     private function reasonLine(array $reason): string
     {
         if ($reason['axis'] === SelectionProvenance::AXIS_CHANGED_FILE) {
@@ -268,6 +268,14 @@ final class AffectedTestsCommand extends Command
             $node = $reason['node'] ?? null;
 
             return $node === null ? 'it references a reached entry point' : "it references entry point {$node}";
+        }
+
+        if ($reason['axis'] === SelectionProvenance::AXIS_UNREAD_FILE) {
+            $file = $reason['file'] ?? 'a changed file';
+
+            return ($reason['via'] ?? '') === 'factory'
+                ? "it imports the model or the factory class that the changed factory {$file} builds"
+                : "it uses the changed support file {$file}";
         }
 
         // The origin is the part worth reading: a changed class is the diff itself, a caller is one

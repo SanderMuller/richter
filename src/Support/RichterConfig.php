@@ -5,6 +5,7 @@ namespace SanderMuller\Richter\Support;
 use Illuminate\Support\Facades\Process;
 use InvalidArgumentException;
 use SanderMuller\Richter\Analysis\BenchmarkCase;
+use SanderMuller\Richter\Analysis\UnreadFileImpact;
 use SanderMuller\Richter\Graph\SecondHopWalk;
 use SanderMuller\Richter\Tracers\FeatureGateChecker;
 
@@ -111,6 +112,18 @@ final class RichterConfig
     public static function unrunnableTestPaths(): array
     {
         return self::stringList('richter.tests.unrunnable_paths') ?? [];
+    }
+
+    /**
+     * Globs for changed files that cannot change the result of a PHP test: the built-in list plus
+     * `richter.tests.inert_paths`. The config only ever ADDS. A project cannot take a built-in entry
+     * away, and has no reason to: a file on the list is one no PHP test reads.
+     *
+     * @return list<string>
+     */
+    public static function inertTestPaths(): array
+    {
+        return [...UnreadFileImpact::DEFAULT_INERT, ...self::stringList('richter.tests.inert_paths') ?? []];
     }
 
     /** @return list<string> project-custom callees merged with the scanner's built-in HTTP/route defaults */

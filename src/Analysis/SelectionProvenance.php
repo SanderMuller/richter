@@ -28,7 +28,10 @@ final class SelectionProvenance
     /** A file importing a changed class, or one that reaches the change. */
     public const string AXIS_IMPORT = 'import';
 
-    /** @var array<string, list<array{axis: string, node?: string, class?: string, origin?: string}>> */
+    /** A file reached from a changed file that no analysis lane reads: a support class, a model factory. */
+    public const string AXIS_UNREAD_FILE = 'unread-file';
+
+    /** @var array<string, list<array{axis: string, node?: string, class?: string, origin?: string, file?: string, via?: string}>> */
     private array $reasons = [];
 
     /** @var array<string, string> file => the configured glob that removed it */
@@ -62,6 +65,15 @@ final class SelectionProvenance
         }
     }
 
+    /**
+     * @param  'support'|'factory'  $via  how the changed file reaches the test: the test uses the
+     *   support class it declares, or imports the model or the factory class
+     */
+    public function reachedFromUnreadFile(string $test, string $file, string $via): void
+    {
+        $this->add($test, ['axis' => self::AXIS_UNREAD_FILE, 'file' => $file, 'via' => $via]);
+    }
+
     /** @param  array<string, string>  $excluded */
     public function excludedBy(array $excluded): void
     {
@@ -81,7 +93,7 @@ final class SelectionProvenance
      * `no-axis-matched`. Anything past those would be a guess, and a diagnostic that guesses is
      * worse than one that stops.
      *
-     * @return array{test: string, selected: bool, determinable: bool, reasons?: list<array{axis: string, node?: string, class?: string, origin?: string}>, notSelected?: string, excludedBy?: string, entryPointsConsidered: int, classesConsidered: int}
+     * @return array{test: string, selected: bool, determinable: bool, reasons?: list<array{axis: string, node?: string, class?: string, origin?: string, file?: string, via?: string}>, notSelected?: string, excludedBy?: string, entryPointsConsidered: int, classesConsidered: int}
      */
     public function explain(string $query, bool $determinable): array
     {
@@ -143,7 +155,7 @@ final class SelectionProvenance
         return $path;
     }
 
-    /** @param  array{axis: string, node?: string, class?: string, origin?: string}  $reason */
+    /** @param  array{axis: string, node?: string, class?: string, origin?: string, file?: string, via?: string}  $reason */
     private function add(string $file, array $reason): void
     {
         $existing = $this->reasons[$file] ?? [];
