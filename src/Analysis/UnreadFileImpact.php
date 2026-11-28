@@ -19,9 +19,9 @@ use SanderMuller\Richter\Tracers\FactoryModels;
  * Each file gets one of four outcomes. A changed test or spec is selected elsewhere, as before. An
  * INERT file cannot change a PHP test's result: it matches a glob, or it sits outside the
  * application and no code names it. A MAPPED file names what it reaches: a support class or a file
- * of helper functions under `tests/` its users ({@see TestSupportUsers}), a model factory the tests of its model, a config
- * file, a seeder and a file outside the application the tests and the files that name them
- * ({@see NamedFileImpact}). Every other file is a VETO: the run is not determinable.
+ * of helper functions under `tests/` its users ({@see TestSupportUsers}), a model factory the tests
+ * of its model, a config file, a seeder and a file outside the application the tests and the files
+ * that name them ({@see NamedFileImpact}). Every other file is a VETO: the run is not determinable.
  *
  * `selected` holds the tests to add. `readers` holds application files to analyse as if they had
  * changed: a class that reads a changed config key runs differently, and what that reaches is the
