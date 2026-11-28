@@ -204,12 +204,36 @@ final class UnreadFileSelectionTest extends TestCase
     #[Test]
     public function a_configured_inert_path_stops_withdrawing_the_selection(): void
     {
-        $this->fakeDiffOf(['tools/sync-orders.mjs']);
+        $this->fakeDiffOf(['lang/vendor/backup/en/notifications.php']);
         $this->assertSame(2, $this->select()['exit']);
 
-        config()->set('richter.tests.inert_paths', ['tools/*']);
-        $this->fakeDiffOf(['tools/sync-orders.mjs']);
+        config()->set('richter.tests.inert_paths', ['lang/vendor/*']);
+        $this->fakeDiffOf(['lang/vendor/backup/en/notifications.php']);
 
         $this->assertSame(0, $this->select()['exit']);
+    }
+
+    #[Test]
+    public function a_file_outside_the_application_that_no_code_names_is_inert(): void
+    {
+        // The other services of a monorepo, a Dockerfile, a script: no PHP test reads them.
+        $this->fakeDiffOf(['services/worker/main.go', 'runtimes/node/Dockerfile', '.env.example', 'tools/sync-orders.mjs']);
+
+        $result = $this->select();
+
+        $this->assertSame(0, $result['exit']);
+        $this->assertSame([], $result['document']['reasons']);
+    }
+
+    #[Test]
+    public function a_file_outside_the_application_that_a_test_names_withdraws_the_selection(): void
+    {
+        $this->write('tests/Feature/StarterKitTest.php', "<?php\n\$kit = file_get_contents(base_path('starter-kits/basic/manifest.json'));\n");
+        $this->fakeDiffOf(['starter-kits/basic/manifest.json', 'services/worker/main.go']);
+
+        $result = $this->select();
+
+        $this->assertSame(2, $result['exit']);
+        $this->assertSame(['changed file(s) no analysis reads can change test results: starter-kits/basic/manifest.json'], $result['document']['reasons']);
     }
 }

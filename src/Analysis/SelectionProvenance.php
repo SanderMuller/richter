@@ -56,7 +56,7 @@ final class SelectionProvenance
 
     /**
      * @param  list<string>  $files
-     * @param  'changed'|'caller'  $origin
+     * @param  'changed'|'caller'|'reader'  $origin
      */
     public function importing(array $files, string $class, string $origin): void
     {
@@ -66,8 +66,9 @@ final class SelectionProvenance
     }
 
     /**
-     * @param  'support'|'factory'  $via  how the changed file reaches the test: the test uses the
-     *   support class it declares, or imports the model or the factory class
+     * @param  'support'|'factory'|'config'|'seeder'  $via  how the changed file reaches the test: the
+     *   test uses the support class it declares, imports the model or the factory class, or names
+     *   the config key or the seeder
      */
     public function reachedFromUnreadFile(string $test, string $file, string $via): void
     {

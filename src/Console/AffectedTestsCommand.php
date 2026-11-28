@@ -273,15 +273,22 @@ final class AffectedTestsCommand extends Command
         if ($reason['axis'] === SelectionProvenance::AXIS_UNREAD_FILE) {
             $file = $reason['file'] ?? 'a changed file';
 
-            return ($reason['via'] ?? '') === 'factory'
-                ? "it imports the model or the factory class that the changed factory {$file} builds"
-                : "it uses the changed support file {$file}";
+            return match ($reason['via'] ?? '') {
+                'factory' => "it imports the model or the factory class that the changed factory {$file} builds",
+                'config' => "it names a key of the changed config file {$file}",
+                'seeder' => "it runs the changed seeder {$file}",
+                default => "it uses the changed support file {$file}",
+            };
         }
 
         // The origin is the part worth reading: a changed class is the diff itself, a caller is one
         // hop of reasoning, and the two warrant different amounts of trust.
         $class = $reason['class'] ?? null;
-        $kind = ($reason['origin'] ?? '') === 'changed' ? 'a changed class' : 'a caller of the change';
+        $kind = match ($reason['origin'] ?? '') {
+            'changed' => 'a changed class',
+            'reader' => 'it names a changed config file or seeder',
+            default => 'a caller of the change',
+        };
 
         return $class === null ? "it imports {$kind}" : "it imports {$class} ({$kind})";
     }

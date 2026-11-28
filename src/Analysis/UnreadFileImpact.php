@@ -3,7 +3,9 @@
 namespace SanderMuller\Richter\Analysis;
 
 use Closure;
+use SanderMuller\Richter\Changes\ChangedFileSymbols;
 use SanderMuller\Richter\Graph\CodeGraph;
+use SanderMuller\Richter\Support\Fqcn;
 use SanderMuller\Richter\Tracers\FactoryModels;
 
 /**
@@ -15,16 +17,18 @@ use SanderMuller\Richter\Tracers\FactoryModels;
  * is the one direction `richter:affected-tests` must never fail in.
  *
  * Each file gets one of four outcomes. A changed test or spec is selected elsewhere, as before. An
- * INERT file matches a glob for files that cannot change a PHP test's result. A MAPPED file names
- * the tests it reaches: a support class under `tests/` through {@see TestSupportUsers}, a model
- * factory through the model it builds. Every other file is a VETO: the run is not determinable.
+ * INERT file cannot change a PHP test's result: it matches a glob, or it sits outside the
+ * application and no code names it. A MAPPED file names what it reaches: a support class under
+ * `tests/` its users ({@see TestSupportUsers}), a model factory the tests of its model, a config
+ * file and a seeder the tests and the application files that name them ({@see NamedFileImpact}).
+ * Every other file is a VETO: the run is not determinable.
  *
- * The veto is the default on purpose. An unknown file is not known to be harmless, and a helpers
- * file outside `app/` looks like any other unknown path. A project that knows better names the path
- * in `richter.tests.inert_paths`.
+ * `selected` holds the tests to add. `readers` holds application files to analyse as if they had
+ * changed: a class that reads a changed config key runs differently, and what that reaches is the
+ * ordinary question the analysis already answers.
  *
- * @phpstan-type UnreadReason array{file: string, via: 'support'|'factory'}
- * @phpstan-type UnreadImpact array{selected: array<string, list<UnreadReason>>, vetoed: list<string>}
+ * @phpstan-type UnreadReason array{file: string, via: 'support'|'factory'|'config'|'seeder'}
+ * @phpstan-type UnreadImpact array{selected: array<string, list<UnreadReason>>, vetoed: list<string>, readers: array<string, list<UnreadReason>>}
  *
  * @internal
  */
@@ -48,6 +52,9 @@ final class UnreadFileImpact
     ];
 
     private const string FACTORIES = 'database/factories/';
+
+    /** Files named in the reason before the rest collapses into a count, as the dispatch sites are. */
+    private const int NAMED_FILES = 15;
 
     /**
      * The unread files that still need an answer: every path that is neither a test nor a spec (the
@@ -75,43 +82,131 @@ final class UnreadFileImpact
     /**
      * @param  list<string>  $files  {@see candidates()}
      * @param  Closure(): TestReferenceIndex  $tests  resolved only when a file can be mapped
-     * @param  Closure(): CodeGraph  $graph  resolved only for a changed factory
+     * @param  Closure(): CodeGraph  $graph  resolved only for a changed factory or a file with readers
      * @param  Closure(string): ?string  $sourceOf  a file's source on disk, or null when it is gone
+     * @param  string|null  $projectRoot  where {@see NamedFileImpact} reads who names a file; without
+     *   it, a file that is neither a support file nor a factory withdraws the selection
      * @return UnreadImpact
      */
-    public static function assess(array $files, Closure $tests, Closure $graph, Closure $sourceOf): array
+    public static function assess(array $files, Closure $tests, Closure $graph, Closure $sourceOf, ?string $projectRoot = null): array
     {
-        $selected = [];
-        $vetoed = [];
+        $impact = self::none();
+        $named = [];
 
         foreach ($files as $file) {
-            $mapped = match (true) {
-                ! str_ends_with($file, '.php') => null,
-                str_starts_with($file, 'tests/') => self::usersOfSupportFile($file, $tests()),
-                str_starts_with($file, self::FACTORIES) => self::testsOfFactory($sourceOf($file), $tests(), $graph),
-                default => null,
+            $php = str_ends_with($file, '.php');
+
+            match (true) {
+                str_starts_with($file, 'tests/') => self::record($impact, $file, 'support', $php ? self::usersOfSupportFile($file, $tests()) : null),
+                $php && str_starts_with($file, self::FACTORIES) => self::record($impact, $file, 'factory', self::testsOfFactory($sourceOf($file), $tests(), $graph)),
+                default => $named[] = $file,
             };
+        }
 
-            if ($mapped === null) {
-                $vetoed[] = $file;
+        if ($named === []) {
+            return $impact;
+        }
 
-                continue;
-            }
+        $answers = $projectRoot === null
+            ? array_fill_keys($named, null)
+            : new NamedFileImpact($projectRoot)->of($named, static fn (array $support): ?array => $tests()->runnableUsersOf($support));
 
-            $via = str_starts_with($file, 'tests/') ? 'support' : 'factory';
+        foreach ($answers as $file => $answer) {
+            // A reader the graph holds no node for cannot be analysed, so what it reaches is unknown.
+            $unplaced = $answer !== null && array_any($answer['readers'], static fn (string $reader): bool => $graph()->nodesDefinedIn($reader) === []);
+            $via = str_starts_with($file, 'config/') ? 'config' : 'seeder';
+            self::record($impact, $file, $via, $answer === null || $unplaced ? null : $answer['tests']);
 
-            foreach ($mapped as $test) {
-                $selected[$test][] = ['file' => $file, 'via' => $via];
+            foreach ($answer !== null && ! $unplaced ? $answer['readers'] : [] as $reader) {
+                $impact['readers'][$reader][] = ['file' => $file, 'via' => $via];
             }
         }
 
-        return ['selected' => $selected, 'vetoed' => $vetoed];
+        // Diff order for the files handled above, then the named ones: sorted, so a reason reads
+        // the same whichever way the files arrived.
+        sort($impact['vetoed']);
+
+        return $impact;
+    }
+
+    /**
+     * @param  UnreadImpact  $impact
+     * @param  'support'|'factory'|'config'|'seeder'  $via
+     * @param  list<string>|null  $tests  the tests the file reaches, or null when it withdraws the selection
+     */
+    private static function record(array &$impact, string $file, string $via, ?array $tests): void
+    {
+        if ($tests === null) {
+            $impact['vetoed'][] = $file;
+
+            return;
+        }
+
+        foreach ($tests as $test) {
+            $impact['selected'][$test][] = ['file' => $file, 'via' => $via];
+        }
     }
 
     /** @return UnreadImpact */
     public static function none(): array
     {
-        return ['selected' => [], 'vetoed' => []];
+        return ['selected' => [], 'vetoed' => [], 'readers' => []];
+    }
+
+    /**
+     * The reason the vetoed files give, naming them, or none.
+     *
+     * @param  UnreadImpact  $unread
+     * @return list<string>
+     */
+    public static function reasons(array $unread): array
+    {
+        if ($unread['vetoed'] === []) {
+            return [];
+        }
+
+        $shown = array_slice($unread['vetoed'], 0, self::NAMED_FILES);
+        $rest = count($unread['vetoed']) - count($shown);
+
+        return ['changed file(s) no analysis reads can change test results: ' . implode(', ', $shown) . ($rest > 0 ? ", … and {$rest} more" : '')];
+    }
+
+    /**
+     * Why each mapped test is in the selection, for `--explain`.
+     *
+     * @param  UnreadImpact  $unread
+     */
+    public static function recordIn(SelectionProvenance $provenance, array $unread): void
+    {
+        foreach ($unread['selected'] as $test => $reasons) {
+            foreach ($reasons as $reason) {
+                $provenance->reachedFromUnreadFile($test, $reason['file'], $reason['via']);
+            }
+        }
+    }
+
+    /**
+     * The readers, as changes the analysis can seed from: every node the
+     * reader's file defines. Coarser than the member that holds the read, and precise enough to be a
+     * real seed, so it draws no low-confidence verdict. A file the diff changed itself is left out:
+     * it is seeded already.
+     *
+     * @param  UnreadImpact  $unread
+     * @param  list<ChangedFileSymbols>  $changed
+     * @return list<ChangedFileSymbols>
+     */
+    public static function readersAsChanges(array $unread, array $changed, CodeGraph $graph): array
+    {
+        $already = array_map(static fn (ChangedFileSymbols $file): string => $file->file, $changed);
+        $readers = [];
+
+        foreach (array_keys($unread['readers']) as $file) {
+            if (! in_array($file, $already, strict: true)) {
+                $readers[] = new ChangedFileSymbols($file, Fqcn::fromPath($file), [], cosmeticOnly: false, directSeeds: $graph->nodesDefinedIn($file));
+            }
+        }
+
+        return $readers;
     }
 
     /**

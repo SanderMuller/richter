@@ -22,7 +22,7 @@ final class UnreadFileImpactTest extends TestCase
      * @param  list<array{source: string, target: string, type: string}>  $edges
      * @param  array<string, string>  $sources  changed file => its source on disk
      * @param  list<string>  $files
-     * @return array{selected: array<string, list<array{file: string, via: string}>>, vetoed: list<string>}
+     * @return array{selected: array<string, list<array{file: string, via: string}>>, vetoed: list<string>, readers: array<string, list<array{file: string, via: string}>>}
      */
     private function assess(array $files, array $tests = [], array $edges = [], array $sources = []): array
     {
@@ -245,7 +245,7 @@ final class UnreadFileImpactTest extends TestCase
     {
         $impact = $this->assess(['config/services.php', 'composer.lock', 'tests/Fixtures/orders.json', 'helpers/strings.php']);
 
-        $this->assertSame(['config/services.php', 'composer.lock', 'tests/Fixtures/orders.json', 'helpers/strings.php'], $impact['vetoed']);
+        $this->assertSame(['composer.lock', 'config/services.php', 'helpers/strings.php', 'tests/Fixtures/orders.json'], $impact['vetoed']);
     }
 
     #[Test]
@@ -263,6 +263,7 @@ final class UnreadFileImpactTest extends TestCase
             unread: [
                 'selected' => ['tests/Feature/PostTest.php' => [['file' => 'tests/Support/BuildsPosts.php', 'via' => 'support']]],
                 'vetoed' => ['config/services.php', 'composer.lock'],
+                'readers' => [],
             ],
         );
 
@@ -284,7 +285,7 @@ final class UnreadFileImpactTest extends TestCase
             [],
             new TestReferenceIndex(),
             unresolvedDispatchSites: [],
-            unread: ['selected' => ['tests/Feature/PostTest.php' => [['file' => 'database/factories/PostFactory.php', 'via' => 'factory']]], 'vetoed' => []],
+            unread: ['selected' => ['tests/Feature/PostTest.php' => [['file' => 'database/factories/PostFactory.php', 'via' => 'factory']]], 'vetoed' => [], 'readers' => []],
         );
 
         $this->assertTrue($selection['determinable']);
@@ -301,7 +302,7 @@ final class UnreadFileImpactTest extends TestCase
             [],
             new TestReferenceIndex(),
             unresolvedDispatchSites: [],
-            unread: ['selected' => [], 'vetoed' => $files],
+            unread: ['selected' => [], 'vetoed' => $files, 'readers' => []],
         );
 
         $this->assertStringContainsString('config/file15.php, … and 2 more', $selection['reasons'][0]);

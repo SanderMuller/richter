@@ -11,7 +11,7 @@ use SanderMuller\Richter\Graph\CodeGraph;
 use SanderMuller\Richter\Graph\GraphCache;
 use SanderMuller\Richter\Support\AppNamespace;
 use SanderMuller\Richter\Support\DispatchTarget;
-use SanderMuller\Richter\Support\LoadableClass;
+use SanderMuller\Richter\Support\Fqcn;
 use SanderMuller\Richter\Support\RichterConfig;
 use SanderMuller\Richter\Tracers\McpServerTracer;
 
@@ -130,16 +130,18 @@ final class AffectedTests
         $unreadFiles = UnreadFileImpact::candidates($outOfScope, RichterConfig::inertTestPaths());
         $sourceOf = static fn (string $file): ?string => is_file(base_path($file)) ? (string) file_get_contents(base_path($file)) : null;
 
-        if ($changed === []) {
-            // No lane read anything, so neither the graph nor the test index is built unless an
-            // unread file needs one: a docs-only diff must stay as cheap as it was.
-            $unread = $unreadFiles === [] ? UnreadFileImpact::none() : UnreadFileImpact::assess(
-                $unreadFiles,
-                self::once(static fn (): TestReferenceIndex => TestReferenceIndex::fromTests(base_path('tests'), base_path())),
-                static fn (): CodeGraph => $graphs->graph(fresh: $fresh),
-                $sourceOf,
-            );
+        // Neither the graph nor the test index is built unless an unread file needs one: a
+        // docs-only diff must stay as cheap as it was.
+        $graphOnce = self::once(static fn (): CodeGraph => $graphs->graph(fresh: $fresh));
+        $unread = $unreadFiles === [] ? UnreadFileImpact::none() : UnreadFileImpact::assess(
+            $unreadFiles,
+            self::once(static fn (): TestReferenceIndex => TestReferenceIndex::fromTests(base_path('tests'), base_path())),
+            $graphOnce,
+            $sourceOf,
+            base_path(),
+        );
 
+        if ($changed === [] && $unread['readers'] === []) {
             // The exclusion applies here too: a diff that edits ONLY a Dusk test never reaches
             // select(), and handing that path to `php artisan test` is the failure this key exists
             // to stop.
@@ -152,27 +154,21 @@ final class AffectedTests
                 $provenance->changedFile($file);
             }
 
-            self::recordUnread($provenance, $unread);
+            UnreadFileImpact::recordIn($provenance, $unread);
             $provenance->excludedBy($partition['excluded']);
             $provenance->considered(0, 0);
-            $reasons = self::unreadReasons($unread);
+            $reasons = UnreadFileImpact::reasons($unread);
 
             return ['base' => $base, 'determinable' => $reasons === [], 'reasons' => $reasons, 'tests' => $kept]
                 + self::sizeSignal($kept, $suiteRunnable, $unrunnable, count($candidates) - count($kept))
                 + ['frontendTests' => $changedFrontendTests, 'unreferencedEntryPoints' => 0, 'unresolvedDispatchSites' => [], 'untrackedFiles' => $untracked];
         }
 
-        $graph = $graphs->graph(fresh: $fresh);
+        $graph = $graphOnce();
         // One index for the selection and, under `$fullAnalysis` on the working tree, the analysis, so
         // one report gives one answer to "is this surface proven". Under a named head the selection
         // still reads it: those are the tests that will run.
         $selectionTests = TestReferenceIndex::forProject($graph);
-        $unread = $unreadFiles === [] ? UnreadFileImpact::none() : UnreadFileImpact::assess(
-            $unreadFiles,
-            static fn (): TestReferenceIndex => $selectionTests,
-            static fn (): CodeGraph => $graph,
-            $sourceOf,
-        );
         $testsUsed = $fullAnalysis && RichterConfig::analysesWorkingTree($head) ? $selectionTests : null;
         // Parity lanes off: they only produce findings, which the selection never reads —
         // and the consumer lane would otherwise pay a whole frontend-tree scan on a CI
@@ -193,9 +189,21 @@ final class AffectedTests
             runtimeEvidenceRoot: RichterConfig::runtimeEvidenceRoot($head),
         );
 
+        // An application file that names a changed config key or seeder runs differently, so it is
+        // analysed as changed, for the selection only: the document a caller asked for describes
+        // the diff. Without readers the two are one run.
+        $readers = UnreadFileImpact::readersAsChanges($unread, $changed, $graph);
+        $selectionChanges = [...$changed, ...$readers];
+        $selectionAnalysis = $readers === [] ? $analysisUsed : new ImpactAnalyzer($graph)->detectChanges(
+            $selectionChanges,
+            payloadParityEnabled: false,
+            attributionEnabled: false,
+            runtimeEvidenceRoot: RichterConfig::runtimeEvidenceRoot($head),
+        );
+
         $selection = self::select(
-            $analysisUsed,
-            $changed,
+            $selectionAnalysis,
+            $selectionChanges,
             $selectionTests,
             $graph->unresolvedDispatchSites(),
             $graph,
@@ -230,32 +238,6 @@ final class AffectedTests
 
             return $resolved[0];
         };
-    }
-
-    /**
-     * @param  UnreadImpact  $unread
-     * @return list<string>
-     */
-    private static function unreadReasons(array $unread): array
-    {
-        if ($unread['vetoed'] === []) {
-            return [];
-        }
-
-        $shown = array_slice($unread['vetoed'], 0, self::SITE_CAP);
-        $rest = count($unread['vetoed']) - count($shown);
-
-        return ['changed file(s) no analysis reads can change test results: ' . implode(', ', $shown) . ($rest > 0 ? ", … and {$rest} more" : '')];
-    }
-
-    /** @param  UnreadImpact  $unread */
-    private static function recordUnread(SelectionProvenance $provenance, array $unread): void
-    {
-        foreach ($unread['selected'] as $test => $reasons) {
-            foreach ($reasons as $reason) {
-                $provenance->reachedFromUnreadFile($test, $reason['file'], $reason['via']);
-            }
-        }
     }
 
     /**
@@ -427,10 +409,10 @@ final class AffectedTests
      *   ({@see UnreadFileImpact}): the tests they reach, and the files that withdraw the verdict
      * @return array{determinable: bool, reasons: list<string>, tests: list<string>, testsTotal: int, testsShare: float, testsExcluded: int, frontendTests: list<string>, unreferencedEntryPoints: int, unresolvedDispatchSites: list<array{file: string, line: int, dispatcher: string}>}
      */
-    public static function select(array $result, array $changed, TestReferenceIndex $tests, array $unresolvedDispatchSites, ?CodeGraph $graph = null, ?FrontendTestIndex $frontendTests = null, bool $hasUnparseableFiles = false, array $changedTests = [], array $changedFrontendTests = [], array $suiteRunnableFiles = [], array $unrunnablePaths = [], ?SelectionProvenance &$provenance = null, array $unread = ['selected' => [], 'vetoed' => []]): array
+    public static function select(array $result, array $changed, TestReferenceIndex $tests, array $unresolvedDispatchSites, ?CodeGraph $graph = null, ?FrontendTestIndex $frontendTests = null, bool $hasUnparseableFiles = false, array $changedTests = [], array $changedFrontendTests = [], array $suiteRunnableFiles = [], array $unrunnablePaths = [], ?SelectionProvenance &$provenance = null, array $unread = ['selected' => [], 'vetoed' => [], 'readers' => []]): array
     {
         $provenance ??= new SelectionProvenance();
-        $reasons = self::unreadReasons($unread);
+        $reasons = UnreadFileImpact::reasons($unread);
 
         if (in_array('unresolved', $result['coverage'], strict: true)) {
             $reasons[] = 'changed file(s) could not be placed in the graph (UNRESOLVED)';
@@ -467,7 +449,7 @@ final class AffectedTests
         // Both shapes the `$graph` param documents read unreferenced without it — under-selection.
         if ($graph instanceof CodeGraph) {
             $tests->useGraph($graph);
-            $reasons = [...$reasons, ...self::unreadMcpReasons($graph, $result, $changed)];
+            $reasons = [...$reasons, ...UnreadMcpServers::reasons($graph, $result, $changed, self::classOfNode(...))];
         }
 
         $selected = [...$changedTests, ...array_keys($unread['selected'])];
@@ -478,7 +460,7 @@ final class AffectedTests
             $provenance->changedFile($file);
         }
 
-        self::recordUnread($provenance, $unread);
+        UnreadFileImpact::recordIn($provenance, $unread);
 
         // Selection also walks the entry points only its own walk reaches: registry fan-out
         // surfaces, and routes past the report's depth through free hops. A registry surface is
@@ -541,7 +523,7 @@ final class AffectedTests
         // direction is not here. Imports are a weak signal though, so unlike the entry-point axis,
         // non-runnable files (fixtures import app classes too) simply filter out without blocking
         // determination.
-        $classesConsidered = self::classesToMatch($result, $changed);
+        $classesConsidered = self::classesToMatch($result, $changed, array_map(Fqcn::fromPath(...), array_keys($unread['readers'])));
 
         foreach ($classesConsidered as $class => $origin) {
             $importing = TestReferenceIndex::runnableOnly($tests->testsImporting($class));
@@ -605,15 +587,17 @@ final class AffectedTests
      *
      * @param  array{entryPoints: list<string>, selectionCallers?: list<array{depth: int, node: string, via: string}>, ...}  $result
      * @param  list<ChangedFileSymbols>  $changed
-     * @return array<string, 'changed'|'caller'>
+     * @param  list<string>  $readers  classes analysed as changed because they name a changed config
+     *   file or seeder, so `--explain` does not call them part of the diff
+     * @return array<string, 'changed'|'caller'|'reader'>
      */
-    private static function classesToMatch(array $result, array $changed): array
+    private static function classesToMatch(array $result, array $changed, array $readers = []): array
     {
         $classes = [];
 
         foreach ($changed as $file) {
             if ($file->fqcn !== '') {
-                $classes[$file->fqcn] = 'changed';
+                $classes[$file->fqcn] = in_array($file->fqcn, $readers, strict: true) ? 'reader' : 'changed';
             }
 
             foreach ($file->directSeeds as $seed) {
@@ -704,69 +688,6 @@ final class AffectedTests
         }
 
         return false;
-    }
-
-    /**
-     * What an MCP server {@see McpServerTracer} only half read costs this selection.
-     *
-     * A server whose URI could not be read has no `route::` node, so a test that posts to its
-     * endpoint cannot be matched. That matters exactly when the change reaches the server.
-     *
-     * A server whose primitive list could not be read can run a tool the graph draws no edge to. The
-     * hidden edge is `server → someTool::handle`, so it can only hide a caller of the change when the
-     * change is, or is reached from, a class that can be an MCP primitive. The same scoping an
-     * unfollowable dispatch gets ({@see changeReachesDispatchable()}), and it fails the same way: a
-     * class that cannot be loaded counts as one.
-     *
-     * @param  array{entryPoints: list<string>, selectionOnlyEntryPoints?: list<string>, callers?: list<array{node: string, depth: int, via: string, file?: string, line?: int}>, ...}  $result
-     * @param  list<ChangedFileSymbols>  $changed
-     * @return list<string>
-     */
-    private static function unreadMcpReasons(CodeGraph $graph, array $result, array $changed): array
-    {
-        $reasons = [];
-        $reached = array_values(array_filter(
-            [...$result['entryPoints'], ...$result['selectionOnlyEntryPoints'] ?? []],
-            static fn (string $node): bool => str_starts_with($node, McpServerTracer::NODE_PREFIX),
-        ));
-
-        $withoutUri = array_values(array_filter($reached, static fn (string $node): bool => $graph->outgoingTargetsOfType([$node], McpServerTracer::UNREAD_URI_EDGE) !== []));
-
-        if ($withoutUri !== []) {
-            $reasons[] = 'the change reaches an MCP server whose URL could not be read, so tests that post to it cannot be matched: '
-                . implode(', ', array_map(self::mcpServerName(...), $withoutUri));
-        }
-
-        if (! $graph->hasEdgeType(McpServerTracer::UNREAD_PRIMITIVES_EDGE)) {
-            return $reasons;
-        }
-
-        $classes = array_map(static fn (ChangedFileSymbols $file): ?string => $file->fqcn === '' ? null : $file->fqcn, $changed);
-
-        foreach ($result['callers'] ?? [] as $hop) {
-            $classes[] = self::classOfNode($hop['node']);
-        }
-
-        if (array_any($classes, static fn (?string $class): bool => $class !== null && self::canBeMcpPrimitive($class))) {
-            $servers = array_map(self::mcpServerName(...), array_filter($graph->nodes(), static fn (string $node): bool => str_starts_with($node, McpServerTracer::UNREAD_PREFIX)));
-            sort($servers);
-
-            $reasons[] = 'the tools, resources or prompts of an MCP server could not be read, and one of them can run the change: '
-                . implode(', ', array_values(array_unique($servers)));
-        }
-
-        return $reasons;
-    }
-
-    private static function mcpServerName(string $node): string
-    {
-        return (string) preg_replace('/^mcp(?:-unread)?::/', '', $node);
-    }
-
-    /** Whether a class is, or cannot be shown not to be, a tool, a resource or a prompt. */
-    private static function canBeMcpPrimitive(string $class): bool
-    {
-        return ! LoadableClass::exists($class) || is_subclass_of($class, McpServerTracer::PRIMITIVE);
     }
 
     /**
