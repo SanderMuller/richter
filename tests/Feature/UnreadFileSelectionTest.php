@@ -5,7 +5,6 @@ namespace SanderMuller\Richter\Tests\Feature;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Process;
-use Override;
 use PHPUnit\Framework\Attributes\Test;
 use SanderMuller\Richter\Tests\Support\FakesGit;
 use SanderMuller\Richter\Tests\TestCase;
@@ -22,7 +21,6 @@ final class UnreadFileSelectionTest extends TestCase
     /** @var list<string> */
     private array $written = [];
 
-    #[Override]
     protected function tearDown(): void
     {
         foreach ($this->written as $file) {
@@ -64,7 +62,7 @@ final class UnreadFileSelectionTest extends TestCase
 
     /**
      * @param  array<string, mixed>  $options
-     * @return array{exit: int, document: array<string, mixed>}
+     * @return array{exit: int, document: array{determinable: bool, reasons: list<string>, tests: list<string>, testsExcluded: int}}
      */
     private function select(array $options = []): array
     {
@@ -73,8 +71,23 @@ final class UnreadFileSelectionTest extends TestCase
         $output = Artisan::output();
         $document = json_decode(substr($output, (int) strpos($output, '{')), associative: true);
         $this->assertIsArray($document);
+        $this->assertIsBool($document['determinable'] ?? null);
+        $this->assertIsInt($document['testsExcluded'] ?? null);
 
-        return ['exit' => $exit, 'document' => $document];
+        return ['exit' => $exit, 'document' => [
+            'determinable' => $document['determinable'],
+            'reasons' => $this->strings($document['reasons'] ?? null),
+            'tests' => $this->strings($document['tests'] ?? null),
+            'testsExcluded' => $document['testsExcluded'],
+        ]];
+    }
+
+    /** @return list<string> */
+    private function strings(mixed $value): array
+    {
+        $this->assertIsArray($value);
+
+        return array_values(array_filter($value, is_string(...)));
     }
 
     #[Test]

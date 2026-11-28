@@ -6,7 +6,6 @@ use Illuminate\Filesystem\Filesystem;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\File;
 use Iterator;
-use Override;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use SanderMuller\Richter\Analysis\AffectedTests;
@@ -33,15 +32,12 @@ final class McpServerBuildTest extends TestCase
 
     private string $projectRoot;
 
-    #[Override]
     protected function setUp(): void
     {
         parent::setUp();
-
         $this->projectRoot = sys_get_temp_dir() . '/richter-mcp-' . bin2hex(random_bytes(8));
     }
 
-    #[Override]
     protected function tearDown(): void
     {
         new Filesystem()->deleteDirectory($this->projectRoot);
@@ -53,7 +49,7 @@ final class McpServerBuildTest extends TestCase
         return "<?php\nnamespace App\\Mcp\\Servers;\nuse App\\Mcp\\Prompts\\SummarisePrompt;\nuse App\\Mcp\\Resources\\OrderResource;\nuse App\\Mcp\\Tools\\FindOrderTool;\nuse App\\Mcp\\Tools\\ListOrdersTool;\nuse Laravel\\Mcp\\Server;\nclass {$class} extends {$extends}\n{\n    {$body}\n}\n";
     }
 
-    private static function routes(string $body): string
+    private function routes(string $body): string
     {
         return "<?php\nuse App\\Mcp\\Servers\\OrderServer;\nuse Illuminate\\Support\\Facades\\Route;\nuse Laravel\\Mcp\\Facades\\Mcp;\n{$body}\n";
     }
@@ -84,7 +80,7 @@ final class McpServerBuildTest extends TestCase
      * @param  list<array{source: string, target: string, type: string}>  $edges
      * @return list<string>
      */
-    private static function rendered(array $edges): array
+    private function rendered(array $edges): array
     {
         $lines = array_map(static fn (array $edge): string => "{$edge['source']} -[{$edge['type']}]-> {$edge['target']}", $edges);
         sort($lines);
@@ -96,7 +92,7 @@ final class McpServerBuildTest extends TestCase
     public function a_web_server_links_its_route_to_every_primitive_it_lists(): void
     {
         $edges = $this->mcpEdges([
-            'routes/ai.php' => self::routes("Mcp::web('/mcp', OrderServer::class)->middleware(['auth:api']);"),
+            'routes/ai.php' => $this->routes("Mcp::web('/mcp', OrderServer::class)->middleware(['auth:api']);"),
             'app/Mcp/Servers/OrderServer.php' => self::server('protected array $tools = [FindOrderTool::class, ListOrdersTool::class]; protected array $resources = [OrderResource::class]; protected array $prompts = [SummarisePrompt::class];'),
         ]);
 
@@ -106,14 +102,14 @@ final class McpServerBuildTest extends TestCase
             self::NODE . ' -[mcp-server-to-primitive]-> App\Mcp\Tools\FindOrderTool::handle',
             self::NODE . ' -[mcp-server-to-primitive]-> App\Mcp\Tools\ListOrdersTool::handle',
             'route::POST::/mcp -[mcp-route-to-server]-> ' . self::NODE,
-        ], self::rendered($edges));
+        ], $this->rendered($edges));
     }
 
     #[Test]
     public function code_behind_a_tool_reaches_the_server_and_its_route_as_entry_points(): void
     {
         $this->mcpEdges([
-            'routes/ai.php' => self::routes("Mcp::web('/mcp', OrderServer::class);"),
+            'routes/ai.php' => $this->routes("Mcp::web('/mcp', OrderServer::class);"),
             'app/Mcp/Servers/OrderServer.php' => self::server(),
         ]);
 
@@ -134,25 +130,25 @@ final class McpServerBuildTest extends TestCase
     public function a_local_server_gets_a_node_and_no_route(): void
     {
         $edges = $this->mcpEdges([
-            'routes/ai.php' => self::routes("Mcp::local('orders', OrderServer::class);"),
+            'routes/ai.php' => $this->routes("Mcp::local('orders', OrderServer::class);"),
             'app/Mcp/Servers/OrderServer.php' => self::server('protected array $tools = [FindOrderTool::class];'),
         ]);
 
-        $this->assertSame([self::NODE . ' -[mcp-server-to-primitive]-> ' . self::TOOL . '::handle'], self::rendered($edges));
+        $this->assertSame([self::NODE . ' -[mcp-server-to-primitive]-> ' . self::TOOL . '::handle'], $this->rendered($edges));
     }
 
     #[Test]
     public function a_server_registered_both_ways_has_one_node_and_one_route(): void
     {
         $edges = $this->mcpEdges([
-            'routes/ai.php' => self::routes("Mcp::local('orders', OrderServer::class);\nMcp::web('mcp', OrderServer::class);"),
+            'routes/ai.php' => $this->routes("Mcp::local('orders', OrderServer::class);\nMcp::web('mcp', OrderServer::class);"),
             'app/Mcp/Servers/OrderServer.php' => self::server('protected array $tools = [FindOrderTool::class];'),
         ]);
 
         $this->assertSame([
             self::NODE . ' -[mcp-server-to-primitive]-> ' . self::TOOL . '::handle',
             'route::POST::/mcp -[mcp-route-to-server]-> ' . self::NODE,
-        ], self::rendered($edges));
+        ], $this->rendered($edges));
     }
 
     /** @return Iterator<string, array{string, string}> */
@@ -173,11 +169,11 @@ final class McpServerBuildTest extends TestCase
     public function the_route_node_carries_the_uri_the_router_will(string $registration, string $uri): void
     {
         $edges = $this->mcpEdges([
-            'routes/ai.php' => self::routes($registration),
+            'routes/ai.php' => $this->routes($registration),
             'app/Mcp/Servers/OrderServer.php' => self::server('protected array $tools = [FindOrderTool::class];'),
         ]);
 
-        $this->assertContains("route::POST::{$uri} -[mcp-route-to-server]-> " . self::NODE, self::rendered($edges));
+        $this->assertContains("route::POST::{$uri} -[mcp-route-to-server]-> " . self::NODE, $this->rendered($edges));
         $this->assertNotContains('mcp-uri-unread', array_column($edges, 'type'));
     }
 
@@ -199,14 +195,14 @@ final class McpServerBuildTest extends TestCase
     public function a_uri_that_cannot_be_read_draws_no_route_and_says_so(string $registration, string $file): void
     {
         $edges = $this->mcpEdges([
-            $file => self::routes($registration),
+            $file => $this->routes($registration),
             'app/Mcp/Servers/OrderServer.php' => self::server('protected array $tools = [FindOrderTool::class];'),
         ]);
 
         $this->assertSame([
             self::NODE . ' -[mcp-server-to-primitive]-> ' . self::TOOL . '::handle',
             self::NODE . ' -[mcp-uri-unread]-> mcp-unread::' . self::SERVER,
-        ], self::rendered($edges));
+        ], $this->rendered($edges));
     }
 
     /** @return Iterator<string, array{array<string, string>}> */
@@ -229,16 +225,16 @@ final class McpServerBuildTest extends TestCase
     #[DataProvider('serversWhosePrimitivesCannotBeRead')]
     public function a_primitive_list_that_cannot_be_read_draws_no_primitive_and_says_so(array $files): void
     {
-        $edges = $this->mcpEdges(['routes/ai.php' => self::routes("Mcp::local('orders', OrderServer::class);")] + $files);
+        $edges = $this->mcpEdges(['routes/ai.php' => $this->routes("Mcp::local('orders', OrderServer::class);")] + $files);
 
-        $this->assertSame([self::NODE . ' -[mcp-primitives-unread]-> mcp-unread::' . self::SERVER], self::rendered($edges));
+        $this->assertSame([self::NODE . ' -[mcp-primitives-unread]-> mcp-unread::' . self::SERVER], $this->rendered($edges));
     }
 
     #[Test]
     public function a_list_the_subclass_declares_replaces_the_parents_and_the_rest_is_inherited(): void
     {
         $edges = $this->mcpEdges([
-            'routes/ai.php' => self::routes("Mcp::local('orders', OrderServer::class);"),
+            'routes/ai.php' => $this->routes("Mcp::local('orders', OrderServer::class);"),
             'app/Mcp/Servers/OrderServer.php' => self::server('protected array $tools = [FindOrderTool::class];', 'BaseServer'),
             'app/Mcp/Servers/BaseServer.php' => self::server('protected array $tools = [ListOrdersTool::class]; protected array $prompts = [SummarisePrompt::class];', class: 'BaseServer'),
         ]);
@@ -246,7 +242,7 @@ final class McpServerBuildTest extends TestCase
         $this->assertSame([
             self::NODE . ' -[mcp-server-to-primitive]-> App\Mcp\Prompts\SummarisePrompt::handle',
             self::NODE . ' -[mcp-server-to-primitive]-> ' . self::TOOL . '::handle',
-        ], self::rendered($edges));
+        ], $this->rendered($edges));
     }
 
     #[Test]
@@ -255,7 +251,7 @@ final class McpServerBuildTest extends TestCase
         // The template-method shape: a final `handle()` in a shared base that calls `run()` on the
         // tool. The server edge names the listed class, and the override edge carries it to `run()`.
         $this->mcpEdges([
-            'routes/ai.php' => self::routes("Mcp::web('/mcp', OrderServer::class);"),
+            'routes/ai.php' => $this->routes("Mcp::web('/mcp', OrderServer::class);"),
             'app/Mcp/Servers/OrderServer.php' => self::server('protected array $tools = [FindOrderTool::class];'),
             'app/Mcp/Tools/StaffTool.php' => "<?php\nnamespace App\\Mcp\\Tools;\nuse Laravel\\Mcp\\Server\\Tool;\nabstract class StaffTool extends Tool\n{\n    final public function handle(): string { return \$this->run(); }\n    abstract protected function run(): string;\n}\n",
             'app/Mcp/Tools/FindOrderTool.php' => "<?php\nnamespace App\\Mcp\\Tools;\nuse App\\Services\\OrderFinder;\nfinal class FindOrderTool extends StaffTool\n{\n    protected function run(): string { return new OrderFinder()->find(); }\n}\n",
@@ -360,7 +356,7 @@ final class McpServerBuildTest extends TestCase
     public function the_worker_process_draws_the_same_mcp_edges_as_the_in_process_build(): void
     {
         $this->mcpEdges([
-            'routes/ai.php' => self::routes("Route::prefix('api')->group(function (): void { Mcp::web('/mcp', OrderServer::class); });\nMcp::local('orders', OrderServer::class);"),
+            'routes/ai.php' => $this->routes("Route::prefix('api')->group(function (): void { Mcp::web('/mcp', OrderServer::class); });\nMcp::local('orders', OrderServer::class);"),
             'app/Mcp/Servers/OrderServer.php' => self::server(),
         ]);
 

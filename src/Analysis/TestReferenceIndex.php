@@ -42,8 +42,7 @@ final class TestReferenceIndex
     /** @var array<string, list<string>> imported FQCN => test files importing it */
     private array $classes = [];
 
-    /** @var array<string, list<string>> model factory FQCN => test files naming it */
-    private array $factories = [];
+    private readonly FactoryReferences $factories;
 
     /**
      * @var array<string, bool> test file => whether every assert-ish call the scan finds in its
@@ -70,6 +69,7 @@ final class TestReferenceIndex
         $this->supportUsers = new TestSupportUsers();
         $this->helperCalls = new TestHelperCalls();
         $this->selectionOnly = new SelectionOnlyTests();
+        $this->factories = new FactoryReferences();
     }
 
     /**
@@ -178,6 +178,7 @@ final class TestReferenceIndex
 
         if ($file !== null) {
             $this->supportUsers->add($source, $file);
+            $this->factories->add($source, $file);
             $this->selectionOnly->add($source, $file);
         }
     }
@@ -211,27 +212,6 @@ final class TestReferenceIndex
 
                     if ($member !== '') {
                         $this->record($this->classes, $group[1] . $member, $file);
-                    }
-                }
-            }
-        }
-
-        // A factory class under the default namespace: imported, qualified in the body, or one of a
-        // grouped import. Recorded apart from `$classes`, which holds application classes only.
-        if (preg_match_all('/(?<![\w$\\\\])\\\\?(Database\\\\Factories\\\\(?:[A-Za-z_]\w*\\\\)*[A-Za-z_]\w*)/', $source, $matches) > 0) {
-            foreach ($matches[1] as $class) {
-                $this->record($this->factories, $class, $file);
-            }
-        }
-
-        if (preg_match_all('/^use\s+(Database\\\\Factories\\\\[^;{]*)\{([^}]+)}\s*;/m', $source, $matches, PREG_SET_ORDER) > 0) {
-            foreach ($matches as $group) {
-                foreach (explode(',', $group[2]) as $member) {
-                    $parts = preg_split('/\s+as\s+/i', trim($member));
-                    $member = $parts === false ? '' : trim($parts[0] ?? '');
-
-                    if ($member !== '') {
-                        $this->record($this->factories, $group[1] . $member, $file);
                     }
                 }
             }
@@ -348,7 +328,7 @@ final class TestReferenceIndex
      */
     public function testsImportingFactory(string $fqcn): array
     {
-        return $this->factories[ltrim($fqcn, '\\')] ?? [];
+        return $this->factories->testsNaming($fqcn);
     }
 
     /**
@@ -383,21 +363,16 @@ final class TestReferenceIndex
             return $this->console()->resolveSchedule($entryPointNode);
         }
 
-        // An MCP server. The package's test helper drives one through its class,
-        // `OrderServer::actingAs($user)->tool(FindOrderTool::class)`, so a test naming the server
-        // references it. A test that posts to the endpoint matches the server's `route::` node instead.
-        if (str_starts_with($entryPointNode, McpServerTracer::NODE_PREFIX)) {
-            $server = substr($entryPointNode, strlen(McpServerTracer::NODE_PREFIX));
+        // An entry point that IS a class: a self-listed one (a changed listener/job with no app-side
+        // caller), or an MCP server, which the package's test helper drives through its class
+        // (`OrderServer::actingAs($user)->tool(FindOrderTool::class)`). A test that names the class
+        // references it. A test that posts to a server's endpoint matches its `route::` node instead.
+        $class = McpServerTracer::serverOf($entryPointNode) ?? $entryPointNode;
 
-            return ['referenced' => isset($this->classes[$server]), 'tests' => $this->classes[$server] ?? []];
-        }
-
-        // A self-listed entry-point class (a changed listener/job with no app-side caller) — a test
-        // referencing the class by import counts.
-        if (AppNamespace::isAppClass($entryPointNode)) {
+        if (AppNamespace::isAppClass($class)) {
             return [
-                'referenced' => isset($this->classes[$entryPointNode]),
-                'tests' => $this->classes[$entryPointNode] ?? [],
+                'referenced' => isset($this->classes[$class]),
+                'tests' => $this->classes[$class] ?? [],
             ];
         }
 

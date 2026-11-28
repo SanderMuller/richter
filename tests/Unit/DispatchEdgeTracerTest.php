@@ -1196,7 +1196,7 @@ final class DispatchEdgeTracerTest extends TestCase
     }
 
     /**
-     * @return array{edges: list<array{source: string, target: string, type: string}>, unresolvedSites: list<array{line: int, dispatcher: string}>, families: list<array{line: int, dispatcher: string, type: string}>}
+     * @return array{edges: list<array{source: string, target: string, type: string}>, unresolvedSites: list<array{line: int, dispatcher: string}>, families: list<array{line: int, dispatcher: string, type: string}>, ...}
      */
     private function traceWithHelpers(string $body, string $helpers): array
     {

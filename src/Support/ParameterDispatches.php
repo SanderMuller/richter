@@ -3,6 +3,7 @@
 namespace SanderMuller\Richter\Support;
 
 use PhpParser\Node;
+use PhpParser\Node\Arg;
 use PhpParser\Node\Expr;
 use PhpParser\Node\Expr\Array_;
 use PhpParser\Node\Expr\MethodCall;
@@ -22,7 +23,6 @@ use PhpParser\NodeTraverser;
 use PhpParser\NodeVisitor;
 use PhpParser\NodeVisitorAbstract;
 use SanderMuller\Richter\Graph\CodeGraphBuilder;
-use SanderMuller\Richter\Tracers\ClassHierarchyTracer;
 use SanderMuller\Richter\Tracers\DispatchEdgeTracer;
 
 /**
@@ -36,15 +36,14 @@ use SanderMuller\Richter\Tracers\DispatchEdgeTracer;
  * ```
  *
  * Nothing in that method names a job, so {@see DispatchEdgeTracer} cannot follow it alone. But a
- * private or protected method has a closed set of callers ({@see ClassHierarchyTracer::closedFamilyOf()}),
+ * private or protected method has a closed set of callers ({@see ClassFamilies::closedFamilyOf()}),
  * and when every one of them passes an array that provably holds named jobs, the dispatch holds
  * exactly those. The tracer records the dispatch, and this reads the callers once
  * {@see CodeGraphBuilder} has collected every class.
  *
  * The proof has three parts, and the record becomes an unfollowable site again when one fails.
  *
- * 1. The dispatching method passes the parameter straight through. {@see passThroughParameters()}
- *    and the tracer's mention count hold that.
+ * 1. The dispatching method passes the parameter straight through ({@see PassedOnParameters}).
  * 2. Every mention of the method's NAME in the family is its declaration or a plain
  *    `$this->method(...)` call. A call on another receiver, a first-class callable, a callable
  *    string, and any call whose method name is not written out can each reach the method with a
@@ -63,64 +62,44 @@ final class ParameterDispatches
     /** @var array<string, ClassLike|false> class-like FQCN => its node, or false when it could not be read */
     private array $classLikes = [];
 
-    /**
-     * @param  array<string, string>  $files  named class-like FQCN => the file that declares it
-     */
-    private function __construct(private readonly ClassHierarchyTracer $hierarchy, private readonly array $files) {}
+    /** @var list<ParameterDispatch> */
+    private array $records = [];
 
-    /**
-     * The parameters a method can dispatch for its callers, name => position.
-     *
-     * Only a private or protected instance method: a public or static one is reachable by a call
-     * that names no `$this`. Only a plain by-value parameter with no default but `[]`: a reference
-     * can be rewritten by the callee's callee, a variadic collects several arguments, and a default
-     * is a value no caller passed. And not in a method that hands its locals out by name.
-     *
-     * The caller still has to show the parameter is passed straight through: every mention of the
-     * name is its declaration or a dispatch argument.
-     *
-     * @return array<string, int>
-     */
-    public static function passThroughParameters(ClassMethod $method): array
+    private readonly ClassFamilies $families;
+
+    public function __construct()
     {
-        if ($method->isPublic() || $method->isStatic() || $method->stmts === null || LocallyConstructedJobs::exposesLocals($method)) {
-            return [];
-        }
-
-        $parameters = [];
-
-        foreach ($method->params as $position => $param) {
-            $default = $param->default;
-
-            if ($param->byRef
-                || $param->variadic
-                || $param->flags !== 0
-                || ! $param->var instanceof Variable
-                || ! is_string($param->var->name)
-                || ($default !== null && (! $default instanceof Array_ || $default->items !== []))
-            ) {
-                continue;
-            }
-
-            $parameters[$param->var->name] = $position;
-        }
-
-        return $parameters;
+        $this->families = new ClassFamilies();
     }
 
     /**
-     * @param  list<ParameterDispatch>  $records
-     * @param  array<string, string>  $files  named class-like FQCN => the file that declares it
+     * One file of the build: its class-likes, and the parameter dispatches the tracer set aside in it.
+     *
+     * @param  list<ClassLike>  $classLikes
+     * @param  list<array{line: int, dispatcher: string, position: int, mode: 'single'|'array', protected: bool}>  $records
+     */
+    public function collect(array $classLikes, string $path, string $relativePath, array $records): void
+    {
+        $this->families->collect($classLikes, $path);
+
+        foreach ($records as $record) {
+            $this->records[] = ['file' => $relativePath, ...$record];
+        }
+    }
+
+    /**
+     * The dispatches every caller fills with named jobs, as edges, and the rest as the sites the
+     * tracer would have recorded. Call once, after every file is collected.
+     *
      * @return array{edges: list<array{source: string, target: string, type: string}>, unresolvedSites: list<array{file: string, line: int, dispatcher: string}>}
      */
-    public static function resolve(array $records, ClassHierarchyTracer $hierarchy, array $files): array
+    public function resolve(): array
     {
-        $resolver = new self($hierarchy, $files);
         $edges = [];
         $unresolvedSites = [];
 
-        foreach ($records as $record) {
-            $jobs = $resolver->jobsPassedTo($record);
+        foreach ($this->records as $record) {
+            $jobs = $this->jobsPassedTo($record);
 
             if ($jobs === null) {
                 $unresolvedSites[] = ['file' => $record['file'], 'line' => $record['line'], 'dispatcher' => $record['dispatcher']];
@@ -145,7 +124,7 @@ final class ParameterDispatches
     private function jobsPassedTo(array $record): ?array
     {
         [$class, $method] = [...explode('::', $record['dispatcher'], 2), ''];
-        $family = $this->hierarchy->closedFamilyOf($class, withHierarchy: $record['protected']);
+        $family = $this->families->closedFamilyOf($class, withHierarchy: $record['protected']);
 
         if ($family === null) {
             return null;
@@ -266,14 +245,14 @@ final class ParameterDispatches
         $args = $call->getArgs();
 
         // A named or spread argument puts a value at a position this does not compute.
-        if (array_any($args, static fn (Node\Arg $arg): bool => $arg->unpack || $arg->name instanceof Identifier)) {
+        if (array_any($args, static fn (Arg $arg): bool => $arg->unpack || $arg->name instanceof Identifier)) {
             return null;
         }
 
         $arg = $args[$record['position']] ?? null;
 
-        // No argument: the parameter takes its default, which {@see passThroughParameters()} only
-        // allows to be `[]`.
+        // No argument: the parameter takes its default, which {@see PassedOnParameters} only allows
+        // to be `[]`.
         if ($arg === null) {
             return $record['mode'] === 'array' ? [] : null;
         }
@@ -365,7 +344,7 @@ final class ParameterDispatches
             return null;
         }
 
-        $family = $this->hierarchy->closedFamilyOf($callerClass, withHierarchy: true);
+        $family = $this->families->closedFamilyOf($callerClass, withHierarchy: true);
 
         if ($family === null) {
             return null;
@@ -461,7 +440,7 @@ final class ParameterDispatches
     private function classLike(string $fqcn): ?ClassLike
     {
         if (! array_key_exists($fqcn, $this->classLikes)) {
-            $path = $this->files[$fqcn] ?? null;
+            $path = $this->families->fileOf($fqcn);
             $ast = $path === null || ! is_file($path) ? null : AppFiles::parseResolved((string) file_get_contents($path));
             $found = $ast === null ? null : new NodeFinder()->findFirst(
                 $ast,
@@ -471,6 +450,8 @@ final class ParameterDispatches
             $this->classLikes[$fqcn] = $found instanceof ClassLike ? $found : false;
         }
 
-        return $this->classLikes[$fqcn] ?: null;
+        $classLike = $this->classLikes[$fqcn];
+
+        return $classLike === false ? null : $classLike;
     }
 }

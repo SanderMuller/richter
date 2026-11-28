@@ -6,7 +6,6 @@ use Illuminate\Filesystem\Filesystem;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\File;
 use Iterator;
-use Override;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use SanderMuller\Richter\Graph\CodeGraphBuilder;
@@ -55,15 +54,12 @@ final class ParameterDispatchBuildTest extends TestCase
 
     private string $projectRoot;
 
-    #[Override]
     protected function setUp(): void
     {
         parent::setUp();
-
         $this->projectRoot = sys_get_temp_dir() . '/richter-parameter-dispatch-' . bin2hex(random_bytes(8));
     }
 
-    #[Override]
     protected function tearDown(): void
     {
         new Filesystem()->deleteDirectory($this->projectRoot);
@@ -194,7 +190,7 @@ final class ParameterDispatchBuildTest extends TestCase
         yield 'a method name that is not written out' => ['$method = "configure" . "Batch"; $this->{$method}($unknown);', ''];
         yield 'a call on another object' => ['$other = new self(); $other->configureBatch($unknown)->dispatch();', ''];
         yield 'a helper that returns something unproven' => ['$this->configureBatch($this->loadJobs())->dispatch();', 'protected function loadJobs(): array { return cache()->get("jobs"); }'];
-        yield 'a helper that returns another helper\'s result' => ['$this->configureBatch($this->wrap($orders))->dispatch();', 'protected function wrap(array $orders): array { return $this->buildJobs($orders); }'];
+        yield "a helper that returns another helper's result" => ['$this->configureBatch($this->wrap($orders))->dispatch();', 'protected function wrap(array $orders): array { return $this->buildJobs($orders); }'];
         yield 'a generator helper' => ['$this->configureBatch($this->each($orders))->dispatch();', 'protected function each(array $orders): iterable { yield new ProcessOrder(1); return []; }'];
         yield 'a helper with no return' => ['$this->configureBatch($this->nothing())->dispatch();', 'protected function nothing() { $jobs = []; $jobs[] = new ProcessOrder(1); }'];
         yield 'a renamed trait method elsewhere in the class' => ['$this->configureBatch($this->buildJobs($orders))->dispatch();', 'use \App\Services\Concerns\Other { helper as public; }'];
@@ -305,6 +301,19 @@ final class ParameterDispatchBuildTest extends TestCase
     {
         // Nothing but the class itself can call a private method, so a vendor parent says nothing.
         $source = "<?php\nnamespace App\\Services;\nuse App\\Jobs\\ProcessOrder;\nuse Illuminate\\Support\\Facades\\Bus;\nfinal class OrderImporter extends \\Vendor\\Package\\BaseService\n{\n    public function run(): void { \$this->send([new ProcessOrder(1)]); }\n    private function send(array \$jobs): void { Bus::batch(\$jobs)->dispatch(); }\n}\n";
+
+        $result = $this->build(['Services/OrderImporter.php' => $source], 'App\Services\OrderImporter::send');
+
+        $this->assertSame([], $result['sites']);
+        $this->assertSame(['App\Jobs\ProcessOrder::handle'], $result['jobs']);
+    }
+
+    #[Test]
+    public function a_first_class_callable_beside_a_dispatched_parameter_is_no_dispatch(): void
+    {
+        // `ProcessOrder::dispatch(...)` builds a closure, and reading its arguments throws. The
+        // parameter dispatch next to it is still followed.
+        $source = "<?php\nnamespace App\\Services;\nuse App\\Jobs\\ProcessOrder;\nuse Illuminate\\Support\\Facades\\Bus;\nfinal class OrderImporter\n{\n    public function run(): void { \$this->send([new ProcessOrder(1)]); }\n    private function send(array \$jobs): void { \$later = ProcessOrder::dispatch(...); Bus::batch(\$jobs)->dispatch(); }\n}\n";
 
         $result = $this->build(['Services/OrderImporter.php' => $source], 'App\Services\OrderImporter::send');
 

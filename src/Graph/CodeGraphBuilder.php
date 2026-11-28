@@ -468,8 +468,7 @@ final class CodeGraphBuilder
         $unparseableFiles = 0;
         $unresolvedDispatchSites = [];
         $dispatchFamilies = [];
-        $parameterDispatches = [];
-        $classLikeFiles = [];
+        $parameterDispatches = new ParameterDispatches();
 
         foreach (AppFiles::phpClasses($projectRoot . '/app', $projectRoot) as $class) {
             $source = (string) file_get_contents($class['path']);
@@ -521,15 +520,7 @@ final class CodeGraphBuilder
                 $dispatchFamilies[] = ['file' => $relativePath, ...$family];
             }
 
-            foreach ($dispatch['parameterDispatches'] as $parameterDispatch) {
-                $parameterDispatches[] = ['file' => $relativePath, ...$parameterDispatch];
-            }
-
-            foreach ($collector->classLikes as $classLike) {
-                if ($classLike->namespacedName !== null) {
-                    $classLikeFiles[$classLike->namespacedName->toString()] = $class['path'];
-                }
-            }
+            $parameterDispatches->collect($collector->classLikes, $class['path'], $relativePath, $dispatch['parameterDispatches']);
 
             array_push($edges, ...$dispatch['edges']);
             // Three tracers ask their own question of the raw source before walking it. Each gate is a
@@ -556,9 +547,7 @@ final class CodeGraphBuilder
                 $livewireTracer->collect($collector->classMethods);
             }
 
-            if (McpServerTracer::mayMatch($source)) {
-                $mcpTracer->collect($collector->classLikes);
-            }
+            $mcpTracer->collect($collector->classLikes);
 
             $urlHelpers->collect($collector->classMethods);
         }
@@ -573,13 +562,11 @@ final class CodeGraphBuilder
         array_push($edges, ...$families['edges']);
         array_push($unresolvedDispatchSites, ...$families['unresolvedSites']);
 
-        // A dispatched parameter is filled by the callers of its method, which span files too. Read
-        // here for the same reason, and only when a method dispatches one: the callers are parsed again.
-        if ($parameterDispatches !== []) {
-            $passedOn = ParameterDispatches::resolve($parameterDispatches, $hierarchyTracer, $classLikeFiles);
-            array_push($edges, ...$passedOn['edges']);
-            array_push($unresolvedDispatchSites, ...$passedOn['unresolvedSites']);
-        }
+        // A dispatched parameter is filled by the callers of its method, which span files too, so it
+        // is read here for the same reason.
+        $passedOn = $parameterDispatches->resolve();
+        array_push($edges, ...$passedOn['edges']);
+        array_push($unresolvedDispatchSites, ...$passedOn['unresolvedSites']);
 
         // Constant/enum-case member nodes + reader edges — likewise flushed after the loop, because
         // declaring-class resolution spans files.

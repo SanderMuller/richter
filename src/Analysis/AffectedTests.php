@@ -741,7 +741,7 @@ final class AffectedTests
             return $reasons;
         }
 
-        $classes = array_filter(array_map(static fn (ChangedFileSymbols $file): string => $file->fqcn, $changed));
+        $classes = array_map(static fn (ChangedFileSymbols $file): ?string => $file->fqcn === '' ? null : $file->fqcn, $changed);
 
         foreach ($result['callers'] ?? [] as $hop) {
             $classes[] = self::classOfNode($hop['node']);
