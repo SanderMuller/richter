@@ -20,14 +20,14 @@ use SanderMuller\Richter\Tracers\FactoryModels;
  * INERT file cannot change a PHP test's result: it matches a glob, or it sits outside the
  * application and no code names it. A MAPPED file names what it reaches: a support class under
  * `tests/` its users ({@see TestSupportUsers}), a model factory the tests of its model, a config
- * file and a seeder the tests and the application files that name them ({@see NamedFileImpact}).
- * Every other file is a VETO: the run is not determinable.
+ * file, a seeder and a file outside the application the tests and the files that name them
+ * ({@see NamedFileImpact}). Every other file is a VETO: the run is not determinable.
  *
  * `selected` holds the tests to add. `readers` holds application files to analyse as if they had
  * changed: a class that reads a changed config key runs differently, and what that reaches is the
  * ordinary question the analysis already answers.
  *
- * @phpstan-type UnreadReason array{file: string, via: 'support'|'factory'|'config'|'seeder'}
+ * @phpstan-type UnreadReason array{file: string, via: 'support'|'factory'|'config'|'seeder'|'path'}
  * @phpstan-type UnreadImpact array{selected: array<string, list<UnreadReason>>, vetoed: list<string>, readers: array<string, list<UnreadReason>>}
  *
  * @internal
@@ -48,7 +48,7 @@ final class UnreadFileImpact
         '.claude/*', '.cursor/*', '.ai/*', '.vscode/*', '.idea/*', '.mcp.json',
         'package.json', 'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml',
         'vite.config.*', 'vitest.config.*', 'tailwind*.js', 'tailwind*.ts', 'tsconfig*.json',
-        'resources/css/*', 'resources/js/*', 'resources/sass/*', 'public/*',
+        'resources/css/*', 'resources/js/*', 'resources/sass/*',
     ];
 
     private const string FACTORIES = 'database/factories/';
@@ -75,8 +75,18 @@ final class UnreadFileImpact
                 return false;
             }
 
-            return ! array_any($inertGlobs, static fn (string $glob): bool => fnmatch($glob, $file));
+            return ! array_any($inertGlobs, static fn (string $glob): bool => self::matches($glob, $file));
         }));
+    }
+
+    /**
+     * A glob with a `/` is a path, and its `*` crosses directories: `docs/*` covers the tree. A
+     * glob without one names a file in the project ROOT only. `*.md` is the README and the
+     * changelog, not `resources/skills/orders/SKILL.md`, which an application can load.
+     */
+    private static function matches(string $glob, string $file): bool
+    {
+        return (str_contains($glob, '/') || ! str_contains($file, '/')) && fnmatch($glob, $file);
     }
 
     /**
@@ -86,41 +96,65 @@ final class UnreadFileImpact
      * @param  Closure(string): ?string  $sourceOf  a file's source on disk, or null when it is gone
      * @param  string|null  $projectRoot  where {@see NamedFileImpact} reads who names a file; without
      *   it, a file that is neither a support file nor a factory withdraws the selection
+     * @param  list<string>  $changedTests  the runnable tests the diff changed, which other tests may extend
      * @return UnreadImpact
      */
-    public static function assess(array $files, Closure $tests, Closure $graph, Closure $sourceOf, ?string $projectRoot = null): array
+    public static function assess(array $files, Closure $tests, Closure $graph, Closure $sourceOf, ?string $projectRoot = null, array $changedTests = []): array
     {
         $impact = self::none();
         $named = [];
+        $impactOf = $projectRoot === null ? null : new NamedFileImpact($projectRoot);
+        /** @var array<string, string> $seederOf a seeder that builds through a changed factory => that factory's file */
+        $seederOf = [];
+
+        // A changed test that other tests extend or use: an abstract `BaseApiTest` runs nothing
+        // itself, and what it changed runs in every test under it.
+        foreach ($changedTests as $file) {
+            $users = $tests()->runnableUsersOf([$file]);
+            self::record($impact, $file, 'support', $users);
+        }
 
         foreach ($files as $file) {
             $php = str_ends_with($file, '.php');
 
-            match (true) {
-                str_starts_with($file, 'tests/') => self::record($impact, $file, 'support', $php ? self::usersOfSupportFile($file, $tests()) : null),
-                $php && str_starts_with($file, self::FACTORIES) => self::record($impact, $file, 'factory', self::testsOfFactory($sourceOf($file), $tests(), $graph)),
-                default => $named[] = $file,
-            };
+            if ($php && str_starts_with($file, 'tests/')) {
+                self::record($impact, $file, 'support', self::usersOfSupportFile($file, $tests()));
+
+                continue;
+            }
+
+            if (! $php || ! str_starts_with($file, self::FACTORIES)) {
+                $named[] = $file;
+
+                continue;
+            }
+
+            $factory = self::testsOfFactory($sourceOf($file), $tests(), $graph);
+            self::record($impact, $file, 'factory', $factory['tests'] ?? null);
+
+            // A seeder that builds through the factory runs it too, for every test that runs the seeder.
+            foreach ($factory === null || $impactOf === null ? [] : $impactOf->seedersBuilding($factory['classes']) as $seeder) {
+                $seederOf[$seeder] ??= $file;
+            }
         }
+
+        $named = array_values(array_unique([...$named, ...array_keys($seederOf)]));
 
         if ($named === []) {
             return $impact;
         }
 
-        $answers = $projectRoot === null
+        $answers = $impactOf === null
             ? array_fill_keys($named, null)
-            : new NamedFileImpact($projectRoot)->of($named, static fn (array $support): ?array => $tests()->runnableUsersOf($support));
+            : $impactOf->of($named, static fn (array $support): ?array => $tests()->runnableUsersOf($support));
 
         foreach ($answers as $file => $answer) {
-            // A reader the graph holds no node for cannot be analysed, so what it reaches is unknown.
-            $unplaced = $answer !== null && array_any($answer['readers'], static fn (string $reader): bool => $graph()->nodesDefinedIn($reader) === []);
-            $via = str_starts_with($file, 'config/') ? 'config' : 'seeder';
-            self::record($impact, $file, $via, $answer === null || $unplaced ? null : $answer['tests']);
-
-            foreach ($answer !== null && ! $unplaced ? $answer['readers'] : [] as $reader) {
-                $impact['readers'][$reader][] = ['file' => $file, 'via' => $via];
-            }
+            // What a seeder reaches because it builds through a changed factory is the factory's reach.
+            $viaFactory = isset($seederOf[$file]) && ! in_array($file, $files, strict: true);
+            self::recordNamed($impact, $viaFactory ? $seederOf[$file] : $file, $viaFactory ? 'factory' : self::kindOf($file), $answer, $graph);
         }
+
+        $impact['vetoed'] = array_values(array_unique($impact['vetoed']));
 
         // Diff order for the files handled above, then the named ones: sorted, so a reason reads
         // the same whichever way the files arrived.
@@ -129,9 +163,53 @@ final class UnreadFileImpact
         return $impact;
     }
 
+    /** @return 'config'|'seeder'|'path' how a file reached by name is named */
+    private static function kindOf(string $file): string
+    {
+        return match (true) {
+            str_starts_with($file, 'config/') => 'config',
+            str_starts_with($file, 'database/seeders/') => 'seeder',
+            default => 'path',
+        };
+    }
+
+    /**
+     * Record one answer of {@see NamedFileImpact}: its tests and its readers, or a veto when it has
+     * none or names a reader the graph cannot place.
+     *
+     * @param  UnreadImpact  $impact
+     * @param  'factory'|'config'|'seeder'|'path'  $via
+     * @param  array{tests: list<string>, readers: list<string>}|null  $answer
+     * @param  Closure(): CodeGraph  $graph
+     */
+    private static function recordNamed(array &$impact, string $file, string $via, ?array $answer, Closure $graph): void
+    {
+        $placed = $answer !== null && array_all($answer['readers'], static fn (string $reader): bool => self::canBeAnalysed($reader, $graph));
+        self::record($impact, $file, $via, $placed ? $answer['tests'] : null);
+
+        foreach ($placed ? $answer['readers'] : [] as $reader) {
+            $impact['readers'][$reader][] = ['file' => $file, 'via' => $via];
+        }
+    }
+
+    /**
+     * Whether a reader can be analysed as changed.
+     *
+     * An application class always can. Every node of an application class that is in an edge
+     * carries its file, so a class the graph holds no node for is one nothing calls: it reaches
+     * nothing, and the tests that import it are still selected by its name. A route file or a view
+     * needs its nodes, and any other file (another config file, a provider's bootstrap) has none.
+     *
+     * @param  Closure(): CodeGraph  $graph
+     */
+    private static function canBeAnalysed(string $reader, Closure $graph): bool
+    {
+        return (str_starts_with($reader, 'app/') && str_ends_with($reader, '.php')) || $graph()->nodesDefinedIn($reader) !== [];
+    }
+
     /**
      * @param  UnreadImpact  $impact
-     * @param  'support'|'factory'|'config'|'seeder'  $via
+     * @param  'support'|'factory'|'config'|'seeder'|'path'  $via
      * @param  list<string>|null  $tests  the tests the file reaches, or null when it withdraws the selection
      */
     private static function record(array &$impact, string $file, string $via, ?array $tests): void
@@ -186,27 +264,43 @@ final class UnreadFileImpact
     }
 
     /**
-     * The readers, as changes the analysis can seed from: every node the
-     * reader's file defines. Coarser than the member that holds the read, and precise enough to be a
-     * real seed, so it draws no low-confidence verdict. A file the diff changed itself is left out:
-     * it is seeded already.
+     * The diff's changes with the readers added, as changes the analysis can seed from: every node
+     * the reader's file defines. Coarser than the member that holds the read, and precise enough to
+     * be a real seed, so it draws no low-confidence verdict.
      *
      * @param  UnreadImpact  $unread
      * @param  list<ChangedFileSymbols>  $changed
-     * @return list<ChangedFileSymbols>
+     * @return list<ChangedFileSymbols> the changes to analyse for the selection
      */
     public static function readersAsChanges(array $unread, array $changed, CodeGraph $graph): array
     {
-        $already = array_map(static fn (ChangedFileSymbols $file): string => $file->file, $changed);
-        $readers = [];
+        $byFile = [];
 
-        foreach (array_keys($unread['readers']) as $file) {
-            if (! in_array($file, $already, strict: true)) {
-                $readers[] = new ChangedFileSymbols($file, Fqcn::fromPath($file), [], cosmeticOnly: false, directSeeds: $graph->nodesDefinedIn($file));
-            }
+        foreach ($changed as $index => $file) {
+            $byFile[$file->file] = $index;
         }
 
-        return $readers;
+        foreach (array_keys($unread['readers']) as $file) {
+            $seeds = $graph->nodesDefinedIn($file);
+
+            // A reader with no node reaches nothing. Its importing tests are selected by its class.
+            if ($seeds === []) {
+                continue;
+            }
+
+            $existing = isset($byFile[$file]) ? $changed[$byFile[$file]] : null;
+
+            // The diff changed the reader too, in some member. The read can sit in another one, so
+            // the whole file is seeded on top of what the diff seeds.
+            $reader = $existing instanceof ChangedFileSymbols
+                ? $existing->alsoSeeding($seeds)
+                : new ChangedFileSymbols($file, Fqcn::fromPath($file), [], cosmeticOnly: false, directSeeds: $seeds);
+
+            $changed[$byFile[$file] ?? count($changed)] = $reader;
+            $byFile[$file] ??= count($changed) - 1;
+        }
+
+        return array_values($changed);
     }
 
     /**
@@ -238,7 +332,8 @@ final class UnreadFileImpact
      * it. The selection for that code needs the whole analysis, so it is a null here.
      *
      * @param  Closure(): CodeGraph  $graph
-     * @return list<string>|null
+     * @return array{tests: list<string>, classes: list<string>}|null the tests, and every model and
+     *   factory class the change can run through
      */
     private static function testsOfFactory(?string $source, TestReferenceIndex $tests, Closure $graph): ?array
     {
@@ -260,20 +355,28 @@ final class UnreadFileImpact
                     return null;
                 }
 
-                $models[$class] ??= FactoryModels::factoryNamesFor($class);
+                $models[$class] ??= FactoryModels::factoryNamesOf($class);
             }
         }
 
         $found = [];
+        $classes = [];
 
         foreach ($models as $model => $factories) {
             array_push($found, ...$tests->testsImporting($model));
+            array_push($classes, $model, ...$factories);
 
             foreach ($factories as $factory) {
                 array_push($found, ...$tests->testsImportingFactory($factory));
             }
         }
 
-        return TestReferenceIndex::runnableOnly(array_values(array_unique($found)));
+        $found = array_values(array_unique($found));
+        $runnable = TestReferenceIndex::runnableOnly($found);
+        // A support trait that builds the model stands for the tests that use the trait: they need
+        // not import the model themselves.
+        $users = $tests->runnableUsersOf(array_values(array_diff($found, $runnable)));
+
+        return $users === null ? null : ['tests' => array_values(array_unique([...$runnable, ...$users])), 'classes' => $classes];
     }
 }

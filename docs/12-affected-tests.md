@@ -232,9 +232,9 @@ The analysis reads PHP under `app/`, routes, migrations, Blade views and the con
 |---|---|
 | a support class under `tests/` (a trait, a base class, a page object) | the tests that use it are selected |
 | a model factory under `database/factories` | the tests that name its model or the factory class are selected, and those of every model whose factory builds it |
-| a config file that no package also ships | the tests that name its key are selected, and the application classes that name it are analysed as if they had changed |
-| a seeder | the tests and application classes that name it, and the tests that seed by default when `DatabaseSeeder` reaches it |
-| outside the directories Laravel loads, and named by no code | nothing: the file is inert |
+| a config file that no package also ships | the tests that name its key are selected, and the code that names it is analysed as if it had changed |
+| a seeder | the same for the tests and the code that name it, plus the tests that seed by default when `DatabaseSeeder` reaches it |
+| outside the directories Laravel loads | the same for the tests and the code that name its directory as a path; inert when nothing does |
 | anything else | not determinable |
 
 A config file is reached through its key. `config/plans.php` is read by `config('plans.basic')`, so richter looks for a string that starts with `plans.` in your application and tests. That works for a file only your code reads. `config/services.php` or `config/app.php` is read by the framework too, in code richter never scans, so a file that a package also ships under its own `config/` directory makes the selection not determinable.
@@ -243,12 +243,14 @@ A mapping holds only when richter can list everything it covers. These make the 
 
 - a support file of helper functions, `tests/Pest.php`, a support class no test is seen to use, and one that a Pest directory call binds (`pest()->extend(TestCase::class)->in('Feature')`);
 - a factory richter cannot tie to a model, and one that application code builds models through;
-- a config key that a route file, a view or another config file names, and one that nothing names;
-- a seeder that a route file names, and a base test case that seeds by default.
+- a config key that nothing names, and one named by a file richter cannot analyse, such as another config file or a provider's bootstrap;
+- a base test case that seeds by default.
 
 Some files are loaded whatever the code names, so they always make the selection not determinable: `composer.json`, `composer.lock`, the PHPUnit config, an `.env` file, language files, `bootstrap/`, and PHP under a Composer autoload path outside `app/`.
 
-A file outside those directories, such as a script, a Dockerfile or another service of a monorepo, can only change a PHP test when PHP reads it, and code that reads a file names its path. So it is inert unless a string in your application, config or tests names its top-level directory as a path, such as `base_path('stubs/report.stub')`.
+A file outside those directories, such as a script, a Dockerfile or another service of a monorepo, can only change a PHP test when PHP reads it, and code that reads a file names its path. So richter looks for a string that names the file's top-level directory as a path, such as `base_path('stubs/report.stub')`. A test that holds one is selected, the code that holds one is analysed as changed, and a file nothing names is inert.
+
+"Analysed as changed" means the ordinary analysis runs for that code: the entry points it reaches select their tests, and so do the tests that import it. The code is a class under `app/`, a route file or a view. It does not show as a changed file in a report.
 
 Add a path richter gets wrong to the inert list. The built-in list already holds prose (`*.md`, `docs/*`), CI definitions, static-analysis and style config, editor and agent settings, and the frontend's packages, build config and assets:
 

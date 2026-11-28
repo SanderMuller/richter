@@ -84,6 +84,39 @@ final readonly class ChangedFileSymbols
         public array $guardArrivals = [],
     ) {}
 
+    /**
+     * The same change, also seeding the given graph nodes, and never cosmetic. For a file that has
+     * to be walked from more than its changed members: one that reads a changed config key in
+     * another member than the diff touched.
+     *
+     * @param  list<string>  $seeds
+     */
+    public function alsoSeeding(array $seeds): self
+    {
+        return new self(
+            $this->file,
+            $this->fqcn,
+            $this->members,
+            cosmeticOnly: false,
+            directSeeds: array_values(array_unique([...$this->directSeeds, ...$seeds])),
+            findings: $this->findings,
+            unresolvedFrontendReferences: $this->unresolvedFrontendReferences,
+            modelFieldSet: $this->modelFieldSet,
+            addedModelFields: $this->addedModelFields,
+            isNewFile: $this->isNewFile,
+            removedResourceKeys: $this->removedResourceKeys,
+            addedResourceKeys: $this->addedResourceKeys,
+            removedRequestFields: $this->removedRequestFields,
+            addedRequestFields: $this->addedRequestFields,
+            inlineRequestFields: $this->inlineRequestFields,
+            hazards: $this->hazards,
+            addedHazardTokens: $this->addedHazardTokens,
+            siblingReads: $this->siblingReads,
+            droppedSentFields: $this->droppedSentFields,
+            guardArrivals: $this->guardArrivals,
+        );
+    }
+
     /** @return list<MemberChange> */
     public function resolvableMembers(): array
     {

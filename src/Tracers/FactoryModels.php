@@ -116,21 +116,11 @@ final class FactoryModels
     }
 
     /**
-     * The factory names a model can mean, for a caller that holds the model and needs its factory.
-     *
-     * @return list<string>
-     */
-    public static function factoryNamesFor(string $class): array
-    {
-        return self::factoryNamesOf($class);
-    }
-
-    /**
      * The factory names the model can mean, in order of precedence.
      *
      * @return list<string>
      */
-    private static function factoryNamesOf(string $class): array
+    public static function factoryNamesOf(string $class): array
     {
         if (! self::isFactoryModel($class)) {
             return [];

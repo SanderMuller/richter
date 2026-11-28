@@ -21,21 +21,32 @@ final class SourceMentions
 
     /**
      * @param  array<string, string>  $patterns  id => regex
+     * @param  list<string>  $also  more project-relative directories whose PHP runs, such as a PSR-4
+     *   path outside `app/`
      * @return array<string, list<string>> id => the project-relative files that match, sorted
      */
-    public static function in(string $projectRoot, array $patterns): array
+    public static function in(string $projectRoot, array $patterns, array $also = []): array
     {
         $found = array_fill_keys(array_keys($patterns), []);
-        $directories = array_values(array_filter(
-            array_map(static fn (string $directory): string => "{$projectRoot}/{$directory}", self::DIRECTORIES),
-            is_dir(...),
-        ));
+        $directories = [];
+
+        foreach ([...self::DIRECTORIES, ...$also] as $directory) {
+            $directory = trim($directory, '/');
+            $covered = array_any($directories, static fn (string $kept): bool => $directory === $kept || str_starts_with($directory, "{$kept}/"));
+
+            if (! $covered && is_dir("{$projectRoot}/{$directory}")) {
+                $directories[] = $directory;
+            }
+        }
+
+        $directories = array_map(static fn (string $directory): string => "{$projectRoot}/{$directory}", $directories);
 
         if ($patterns === [] || $directories === []) {
             return $found;
         }
 
-        foreach (Finder::create()->files()->in($directories)->name('*.php')->sortByName() as $file) {
+        // `bootstrap/cache` holds generated manifests, not source.
+        foreach (Finder::create()->files()->in($directories)->name('*.php')->notPath('#^cache/#')->sortByName() as $file) {
             $source = $file->getContents();
             $relative = substr($file->getPathname(), strlen($projectRoot) + 1);
 

@@ -92,10 +92,12 @@ final class NamedFileImpactTest extends TestCase
             'tests/Feature/PlanTest.php' => "<?php\nconfig(['plans.basic.price' => 5]);\n",
             'tests/Feature/WholeFileTest.php' => "<?php\n\$all = config('plans');\n",
             'tests/Feature/UnrelatedTest.php' => "<?php\nconfig(['planning.mode' => 'x']);\n",
+            'tests/Feature/WordTest.php' => "<?php\n\$menu = ['plans' => 'Plans'];\n",
+            'tests/Feature/FacadeTest.php' => "<?php\n\$all = \\Config::get('plans');\n",
         ]);
 
         $this->assertSame([], $impact['vetoed']);
-        $this->assertEqualsCanonicalizing(['tests/Feature/PlanTest.php', 'tests/Feature/WholeFileTest.php'], $impact['selected']);
+        $this->assertEqualsCanonicalizing(['tests/Feature/PlanTest.php', 'tests/Feature/WholeFileTest.php', 'tests/Feature/FacadeTest.php'], $impact['selected']);
         $this->assertEqualsCanonicalizing([self::READER, 'app/Services/Typed.php'], $impact['readers']);
     }
 
@@ -118,6 +120,19 @@ final class NamedFileImpactTest extends TestCase
             'vendor/acme/billing/config/plans.php' => "<?php\nreturn [];\n",
             self::READER => $reader,
         ]];
+        yield 'a package provider merges its config under the key' => [[
+            'vendor/acme/billing/src/BillingServiceProvider.php' => "<?php\n\$this->mergeConfigFrom(__DIR__ . '/../config/config.php', 'plans');\n",
+            self::READER => $reader,
+        ]];
+        yield 'a package provider publishes to that name' => [[
+            'vendor/acme/billing/src/BillingServiceProvider.php' => "<?php\n\$this->publishes([__DIR__ . '/../stubs/billing.php' => config_path('plans.php')]);\n",
+            self::READER => $reader,
+        ]];
+        yield 'a class under another autoload path names the key' => [[
+            self::READER => $reader,
+            'composer.json' => '{"autoload": {"psr-4": {"Modules\\\\": "modules/"}}}',
+            'modules/Billing/Plan.php' => "<?php\nnamespace Modules\\Billing;\nfinal class Plan\n{\n    public function price(): int { return config('plans.basic'); }\n}\n",
+        ]];
         yield 'nothing names the key' => [[
             self::READER => "<?php\nnamespace App\\Services;\nfinal class Pricing\n{\n    public function handle(): mixed { return config(\$this->key); }\n}\n",
         ]];
@@ -136,9 +151,6 @@ final class NamedFileImpactTest extends TestCase
         yield 'a test support file with no user names the key' => [[
             self::READER => $reader,
             'tests/Support/PlanHelpers.php' => "<?php\nfunction basicPlan(): array { return config('plans.basic'); }\n",
-        ]];
-        yield 'a reader the graph has no node for' => [[
-            'app/Services/Unplaced.php' => $reader,
         ]];
     }
 
@@ -192,10 +204,68 @@ final class NamedFileImpactTest extends TestCase
             'tests/Feature/CallsSeedTest.php' => "<?php\n\$this->seed();\n",
             'tests/Feature/CatalogTest.php' => "<?php\n\$this->seed(\\Database\\Seeders\\CatalogSeeder::class);\n",
             'tests/Feature/PlainTest.php' => "<?php\n\$this->get('/');\n",
+            // Words, not runs: a migration and a model that hold `seed` say nothing about a test.
+            'database/migrations/2026_01_01_000000_add_seed.php' => "<?php\n\$table->boolean('reseed'); // run with --seed\n",
+            'tests/Feature/RandomTest.php' => "<?php\n\$dice = new Dice(seed: true);\n",
         ]);
 
         $this->assertSame([], $impact['vetoed']);
         $this->assertEqualsCanonicalizing(['tests/Feature/SeededTest.php', 'tests/Feature/CallsSeedTest.php', 'tests/Feature/CatalogTest.php'], $impact['selected']);
+    }
+
+    #[Test]
+    public function a_test_case_that_overrides_should_seed_runs_the_default_seeder(): void
+    {
+        $impact = $this->assess(['database/seeders/DatabaseSeeder.php'], [
+            'database/seeders/DatabaseSeeder.php' => "<?php\nnamespace Database\\Seeders;\nfinal class DatabaseSeeder {}\n",
+            'tests/Feature/SeededTest.php' => "<?php\nfinal class SeededTest\n{\n    protected function shouldSeed(): bool { return true; }\n}\n",
+        ]);
+
+        $this->assertSame(['tests/Feature/SeededTest.php'], $impact['selected']);
+    }
+
+    #[Test]
+    public function a_fixture_reaches_the_tests_that_name_it_or_its_directory(): void
+    {
+        $impact = $this->assess(['tests/Fixtures/prices/basic.json'], [
+            'tests/Feature/ByNameTest.php' => "<?php\n\$json = fixture('basic.json');\n",
+            'tests/Feature/ByDirectoryTest.php' => "<?php\nforeach (glob(__DIR__ . '/../Fixtures/prices/*.json') as \$file) {}\n",
+            'tests/Feature/OtherTest.php' => "<?php\n\$json = fixture('premium.json');\n",
+        ]);
+
+        $this->assertSame([], $impact['vetoed']);
+        $this->assertEqualsCanonicalizing(['tests/Feature/ByNameTest.php', 'tests/Feature/ByDirectoryTest.php'], $impact['selected']);
+    }
+
+    #[Test]
+    public function a_seeder_that_builds_through_a_changed_factory_carries_the_change_to_its_tests(): void
+    {
+        $index = new TestReferenceIndex();
+        $project = [
+            'database/seeders/DatabaseSeeder.php' => "<?php\nnamespace Database\\Seeders;\nuse App\\Models\\Post;\nfinal class DatabaseSeeder\n{\n    public function run(): void { Post::factory()->count(3)->create(); }\n}\n",
+            'tests/Feature/SeededTest.php' => "<?php\n\$this->seed();\n",
+            'tests/Feature/PlainTest.php' => "<?php\n\$this->get('/');\n",
+        ];
+
+        foreach ($project as $path => $source) {
+            File::ensureDirectoryExists(dirname("{$this->projectRoot}/{$path}"));
+            File::put("{$this->projectRoot}/{$path}", $source);
+
+            if (str_starts_with($path, 'tests/')) {
+                $index->addSource($source, $path);
+            }
+        }
+
+        $impact = UnreadFileImpact::assess(
+            ['database/factories/PostFactory.php'],
+            static fn (): TestReferenceIndex => $index,
+            static fn (): CodeGraph => new CodeGraph([], hasUnparseableFiles: false),
+            static fn (string $file): string => "<?php\nnamespace Database\\Factories;\nfinal class PostFactory {}\n",
+            $this->projectRoot,
+        );
+
+        $this->assertSame([], $impact['vetoed']);
+        $this->assertSame(['tests/Feature/SeededTest.php' => [['file' => 'database/factories/PostFactory.php', 'via' => 'factory']]], $impact['selected']);
     }
 
     #[Test]
@@ -241,9 +311,16 @@ final class NamedFileImpactTest extends TestCase
         yield 'the example environment file' => ['.env.example', [], false];
         yield 'a tool config that is PHP' => ['ecs.php', [], false];
         yield 'a directory under resources nothing names' => ['resources/api-docs/openapi.json', [], false];
-        yield 'a directory a test reads' => ['starter-kits/basic/kit.json', ['tests/Feature/KitTest.php' => "<?php\nfile_get_contents(base_path('starter-kits/basic/kit.json'));\n"], true];
-        yield 'a directory application code reads' => ['stubs/report.stub', ['app/Services/Pricing.php' => "<?php\nnamespace App\\Services;\nfinal class Pricing\n{\n    public function handle(): string { return file_get_contents(base_path('stubs/report.stub')); }\n}\n"], true];
         yield 'a directory under resources that code names' => ['resources/api-docs/openapi.json', ['routes/web.php' => "<?php\nRoute::get('/docs', fn () => response()->file(resource_path('api-docs/openapi.json')));\n"], true];
+        yield 'a file directly under resources that a test reads' => ['resources/countries.json', ['routes/web.php' => "<?php\nRoute::get('/c', fn () => file_get_contents(resource_path('countries.json')));\n"], true];
+        yield 'a file directly under resources nothing names' => ['resources/countries.json', ['tests/Feature/WordTest.php' => "<?php\n\$dirs = ['resources' => 1];\n"], false];
+        yield 'a fixture under tests nothing names' => ['tests/Fixtures/orders.json', [], true];
+        yield 'PHP of a path-repository package' => ['packages/acme/billing/src/Invoice.php', [
+            'packages/acme/billing/src/Invoice.php' => "<?php\nnamespace Acme\\Billing;\nfinal class Invoice {}\n",
+            'vendor/composer/autoload_psr4.php' => "<?php\n\$baseDir = dirname(__DIR__, 2);\nreturn ['Acme\\\\Billing\\\\' => [\$baseDir . '/packages/acme/billing/src']];\n",
+        ], true];
+        yield 'an asset under public' => ['public/images/logo.png', [], false];
+        yield 'the Vite manifest' => ['public/build/manifest.json', [], true];
         yield 'a root file code names' => ['VERSION', ['config/app.php' => "<?php\nreturn ['version' => trim(file_get_contents(base_path('VERSION')))];\n"], true];
         yield 'PHP under a Composer autoload path' => ['helpers/strings.php', ['composer.json' => '{"autoload": {"files": ["helpers/strings.php"], "psr-4": {"App\\\\": "app/"}}}'], true];
         yield 'PHP under a PSR-4 path outside app' => ['modules/Billing/Invoice.php', ['composer.json' => '{"autoload": {"psr-4": {"Modules\\\\": "modules/"}}}'], true];
@@ -265,6 +342,74 @@ final class NamedFileImpactTest extends TestCase
 
         $this->assertSame($withdraws ? [$file] : [], $impact['vetoed']);
         $this->assertSame([], $impact['selected']);
+    }
+
+    #[Test]
+    public function a_file_outside_the_application_reaches_the_tests_and_the_code_that_name_its_directory(): void
+    {
+        // A test that reads a file of the repository is the test a change to that file can break.
+        $impact = $this->assess(['starter-kits/basic/kit.json', 'services/worker/main.go'], [
+            'tests/Feature/KitTest.php' => "<?php\nfile_get_contents(base_path('starter-kits/basic/kit.json'));\n",
+            'tests/Feature/KitDirectoryTest.php' => "<?php\n\$kits = glob(base_path('starter-kits') . '/*');\n",
+            'tests/Feature/WordOnlyTest.php' => "<?php\n\$list = ['starter-kits' => 3, 'services' => 2];\n",
+            'tests/Feature/UrlTest.php' => "<?php\n\$this->get('https://example.test/starter-kits/basic');\n",
+            'tests/Feature/RelativeTest.php' => "<?php\n\$kit = __DIR__ . '/../../starter-kits/basic/kit.json';\n",
+            self::READER => "<?php\nnamespace App\\Services;\nfinal class Pricing\n{\n    public function handle(): string { return file_get_contents(base_path('starter-kits/basic/kit.json')); }\n}\n",
+        ]);
+
+        $this->assertSame([], $impact['vetoed']);
+        $this->assertEqualsCanonicalizing(['tests/Feature/KitTest.php', 'tests/Feature/KitDirectoryTest.php', 'tests/Feature/RelativeTest.php'], $impact['selected']);
+        $this->assertSame([self::READER], $impact['readers']);
+    }
+
+    #[Test]
+    public function an_application_class_nothing_calls_is_a_reader_without_a_seed(): void
+    {
+        // No node means no edge names the class, so it reaches nothing. Its own tests still name it.
+        $impact = $this->assess(['config/plans.php'], [
+            'app/Services/Unplaced.php' => "<?php\nnamespace App\\Services;\nfinal class Unplaced\n{\n    public function handle(): int { return config('plans.basic'); }\n}\n",
+        ]);
+
+        $this->assertSame([], $impact['vetoed']);
+        $this->assertSame(['app/Services/Unplaced.php'], $impact['readers']);
+
+        $index = new TestReferenceIndex();
+        $index->addSource("<?php\nuse App\\Services\\Unplaced;\n", 'tests/Unit/UnplacedTest.php');
+
+        $selection = AffectedTests::select(
+            ['coverage' => [], 'entryPoints' => [], 'lowConfidence' => false],
+            [],
+            $index,
+            unresolvedDispatchSites: [],
+            unread: ['selected' => [], 'vetoed' => [], 'readers' => ['app/Services/Unplaced.php' => [['file' => 'config/plans.php', 'via' => 'config']]]],
+        );
+
+        $this->assertTrue($selection['determinable']);
+        $this->assertSame(['tests/Unit/UnplacedTest.php'], $selection['tests']);
+    }
+
+    #[Test]
+    public function a_route_file_the_graph_holds_is_a_reader_too(): void
+    {
+        File::ensureDirectoryExists("{$this->projectRoot}/routes");
+        File::put("{$this->projectRoot}/routes/web.php", "<?php\nRoute::get('/plans', fn () => config('plans.basic'));\n");
+
+        $graph = new CodeGraph(
+            [['source' => 'route::GET::/plans', 'target' => 'App\Services\Pricing::handle', 'type' => 'call']],
+            hasUnparseableFiles: false,
+            nodeMetadata: ['route::GET::/plans' => ['file' => 'routes/web.php']],
+        );
+
+        $impact = UnreadFileImpact::assess(
+            ['config/plans.php'],
+            static fn (): TestReferenceIndex => new TestReferenceIndex(),
+            static fn (): CodeGraph => $graph,
+            static fn (string $file): ?string => null,
+            $this->projectRoot,
+        );
+
+        $this->assertSame([], $impact['vetoed']);
+        $this->assertSame(['routes/web.php'], array_keys($impact['readers']));
     }
 
     #[Test]

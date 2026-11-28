@@ -9,6 +9,7 @@ use SanderMuller\Richter\Analysis\AffectedTests;
 use SanderMuller\Richter\Analysis\SelectionProvenance;
 use SanderMuller\Richter\Analysis\TestReferenceIndex;
 use SanderMuller\Richter\Analysis\UnreadFileImpact;
+use SanderMuller\Richter\Changes\ChangedFileSymbols;
 use SanderMuller\Richter\Graph\CodeGraph;
 use SanderMuller\Richter\Support\RichterConfig;
 use SanderMuller\Richter\Tests\TestCase;
@@ -58,6 +59,9 @@ final class UnreadFileImpactTest extends TestCase
         yield 'a language file' => ['lang/en/validation.php', true];
         yield 'a seeder' => ['database/seeders/PostSeeder.php', true];
         yield 'a fixture a test reads' => ['tests/Fixtures/orders.json', true];
+        yield 'an expected-output file under tests' => ['tests/Fixtures/expected.md', true];
+        yield 'prose an application can load' => ['resources/skills/orders/SKILL.md', true];
+        yield 'the Vite manifest' => ['public/build/manifest.json', true];
         yield 'a support class under tests' => ['tests/Support/BuildsPosts.php', true];
         yield 'a model factory' => ['database/factories/PostFactory.php', true];
         yield 'PHP outside app' => ['helpers/strings.php', true];
@@ -176,6 +180,65 @@ final class UnreadFileImpactTest extends TestCase
             array_keys($impact['selected']),
         );
         $this->assertSame([['file' => 'database/factories/PostFactory.php', 'via' => 'factory']], $impact['selected']['tests/Feature/PostTest.php']);
+    }
+
+    #[Test]
+    public function a_support_trait_that_builds_the_model_stands_for_the_tests_that_use_it(): void
+    {
+        // The trait imports the model and its users do not, so the model's importers alone miss them.
+        $impact = $this->assess(['database/factories/PostFactory.php'], [
+            'tests/Support/BuildsPosts.php' => "<?php\nnamespace Tests\\Support;\nuse App\\Models\\Post;\ntrait BuildsPosts\n{\n    protected function post(): Post { return Post::factory()->create(); }\n}\n",
+            'tests/Feature/UsesTraitTest.php' => "<?php\nnamespace Tests\\Feature;\nfinal class UsesTraitTest\n{\n    use \\Tests\\Support\\BuildsPosts;\n}\n",
+        ], sources: ['database/factories/PostFactory.php' => self::POST_FACTORY]);
+
+        $this->assertSame([], $impact['vetoed']);
+        $this->assertSame(['tests/Feature/UsesTraitTest.php'], array_keys($impact['selected']));
+    }
+
+    #[Test]
+    public function a_changed_test_that_other_tests_extend_selects_them(): void
+    {
+        $index = new TestReferenceIndex();
+        $index->addSource("<?php\nnamespace Tests\\Feature;\nabstract class BaseApiTest {}\n", 'tests/Feature/BaseApiTest.php');
+        $index->addSource("<?php\nnamespace Tests\\Feature;\nfinal class OrderApiTest extends BaseApiTest {}\n", 'tests/Feature/OrderApiTest.php');
+        $index->addSource("<?php\nnamespace Tests\\Feature;\nfinal class PlainTest {}\n", 'tests/Feature/PlainTest.php');
+
+        $impact = UnreadFileImpact::assess(
+            [],
+            static fn (): TestReferenceIndex => $index,
+            static fn (): CodeGraph => new CodeGraph([], hasUnparseableFiles: false),
+            static fn (string $file): ?string => null,
+            changedTests: ['tests/Feature/BaseApiTest.php', 'tests/Feature/PlainTest.php'],
+        );
+
+        $this->assertSame([], $impact['vetoed']);
+        $this->assertSame(['tests/Feature/OrderApiTest.php'], array_keys($impact['selected']));
+    }
+
+    #[Test]
+    public function a_reader_the_diff_also_changed_is_seeded_whole(): void
+    {
+        // The diff changed one member, and the config read sits in another. Seeding only what the
+        // diff changed would leave the reading member out.
+        $graph = new CodeGraph(
+            [['source' => 'route::GET::/quote', 'target' => 'App\Services\Pricing::quote', 'type' => 'call'], ['source' => 'route::GET::/label', 'target' => 'App\Services\Pricing::label', 'type' => 'call']],
+            hasUnparseableFiles: false,
+            nodeMetadata: ['App\Services\Pricing::quote' => ['file' => 'app/Services/Pricing.php'], 'App\Services\Pricing::label' => ['file' => 'app/Services/Pricing.php']],
+        );
+        $diff = new ChangedFileSymbols('app/Services/Pricing.php', 'App\Services\Pricing', [], cosmeticOnly: true, directSeeds: ['App\Services\Pricing::label']);
+        $other = new ChangedFileSymbols('app/Models/Post.php', 'App\Models\Post', [], cosmeticOnly: false);
+
+        $changes = UnreadFileImpact::readersAsChanges(
+            ['selected' => [], 'vetoed' => [], 'readers' => ['app/Services/Pricing.php' => [['file' => 'config/plans.php', 'via' => 'config']]]],
+            [$other, $diff],
+            $graph,
+        );
+
+        $this->assertCount(2, $changes);
+        $this->assertSame($other, $changes[0]);
+        $this->assertSame('app/Services/Pricing.php', $changes[1]->file);
+        $this->assertFalse($changes[1]->cosmeticOnly);
+        $this->assertEqualsCanonicalizing(['App\Services\Pricing::label', 'App\Services\Pricing::quote'], $changes[1]->directSeeds);
     }
 
     #[Test]

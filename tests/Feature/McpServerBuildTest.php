@@ -216,6 +216,8 @@ final class McpServerBuildTest extends TestCase
             'app/Mcp/Servers/OrderServer.php' => self::server('protected array $tools = [FindOrderTool::class];', 'BaseServer'),
             'app/Mcp/Servers/BaseServer.php' => self::server('protected function boot(): void {}', class: 'BaseServer'),
         ]];
+        yield 'a list filled in the constructor' => [['app/Mcp/Servers/OrderServer.php' => self::server('protected array $tools = [FindOrderTool::class]; public function __construct() { $this->tools[] = ListOrdersTool::class; }')]];
+        yield 'a trait on the server' => [['app/Mcp/Servers/OrderServer.php' => self::server('use \App\Mcp\Servers\Concerns\RegistersTools; protected array $tools = [FindOrderTool::class];')]];
         yield 'a parent outside the scanned tree' => [['app/Mcp/Servers/OrderServer.php' => self::server('protected array $tools = [FindOrderTool::class];', '\Vendor\Package\SharedServer')]];
         yield 'a server class outside the scanned tree' => [[]];
     }

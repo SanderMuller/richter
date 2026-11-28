@@ -277,6 +277,7 @@ final class AffectedTestsCommand extends Command
                 'factory' => "it imports the model or the factory class that the changed factory {$file} builds",
                 'config' => "it names a key of the changed config file {$file}",
                 'seeder' => "it runs the changed seeder {$file}",
+                'path' => "it names the path of the changed file {$file}",
                 default => "it uses the changed support file {$file}",
             };
         }
@@ -286,7 +287,7 @@ final class AffectedTestsCommand extends Command
         $class = $reason['class'] ?? null;
         $kind = match ($reason['origin'] ?? '') {
             'changed' => 'a changed class',
-            'reader' => 'it names a changed config file or seeder',
+            'reader' => 'it names a changed file no analysis reads',
             default => 'a caller of the change',
         };
 

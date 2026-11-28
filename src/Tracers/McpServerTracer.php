@@ -2,13 +2,16 @@
 
 namespace SanderMuller\Richter\Tracers;
 
+use PhpParser\Node;
 use PhpParser\Node\Expr;
 use PhpParser\Node\Expr\Array_;
 use PhpParser\Node\Expr\ClassConstFetch;
+use PhpParser\Node\Expr\PropertyFetch;
 use PhpParser\Node\Identifier;
 use PhpParser\Node\Name;
 use PhpParser\Node\Stmt\Class_;
 use PhpParser\Node\Stmt\ClassLike;
+use PhpParser\NodeFinder;
 use SanderMuller\Richter\Graph\CodeGraphBuilder;
 use SanderMuller\Richter\Support\AppFiles;
 
@@ -34,8 +37,9 @@ use SanderMuller\Richter\Support\AppFiles;
  *
  * - `mcp-uri-unread`: the URI is not a literal under literal prefixes. The route node would carry
  *   the wrong URI, so none is drawn, and a test that posts to the endpoint cannot be matched.
- * - `mcp-primitives-unread`: a list holds something other than `X::class`, the server overrides
- *   `boot()`, or the class is outside the scanned tree. The server can then run a primitive this
+ * - `mcp-primitives-unread`: a list holds something other than `X::class`, the server can fill a
+ *   list in code (a `boot()` override, a method that touches a list, a trait), or the class is
+ *   outside the scanned tree. The server can then run a primitive this
  *   never saw.
  *
  * @internal
@@ -64,6 +68,13 @@ final class McpServerTracer
     /** @var array<string, array<string, list<string>|null>> class => list name => its `X::class` items, or null when one is something else */
     private array $lists = [];
 
+    /**
+     * @var array<string, true> classes whose lists can hold more than their defaults: a method
+     *   reads or writes one (`$this->tools[] = X::class`), or the class uses a trait, which can
+     *   declare a list or fill one
+     */
+    private array $filledInCode = [];
+
     /** A superset gate: a file that names no MCP class can declare no server and no registration. */
     public static function mayMatch(string $source): bool
     {
@@ -89,6 +100,10 @@ final class McpServerTracer
 
             if ($fqcn === null) {
                 continue;
+            }
+
+            if ($classLike->getTraitUses() !== [] || $this->touchesAList($classLike)) {
+                $this->filledInCode[$fqcn] = true;
             }
 
             foreach ($classLike->getProperties() as $property) {
@@ -137,8 +152,8 @@ final class McpServerTracer
      *
      * A list a subclass declares REPLACES the parent's, as any property default does, so the nearest
      * declaration of each list wins. The walk ends at the package's base server. It ends in null at
-     * any other class this never scanned, and at a `boot()` override, which is where a server
-     * registers primitives in code.
+     * any other class this never scanned, and at a class that can register primitives in code: a
+     * `boot()` override, a method that touches one of the lists, a trait.
      *
      * @param  array<string, array{parent: string|null, declared: list<string>}>  $inheritance
      * @return list<string>|null
@@ -149,7 +164,7 @@ final class McpServerTracer
         $seen = [];
 
         for ($class = $server; $class !== self::BASE_SERVER; $class = $inheritance[$class]['parent']) {
-            if (! isset($inheritance[$class]['parent']) || isset($seen[$class]) || in_array('boot', $inheritance[$class]['declared'], strict: true)) {
+            if (! isset($inheritance[$class]['parent']) || isset($seen[$class]) || isset($this->filledInCode[$class]) || in_array('boot', $inheritance[$class]['declared'], strict: true)) {
                 return null;
             }
 
@@ -165,6 +180,17 @@ final class McpServerTracer
         }
 
         return array_values(array_unique(array_merge(...array_values($found))));
+    }
+
+    /** Whether a method of the class names one of the lists: `$this->tools[] = …`, `array_merge($this->tools, …)`. */
+    private function touchesAList(Class_ $class): bool
+    {
+        return new NodeFinder()->findFirst(
+            $class->getMethods(),
+            static fn (Node $node): bool => $node instanceof PropertyFetch
+                && $node->name instanceof Identifier
+                && in_array($node->name->toString(), self::LISTS, strict: true),
+        ) instanceof Node;
     }
 
     /**

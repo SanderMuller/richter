@@ -177,7 +177,13 @@ final class ParameterDispatches
             /** @var list<ClassMethod> */
             private array $enclosing = [];
 
-            public function __construct(private readonly string $method) {}
+            private readonly string $method;
+
+            public function __construct(string $method)
+            {
+                // PHP method names are case-insensitive: `$this->SEND()` calls `send()`.
+                $this->method = strtolower($method);
+            }
 
             public function enterNode(Node $node): null
             {
@@ -189,7 +195,7 @@ final class ParameterDispatches
 
                 $this->open = $this->open || $this->reachesTheMethodUnseen($node);
 
-                if ($node instanceof MethodCall && $node->name instanceof Identifier && $node->name->toString() === $this->method) {
+                if ($node instanceof MethodCall && $node->name instanceof Identifier && $node->name->toLowerString() === $this->method) {
                     $caller = end($this->enclosing);
 
                     if ($caller === false || ! $node->var instanceof Variable || $node->var->name !== 'this' || $node->isFirstClassCallable()) {
@@ -218,9 +224,9 @@ final class ParameterDispatches
                 return match (true) {
                     // A method name that is not written out can be any name, this one included.
                     $node instanceof MethodCall, $node instanceof NullsafeMethodCall, $node instanceof StaticCall => ! $node->name instanceof Identifier
-                        || (! $node instanceof MethodCall && $node->name->toString() === $this->method),
+                        || (! $node instanceof MethodCall && $node->name->toLowerString() === $this->method),
                     // The name as a string is how a callable names a method: `[$this, 'method']`.
-                    $node instanceof String_ => $node->value === $this->method,
+                    $node instanceof String_ => strtolower($node->value) === $this->method,
                     // `[$this, $name]` names a method of this object through a value.
                     $node instanceof Array_ => count($node->items) === 2
                         && $node->items[0]->value instanceof Variable

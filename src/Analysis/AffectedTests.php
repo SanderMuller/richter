@@ -133,12 +133,13 @@ final class AffectedTests
         // Neither the graph nor the test index is built unless an unread file needs one: a
         // docs-only diff must stay as cheap as it was.
         $graphOnce = self::once(static fn (): CodeGraph => $graphs->graph(fresh: $fresh));
-        $unread = $unreadFiles === [] ? UnreadFileImpact::none() : UnreadFileImpact::assess(
+        $unread = $unreadFiles === [] && $changedTests === [] ? UnreadFileImpact::none() : UnreadFileImpact::assess(
             $unreadFiles,
             self::once(static fn (): TestReferenceIndex => TestReferenceIndex::fromTests(base_path('tests'), base_path())),
             $graphOnce,
             $sourceOf,
             base_path(),
+            $changedTests,
         );
 
         if ($changed === [] && $unread['readers'] === []) {
@@ -192,9 +193,8 @@ final class AffectedTests
         // An application file that names a changed config key or seeder runs differently, so it is
         // analysed as changed, for the selection only: the document a caller asked for describes
         // the diff. Without readers the two are one run.
-        $readers = UnreadFileImpact::readersAsChanges($unread, $changed, $graph);
-        $selectionChanges = [...$changed, ...$readers];
-        $selectionAnalysis = $readers === [] ? $analysisUsed : new ImpactAnalyzer($graph)->detectChanges(
+        $selectionChanges = UnreadFileImpact::readersAsChanges($unread, $changed, $graph);
+        $selectionAnalysis = $unread['readers'] === [] ? $analysisUsed : new ImpactAnalyzer($graph)->detectChanges(
             $selectionChanges,
             payloadParityEnabled: false,
             attributionEnabled: false,
@@ -604,6 +604,13 @@ final class AffectedTests
                 if (AppNamespace::isAppClass($seed)) {
                     $classes[$seed] = 'changed';
                 }
+            }
+        }
+
+        // A reader the graph holds no node for is not among the changes, and its tests still name it.
+        foreach ($readers as $reader) {
+            if (AppNamespace::isAppClass($reader)) {
+                $classes[$reader] ??= 'reader';
             }
         }
 

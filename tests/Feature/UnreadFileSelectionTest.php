@@ -226,14 +226,15 @@ final class UnreadFileSelectionTest extends TestCase
     }
 
     #[Test]
-    public function a_file_outside_the_application_that_a_test_names_withdraws_the_selection(): void
+    public function a_file_outside_the_application_selects_the_test_that_reads_it(): void
     {
         $this->write('tests/Feature/StarterKitTest.php', "<?php\n\$kit = file_get_contents(base_path('starter-kits/basic/manifest.json'));\n");
+        $this->write('tests/Feature/OtherTest.php', "<?php\n\$this->get('/');\n");
         $this->fakeDiffOf(['starter-kits/basic/manifest.json', 'services/worker/main.go']);
 
         $result = $this->select();
 
-        $this->assertSame(2, $result['exit']);
-        $this->assertSame(['changed file(s) no analysis reads can change test results: starter-kits/basic/manifest.json'], $result['document']['reasons']);
+        $this->assertSame(0, $result['exit']);
+        $this->assertSame(['tests/Feature/StarterKitTest.php'], $result['document']['tests']);
     }
 }
