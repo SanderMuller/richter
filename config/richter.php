@@ -115,13 +115,13 @@ return [
 
         // More files that cannot change the result of a PHP test, added to the built-in list
         // (docs, CI workflows, static-analysis and style config, editor settings, frontend
-        // packages and assets). A changed file that no analysis reads and that is not on the list
-        // makes the selection "not determinable", because richter cannot know it is harmless.
-        // Globs as above. Typical entries: a scripts directory, generated API docs.
+        // packages and assets). Most files need no entry: a file outside the directories Laravel
+        // loads is already inert when no code names it. Use this for a path richter treats as
+        // loaded and that no test reads, such as 'lang/vendor/*'. Globs as above.
         //
         // Never list a file the tests can read or load: config, `.env.*`, `phpunit.xml`,
-        // `composer.*`, seeders, language files, fixtures, or PHP outside `app/`. A wrong entry
-        // drops tests from the selection with nothing to say so.
+        // `composer.*`, language files, fixtures, or PHP outside `app/`. A wrong entry drops
+        // tests from the selection with nothing to say so.
         'inert_paths' => [],
     ],
 

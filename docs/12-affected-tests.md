@@ -226,26 +226,40 @@ Seven shapes look unfollowable and are not counted, because none of them hides a
 
 ## Changed files no analysis reads
 
-The analysis reads PHP under `app/`, routes, migrations, Blade views and the configured frontend roots. A diff can change other files that decide a test's result: the base test case, a model factory, `config/services.php`, `composer.lock`. Such a file gets one of three answers.
+The analysis reads PHP under `app/`, routes, migrations, Blade views and the configured frontend roots. A diff can change other files that decide a test's result: the base test case, a model factory, a config file, `composer.lock`. Such a file gets one of these answers.
 
 | The changed file is | Result |
 |---|---|
 | a support class under `tests/` (a trait, a base class, a page object) | the tests that use it are selected |
 | a model factory under `database/factories` | the tests that name its model or the factory class are selected, and those of every model whose factory builds it |
-| anything else | not determinable, unless the path is inert |
+| a config file that no package also ships | the tests that name its key are selected, and the application classes that name it are analysed as if they had changed |
+| a seeder | the tests and application classes that name it, and the tests that seed by default when `DatabaseSeeder` reaches it |
+| outside the directories Laravel loads, and named by no code | nothing: the file is inert |
+| anything else | not determinable |
 
-A support class maps only when richter can list its users. A file of helper functions, `tests/Pest.php`, a class no test is seen to use, and a class that a Pest directory call binds (`pest()->extend(TestCase::class)->in('Feature')`) all make the selection not determinable. So does a factory richter cannot tie to a model, and a factory that application code builds models through.
+A config file is reached through its key. `config/plans.php` is read by `config('plans.basic')`, so richter looks for a string that starts with `plans.` in your application and tests. That works for a file only your code reads. `config/services.php` or `config/app.php` is read by the framework too, in code richter never scans, so a file that a package also ships under its own `config/` directory makes the selection not determinable.
 
-Inert paths are files that cannot change a PHP test's result. The built-in list holds prose (`*.md`, `docs/*`), CI definitions, static-analysis and style config, editor and agent settings, and the frontend's packages, build config and assets. Add your own:
+A mapping holds only when richter can list everything it covers. These make the selection not determinable:
+
+- a support file of helper functions, `tests/Pest.php`, a support class no test is seen to use, and one that a Pest directory call binds (`pest()->extend(TestCase::class)->in('Feature')`);
+- a factory richter cannot tie to a model, and one that application code builds models through;
+- a config key that a route file, a view or another config file names, and one that nothing names;
+- a seeder that a route file names, and a base test case that seeds by default.
+
+Some files are loaded whatever the code names, so they always make the selection not determinable: `composer.json`, `composer.lock`, the PHPUnit config, an `.env` file, language files, `bootstrap/`, and PHP under a Composer autoload path outside `app/`.
+
+A file outside those directories, such as a script, a Dockerfile or another service of a monorepo, can only change a PHP test when PHP reads it, and code that reads a file names its path. So it is inert unless a string in your application, config or tests names its top-level directory as a path, such as `base_path('stubs/report.stub')`.
+
+Add a path richter gets wrong to the inert list. The built-in list already holds prose (`*.md`, `docs/*`), CI definitions, static-analysis and style config, editor and agent settings, and the frontend's packages, build config and assets:
 
 ```php
 // config/richter.php
 'tests' => [
-    'inert_paths' => ['tools/*', 'resources/api-docs/*'],
+    'inert_paths' => ['lang/vendor/*', 'stubs/*'],
 ],
 ```
 
-**An unknown file is not inert.** Richter cannot tell a helpers file outside `app/` from a script, so the reason names every file that withdrew the selection, and you list the ones that are harmless. Never list a file a test can read or load: config, an `.env` file, `phpunit.xml`, `composer.*`, seeders, language files or fixtures. A wrong entry drops tests with nothing to say so.
+Never list a file a test can read or load. A wrong entry drops tests with nothing to say so.
 
 ## Tests the runner cannot execute
 
@@ -294,7 +308,7 @@ tests/Feature/PostTest.php IS in the selection.
   - it imports App\Services\PostPublisher (a caller of the change)
 ```
 
-A test reached from a changed support file or factory names that file: `it uses the changed support file tests/Support/BuildsPosts.php`.
+A test reached from a changed support file, factory, config file or seeder names that file: `it uses the changed support file tests/Support/BuildsPosts.php`.
 
 Every reason is listed, not the first one that matched — the useful question is usually whether *one* of the reasons is the weak one. An import reason says whether the class changed or merely calls the change, because those warrant different amounts of trust.
 
