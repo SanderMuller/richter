@@ -607,6 +607,76 @@ final class DispatchEdgeTracerTest extends TestCase
         $this->assertSame([], $result['unresolvedSites']);
     }
 
+    /**
+     * A closure wrapped by hand the way the framework wraps it. `create()` only puts the closure in
+     * a job object and the fluent calls return that object, so each form queues the closure that is
+     * written there.
+     *
+     * @return Iterator<string, array{string}>
+     */
+    public static function wrappedQueuedClosures(): Iterator
+    {
+        yield 'wrapped and named' => ['dispatch(CallQueuedClosure::create(function (): void { $this->rebuild(); })->name("rebuild"));'];
+        yield 'wrapped, no fluent call' => ['dispatch(CallQueuedClosure::create(fn (): int => 1));'];
+        yield 'several fluent calls' => ['dispatch(CallQueuedClosure::create(static function (): void {})->onQueue("low")->delay(5)->afterCommit()->name("x"));'];
+        yield 'an array element' => ['Bus::chain([CallQueuedClosure::create(function (): void {})->name("first"), function (): void {}]);'];
+        yield 'an accumulator append' => ["\$c = [];\n\$c[] = CallQueuedClosure::create(function (): void {})->name('first');\nBus::chain(\$c);"];
+        yield 'an aliased import' => ['dispatch(QueuedWork::create(function (): void {})->name("x"));'];
+    }
+
+    #[Test]
+    #[DataProvider('wrappedQueuedClosures')]
+    public function a_closure_wrapped_in_the_framework_job_is_not_unfollowable(string $body): void
+    {
+        $uses = "use Illuminate\Queue\CallQueuedClosure;\nuse Illuminate\Queue\CallQueuedClosure as QueuedWork;\nuse Illuminate\Support\Facades\Bus;";
+
+        $this->assertSame(0, $this->unresolved($body, $uses));
+    }
+
+    /**
+     * What the wrapper does not excuse. Each keeps the site, because the queued work is no longer the
+     * closure written at the dispatch.
+     *
+     * @return Iterator<string, array{string}>
+     */
+    public static function wrappedShapesThatStayUnfollowable(): Iterator
+    {
+        yield 'a closure held by a variable' => ['dispatch(CallQueuedClosure::create($callback));'];
+        yield 'a fluent call that adds jobs' => ['dispatch(CallQueuedClosure::create(function (): void {})->chain($more));'];
+        yield 'a fluent call outside the list' => ['dispatch(CallQueuedClosure::create(function (): void {})->through($middleware));'];
+        yield 'another class with a create method' => ['dispatch(Post::create(function (): void {}));'];
+        yield 'a second argument' => ['dispatch(CallQueuedClosure::create(function (): void {}, $extra));'];
+        yield 'a spread argument' => ['dispatch(CallQueuedClosure::create(...$callbacks));'];
+        yield 'another static method' => ['dispatch(CallQueuedClosure::make(function (): void {}));'];
+    }
+
+    #[Test]
+    #[DataProvider('wrappedShapesThatStayUnfollowable')]
+    public function a_wrapper_around_anything_but_an_inline_closure_stays_unfollowable(string $body): void
+    {
+        $uses = "use App\Models\Post;\nuse Illuminate\Queue\CallQueuedClosure;";
+
+        $this->assertSame(1, $this->unresolved($body, $uses));
+    }
+
+    #[Test]
+    public function a_wrapped_closure_reads_exactly_like_the_bare_one(): void
+    {
+        // Two spellings of one dispatch. The argument path and the array-element path each read the
+        // closure, so the test compares the readings rather than each one against a fixed answer.
+        $uses = "use App\Jobs\ImportJob;\nuse Illuminate\Queue\CallQueuedClosure;\nuse Illuminate\Support\Facades\Bus;";
+        $closure = 'function (): void { dispatch(new ImportJob()); }';
+
+        foreach (['dispatch(%s);', 'Bus::chain([new ImportJob(), %s]);'] as $form) {
+            $bare = sprintf($form, $closure);
+            $wrapped = sprintf($form, "CallQueuedClosure::create({$closure})->name('x')");
+
+            $this->assertSame($this->edges($bare, $uses), $this->edges($wrapped, $uses), $form);
+            $this->assertSame($this->unresolved($bare, $uses), $this->unresolved($wrapped, $uses), $form);
+            $this->assertSame(0, $this->unresolved($wrapped, $uses), $form);
+        }
+    }
+
     #[Test]
     public function an_event_named_by_a_class_constant_is_not_a_job_dispatch(): void
     {

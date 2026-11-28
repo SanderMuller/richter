@@ -7,7 +7,6 @@ use PhpParser\Node;
 use PhpParser\Node\Arg;
 use PhpParser\Node\Expr;
 use PhpParser\Node\Expr\Array_;
-use PhpParser\Node\Expr\ArrowFunction;
 use PhpParser\Node\Expr\CallLike;
 use PhpParser\Node\Expr\ClassConstFetch;
 use PhpParser\Node\Expr\Closure;
@@ -523,7 +522,7 @@ final readonly class DispatchEdgeTracer
         // `ReferenceEdgeTracer` descends into it, so the work it does is already edges out of this
         // same dispatching member. There is no hidden target and nothing to restructure, so calling
         // it unfollowable would block a selection over reach the graph already has.
-        if ($value instanceof Closure || $value instanceof ArrowFunction) {
+        if ($value instanceof Expr && DispatchedElement::isQueuedClosure($value)) {
             return [];
         }
 
